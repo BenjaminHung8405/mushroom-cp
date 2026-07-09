@@ -1,5 +1,24 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:11:00+07:00] - Task B1: Khắc phục lỗi bộ phân tích cú pháp .env theo Feedback của QA
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
+- **Giải trình giải pháp**:
+  - Cập nhật cơ chế phân tích cú pháp trong bộ tự chế `.env` để xử lý chuỗi thông minh hơn: Nếu giá trị bắt đầu bằng dấu nháy (`"` hoặc `'`), trích xuất nội dung giữa dấu nháy mở và đóng tương ứng, bỏ qua bất kỳ ký tự `#` nào bên trong. Nếu không có dấu nháy, chỉ coi `#` là inline comment nếu nó đứng sau một khoảng trắng (` # comment`), tránh bẻ gãy mật khẩu hoặc chuỗi kết nối chứa ký tự `#`.
+
+## [2026-07-09T22:05:00+07:00] - Tasks A1, B1, B2, B3: Khắc phục lỗi và nợ kỹ thuật theo Feedback của QA (Lần 5 / Lần 3)
+- **Trạng thái**: Đang chờ QA Review (Lần 3)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [mqtt.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts)
+  - Sửa đổi: [telemetry-query.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/telemetry-query.service.ts)
+  - Sửa đổi: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
+- **Giải trình giải pháp**:
+  - **Sửa lỗi Cấu hình & Logic Vận hành (mqtt.service.ts)**: Cấu hình cơ chế fallback đọc từ biến môi trường local `MQTT_BACKEND_USER` và `MQTT_BACKEND_PASS` nếu `MQTT_USERNAME` hoặc `MQTT_PASSWORD` bị `undefined` khi chạy ứng dụng ở máy local (`pnpm run start:dev`).
+  - **Sửa lỗi Convention về Độ dài Hàm (telemetry-query.service.ts)**: Trích xuất hằng số `INSERT_TELEMETRY_QUERY` ra ngoài phạm vi hàm (mức module) để giảm số lượng dòng của hàm `insertTelemetry` xuống còn 42 dòng (dưới giới hạn 50 dòng theo quy tắc Clean Code).
+  - **Sửa lỗi Edge-case & Tiềm ẩn Crash (mqtt.service.ts)**: Bổ sung kiểm tra tính hợp lệ của `parsedPayload` trước khi truy cập thuộc tính `.status` (đảm bảo không null, là object và có key `'status'`) để ngăn chặn TypeError nếu thiết bị gửi payload chuỗi đặc biệt (ví dụ `"null"` thô).
+  - **Sửa lỗi Bộ phân tích cú pháp .env (typeorm.config.ts)**: Cập nhật bộ parser để loại bỏ các comment cùng dòng (inline comment) chứa ký tự `#` khi trích xuất giá trị các biến môi trường từ file `.env`.
+
 ## [2026-07-09T21:58:00+07:00] - Tasks A1, B1, B2, B3: Khắc phục lỗi và nợ kỹ thuật theo Feedback của QA (Lần 4 / Lần 2)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Danh sách file thay đổi**:

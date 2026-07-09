@@ -18,8 +18,29 @@ for (const envPath of envPaths) {
         const firstEqual = trimmed.indexOf('=');
         if (firstEqual !== -1) {
           const key = trimmed.slice(0, firstEqual).trim();
-          const val = trimmed.slice(firstEqual + 1).trim();
-          const cleanedVal = val.replace(/^['"]|['"]$/g, '');
+          let val = trimmed.slice(firstEqual + 1).trim();
+
+          // Kiểm tra xem giá trị có được bao bọc bởi dấu nháy hay không
+          const isDoubleQuoted = val.startsWith('"');
+          const isSingleQuoted = val.startsWith("'");
+
+          if (isDoubleQuoted || isSingleQuoted) {
+            const quoteChar = isDoubleQuoted ? '"' : "'";
+            // Tìm dấu nháy đóng bắt đầu từ vị trí thứ 2
+            const closingQuoteIndex = val.indexOf(quoteChar, 1);
+            if (closingQuoteIndex !== -1) {
+              val = val.slice(1, closingQuoteIndex);
+            } else {
+              val = val.slice(1); // Fallback nếu thiếu nháy đóng
+            }
+          } else {
+            // Trường hợp không có dấu nháy, chỉ coi là comment nếu có khoảng trắng đứng trước '#'
+            const commentIndex = val.search(/\s#/);
+            if (commentIndex !== -1) {
+              val = val.slice(0, commentIndex).trim();
+            }
+          }
+          const cleanedVal = val;
           // Không ghi đè nếu biến đã có sẵn trong môi trường hệ thống
           if (process.env[key] === undefined) {
             process.env[key] = cleanedVal;

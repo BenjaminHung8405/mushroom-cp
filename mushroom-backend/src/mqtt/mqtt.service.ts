@@ -66,8 +66,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private connect(): void {
     const host = process.env.MQTT_HOST ?? 'localhost';
     const port = parseInt(process.env.MQTT_PORT ?? '1883', 10);
-    const username = process.env.MQTT_USERNAME;
-    const password = process.env.MQTT_PASSWORD;
+    const username = process.env.MQTT_USERNAME ?? process.env.MQTT_BACKEND_USER;
+    const password = process.env.MQTT_PASSWORD ?? process.env.MQTT_BACKEND_PASS;
 
     if (!username || !password) {
       this.logger.error(
@@ -143,23 +143,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
       const deviceId = topicParts[2];
 
-      const parsedPayload = JSON.parse(payload.toString()) as {
-        status: 'online' | 'offline';
-      };
-
+      const parsedPayload = JSON.parse(payload.toString()) as unknown;
       if (
-        parsedPayload.status !== 'online' &&
-        parsedPayload.status !== 'offline'
+        !parsedPayload ||
+        typeof parsedPayload !== 'object' ||
+        !('status' in parsedPayload)
       ) {
+        this.logger.warn(`Received invalid JSON payload from ${deviceId}`);
+        return;
+      }
+
+      const status = parsedPayload.status;
+      if (status !== 'online' && status !== 'offline') {
         this.logger.warn(
-          `Received unknown status '${parsedPayload.status as string}' from ${deviceId}`,
+          `Received unknown status '${status as string}' from ${deviceId}`,
         );
         return;
       }
 
       const event: DeviceStatusEvent = {
         deviceId,
-        status: parsedPayload.status,
+        status,
         timestamp: new Date().toISOString(),
       };
 

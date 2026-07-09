@@ -56,6 +56,24 @@ export interface CurveCheckpoint {
   target_value: number;
 }
 
+const INSERT_TELEMETRY_QUERY = `
+  INSERT INTO telemetry_logs (
+    time, batch_id, house_id, crop_day_int,
+    humidity_measured, temperature_measured, co2_measured,
+    humidity_setpoint, temperature_setpoint,
+    humidity_error_delta, temperature_error_delta,
+    mist_generator_pwm, convection_fan_pwm, heating_lamp_active,
+    midday_blackout_active
+  ) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7,
+    $8, $9,
+    $10, $11,
+    $12, $13, $14,
+    $15
+  ) RETURNING *;
+`;
+
 @Injectable()
 export class TelemetryQueryService {
   private readonly logger = new Logger(TelemetryQueryService.name);
@@ -86,24 +104,6 @@ export class TelemetryQueryService {
             input.temperatureMeasured,
           );
 
-    const queryText = `
-      INSERT INTO telemetry_logs (
-        time, batch_id, house_id, crop_day_int,
-        humidity_measured, temperature_measured, co2_measured,
-        humidity_setpoint, temperature_setpoint,
-        humidity_error_delta, temperature_error_delta,
-        mist_generator_pwm, convection_fan_pwm, heating_lamp_active,
-        midday_blackout_active
-      ) VALUES (
-        $1, $2, $3, $4,
-        $5, $6, $7,
-        $8, $9,
-        $10, $11,
-        $12, $13, $14,
-        $15
-      ) RETURNING *;
-    `;
-
     const params = [
       time,
       input.batchId,
@@ -122,7 +122,10 @@ export class TelemetryQueryService {
       input.middayBlackoutActive ?? false,
     ];
 
-    const result = await this.db.query<TelemetryLog>(queryText, params);
+    const result = await this.db.query<TelemetryLog>(
+      INSERT_TELEMETRY_QUERY,
+      params,
+    );
     if (!result.rows || result.rows.length === 0) {
       throw new Error(
         'Failed to insert telemetry log: No records returned from DB',
