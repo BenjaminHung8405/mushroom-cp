@@ -2,7 +2,6 @@
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { FuzzyLogicEqualizer } from '@/components/fuzzy-logic-equalizer'
-import { MistGeneratorControl } from '@/components/mist-generator-control'
 import { SensorDataCard } from '@/components/sensor-data-card'
 import { SimulationControlPanel } from '@/components/simulation-control-panel'
 import { StandardActuatorsControl } from '@/components/standard-actuators-control'
@@ -164,9 +163,8 @@ function DashboardContent() {
           />
         </div>
 
-        {/* Row 2: Actuator Controls + Simulation Panel - Stack on mobile */}
-        <div className="col-span-1 md:col-span-2 lg:col-span-2 space-y-4">
-          <MistGeneratorControl pwmDutyCycle={mistPWM} />
+        {/* Row 2: Actuator Controls & Simulation - Stack on mobile */}
+        <div className="col-span-1 md:col-span-2 lg:col-span-2">
           <StandardActuatorsControl fanPWM={fanPWM} lampPWM={lampPWM} />
         </div>
 

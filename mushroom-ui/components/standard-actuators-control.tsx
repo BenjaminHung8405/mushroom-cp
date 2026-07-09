@@ -2,7 +2,7 @@
 
 import { Card } from '@/components/ui/card'
 import { useSimulation } from '@/lib/simulation-context'
-import { AlertCircle, Lock, Wind, Zap } from 'lucide-react'
+import { AlertCircle, CloudFog, Lock, Wind, Zap } from 'lucide-react'
 import { useState } from 'react'
 
 interface ActuatorToggleProps {
@@ -111,6 +111,7 @@ interface StandardActuatorsControlProps {
   lampPWM?: number
   onFanToggle?: (active: boolean) => void
   onLampToggle?: (active: boolean) => void
+  onMistToggle?: (active: boolean) => void
 }
 
 export function StandardActuatorsControl({
@@ -118,10 +119,19 @@ export function StandardActuatorsControl({
   lampPWM = 0,
   onFanToggle,
   onLampToggle,
+  onMistToggle,
 }: StandardActuatorsControlProps) {
-  const { currentCropDay } = useSimulation()
+  const {
+    currentCropDay,
+    simulatedTimeMinutes,
+    thermalShockProtection,
+    thermalShockStart,
+    thermalShockEnd,
+  } = useSimulation()
+
   const [isFanActive, setFanActive] = useState(false)
   const [isLampActive, setLampActive] = useState(false)
+  const [isMistActive, setMistActive] = useState(false)
 
   const handleFanToggle = (id: string, active: boolean) => {
     setFanActive(active)
@@ -133,8 +143,31 @@ export function StandardActuatorsControl({
     onLampToggle?.(active)
   }
 
+  const handleMistToggle = (id: string, active: boolean) => {
+    setMistActive(active)
+    onMistToggle?.(active)
+  }
+
   const isLampsLocked = currentCropDay >= 9
   const effectiveLampActive = isLampsLocked ? false : isLampActive
+
+  // Helper to convert 'HH:MM' string to total minutes
+  const timeToMinutes = (timeStr: string): number => {
+    if (!timeStr || !timeStr.includes(':')) return 0
+    const [h, m] = timeStr.split(':').map(Number)
+    return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m)
+  }
+
+  const startMin = timeToMinutes(thermalShockStart || "11:00")
+  const endMin = timeToMinutes(thermalShockEnd || "13:30")
+
+  // Check if simulated time is within lockout window
+  const isTimeInWindow = startMin <= endMin
+    ? simulatedTimeMinutes >= startMin && simulatedTimeMinutes <= endMin
+    : simulatedTimeMinutes >= startMin || simulatedTimeMinutes <= endMin
+
+  const isMistLocked = thermalShockProtection && isTimeInWindow
+  const effectiveMistActive = isMistLocked ? false : isMistActive
 
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40">
@@ -174,6 +207,20 @@ export function StandardActuatorsControl({
           onToggle={handleLampToggle}
           isDisabled={isLampsLocked}
         />
+
+        <ActuatorToggle
+          id="mist"
+          name="Máy tạo ẩm siêu âm"
+          description={
+            isMistLocked
+              ? `Đã khóa tắt để tránh sốc nhiệt (${thermalShockStart} - ${thermalShockEnd})`
+              : 'Tạo ẩm siêu âm kiểm soát môi trường (ON/OFF)'
+          }
+          icon={<CloudFog className="w-5 h-5 text-teal-400" />}
+          isActive={effectiveMistActive}
+          onToggle={handleMistToggle}
+          isDisabled={isMistLocked}
+        />
       </div>
 
       {/* Status Summary */}
@@ -192,6 +239,16 @@ export function StandardActuatorsControl({
                 ? 'Đã khóa tắt (khóa an toàn)'
                 : effectiveLampActive
                   ? `Đang hoạt động (${lampPWM.toFixed(0)}%)`
+                  : 'Tắt'}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400">Máy tạo ẩm siêu âm: </span>
+            <span className={effectiveMistActive ? 'text-teal-400 font-semibold' : 'text-slate-500'}>
+              {isMistLocked
+                ? 'Đã khóa tắt (bảo vệ sốc nhiệt)'
+                : effectiveMistActive
+                  ? 'Đang hoạt động (BẬT)'
                   : 'Tắt'}
             </span>
           </div>
