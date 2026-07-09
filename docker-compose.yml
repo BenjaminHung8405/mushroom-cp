@@ -99,6 +99,7 @@ services:
       - "${BE_HOST_PORT:-3001}:3001"
     environment:
       - NODE_ENV=development
+      - CI=true
       - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:-mushroom_secure_password}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
       - MQTT_HOST=mushroom-mqtt
       - MQTT_PORT=1883
@@ -130,6 +131,7 @@ services:
       - "${UI_HOST_PORT:-3002}:3000"
     environment:
       - NODE_ENV=development
+      - CI=true
       - NEXT_PUBLIC_API_URL=http://mushroom-backend:3001
     depends_on:
       - mushroom-backend
