@@ -44,7 +44,7 @@
 | C2 | Tạo thực thể GrowthProfile | [ ] QA Review | - **Lifecycle timestamps**: Đảm bảo các trường ngày tháng sử dụng `@CreateDateColumn()` và `@UpdateDateColumn()`. Sử dụng timezone đồng bộ ở mức hệ thống NestJS để tránh sai lệch thời gian khởi tạo profile. |
 | C3 | Tạo thực thể CropBatch | [ ] QA Review | - **Xử lý số thực**: Định nghĩa kiểu dữ liệu `numeric` trong TypeORM: Sử dụng `@Column('numeric', { transformer: { to: (v) => v, from: (v) => parseFloat(v) } })` để tránh TypeORM trả về kiểu string cho kiểu numeric/decimal của PostgreSQL, gây lỗi tính toán học.<br>- **Mapping Quan hệ**: Thiết lập mối quan hệ `@ManyToOne` với `MushroomHouse` dùng `@JoinColumn({ name: 'house_id' })` để đảm bảo Foreign Key hoạt động tối ưu. |
 | C4 | Tạo thực thể CurveCheckpoint | [ ] QA Review | - **Tối ưu hóa Database Index**: Đảm bảo thiết lập index cho các khóa ngoại để tối ưu hiệu năng truy vấn. Sử dụng `@Index('idx_checkpoints_batch', ['batch'])` trên entity để đảm bảo cơ sở dữ liệu quét index khi lọc checkpoints theo vụ nuôi, tránh full table scan khi lượng checkpoints lớn. |
-| C5 | Tạo thực thể LightScheduleBlock | [ ] Pending | - **Ràng buộc nghiệp vụ**: Cột thời gian của `light_schedule_blocks` phải map chính xác kiểu dữ liệu. Sử dụng Enum hoặc Union Types cho các trạng thái của block (ví dụ: `status: 'ON' | 'OFF'`). |
+| C5 | Tạo thực thể LightScheduleBlock | [ ] QA Review | - **Ràng buộc nghiệp vụ**: Cột thời gian của `light_schedule_blocks` phải map chính xác kiểu dữ liệu. Sử dụng Enum hoặc Union Types cho các trạng thái của block (ví dụ: `status: 'ON' | 'OFF'`). |
 
 #### Track D: Tầng Nghiệp Vụ Vụ Nuôi (Crop Batch Business Logic Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |

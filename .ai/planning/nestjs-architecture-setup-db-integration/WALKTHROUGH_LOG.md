@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:41:00+07:00] - Task C5: Tạo thực thể LightScheduleBlock
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [light-schedule-block.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/light-schedule-block.entity.ts)
+  - Tạo mới: [light-schedule-block.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/light-schedule-block.entity.spec.ts)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `LightScheduleBlock` tương ứng với bảng `light_schedule_blocks` trong schema PostgreSQL.
+  - Sử dụng `@PrimaryGeneratedColumn({ type: 'bigint' })` cho khóa chính `id` để tương thích với cột kiểu BIGSERIAL trong DB.
+  - Cấu hình quan hệ `@ManyToOne` với `GrowthProfile` và `CropBatch` sử dụng `@JoinColumn` tương ứng với `profile_id` và `batch_id`, đồng thời cài đặt cascade delete.
+  - Ánh xạ chính xác các thuộc tính `startDay` và `endDay` kiểu integer, và thuộc tính `status` sử dụng union type `'ON' | 'OFF'`.
+  - Viết unit test đầy đủ cho entity `LightScheduleBlock` bao gồm kiểm thử liên kết với `GrowthProfile` và `CropBatch`.
+  - Tự kiểm tra: Chạy lệnh `pnpm test` thành công 100%, tất cả 6 test suites (bao gồm cả `light-schedule-block.entity.spec.ts`) đều pass.
+
 ## [2026-07-09T22:40:00+07:00] - Task C4: Tạo thực thể CurveCheckpoint
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
