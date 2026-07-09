@@ -7,7 +7,7 @@ async function bootstrap() {
   // Enable CORS so Next.js UI (running on a different port/origin) can
   // connect to the SSE endpoint and REST APIs.
   app.enableCors({
-    origin: true,   // In production, restrict to your specific UI domain
+    origin: true, // In production, restrict to your specific UI domain
     credentials: true,
   });
 

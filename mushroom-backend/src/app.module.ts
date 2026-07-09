@@ -8,8 +8,8 @@ import { DatabaseModule } from './database/database.module';
 @Module({
   imports: [
     DatabaseModule,
-    MqttModule,    // MQTT connection + LWT event streaming
-    DeviceModule,  // /devices/* REST + SSE endpoints
+    MqttModule, // MQTT connection + LWT event streaming
+    DeviceModule, // /devices/* REST + SSE endpoints
   ],
   controllers: [AppController],
   providers: [AppService],

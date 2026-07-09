@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Subject } from 'rxjs';
 import * as mqtt from 'mqtt';
 
@@ -67,13 +72,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     if (!username || !password) {
       this.logger.error(
         'MQTT_USERNAME and MQTT_PASSWORD must be set. ' +
-        'Check your .env file and docker-compose.yml environment section.',
+          'Check your .env file and docker-compose.yml environment section.',
       );
       return;
     }
 
     const brokerUrl = `mqtt://${host}:${port}`;
-    this.logger.log(`Connecting to EMQX at ${brokerUrl} as user '${username}'...`);
+    this.logger.log(
+      `Connecting to EMQX at ${brokerUrl} as user '${username}'...`,
+    );
 
     this.client = mqtt.connect(brokerUrl, {
       username,
@@ -114,7 +121,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     // Example: mushroom/device/esp32_mushroom_s3_01/status
     this.client.subscribe('mushroom/device/+/status', { qos: 1 }, (err) => {
       if (err) {
-        this.logger.error(`Failed to subscribe to status topics: ${err.message}`);
+        this.logger.error(
+          `Failed to subscribe to status topics: ${err.message}`,
+        );
       } else {
         this.logger.log("📡 Subscribed to 'mushroom/device/+/status'");
       }
@@ -125,15 +134,26 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     try {
       // Extract deviceId from topic: mushroom/device/{deviceId}/status
       const topicParts = topic.split('/');
-      if (topicParts.length !== 4 || topicParts[0] !== 'mushroom' || topicParts[3] !== 'status') {
+      if (
+        topicParts.length !== 4 ||
+        topicParts[0] !== 'mushroom' ||
+        topicParts[3] !== 'status'
+      ) {
         return;
       }
       const deviceId = topicParts[2];
 
-      const parsedPayload = JSON.parse(payload.toString()) as { status: 'online' | 'offline' };
+      const parsedPayload = JSON.parse(payload.toString()) as {
+        status: 'online' | 'offline';
+      };
 
-      if (parsedPayload.status !== 'online' && parsedPayload.status !== 'offline') {
-        this.logger.warn(`Received unknown status '${parsedPayload.status}' from ${deviceId}`);
+      if (
+        parsedPayload.status !== 'online' &&
+        parsedPayload.status !== 'offline'
+      ) {
+        this.logger.warn(
+          `Received unknown status '${parsedPayload.status}' from ${deviceId}`,
+        );
         return;
       }
 
@@ -147,9 +167,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.deviceStateCache.set(deviceId, event);
       this.deviceStatus$.next(event);
 
-      this.logger.log(`📨 Device '${deviceId}' → ${event.status.toUpperCase()}`);
+      this.logger.log(
+        `📨 Device '${deviceId}' → ${event.status.toUpperCase()}`,
+      );
     } catch (err) {
-      this.logger.warn(`Failed to parse MQTT message on topic '${topic}': ${err}`);
+      this.logger.warn(
+        `Failed to parse MQTT message on topic '${topic}': ${err}`,
+      );
     }
   }
 

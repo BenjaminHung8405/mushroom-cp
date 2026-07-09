@@ -24,7 +24,7 @@
 #### Track A: Cấu hình Dự án & CLI (Project Setup Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| A1 | Cập nhật dependency và scripts trong package.json | [ ] Pending | - **Quy tắc phiên bản**: Ghim cứng phiên bản các thư viện mới thêm (`@nestjs/typeorm`, `typeorm`, `date-fns-tz`) để đảm bảo tính nhất quán của build, tránh sử dụng kí tự đại diện rộng như `*` hoặc `^` quá cao nếu không tương thích với NestJS v10.<br>- **Quản lý script**: Đảm bảo các script chạy TypeORM CLI qua `typeorm-ts-node-commonjs` được viết đúng cú pháp và trỏ chính xác đến file cấu hình `typeorm.config.ts`. Chạy thử lệnh để tránh tech debt lỗi đường dẫn. |
+| A1 | Cập nhật dependency và scripts trong package.json | [ ] QA Review | - **Quy tắc phiên bản**: Ghim cứng phiên bản các thư viện mới thêm (`@nestjs/typeorm`, `typeorm`, `date-fns-tz`) để đảm bảo tính nhất quán của build, tránh sử dụng kí tự đại diện rộng như `*` hoặc `^` quá cao nếu không tương thích với NestJS v10.<br>- **Quản lý script**: Đảm bảo các script chạy TypeORM CLI qua `typeorm-ts-node-commonjs` được viết đúng cú pháp và trỏ chính xác đến file cấu hình `typeorm.config.ts`. Chạy thử lệnh để tránh tech debt lỗi đường dẫn. |
 
 #### Track B: Tầng Truy Cập Dữ Liệu (Data Access Layer Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |

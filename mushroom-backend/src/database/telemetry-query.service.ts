@@ -6,21 +6,21 @@ export interface TelemetryLogInput {
   batchId: string;
   houseId: string;
   cropDayInt: number;
-  
+
   humidityMeasured?: number;
   temperatureMeasured?: number;
   co2Measured?: number;
-  
+
   humiditySetpoint?: number;
   temperatureSetpoint?: number;
-  
+
   humidityErrorDelta?: number;
   temperatureErrorDelta?: number;
-  
+
   mistGeneratorPwm?: number;
   convectionFanPwm?: number;
   heatingLampActive?: boolean;
-  
+
   middayBlackoutActive?: boolean;
 }
 
@@ -29,21 +29,21 @@ export interface TelemetryLog {
   batch_id: string;
   house_id: string;
   crop_day_int: number;
-  
+
   humidity_measured: number | null;
   temperature_measured: number | null;
   co2_measured: number | null;
-  
+
   humidity_setpoint: number | null;
   temperature_setpoint: number | null;
-  
+
   humidity_error_delta: number | null;
   temperature_error_delta: number | null;
-  
+
   mist_generator_pwm: number | null;
   convection_fan_pwm: number | null;
   heating_lamp_active: boolean;
-  
+
   midday_blackout_active: boolean;
 }
 
@@ -70,13 +70,25 @@ export class TelemetryQueryService {
 
     // Auto-calculate error delta: E = Setpoint - Measured if not explicitly provided
     let humidityErrorDelta = input.humidityErrorDelta;
-    if (humidityErrorDelta === undefined && input.humiditySetpoint !== undefined && input.humidityMeasured !== undefined) {
-      humidityErrorDelta = parseFloat((input.humiditySetpoint - input.humidityMeasured).toFixed(1));
+    if (
+      humidityErrorDelta === undefined &&
+      input.humiditySetpoint !== undefined &&
+      input.humidityMeasured !== undefined
+    ) {
+      humidityErrorDelta = parseFloat(
+        (input.humiditySetpoint - input.humidityMeasured).toFixed(1),
+      );
     }
 
     let temperatureErrorDelta = input.temperatureErrorDelta;
-    if (temperatureErrorDelta === undefined && input.temperatureSetpoint !== undefined && input.temperatureMeasured !== undefined) {
-      temperatureErrorDelta = parseFloat((input.temperatureSetpoint - input.temperatureMeasured).toFixed(1));
+    if (
+      temperatureErrorDelta === undefined &&
+      input.temperatureSetpoint !== undefined &&
+      input.temperatureMeasured !== undefined
+    ) {
+      temperatureErrorDelta = parseFloat(
+        (input.temperatureSetpoint - input.temperatureMeasured).toFixed(1),
+      );
     }
 
     const queryText = `
@@ -122,7 +134,9 @@ export class TelemetryQueryService {
   /**
    * 2. Gets the latest telemetry record for a house (Uses idx_telemetry_latest for sub-50ms speed)
    */
-  async getLatestTelemetryForHouse(houseId: string): Promise<TelemetryLog | null> {
+  async getLatestTelemetryForHouse(
+    houseId: string,
+  ): Promise<TelemetryLog | null> {
     const queryText = `
       SELECT * FROM telemetry_logs
       WHERE house_id = $1

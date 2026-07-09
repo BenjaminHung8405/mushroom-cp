@@ -63,10 +63,13 @@ export class DeviceController {
     const liveEvents$ = this.mqttService.deviceStatus$;
 
     return merge(seedEvents$, liveEvents$).pipe(
-      map((event) => ({
-        type: 'device-status',
-        data: event,
-      }) satisfies MessageEvent),
+      map(
+        (event) =>
+          ({
+            type: 'device-status',
+            data: event,
+          }) satisfies MessageEvent,
+      ),
     );
   }
 
@@ -107,7 +110,9 @@ export class DeviceController {
     @Param('id') id: string,
     @Body() body: Record<string, unknown>,
   ) {
-    this.logger.log(`Publishing setpoint to device '${id}': ${JSON.stringify(body)}`);
+    this.logger.log(
+      `Publishing setpoint to device '${id}': ${JSON.stringify(body)}`,
+    );
     this.mqttService.publish(id, body);
     return {
       message: `Setpoint command dispatched to device '${id}'.`,

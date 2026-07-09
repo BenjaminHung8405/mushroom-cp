@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Pool, QueryResult, QueryResultRow } from 'pg';
 
 @Injectable()
@@ -26,7 +31,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (err) {
         this.logger.error(`PostgreSQL connection failed: ${err.message}`);
       } else {
-        this.logger.log('✅ PostgreSQL connection pool initialized successfully.');
+        this.logger.log(
+          '✅ PostgreSQL connection pool initialized successfully.',
+        );
       }
     });
   }
@@ -40,7 +47,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   /**
    * Helper to execute queries on the pool
    */
-  async query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
+  async query<T extends QueryResultRow = any>(
+    text: string,
+    params?: any[],
+  ): Promise<QueryResult<T>> {
     const start = Date.now();
     try {
       const res = await this.pool.query<T>(text, params);
@@ -48,7 +58,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug(`Executed query | Duration: ${duration}ms`);
       return res;
     } catch (error) {
-      this.logger.error(`Query failed: ${text.slice(0, 100)}... | Error: ${error.message}`);
+      this.logger.error(
+        `Query failed: ${text.slice(0, 100)}... | Error: ${error.message}`,
+      );
       throw error;
     }
   }
