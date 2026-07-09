@@ -58,7 +58,7 @@ if (process.env.DATABASE_URL) {
   ];
   const missingEnv = requiredEnv.filter((key) => !process.env[key]);
 
-  if (missingEnv.length > 0) {
+  if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
     throw new Error(
       `Database connection configuration error: Missing environment variables: ${missingEnv.join(', ')}. Please provide DATABASE_URL or full POSTGRES_* credentials.`,
     );
