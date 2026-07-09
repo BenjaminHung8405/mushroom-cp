@@ -1,0 +1,75 @@
+# ============================================================================
+
+# CURSOR RULES FOR NẤM RƠM CP PROJECT (SMART MUSHROOM HOUSE IOT DASHBOARD)
+
+# ============================================================================
+
+## 1. PROJECT CONTEXT & SCOPE
+
+- [cite_start]**Project Identity**: NẤM RƠM CP PROJECT [cite: 1][cite_start], an IoT-Enabled Indoor Straw Mushroom Farming system[cite: 26].
+- [cite_start]**Current Phase**: Focus STRICTLY on Frontend UI/UX, Component Development, and Local Client State Management for the 21-day crop cycle configuration profile[cite: 26].
+- **No Hardware Integration Code**: Do NOT generate backend server routes, MQTT connection scripts, or low-level C++/hardware communication logic. [cite_start]Only mock the frontend state and prepare placeholders for data sync[cite: 191, 221].
+- [cite_start]**Target Facility Design**: The system manages indoor houses, each structured with exactly 35 growing pillars[cite: 9].
+
+## 2. TECH STACK CONSTRAINTS
+
+- **Framework**: Next.js (App Router, React 18+), TypeScript.
+- **Styling**: Tailwind CSS v4.
+- **UI Components**: Shadcn/ui primitives (Radix UI).
+- **Icons**: Lucide-react.
+- **Chart Implementation Strategy**: Use `@visx/visx` or a lightweight native SVG rendering approach inside React for handling custom timeline grid drawing and node dragging interactions. Do not inject heavy, rigid external charting libraries (e.g., standard Recharts) that lock down manual node positioning.
+
+## 3. STRICT DATA STRUCTURE ENFORCEMENT
+
+All component states, profile actions, and properties must comply with the schemas defined in `docs/DATA_STRUCTURES.md`. Never deviate from these definitions:
+
+- **ChartCheckpoint**: Must strictly contain `{ id: string, day: number, value: number }`. `day` must be an integer (1-21). `value` must be a step float snapped to 0.5.
+- **LightTimelineBlock**: Must strictly contain `{ id: string, startDay: number, endDay: number, status: 'ON' | 'OFF' }`.
+- **MushroomGrowthProfile**: Encapsulates metadata, `temperatureCurve` array, `humidityCurve` array, and `lightSchedule` array.
+
+## 4. CORE INTERACTIVE UI/UX RULES
+
+### A. Temperature & Humidity Curve Timelines
+
+- **Magnetic Grid Snapping**: When a user drags a checkpoint node vertically or horizontally, you MUST apply magnetic snapping logic: `Math.round(value * 2) / 2` for the Y-axis value (0.5 increments), and `Math.round(day)` for the X-axis (1 to 21 integer step). Never allow free-floating decimals like `32.14°C`.
+- **Dynamic Node Interaction**:
+  - Clicking on an empty space on the line or chart grid must calculate coordinates, create a new node, snap it, insert it into the array, and sort by day.
+  - Double-clicking an intermediate node must delete it from the state array.
+  - **Anchor Protection**: Day 1 (Start Node) and Day 21 (Target Node) are permanent anchors. Completely block any deletion or X-axis movement for these two nodes.
+- **Visual Grid**: Render thin grid lines (`rgba(255, 255, 255, 0.05)`) spaced at 0.5 units on the Y-axis and single-day blocks on the X-axis.
+
+### B. Video-Editor-Style Light Timeline
+
+- **Track Layout**: Display a continuous horizontal block container split into 21 equal day columns, functioning like a multi-segment timeline layer in video editing software.
+- **Binary Click-to-Toggle**: Clicking a specific day segment must immediately toggle its state between Active (Glowing Amber = ON) and Inactive (Muted Dark Slate = OFF).
+- **Drag Handles**: Active day blocks must render boundary edge-handles. Users must be able to click-and-drag these edge handles to stretch or shrink the block duration dynamically across the 21-day timeline. No curves or spline points allowed here.
+
+## 5. BIOLOGICAL BOUNDARIES & HARDWARE TELEMETRY MOCKING
+
+[cite_start]When rendering default values, tooltips, or sensor card metrics, strictly adhere to the biological facts of tropical Straw Mushroom (Volvariella volvacea):
+
+### A. Sensor Parameters & Guardrails
+
+- [cite_start]**Humidity (SHT30 sensor)**[cite: 4]: Display scale 50-100%. [cite_start]Optimal target: 70-90%[cite: 112]. Trigger Warning UI color if <70% or >90%.
+- [cite_start]**Substrate Temperature (DS18B20 probe)**[cite: 4]: Display scale 20-40°C. [cite_start]Optimal target: 28-35°C[cite: 110]. Trigger Critical Frost Warning if temperature drops below 20°C.
+- [cite_start]**CO2 Levels (SCD30 sensor)**[cite: 4]: Display scale 400-3000 ppm. Optimal: 800-1200 ppm. Trigger Ventilation Warning if >1500 ppm.
+
+### B. Actuator Visual States & Logic
+
+- [cite_start]**Movable Mist Generator Control**: Must display travel states for a 6-viss ultrasonic mist generator running on a reversible rail motor[cite: 7, 16, 17]. [cite_start]Include UI states for: "Moving Forward", "Moving Backward", and "End-Limit Switches Activated"[cite: 16, 18]. [cite_start]Provide a progress track representing the physical position (0-100% travel) on the rails[cite: 17].
+- [cite_start]**Heating Lamps Widget**: Render with clear tooltips indicating they are primarily active during the first 7-8 days (spawn-running phase) and disabled during fruiting.
+- [cite_start]**Midday Blackout Indicator**: Visually flag or implement UI rule warnings that automated misting operations are restricted between 11:00 AM and 1:30 PM to avoid thermal shock to the mushroom crops[cite: 15].
+
+### C. Hardware Health Status Bar
+
+[cite_start]Always include a top/side metadata widget displaying the physical status of the infrastructure[cite: 6]:
+
+- [cite_start]**Power Telemetry**: Toggle between "Grid Power" (Optimal - Emerald) and "UPS Backup Battery Active" (Warning - Amber)[cite: 25].
+- [cite_start]**Data Continuity Tracker**: Display statuses for "Local SD Card Logging: Active (5-min intervals)" [cite: 159, 160] [cite_start]and "Cloud Synchronicity: Balanced"[cite: 161].
+- [cite_start]**Fuzzy Math Display**: Sensor metric cards must show the Error Delta formula state ($E = SM_{set} - SM_{đo}$) beside the current reading to represent the fuzzy input deviation[cite: 225, 226].
+
+## 6. CODE STYLE & PERFORMANCE PREFERENCES
+
+- Use TypeScript strictly; avoid `any`. Ensure all component props are fully typed using interfaces exported from `docs/DATA_STRUCTURES.md`.
+- Keep components small and specialized. Separate the telemetry grid, the actuator panel, and the equalizer tool into distinct files.
+- Optimize React renders. Ensure that dragging a node on the SVG chart updates state smoothly using transition hooks or localized component states without causing jarring redraws across the entire dashboard layout.
