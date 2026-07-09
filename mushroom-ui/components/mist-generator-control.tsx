@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useSimulation } from '@/lib/simulation-context'
+import { useBatch } from '@/lib/batch-context'
 import { ArrowRight, ArrowLeft, Activity, AlertCircle, Shield, Lock } from 'lucide-react'
 
 interface MistGeneratorControlProps {
@@ -14,10 +15,12 @@ type MotorState = 'idle' | 'forward' | 'backward'
 
 export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlProps) {
   const {
-    simulatedTimeMinutes,
     thermalShockProtection,
     thermalShockStart,
     thermalShockEnd,
+  } = useBatch()
+  const {
+    simulatedTimeMinutes,
   } = useSimulation()
   const [motorState, setMotorState] = useState<MotorState>('idle')
   const [position, setPosition] = useState(50) // 0-100% travel

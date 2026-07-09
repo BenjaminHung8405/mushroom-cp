@@ -1,0 +1,330 @@
+'use client'
+
+import React, { createContext, useContext, useState, useMemo } from 'react'
+
+export interface Checkpoint {
+  day: number
+  value: number
+}
+
+export interface DayTrack {
+  day: number
+  active: boolean
+}
+
+export const PROFILE_PRESETS = {
+  dry_season: {
+    name: 'Tối ưu mùa khô',
+    tempCheckpoints: [
+      { day: 1, value: 30 },
+      { day: 7, value: 32 },
+      { day: 14, value: 31 },
+      { day: 21, value: 28 },
+    ],
+    humidityCheckpoints: [
+      { day: 1, value: 75 },
+      { day: 7, value: 85 },
+      { day: 15, value: 80 },
+      { day: 21, value: 70 },
+    ],
+    lightDaysActive: 8,
+  },
+  rainy_season: {
+    name: 'Tối ưu mùa mưa',
+    tempCheckpoints: [
+      { day: 1, value: 28 },
+      { day: 7, value: 30 },
+      { day: 14, value: 29 },
+      { day: 21, value: 27 },
+    ],
+    humidityCheckpoints: [
+      { day: 1, value: 80 },
+      { day: 7, value: 90 },
+      { day: 15, value: 85 },
+      { day: 21, value: 75 },
+    ],
+    lightDaysActive: 6,
+  },
+  quick_fruiting: {
+    name: 'Kích quả nhanh',
+    tempCheckpoints: [
+      { day: 1, value: 31 },
+      { day: 7, value: 33 },
+      { day: 14, value: 30 },
+      { day: 21, value: 29 },
+    ],
+    humidityCheckpoints: [
+      { day: 1, value: 70 },
+      { day: 7, value: 80 },
+      { day: 15, value: 75 },
+      { day: 21, value: 65 },
+    ],
+    lightDaysActive: 4,
+  },
+}
+
+interface BatchContextType {
+  profileKey: string
+  profileName: string
+  setProfileName: (name: string) => void
+  loadProfilePreset: (key: string) => void
+  totalCropDays: number
+  updateTotalCropDaysAndScale: (days: number) => void
+  temperatureCheckpoints: Checkpoint[]
+  setTemperatureCheckpoints: (checkpoints: Checkpoint[]) => void
+  humidityCheckpoints: Checkpoint[]
+  setHumidityCheckpoints: (checkpoints: Checkpoint[]) => void
+  lightDayStates: DayTrack[]
+  setLightDayStates: (states: DayTrack[]) => void
+  
+  thermalShockProtection: boolean
+  setThermalShockProtection: (active: boolean) => void
+  thermalShockStart: string
+  setThermalShockStart: (time: string) => void
+  thermalShockEnd: string
+  setThermalShockEnd: (time: string) => void
+  
+  tempOptimalRange: [number, number]
+  setTempOptimalRange: (range: [number, number]) => void
+  humidityOptimalRange: [number, number]
+  setHumidityOptimalRange: (range: [number, number]) => void
+
+  // Derived getters
+  spawnRunningEndDay: number
+  getTemperatureSetpoint: (day: number) => number
+  getHumiditySetpoint: (day: number) => number
+  getIsLightActive: (day: number) => boolean
+}
+
+const BatchContext = createContext<BatchContextType | undefined>(undefined)
+
+// Helper: Linear interpolation between curve checkpoints
+function interpolateValue(day: number, checkpoints: Checkpoint[]): number {
+  if (checkpoints.length === 0) return 0
+  const sorted = [...checkpoints].sort((a, b) => a.day - b.day)
+  
+  if (day <= sorted[0].day) return sorted[0].value
+  if (day >= sorted[sorted.length - 1].day) return sorted[sorted.length - 1].value
+  
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const p1 = sorted[i]
+    const p2 = sorted[i + 1]
+    if (day >= p1.day && day <= p2.day) {
+      const ratio = (day - p1.day) / (p2.day - p1.day)
+      return p1.value + ratio * (p2.value - p1.value)
+    }
+  }
+  return sorted[0].value
+}
+
+export function BatchProvider({ children }: { children: React.ReactNode }) {
+  const [profileKey, setProfileKey] = useState('dry_season')
+  const [profileName, setProfileName] = useState('Tối ưu mùa khô')
+  const [totalCropDays, setTotalCropDays] = useState(21)
+
+  const [temperatureCheckpoints, setTemperatureCheckpoints] = useState<Checkpoint[]>([
+    { day: 1, value: 30 },
+    { day: 7, value: 32 },
+    { day: 14, value: 31 },
+    { day: 21, value: 28 },
+  ])
+  
+  const [humidityCheckpoints, setHumidityCheckpoints] = useState<Checkpoint[]>([
+    { day: 1, value: 75 },
+    { day: 7, value: 85 },
+    { day: 15, value: 80 },
+    { day: 21, value: 70 },
+  ])
+  
+  const [lightDayStates, setLightDayStates] = useState<DayTrack[]>(
+    Array.from({ length: 21 }, (_, i) => ({
+      day: i + 1,
+      active: i < 8, // Days 1-8 are ON
+    }))
+  )
+
+  const [thermalShockProtection, setThermalShockProtection] = useState(true)
+  const [thermalShockStart, setThermalShockStart] = useState('11:00')
+  const [thermalShockEnd, setThermalShockEnd] = useState('13:30')
+
+  const [tempOptimalRange, setTempOptimalRange] = useState<[number, number]>([28, 35])
+  const [humidityOptimalRange, setHumidityOptimalRange] = useState<[number, number]>([70, 90])
+
+  // Loads a preset profile and scales it to current totalCropDays
+  const loadProfilePreset = (key: string) => {
+    const preset = PROFILE_PRESETS[key as keyof typeof PROFILE_PRESETS]
+    if (!preset) return
+    setProfileKey(key)
+    setProfileName(preset.name)
+
+    const scale = (checkpoints: Checkpoint[]) => {
+      const scaled = checkpoints.map(cp => {
+        if (cp.day === 1) return cp
+        if (cp.day === 21) return { ...cp, day: totalCropDays }
+        const newDay = 1 + Math.round((cp.day - 1) * (totalCropDays - 1) / 20)
+        return { ...cp, day: Math.max(2, Math.min(totalCropDays - 1, newDay)) }
+      })
+
+      // Deduplicate by grouping by day and keeping the max value for safety (e.g., thermal stress warning)
+      const result: Checkpoint[] = []
+      scaled.forEach((current) => {
+        const existing = result.find((item) => item.day === current.day)
+        if (!existing) {
+          result.push({ ...current })
+        } else {
+          existing.value = Math.max(existing.value, current.value)
+        }
+      })
+
+      result.sort((a, b) => a.day - b.day)
+
+      if (!result.some((cp) => cp.day === 1)) {
+        result.unshift({ day: 1, value: checkpoints[0]?.value ?? 30 })
+      }
+      if (!result.some((cp) => cp.day === totalCropDays)) {
+        result.push({ day: totalCropDays, value: checkpoints[checkpoints.length - 1]?.value ?? 28 })
+      }
+
+      return result
+    }
+
+    setTemperatureCheckpoints(scale(preset.tempCheckpoints))
+    setHumidityCheckpoints(scale(preset.humidityCheckpoints))
+
+    setLightDayStates(Array.from({ length: totalCropDays }, (_, i) => {
+      const day = i + 1
+      const oldDay = 1 + Math.round((day - 1) * 20 / (totalCropDays - 1))
+      return {
+        day,
+        active: oldDay <= preset.lightDaysActive,
+      }
+    }))
+  }
+
+  // Transactionally scale total crop days and all checkpoints/schedules
+  const updateTotalCropDaysAndScale = (newTotalDays: number) => {
+    const clampedTotalDays = Math.max(10, Math.min(45, newTotalDays))
+    const oldTotalDays = totalCropDays
+    if (clampedTotalDays === oldTotalDays) return
+
+    setTotalCropDays(clampedTotalDays)
+
+    const scaleCheckpoints = (checkpoints: Checkpoint[]) => {
+      const sorted = [...checkpoints].sort((a, b) => a.day - b.day)
+      if (sorted.length === 0) return []
+
+      const scaled = sorted.map((cp) => {
+        if (cp.day === 1) return cp
+        if (cp.day === oldTotalDays) return { ...cp, day: clampedTotalDays }
+
+        const newDay = 1 + Math.round(((cp.day - 1) * (clampedTotalDays - 1)) / (oldTotalDays - 1))
+        const finalDay = Math.max(2, Math.min(clampedTotalDays - 1, newDay))
+        return { ...cp, day: finalDay }
+      })
+
+      // Deduplicate by grouping by day and keeping the max value for safety (e.g., thermal stress warning)
+      const result: Checkpoint[] = []
+      scaled.forEach((current) => {
+        const existing = result.find((item) => item.day === current.day)
+        if (!existing) {
+          result.push({ ...current })
+        } else {
+          existing.value = Math.max(existing.value, current.value)
+        }
+      })
+
+      result.sort((a, b) => a.day - b.day)
+
+      if (!result.some((cp) => cp.day === 1)) {
+        result.unshift({ day: 1, value: checkpoints[0]?.value ?? 30 })
+      }
+      if (!result.some((cp) => cp.day === clampedTotalDays)) {
+        result.push({ day: clampedTotalDays, value: checkpoints[checkpoints.length - 1]?.value ?? 28 })
+      }
+
+      return result
+    }
+
+    setTemperatureCheckpoints((prev) => scaleCheckpoints(prev))
+    setHumidityCheckpoints((prev) => scaleCheckpoints(prev))
+
+    setLightDayStates((prev) => {
+      return Array.from({ length: clampedTotalDays }, (_, i) => {
+        const day = i + 1
+        const oldDay = 1 + Math.round(((day - 1) * (oldTotalDays - 1)) / (clampedTotalDays - 1))
+        const oldState = prev.find((s) => s.day === oldDay)
+        return {
+          day,
+          active: oldState ? oldState.active : day <= 8,
+        }
+      })
+    })
+  }
+
+  // Derive biological spawnRunningEndDay (end of the first active phase / block)
+  const spawnRunningEndDay = useMemo(() => {
+    const firstOffIndex = lightDayStates.findIndex((state) => !state.active)
+    if (firstOffIndex === -1) return totalCropDays
+    if (firstOffIndex === 0) {
+      const firstOnIndex = lightDayStates.findIndex((state) => state.active)
+      return firstOnIndex !== -1 ? firstOnIndex : 8
+    }
+    return firstOffIndex
+  }, [lightDayStates, totalCropDays])
+
+  const getTemperatureSetpoint = (day: number) => {
+    return interpolateValue(day, temperatureCheckpoints)
+  }
+
+  const getHumiditySetpoint = (day: number) => {
+    return interpolateValue(day, humidityCheckpoints)
+  }
+
+  const getIsLightActive = (day: number) => {
+    const state = lightDayStates.find((s) => s.day === day)
+    return state ? state.active : false
+  }
+
+  return (
+    <BatchContext.Provider
+      value={{
+        profileKey,
+        profileName,
+        setProfileName,
+        loadProfilePreset,
+        totalCropDays,
+        updateTotalCropDaysAndScale,
+        temperatureCheckpoints,
+        setTemperatureCheckpoints,
+        humidityCheckpoints,
+        setHumidityCheckpoints,
+        lightDayStates,
+        setLightDayStates,
+        thermalShockProtection,
+        setThermalShockProtection,
+        thermalShockStart,
+        setThermalShockStart,
+        thermalShockEnd,
+        setThermalShockEnd,
+        tempOptimalRange,
+        setTempOptimalRange,
+        humidityOptimalRange,
+        setHumidityOptimalRange,
+        spawnRunningEndDay,
+        getTemperatureSetpoint,
+        getHumiditySetpoint,
+        getIsLightActive,
+      }}
+    >
+      {children}
+    </BatchContext.Provider>
+  )
+}
+
+export function useBatch() {
+  const context = useContext(BatchContext)
+  if (context === undefined) {
+    throw new Error('useBatch must be used within a BatchProvider')
+  }
+  return context
+}

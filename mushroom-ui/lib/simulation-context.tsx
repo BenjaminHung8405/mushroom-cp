@@ -1,59 +1,20 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-
-export type PowerSource = 'GRID_POWER' | 'UPS_BATTERY'
-
-export interface Checkpoint {
-  day: number
-  value: number
-}
-
-export interface DayTrack {
-  day: number
-  active: boolean
-}
-
-export interface LightTimelineBlock {
-  id: string
-  startDay: number
-  endDay: number
-  status: 'ON' | 'OFF'
-}
+import { useBatch, PowerSource } from './batch-context'
 
 interface SimulationContextType {
-  // Centralized Simulation States
-  currentCropDay: number
-  setCurrentCropDay: (day: number) => void
+  isSimulationActive: boolean
+  setIsSimulationActive: (active: boolean) => void
+  simulationSpeedMultiplier: number
+  setSimulationSpeedMultiplier: (speed: number) => void
+  currentSimulatedDay: number
+  setCurrentSimulatedDay: (day: number) => void
   simulatedTimeMinutes: number
   setSimulatedTimeMinutes: (minutes: number) => void
   powerSource: PowerSource
   setPowerSource: (source: PowerSource) => void
 
-  // Active Profile States (Shared between Equalizer and Telemetry Cards)
-  profileName: string
-  setProfileName: (name: string) => void
-  thermalShockProtection: boolean
-  setThermalShockProtection: (active: boolean) => void
-  thermalShockStart: string
-  setThermalShockStart: (time: string) => void
-  thermalShockEnd: string
-  setThermalShockEnd: (time: string) => void
-
-  tempOptimalRange: [number, number]
-  setTempOptimalRange: (range: [number, number]) => void
-  humidityOptimalRange: [number, number]
-  setHumidityOptimalRange: (range: [number, number]) => void
-  
-  temperatureCheckpoints: Checkpoint[]
-  setTemperatureCheckpoints: (checkpoints: Checkpoint[]) => void
-  
-  humidityCheckpoints: Checkpoint[]
-  setHumidityCheckpoints: (checkpoints: Checkpoint[]) => void
-  
-  lightDayStates: DayTrack[]
-  setLightDayStates: (states: DayTrack[]) => void
-  
   // Real-time Telemetry States
   humidityCurrent: number
   humidityTrend: number
@@ -62,80 +23,22 @@ interface SimulationContextType {
   co2Current: number
   co2Trend: number
 
-  // Derived / Helper getters
+  // Derived / Helper setpoints corresponding to simulation day
   temperatureSetpoint: number
   humiditySetpoint: number
-  isLightActiveToday: boolean
 }
 
 const SimulationContext = createContext<SimulationContextType | undefined>(undefined)
 
-// Helper: Linear interpolation between curve checkpoints
-function interpolateValue(day: number, checkpoints: Checkpoint[]): number {
-  if (checkpoints.length === 0) return 0
-  const sorted = [...checkpoints].sort((a, b) => a.day - b.day)
-  
-  if (day <= sorted[0].day) return sorted[0].value
-  if (day >= sorted[sorted.length - 1].day) return sorted[sorted.length - 1].value
-  
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const p1 = sorted[i]
-    const p2 = sorted[i + 1]
-    if (day >= p1.day && day <= p2.day) {
-      const ratio = (day - p1.day) / (p2.day - p1.day)
-      return p1.value + ratio * (p2.value - p1.value)
-    }
-  }
-  return sorted[0].value
-}
-
 export function SimulationProvider({ children }: { children: React.ReactNode }) {
-  const [currentCropDay, setCurrentCropDay] = useState(1)
+  const { totalCropDays, getTemperatureSetpoint, getHumiditySetpoint } = useBatch()
+
+  // Centralized Simulation States
+  const [isSimulationActive, setIsSimulationActive] = useState(false)
+  const [simulationSpeedMultiplier, setSimulationSpeedMultiplier] = useState(1)
+  const [currentSimulatedDay, setCurrentSimulatedDay] = useState(1)
   const [simulatedTimeMinutes, setSimulatedTimeMinutes] = useState(540) // 9:00 AM
   const [powerSource, setPowerSource] = useState<PowerSource>('GRID_POWER')
-
-  const [profileName, setProfileName] = useState('Tối ưu mùa khô')
-  const [thermalShockProtection, setThermalShockProtection] = useState(true)
-  const [thermalShockStart, setThermalShockStart] = useState('11:00')
-  const [thermalShockEnd, setThermalShockEnd] = useState('13:30')
-
-  const [tempOptimalRange, setTempOptimalRange] = useState<[number, number]>([28, 35])
-  const [humidityOptimalRange, setHumidityOptimalRange] = useState<[number, number]>([70, 90])
-  
-  const [temperatureCheckpoints, setTemperatureCheckpoints] = useState<Checkpoint[]>([
-    { day: 1, value: 30 },
-    { day: 7, value: 32 },
-    { day: 14, value: 31 },
-    { day: 21, value: 28 },
-  ])
-  
-  const [humidityCheckpoints, setHumidityCheckpoints] = useState<Checkpoint[]>([
-    { day: 1, value: 75 },
-    { day: 7, value: 85 },
-    { day: 15, value: 80 },
-    { day: 21, value: 70 },
-  ])
-  
-  const [lightDayStates, setLightDayStates] = useState<DayTrack[]>(
-    Array.from({ length: 21 }, (_, i) => ({
-      day: i + 1,
-      active: i < 8, // Days 1-8 are ON
-    }))
-  )
-
-  // Compute setpoints dynamically based on the current Crop Day
-  const temperatureSetpoint = useMemo(() => {
-    return interpolateValue(currentCropDay, temperatureCheckpoints)
-  }, [currentCropDay, temperatureCheckpoints])
-
-  const humiditySetpoint = useMemo(() => {
-    return interpolateValue(currentCropDay, humidityCheckpoints)
-  }, [currentCropDay, humidityCheckpoints])
-
-  const isLightActiveToday = useMemo(() => {
-    const todayState = lightDayStates.find((state) => state.day === currentCropDay)
-    return todayState ? todayState.active : false
-  }, [currentCropDay, lightDayStates])
 
   // Real-time Telemetry States
   const [humidityCurrent, setHumidityCurrent] = useState(78)
@@ -145,7 +48,53 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [co2Current, setCo2Current] = useState(950)
   const [co2Trend, setCo2Trend] = useState(1.2)
 
-  // Telemetry loop
+  // Clamp current simulated day when totalCropDays boundary changes
+  useEffect(() => {
+    if (currentSimulatedDay > totalCropDays) {
+      setCurrentSimulatedDay(totalCropDays)
+      // Clamps simulated minutes within the 24h limit to prevent slider and telemetry overflows
+      setSimulatedTimeMinutes((prev) => Math.min(prev, 1439))
+    }
+  }, [totalCropDays, currentSimulatedDay])
+
+  // Background simulation time progression loop
+  useEffect(() => {
+    if (!isSimulationActive) return
+
+    const interval = setInterval(() => {
+      setSimulatedTimeMinutes((prev) => {
+        // 1x = 10 mins/sec, 5x = 50 mins/sec, 10x = 100 mins/sec, 60x = 600 mins/sec (10 hours/sec)
+        const increment = 10 * simulationSpeedMultiplier
+        const nextTime = prev + increment
+        
+        if (nextTime >= 1440) {
+          setCurrentSimulatedDay((day) => {
+            const nextDay = day + 1
+            if (nextDay > totalCropDays) {
+              setIsSimulationActive(false) // pause at end of crop days
+              return totalCropDays
+            }
+            return nextDay
+          })
+          return nextTime % 1440
+        }
+        return nextTime
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isSimulationActive, simulationSpeedMultiplier, totalCropDays])
+
+  // Derive setpoints from Batch Context based on the simulated day
+  const temperatureSetpoint = useMemo(() => {
+    return getTemperatureSetpoint(currentSimulatedDay)
+  }, [currentSimulatedDay, getTemperatureSetpoint])
+
+  const humiditySetpoint = useMemo(() => {
+    return getHumiditySetpoint(currentSimulatedDay)
+  }, [currentSimulatedDay, getHumiditySetpoint])
+
+  // Simulated Telemetry drift and noise loop towards active setpoints
   useEffect(() => {
     const interval = setInterval(() => {
       setHumidityCurrent((prev) => {
@@ -175,30 +124,16 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   return (
     <SimulationContext.Provider
       value={{
-        currentCropDay,
-        setCurrentCropDay,
+        isSimulationActive,
+        setIsSimulationActive,
+        simulationSpeedMultiplier,
+        setSimulationSpeedMultiplier,
+        currentSimulatedDay,
+        setCurrentSimulatedDay,
         simulatedTimeMinutes,
         setSimulatedTimeMinutes,
         powerSource,
         setPowerSource,
-        profileName,
-        setProfileName,
-        thermalShockProtection,
-        setThermalShockProtection,
-        thermalShockStart,
-        setThermalShockStart,
-        thermalShockEnd,
-        setThermalShockEnd,
-        tempOptimalRange,
-        setTempOptimalRange,
-        humidityOptimalRange,
-        setHumidityOptimalRange,
-        temperatureCheckpoints,
-        setTemperatureCheckpoints,
-        humidityCheckpoints,
-        setHumidityCheckpoints,
-        lightDayStates,
-        setLightDayStates,
         humidityCurrent,
         humidityTrend,
         temperatureCurrent,
@@ -207,7 +142,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         co2Trend,
         temperatureSetpoint,
         humiditySetpoint,
-        isLightActiveToday,
       }}
     >
       {children}

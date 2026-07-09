@@ -1,6 +1,7 @@
 'use client'
 
 import { Card } from '@/components/ui/card'
+import { useBatch } from '@/lib/batch-context'
 import { useSimulation } from '@/lib/simulation-context'
 import { AlertCircle, CloudFog, Lock, Wind, Zap } from 'lucide-react'
 import { useState } from 'react'
@@ -122,11 +123,14 @@ export function StandardActuatorsControl({
   onMistToggle,
 }: StandardActuatorsControlProps) {
   const {
-    currentCropDay,
-    simulatedTimeMinutes,
+    spawnRunningEndDay,
     thermalShockProtection,
     thermalShockStart,
     thermalShockEnd,
+  } = useBatch()
+  const {
+    currentSimulatedDay,
+    simulatedTimeMinutes,
   } = useSimulation()
 
   const [isFanActive, setFanActive] = useState(false)
@@ -148,7 +152,7 @@ export function StandardActuatorsControl({
     onMistToggle?.(active)
   }
 
-  const isLampsLocked = currentCropDay >= 9
+  const isLampsLocked = currentSimulatedDay > spawnRunningEndDay
   const effectiveLampActive = isLampsLocked ? false : isLampActive
 
   // Helper to convert 'HH:MM' string to total minutes

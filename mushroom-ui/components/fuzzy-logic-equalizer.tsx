@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Checkpoint, DayTrack, useSimulation } from '@/lib/simulation-context'
+import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
 import { LightTimelineBlock } from '@/lib/types'
 import { AlertCircle, Copy, Lightbulb, Lock, Save, Unlock } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -31,15 +31,9 @@ function Timeline({
   onOptimalRangeChange,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
+  const { totalCropDays } = useBatch()
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
-  const [tooltip, setTooltip] = useState<{
-    x: number
-    y: number
-    text: string
-  } | null>(null)
   const [hoveredDay, setHoveredDay] = useState<number | null>(null)
-  const [isTouch, setIsTouch] = useState(false)
 
   // Local string states to isolate re-render storm on typing and prevent decimal input glitches
   const [localMinStr, setLocalMinStr] = useState<string>(optimalRange ? String(optimalRange[0]) : '')
@@ -60,7 +54,6 @@ function Timeline({
     if (!optimalRange) return
     const val = parseFloat(localMinStr)
     const currentMax = parseFloat(localMaxStr) || optimalRange[1]
-    // Validation: must be a number, within bounds [min, max], and less than max optimal range
     if (!isNaN(val) && val >= min && val < currentMax) {
       onOptimalRangeChange?.([val, currentMax])
     } else {
@@ -72,7 +65,6 @@ function Timeline({
     if (!optimalRange) return
     const val = parseFloat(localMaxStr)
     const currentMin = parseFloat(localMinStr) || optimalRange[0]
-    // Validation: must be a number, within bounds [min, max], and greater than min optimal range
     if (!isNaN(val) && val <= max && val > currentMin) {
       onOptimalRangeChange?.([currentMin, val])
     } else {
@@ -91,17 +83,15 @@ function Timeline({
     }
   }
 
-  // Responsive canvas dimensions - initialized with defaults to avoid hydration mismatch
   const [canvasDimensions, setCanvasDimensions] = useState({
     CANVAS_WIDTH: 800,
     CANVAS_HEIGHT: 200,
     PADDING: 40,
   })
 
-  // Update dimensions after mount based on actual window size
   useEffect(() => {
     const updateDimensions = () => {
-      const width = Math.min(window.innerWidth - 48, 800) // 48px for padding
+      const width = Math.min(window.innerWidth - 48, 800)
       setCanvasDimensions({
         CANVAS_WIDTH: width,
         CANVAS_HEIGHT: window.innerWidth < 768 ? 150 : 200,
@@ -117,7 +107,7 @@ function Timeline({
   const CANVAS_WIDTH = canvasDimensions.CANVAS_WIDTH
   const CANVAS_HEIGHT = canvasDimensions.CANVAS_HEIGHT
   const PADDING = canvasDimensions.PADDING
-  const GRID_WIDTH = (CANVAS_WIDTH - PADDING * 2) / 21
+  const GRID_WIDTH = (CANVAS_WIDTH - PADDING * 2) / totalCropDays
 
   const snapToGrid = (value: number, min: number, max: number): number => {
     const range = max - min
@@ -139,7 +129,7 @@ function Timeline({
   const xToDay = (x: number): number => {
     const relativeX = x - PADDING
     const dayIndex = Math.round(relativeX / GRID_WIDTH)
-    return Math.max(1, Math.min(21, dayIndex + 1))
+    return Math.max(1, Math.min(totalCropDays, dayIndex + 1))
   }
 
   const dayToX = (day: number): number => {
@@ -157,12 +147,9 @@ function Timeline({
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    // Dragging existing node
     if (draggingIndex !== null) {
       const checkpoint = checkpoints[draggingIndex]
-      // Prevent horizontal movement of anchor nodes (Day 1 and Day 21)
-      if (checkpoint.day !== 1 && checkpoint.day !== 21) {
-        // Allow full dragging for intermediate nodes
+      if (checkpoint.day !== 1 && checkpoint.day !== totalCropDays) {
         let newValue = yToValue(y)
         newValue = snapToGrid(newValue, min, max)
 
@@ -171,16 +158,9 @@ function Timeline({
           ...newCheckpoints[draggingIndex],
           value: newValue,
         }
-
-        setTooltip({
-          x,
-          y: y - 20,
-          text: `Magnetic Snap to ${newValue.toFixed(1)}${unit}`,
-        })
 
         onCheckpointChange(newCheckpoints)
       } else {
-        // For anchor nodes, only allow vertical adjustment
         let newValue = yToValue(y)
         newValue = snapToGrid(newValue, min, max)
 
@@ -189,17 +169,10 @@ function Timeline({
           ...newCheckpoints[draggingIndex],
           value: newValue,
         }
-
-        setTooltip({
-          x,
-          y: y - 20,
-          text: `Locked Day - Value: ${newValue.toFixed(1)}${unit}`,
-        })
 
         onCheckpointChange(newCheckpoints)
       }
     } else {
-      // Hovering for add node feedback
       if (x > PADDING && x < CANVAS_WIDTH - PADDING) {
         setHoveredDay(xToDay(x))
       } else {
@@ -210,10 +183,9 @@ function Timeline({
 
   const handleMouseUp = () => {
     setDraggingIndex(null)
-    setTooltip(null)
   }
 
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleOverlayClick = (e: React.MouseEvent) => {
     if (!canvasRef.current) return
 
     const rect = canvasRef.current.getBoundingClientRect()
@@ -225,38 +197,25 @@ function Timeline({
     const day = xToDay(x)
     const value = snapToGrid(yToValue(y), min, max)
 
-    // Check if node already exists at this day
     const existingIndex = checkpoints.findIndex((cp) => cp.day === day)
     if (existingIndex !== -1) return
 
-    // Add new checkpoint
     const newCheckpoints = [...checkpoints, { day, value }].sort((a, b) => a.day - b.day)
     onCheckpointChange(newCheckpoints)
-
-    setTooltip({
-      x,
-      y: y - 20,
-      text: `Added ${value.toFixed(1)}${unit} at Day ${day}`,
-    })
-
-    setTimeout(() => setTooltip(null), 2000)
   }
 
   const handleNodeDoubleClick = (index: number) => {
     const checkpoint = checkpoints[index]
-    // Prevent deletion of Day 1 and Day 21 (locked anchor points)
-    if (checkpoint.day === 1 || checkpoint.day === 21) return
+    if (checkpoint.day === 1 || checkpoint.day === totalCropDays) return
 
     const newCheckpoints = checkpoints.filter((_, i) => i !== index)
     onCheckpointChange(newCheckpoints)
   }
 
-  // Global mouse up listener for dragging
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (draggingIndex !== null) {
         setDraggingIndex(null)
-        setTooltip(null)
       }
     }
 
@@ -267,15 +226,15 @@ function Timeline({
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
-        <h4 className="font-semibold text-foreground">{title}</h4>
+        <h4 className="font-semibold text-foreground text-sm sm:text-base">{title}</h4>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            Range: {min}-{max}{unit}
+            Ngưỡng: {min}-{max}{unit}
           </span>
           {optimalRange && (
             onOptimalRangeChange ? (
               <div className="flex items-center gap-1.5 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-emerald-400">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Optimal:</span>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Optimal:</span>
                 <input
                   type="number"
                   min={min}
@@ -313,7 +272,7 @@ function Timeline({
       <div
         ref={canvasRef}
         className="relative w-full bg-slate-900/30 border border-slate-700/50 rounded-lg overflow-hidden"
-        style={{ height: CANVAS_HEIGHT, userSelect: 'none', cursor: hoveredDay ? 'crosshair' : 'default' }}
+        style={{ height: CANVAS_HEIGHT, userSelect: 'none' }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={() => {
@@ -321,46 +280,52 @@ function Timeline({
           setHoveredDay(null)
         }}
       >
-        {/* Click Overlay for Adding Nodes */}
-        <div
-          ref={overlayRef}
-          className="absolute inset-0"
-          style={{ zIndex: 5 }}
-          onClick={handleOverlayClick}
-        />
-
-        {/* SVG Grid and Curve */}
         <svg
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
           className="absolute inset-0"
-          style={{ pointerEvents: 'none' }}
         >
-          {/* Vertical Gridlines (Days) */}
-          {Array.from({ length: 21 }).map((_, i) => (
-            <g key={`vgrid-${i}`}>
-              <line
-                x1={dayToX(i + 1)}
-                y1={PADDING}
-                x2={dayToX(i + 1)}
-                y2={CANVAS_HEIGHT - PADDING}
-                stroke="rgba(255,255,255,0.05)"
-                strokeWidth="1"
-              />
-              <text
-                x={dayToX(i + 1)}
-                y={CANVAS_HEIGHT - PADDING + 20}
-                fontSize="10"
-                fill="rgba(255,255,255,0.4)"
-                textAnchor="middle"
-              >
-                {i + 1}
-              </text>
-            </g>
-          ))}
+          <rect
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            fill="transparent"
+            style={{ cursor: hoveredDay && draggingIndex === null ? 'crosshair' : 'default' }}
+            onClick={handleOverlayClick}
+          />
 
-          {/* Horizontal Gridlines (Values) */}
-          {Array.from({ length: (max - min) / 0.5 + 1 }).map((_, i) => {
+          {Array.from({ length: totalCropDays }).map((_, i) => {
+            const day = i + 1
+            const showLabel = totalCropDays <= 21 
+              ? true 
+              : totalCropDays <= 31 
+                ? (day % 2 === 1 || day === totalCropDays)
+                : (day === 1 || day % 5 === 0 || day === totalCropDays)
+            return (
+              <g key={`vgrid-${i}`} style={{ pointerEvents: 'none' }}>
+                <line
+                  x1={dayToX(day)}
+                  y1={PADDING}
+                  x2={dayToX(day)}
+                  y2={CANVAS_HEIGHT - PADDING}
+                  stroke="rgba(255,255,255,0.05)"
+                  strokeWidth="1"
+                />
+                {showLabel && (
+                  <text
+                    x={dayToX(day)}
+                    y={CANVAS_HEIGHT - PADDING + 20}
+                    fontSize="10"
+                    fill="rgba(255,255,255,0.4)"
+                    textAnchor="middle"
+                  >
+                    {day}
+                  </text>
+                )}
+              </g>
+            )
+          })}
+
+          {Array.from({ length: Math.round((max - min) / 0.5) + 1 }).map((_, i) => {
             const value = min + i * 0.5
             const y = valueToY(value)
             return (
@@ -372,33 +337,32 @@ function Timeline({
                 y2={y}
                 stroke="rgba(255,255,255,0.03)"
                 strokeWidth="1"
+                style={{ pointerEvents: 'none' }}
               />
             )
           })}
 
-          {/* Axis Labels */}
-          <text x="10" y={valueToY(max)} fontSize="10" fill="rgba(255,255,255,0.5)">
+          <text x="10" y={valueToY(max) + 4} fontSize="10" fill="rgba(255,255,255,0.5)" style={{ pointerEvents: 'none' }}>
             {max}{unit}
           </text>
-          <text x="10" y={valueToY(min) + 10} fontSize="10" fill="rgba(255,255,255,0.5)">
+          <text x="10" y={valueToY(min) + 6} fontSize="10" fill="rgba(255,255,255,0.5)" style={{ pointerEvents: 'none' }}>
             {min}{unit}
           </text>
 
-          {/* Optimal Range Highlight (if applicable) */}
           {optimalRange && isCurve && (
             <rect
               x={PADDING}
               y={valueToY(optimalRange[1])}
               width={CANVAS_WIDTH - PADDING * 2}
               height={valueToY(optimalRange[0]) - valueToY(optimalRange[1])}
-              fill="rgba(16, 185, 129, 0.1)"
-              stroke="rgba(16, 185, 129, 0.3)"
+              fill="rgba(16, 185, 129, 0.05)"
+              stroke="rgba(16, 185, 129, 0.2)"
               strokeWidth="1"
               strokeDasharray="4 4"
+              style={{ pointerEvents: 'none' }}
             />
           )}
 
-          {/* Curve / Line Connection */}
           {isCurve && checkpoints.length > 1 && (
             <polyline
               points={checkpoints
@@ -407,23 +371,30 @@ function Timeline({
               fill="none"
               stroke="rgba(16, 185, 129, 0.6)"
               strokeWidth="2"
+              style={{ pointerEvents: 'none' }}
             />
           )}
 
-          {/* Checkpoint Nodes with Touch-Friendly Hitboxes */}
           {checkpoints.map((cp, idx) => (
             <g key={`node-${idx}`}>
-              {/* Invisible 24px hitbox for touch targets */}
               <circle
                 cx={dayToX(cp.day)}
                 cy={valueToY(cp.value)}
                 r="24"
                 fill="transparent"
                 style={{ pointerEvents: 'auto', cursor: 'grab' }}
-                onMouseDown={() => handleNodeMouseDown(idx)}
-                onDoubleClick={() => handleNodeDoubleClick(idx)}
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  handleNodeMouseDown(idx)
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  handleNodeDoubleClick(idx)
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                }}
               />
-              {/* Visible node dot */}
               <circle
                 cx={dayToX(cp.day)}
                 cy={valueToY(cp.value)}
@@ -440,14 +411,13 @@ function Timeline({
                 fill="rgba(255,255,255,0.7)"
                 textAnchor="middle"
                 fontWeight="bold"
-                pointerEvents="none"
+                style={{ pointerEvents: 'none' }}
               >
                 {cp.value.toFixed(1)}{unit}
               </text>
             </g>
           ))}
 
-          {/* Add Node Indicator Cursor */}
           {hoveredDay && draggingIndex === null && (
             <text
               x={dayToX(hoveredDay)}
@@ -455,35 +425,24 @@ function Timeline({
               fontSize="16"
               fill="rgba(16, 185, 129, 0.7)"
               textAnchor="middle"
-              pointerEvents="none"
+              style={{ pointerEvents: 'none' }}
             >
               +
             </text>
           )}
         </svg>
-
-        {/* Tooltip */}
-        {tooltip && (
-          <div
-            className="absolute bg-slate-900 border border-emerald-500/50 px-2 py-1 rounded text-xs text-emerald-300 whitespace-nowrap z-10"
-            style={{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }}
-          >
-            {tooltip.text}
-          </div>
-        )}
       </div>
 
       <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5">
         <Lightbulb className="w-3.5 h-3.5 shrink-0 text-amber-400 mt-0.5" />
         <span>
           <strong>Nhấp</strong> vào biểu đồ để thêm nút (làm tròn theo bước 0,5). <strong>Kéo</strong> nút để
-          điều chỉnh. <strong>Nhấp đúp</strong> vào nút trung gian để xóa (ngày 1 và 21 bị khóa).
+          điều chỉnh. <strong>Nhấp đúp</strong> vào nút trung gian để xóa (ngày 1 và {totalCropDays} bị khóa).
         </span>
       </p>
     </div>
   )
 }
-
 
 interface LightScheduleProps {
   dayStates: DayTrack[]
@@ -495,6 +454,7 @@ function LightSchedule({
   onStatesChange,
 }: LightScheduleProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const { totalCropDays, spawnRunningEndDay } = useBatch()
   const [draggingHandle, setDraggingHandle] = useState<{
     blockIndex: number
     type: 'left' | 'right'
@@ -502,7 +462,6 @@ function LightSchedule({
     originalEndDay: number
   } | null>(null)
 
-  // Find all continuous active blocks
   const getActiveBlocks = (): Array<{ startDay: number; endDay: number }> => {
     const blocks: Array<{ startDay: number; endDay: number }> = []
     let currentStart: number | null = null
@@ -522,7 +481,7 @@ function LightSchedule({
     })
 
     if (currentStart !== null) {
-      blocks.push({ startDay: currentStart, endDay: 21 })
+      blocks.push({ startDay: currentStart, endDay: dayStates.length })
     }
 
     return blocks
@@ -562,20 +521,16 @@ function LightSchedule({
       const rect = containerRef.current.getBoundingClientRect()
       const x = e.clientX - rect.left
       
-      // Calculate column width dynamically
-      const colWidth = rect.width / 21
-      const currentDay = Math.max(1, Math.min(21, Math.floor(x / colWidth) + 1))
+      const colWidth = rect.width / dayStates.length
+      const currentDay = Math.max(1, Math.min(dayStates.length, Math.floor(x / colWidth) + 1))
 
       const { type, originalStartDay, originalEndDay } = draggingHandle
 
       const nextStates = [...dayStates]
 
       if (type === 'left') {
-        // Dragging left boundary: new start day
-        // Must clamp new start day to be <= originalEndDay
         const newStart = Math.min(currentDay, originalEndDay)
-        
-        for (let d = 1; d <= 21; d++) {
+        for (let d = 1; d <= dayStates.length; d++) {
           if (d >= newStart && d <= originalEndDay) {
             nextStates[d - 1] = { ...nextStates[d - 1], active: true }
           } else if (d >= originalStartDay && d < newStart) {
@@ -583,11 +538,8 @@ function LightSchedule({
           }
         }
       } else {
-        // Dragging right boundary: new end day
-        // Must clamp new end day to be >= originalStartDay
         const newEnd = Math.max(currentDay, originalStartDay)
-        
-        for (let d = 1; d <= 21; d++) {
+        for (let d = 1; d <= dayStates.length; d++) {
           if (d >= originalStartDay && d <= newEnd) {
             nextStates[d - 1] = { ...nextStates[d - 1], active: true }
           } else if (d > newEnd && d <= originalEndDay) {
@@ -614,42 +566,56 @@ function LightSchedule({
 
   return (
     <div className="mb-8">
-      <div className="flex items-center justify-between mb-3 md:mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
         <div>
-          <h4 className="font-semibold text-foreground mb-1 text-sm md:text-base">Lịch chiếu sáng (BẬT/TẮT)</h4>
+          <h4 className="font-semibold text-foreground text-sm sm:text-base">Lịch chiếu sáng (BẬT/TẮT)</h4>
           <p className="text-xs text-muted-foreground">Nhấp vào cột để bật/tắt. Kéo mép màu hổ phách để nới hoặc thu khối.</p>
+        </div>
+        
+        {/* Dynamic biological phases display */}
+        <div className="flex flex-wrap gap-2 text-[10px] md:text-xs">
+          <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded text-amber-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            <span>Ủ tơ (Spawn): <strong>Ngày 1 - {spawnRunningEndDay}</strong></span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded text-emerald-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span>Ra quả (Fruiting): <strong>Ngày {spawnRunningEndDay + 1} - {totalCropDays}</strong></span>
+          </div>
         </div>
       </div>
 
-      {/* Video-Editor-Style Timeline Track */}
+      {/* Video-Editor-Style Timeline Track with Dynamic CSS Grid */}
       <div className="w-full bg-slate-900/40 border border-slate-700/60 rounded-lg p-1.5 md:p-3 overflow-x-auto">
         <div
           ref={containerRef}
-          className="relative flex h-14 min-w-[640px] md:min-w-0 bg-slate-955/60 rounded border border-slate-800/80 select-none overflow-hidden"
+          className="relative grid h-14 bg-slate-955/60 rounded border border-slate-800/80 select-none overflow-hidden"
+          style={{ 
+            gridTemplateColumns: `repeat(${dayStates.length}, minmax(0, 1fr))`,
+            minWidth: `${dayStates.length * 30}px` 
+          }}
         >
           {dayStates.map((state, idx) => {
             const day = idx + 1
             const isStart = state.active && (idx === 0 || !dayStates[idx - 1].active)
-            const isEnd = state.active && (idx === 20 || !dayStates[idx + 1].active)
+            const isEnd = state.active && (idx === dayStates.length - 1 || !dayStates[idx + 1].active)
             const blockIndex = activeBlocks.findIndex((b) => day >= b.startDay && day <= b.endDay)
             const block = activeBlocks[blockIndex]
 
             return (
               <div
                 key={`day-col-${day}`}
-                className={`relative flex-1 flex flex-col items-center justify-center cursor-pointer border-r border-slate-800/40 last:border-r-0 transition-colors duration-150 ${
+                className={`relative flex flex-col items-center justify-center cursor-pointer border-r border-slate-800/40 last:border-r-0 transition-colors duration-150 ${
                   state.active
                     ? 'bg-amber-500/10 hover:bg-amber-500/20'
                     : 'bg-slate-900/30 hover:bg-slate-850/40'
                 }`}
                 onClick={() => handleCellClick(day)}
               >
-                {/* Visual Active Block Fill */}
                 {state.active && (
-                  <div className="absolute inset-y-0 inset-x-0 bg-amber-500/20 border-y border-amber-500/45 shadow-[inset_0_0_8px_rgba(245,158,11,0.15)] z-0" />
+                  <div className="absolute inset-y-0 inset-x-0 bg-amber-500/25 border-y border-amber-500/50 shadow-[inset_0_0_8px_rgba(245,158,11,0.25)] z-0" />
                 )}
 
-                {/* Left Drag Handle */}
                 {isStart && block && (
                   <div
                     className="absolute left-0 top-0 bottom-0 w-3 bg-amber-500 hover:bg-amber-400 cursor-ew-resize flex items-center justify-center rounded-l z-20 shadow-[0_0_6px_rgba(245,158,11,0.5)] border-r border-amber-600/30"
@@ -661,7 +627,6 @@ function LightSchedule({
                   </div>
                 )}
 
-                {/* Right Drag Handle */}
                 {isEnd && block && (
                   <div
                     className="absolute right-0 top-0 bottom-0 w-3 bg-amber-500 hover:bg-amber-400 cursor-ew-resize flex items-center justify-center rounded-r z-20 shadow-[0_0_6px_rgba(245,158,11,0.5)] border-l border-amber-600/30"
@@ -673,11 +638,10 @@ function LightSchedule({
                   </div>
                 )}
 
-                {/* Day Labels */}
                 <span className={`text-[10px] font-medium z-10 ${state.active ? 'text-amber-200' : 'text-slate-500'}`}>
-                  Ngày {day}
+                  N.{day}
                 </span>
-                <span className={`text-[11px] font-bold z-10 mt-0.5 ${state.active ? 'text-amber-300' : 'text-slate-600'}`}>
+                <span className={`text-[9px] font-bold z-10 mt-0.5 ${state.active ? 'text-amber-300' : 'text-slate-600'}`}>
                   {state.active ? 'BẬT' : 'TẮT'}
                 </span>
               </div>
@@ -686,13 +650,12 @@ function LightSchedule({
         </div>
       </div>
 
-      {/* Active Block Info */}
       {activeBlocks.length > 0 && (
-        <div className="mt-3 p-2.5 rounded bg-slate-950/40 border border-amber-500/20">
-          <p className="text-xs text-muted-foreground">
-            <span className="text-amber-400 font-semibold">Các khối thời gian đang bật:</span>{' '}
+        <div className="mt-3 p-2.5 rounded bg-slate-955/40 border border-amber-500/20">
+          <p className="text-xs text-muted-foreground flex flex-wrap gap-1.5 items-center">
+            <span className="text-amber-400 font-semibold">Khung giờ chiếu sáng:</span>
             {activeBlocks.map((block, idx) => (
-              <span key={idx} className="bg-amber-955/40 border border-amber-900/50 px-2 py-0.5 rounded text-amber-200 font-medium text-[11px] inline-block mr-1.5">
+              <span key={idx} className="bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded text-amber-200 font-medium text-[11px] inline-block">
                 Ngày {block.startDay}–{block.endDay} (BẬT)
               </span>
             ))}
@@ -723,7 +686,9 @@ export function FuzzyLogicEqualizer() {
     setTempOptimalRange,
     humidityOptimalRange,
     setHumidityOptimalRange,
-  } = useSimulation()
+    spawnRunningEndDay,
+    totalCropDays,
+  } = useBatch()
 
   const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
   const [localShockEnd, setLocalShockEnd] = useState(thermalShockEnd)
@@ -819,29 +784,29 @@ export function FuzzyLogicEqualizer() {
   }
 
   return (
-    <Card className="p-6 border border-slate-700/50 bg-slate-950/40 col-span-full mt-6">
+    <Card className="p-4 md:p-6 border border-slate-700/50 bg-slate-950/40 col-span-full mt-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-foreground mb-4">
-          Trình chỉnh hồ sơ logic mờ (chu kỳ 21 ngày)
+        <h2 className="text-lg md:text-2xl font-bold text-foreground mb-4">
+          Trình chỉnh hồ sơ logic mờ (chu kỳ {lightDayStates.length} ngày)
         </h2>
 
         {/* Profile Saver Topbar - Responsive stacked on mobile */}
-        <div className="flex flex-col md:flex-row gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
+        <div className="flex flex-col sm:flex-row gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
           <input
             type="text"
             value={profileName}
             onChange={(e) => setProfileName(e.target.value)}
             placeholder="Tên hồ sơ"
-            className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-sm md:text-base"
+            className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-xs sm:text-sm"
           />
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button onClick={handleSaveProfile} className="gap-2 flex-1 md:flex-initial text-xs md:text-sm">
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button onClick={handleSaveProfile} className="gap-2 flex-1 sm:flex-initial text-xs h-9">
               <Save className="w-4 h-4" />
-              <span className="hidden sm:inline">Lưu</span>
+              Lưu cấu hình
             </Button>
-            <Button onClick={handleDistributeProfile} variant="outline" className="gap-2 flex-1 md:flex-initial text-xs md:text-sm">
+            <Button onClick={handleDistributeProfile} variant="outline" className="gap-2 flex-1 sm:flex-initial text-xs h-9">
               <Copy className="w-4 h-4" />
-              <span className="hidden sm:inline">Phân phối</span>
+              Phân phối
             </Button>
           </div>
         </div>
@@ -857,11 +822,11 @@ export function FuzzyLogicEqualizer() {
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5.5 h-5.5 text-amber-400 shrink-0" />
             <div className="flex flex-col gap-1.5">
-              <h4 className="font-semibold text-foreground text-sm sm:text-base">
-                Khung giờ khóa tưới sương
+              <h4 className="font-semibold text-foreground text-xs sm:text-sm">
+                Khung giờ khóa tưới sương tránh sốc nhiệt
               </h4>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Khóa từ:</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">Khóa từ:</span>
                 <input
                   type="time"
                   value={localShockStart}
@@ -871,7 +836,7 @@ export function FuzzyLogicEqualizer() {
                   disabled={!thermalShockProtection}
                   className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                <span className="text-xs text-muted-foreground">đến:</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">đến:</span>
                 <input
                   type="time"
                   value={localShockEnd}
@@ -933,8 +898,8 @@ export function FuzzyLogicEqualizer() {
       <div className="mt-6 p-4 rounded-lg bg-blue-950/20 border border-blue-500/20">
         <p className="text-xs text-blue-300">
           <Lightbulb className="w-3.5 h-3.5 inline-block align-text-bottom mr-1" />
-          <strong>Hồ sơ nấm rơm (Volvariella volvacea):</strong> Trình chỉnh chu kỳ 21 ngày này cho phép
-          kiểm soát chính xác điều kiện môi trường từ lúc cấy giống đến giai đoạn ra quả thể.
+          <strong>Hồ sơ sinh học nấm rơm (Volvariella volvacea):</strong> Chu kỳ {totalCropDays} ngày này
+          điều chỉnh tịnh tiến từ Ủ tơ sang Ra quả. Pha Ủ tơ kết thúc ngày {spawnRunningEndDay}, chuyển tiếp sang pha kích sáng ra quả thể ở ngày {spawnRunningEndDay + 1}.
           Các điểm neo tự động làm tròn theo bước 0,5 để điều khiển logic mờ ổn định.
         </p>
       </div>
