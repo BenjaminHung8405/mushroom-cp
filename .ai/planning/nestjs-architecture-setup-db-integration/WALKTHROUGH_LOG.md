@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:32:00+07:00] - Task C3: Tạo thực thể CropBatch
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [crop-batch.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/crop-batch.entity.ts)
+  - Tạo mới: [crop-batch.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/crop-batch.entity.spec.ts)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `CropBatch` tương ứng với bảng `crop_batches` trong schema PostgreSQL.
+  - Thiết lập mối quan hệ `@ManyToOne` với `MushroomHouse` dùng `@JoinColumn({ name: 'house_id' })` đảm bảo Foreign Key hoạt động tối ưu.
+  - Sử dụng transformer cho các cột kiểu `numeric` để chuyển đổi tự động từ kiểu string trả về từ PostgreSQL sang kiểu float/number của Javascript, tránh lỗi tính toán.
+  - Viết unit test cho entity `CropBatch` để kiểm thử cấu trúc và kiểm thử đơn vị thành công 100%.
+  - Tự kiểm tra: Chạy thử nghiệm các unit test trong module batch thành công.
+
+
 ## [2026-07-09T22:30:00+07:00] - Task C2: Tạo thực thể GrowthProfile
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
