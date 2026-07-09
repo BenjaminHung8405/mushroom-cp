@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:26:00+07:00] - Task C1: Tạo thực thể MushroomHouse
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [mushroom-house.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/mushroom-house.entity.ts)
+  - Tạo mới: [mushroom-house.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/mushroom-house.entity.spec.ts)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `MushroomHouse` tương ứng với bảng `mushroom_houses` trong schema PostgreSQL.
+  - Sử dụng `@PrimaryColumn()` cho thuộc tính `id` dạng string (VARCHAR(50)).
+  - Ánh xạ chính xác các trường snake_case: `area_meters` sang `areaMeters`, `pillar_count` sang `pillarCount`, `created_at` sang `createdAt` (sử dụng decorator `@CreateDateColumn()`).
+  - Viết Unit Test cho entity `MushroomHouse` để đảm bảo thực thể được tạo ra hoạt động chính xác.
+  - Tự kiểm tra: Build ứng dụng (`pnpm run build`), chạy ESLint (`pnpm run lint`) và kiểm thử đơn vị (`pnpm test`) thành công 100%.
+
 ## [2026-07-09T22:15:00+07:00] - QA Review: Duyệt hoàn thành Sprint 1 (Tasks A1, B1, B2, B3)
 - **Trạng thái**: LGTM (Looks Good To Me)
 - **Đánh giá kiểm toán**:
