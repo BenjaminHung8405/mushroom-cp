@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T21:58:00+07:00] - Tasks A1, B1, B2, B3: Khắc phục lỗi và nợ kỹ thuật theo Feedback của QA (Lần 4 / Lần 2)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [package.json](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/package.json)
+  - Sửa đổi: [main.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/main.ts)
+  - Sửa đổi: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
+  - Sửa đổi: [device.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/device/device.controller.ts)
+  - Sửa đổi: [telemetry-query.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/telemetry-query.service.ts)
+  - Sửa đổi: [app.e2e-spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/test/app.e2e-spec.ts)
+- **Giải trình giải pháp**:
+  - **Khắc phục lỗi treo E2E Test**: Cấu hình `retryAttempts: 0` khi chạy trong môi trường kiểm thử (`NODE_ENV === 'test'`) và bổ sung kiểm tra an toàn cho biến `app` trong Jest cleanup block `afterEach`. Điều này ngăn chặn tình trạng Jest bị treo do tiến trình retry kết nối database ngầm.
+  - **Bổ sung Validation & Bảo mật**: Cài đặt và ghim phiên bản của `class-validator` và `class-transformer` trong `package.json`. Kích hoạt global `ValidationPipe` trong `main.ts`. Định nghĩa DTO `DeviceParamsDto` và `DeviceSetpointDto` trong `device.controller.ts` để kiểm soát chặt chẽ kiểu dữ liệu, giới hạn ngưỡng an toàn sinh học của setpoint và định dạng của device ID, ngăn chặn các lệnh độc hại.
+  - **Tối ưu hàm telemetry & an toàn dữ liệu**: Tách hàm helper `calculateDelta` trong `telemetry-query.service.ts` để đưa số lượng dòng của hàm `insertTelemetry` về dưới 50 dòng. Đồng thời, thêm kiểm tra an toàn dữ liệu trả về từ database để loại bỏ nguy cơ Null Pointer Exception.
+  - **Tối ưu code DRY**: Gom các option chung của cấu hình DataSource thành `commonOptions` trong `typeorm.config.ts` để loại bỏ mã lặp.
+
 ## [2026-07-09T21:51:00+07:00] - Task B1: Khắc phục lỗi cấu hình và ESLint theo Feedback của QA (Lần 3)
 - **Trạng thái**: Đang chờ QA Review (Lần 3)
 - **Danh sách file thay đổi**:

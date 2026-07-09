@@ -32,20 +32,25 @@ for (const envPath of envPaths) {
 }
 
 // 2. Chuẩn bị cấu hình TypeORM dựa trên biến môi trường (Ưu tiên DATABASE_URL trực tiếp)
-let config: DataSourceOptions;
+const commonOptions = {
+  type: 'postgres' as const,
+  synchronize: false,
+  entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
+  migrations: [path.join(__dirname, '/migrations/*{.ts,.js}')],
+  extra: {
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  },
+  ...(process.env.NODE_ENV === 'test' ? { retryAttempts: 0 } : {}),
+};
+
+let config: DataSourceOptions & { retryAttempts?: number };
 
 if (process.env.DATABASE_URL) {
   config = {
-    type: 'postgres',
+    ...commonOptions,
     url: process.env.DATABASE_URL,
-    synchronize: false,
-    entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
-    migrations: [path.join(__dirname, '/migrations/*{.ts,.js}')],
-    extra: {
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    },
   };
 } else {
   // 3. Nếu không có DATABASE_URL, kiểm tra bắt buộc và ném lỗi cụ thể nếu thiếu thông tin cấu hình
@@ -65,20 +70,12 @@ if (process.env.DATABASE_URL) {
   }
 
   config = {
-    type: 'postgres',
+    ...commonOptions,
     host: process.env.POSTGRES_HOST,
     port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
     username: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
     database: process.env.POSTGRES_DB,
-    synchronize: false,
-    entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
-    migrations: [path.join(__dirname, '/migrations/*{.ts,.js}')],
-    extra: {
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    },
   };
 }
 

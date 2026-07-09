@@ -62,34 +62,29 @@ export class TelemetryQueryService {
 
   constructor(private readonly db: DatabaseService) {}
 
+  private calculateDelta(setpoint?: number, measured?: number): number | null {
+    if (setpoint === undefined || measured === undefined) return null;
+    return parseFloat((setpoint - measured).toFixed(1));
+  }
+
   /**
    * 1. Inserts sensor telemetry and actuator states into TimescaleDB hypertable
    */
   async insertTelemetry(input: TelemetryLogInput): Promise<TelemetryLog> {
     const time = input.time ? new Date(input.time) : new Date();
 
-    // Auto-calculate error delta: E = Setpoint - Measured if not explicitly provided
-    let humidityErrorDelta = input.humidityErrorDelta;
-    if (
-      humidityErrorDelta === undefined &&
-      input.humiditySetpoint !== undefined &&
-      input.humidityMeasured !== undefined
-    ) {
-      humidityErrorDelta = parseFloat(
-        (input.humiditySetpoint - input.humidityMeasured).toFixed(1),
-      );
-    }
+    const humidityErrorDelta =
+      input.humidityErrorDelta !== undefined
+        ? input.humidityErrorDelta
+        : this.calculateDelta(input.humiditySetpoint, input.humidityMeasured);
 
-    let temperatureErrorDelta = input.temperatureErrorDelta;
-    if (
-      temperatureErrorDelta === undefined &&
-      input.temperatureSetpoint !== undefined &&
-      input.temperatureMeasured !== undefined
-    ) {
-      temperatureErrorDelta = parseFloat(
-        (input.temperatureSetpoint - input.temperatureMeasured).toFixed(1),
-      );
-    }
+    const temperatureErrorDelta =
+      input.temperatureErrorDelta !== undefined
+        ? input.temperatureErrorDelta
+        : this.calculateDelta(
+            input.temperatureSetpoint,
+            input.temperatureMeasured,
+          );
 
     const queryText = `
       INSERT INTO telemetry_logs (
@@ -119,8 +114,8 @@ export class TelemetryQueryService {
       input.co2Measured ?? null,
       input.humiditySetpoint ?? null,
       input.temperatureSetpoint ?? null,
-      humidityErrorDelta ?? null,
-      temperatureErrorDelta ?? null,
+      humidityErrorDelta,
+      temperatureErrorDelta,
       input.mistGeneratorPwm ?? null,
       input.convectionFanPwm ?? null,
       input.heatingLampActive ?? false,
@@ -128,6 +123,11 @@ export class TelemetryQueryService {
     ];
 
     const result = await this.db.query<TelemetryLog>(queryText, params);
+    if (!result.rows || result.rows.length === 0) {
+      throw new Error(
+        'Failed to insert telemetry log: No records returned from DB',
+      );
+    }
     return result.rows[0];
   }
 
