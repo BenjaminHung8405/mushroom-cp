@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T21:32:00+07:00] - Task B2: Refactor DatabaseModule để tích hợp TypeOrmModule
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [database.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.module.ts)
+- **Giải trình giải pháp**:
+  - Tích hợp `TypeOrmModule` vào `DatabaseModule` thông qua `TypeOrmModule.forRootAsync`.
+  - Cấu hình load bất đồng bộ (`useFactory`) sử dụng cấu hình database `typeOrmConfig` được import trực tiếp từ file `typeorm.config.ts`.
+  - Export `TypeOrmModule` từ `DatabaseModule` để các module chức năng khác có thể dễ dàng sử dụng lại TypeORM Repositories mà không cần khai báo lại cấu hình.
+- **Kết quả tự kiểm tra**:
+  - Chạy `pnpm build` thành công, biên dịch NestJS không phát sinh lỗi.
+  - Chạy `pnpm test` thành công, tất cả các bài test vượt qua tốt đẹp.
+
 ## [2026-07-09T21:28:45+07:00] - Task B1: Khởi tạo file cấu hình typeorm.config.ts
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
