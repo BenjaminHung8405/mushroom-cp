@@ -54,16 +54,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    */
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
 
-  async onModuleInit(): Promise<void> {
-    await this.connect();
+  onModuleInit(): void {
+    this.connect();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.client?.end(true);
     this.logger.log('MQTT client disconnected gracefully.');
   }
 
-  private async connect(): Promise<void> {
+  private connect(): void {
     const host = process.env.MQTT_HOST ?? 'localhost';
     const port = parseInt(process.env.MQTT_PORT ?? '1883', 10);
     const username = process.env.MQTT_USERNAME;
@@ -152,7 +152,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         parsedPayload.status !== 'offline'
       ) {
         this.logger.warn(
-          `Received unknown status '${parsedPayload.status}' from ${deviceId}`,
+          `Received unknown status '${parsedPayload.status as string}' from ${deviceId}`,
         );
         return;
       }

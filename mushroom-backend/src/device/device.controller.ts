@@ -4,7 +4,6 @@ import {
   Param,
   Post,
   Body,
-  Res,
   Sse,
   MessageEvent,
   Logger,
