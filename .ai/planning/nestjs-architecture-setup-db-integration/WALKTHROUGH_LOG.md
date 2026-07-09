@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T21:43:00+07:00] - Task B1: Khắc phục lỗi cấu hình TypeORM theo Feedback của QA (Lần 2)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
+- **Giải trình giải pháp**:
+  - Loại bỏ hoàn toàn các giá trị hardcode nhạy cảm (`admin`, `123456`, `localhost`, `5432`, `mushroom_iot_db`). Chương trình sẽ ném lỗi cụ thể và dừng khởi động nếu thiếu các biến môi trường bắt buộc (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`).
+  - Tách biệt logic nạp biến môi trường từ file `.env` và pha dựng cấu hình từ `process.env`. Quá trình kiểm tra và dựng tham số kết nối được thực thi độc lập với sự tồn tại của file `.env` (hỗ trợ hoàn hảo môi trường container/Docker/K8s).
+  - Sử dụng cấu hình thuộc tính nguyên tử (`host`, `port`, `username`, `password`, `database`) của TypeORM khi không có `DATABASE_URL` thay vì cộng chuỗi thủ công, ngăn ngừa rủi ro đứt gãy kết nối do ký tự đặc biệt trong mật khẩu.
+- **Kết quả tự kiểm tra**:
+  - Chạy `pnpm run build` thành công, biên dịch dự án hoàn hảo không lỗi.
+  - Chạy `pnpm run test` thành công, các bài kiểm thử vượt qua.
+  - Chạy `pnpm run lint` trên file `typeorm.config.ts` thành công không phát sinh bất kỳ lỗi/cảnh báo nào.
+
 ## [2026-07-09T21:35:00+07:00] - Task B3: Refactor DatabaseService để loại bỏ pg Pool
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
