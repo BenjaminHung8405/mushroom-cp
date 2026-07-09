@@ -1,21 +1,29 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
 import { useSimulation } from '@/lib/simulation-context'
 import { cn } from '@/lib/utils'
-import { Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, X } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, WifiOff, X } from 'lucide-react'
 import { useState } from 'react'
 
 export function Header() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [alertsVisible, setAlertsVisible] = useState(true)
+  const [deviceAlertDismissed, setDeviceAlertDismissed] = useState(false)
 
   const {
     humidityCurrent,
     temperatureCurrent,
     co2Current,
+    deviceStatus,
+    monitoredDeviceId,
   } = useSimulation()
+
+  // Reset the device alert banner whenever status changes back to online
+  // (so if it reconnects, the banner can reappear if it goes offline again)
+  const showDeviceOfflineAlert = deviceStatus === 'offline' && !deviceAlertDismissed
 
   // Generate dynamic, domain-specific alerts based on biological thresholds
   const alerts = []
@@ -121,7 +129,41 @@ export function Header() {
 
   return (
     <>
-      {/* Sticky Alerts Banner */}
+      {/* ================================================================
+          DEVICE OFFLINE CRITICAL BANNER (LWT-triggered)
+          Shown when EMQX fires the Last Will and Testament message.
+          Color: Crimson (#DC143C) — highest urgency.
+          ================================================================ */}
+      {showDeviceOfflineAlert && (
+        <div
+          className="sticky top-0 z-40 border-b border-red-500/50"
+          style={{ background: 'linear-gradient(90deg, #1a0505 0%, #2d0808 50%, #1a0505 100%)' }}
+        >
+          <div className="flex items-center gap-3 px-4 py-2.5">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <WifiOff className="w-5 h-5 animate-pulse" style={{ color: '#DC143C' }} />
+              <span className="text-xs font-bold uppercase tracking-widest" style={{ color: '#DC143C' }}>
+                ⚠ Thiết bị mất kết nối
+              </span>
+            </div>
+            <div className="flex-1 text-xs text-red-200/80">
+              ESP32-S3 tại nhà nấm (<code className="bg-red-900/40 px-1 rounded text-red-300">{monitoredDeviceId}</code>)
+              đã mất tín hiệu. EMQX đã kích hoạt Last Will and Testament.
+              Kiểm tra nguồn điện và kết nối mạng tại thực địa.
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeviceAlertDismissed(true)}
+              className="flex-shrink-0 w-7 h-7 p-0 text-red-400 hover:text-white hover:bg-red-900/40"
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Environmental alerts banner */}
       {alertsVisible && alerts.length > 0 && (
         <div className="sticky top-0 z-30 bg-slate-950/60 border-b border-border backdrop-blur-md">
           <div className="flex items-center gap-4 px-4 py-2.5 max-w-full overflow-x-auto">
@@ -161,9 +203,21 @@ export function Header() {
           <div>
             <h2 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
               Nhà nấm rơm Beta
-              <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">
-                Đang hoạt động
-              </span>
+              {/* Dynamic status badge: green=online, red=offline */}
+              {deviceStatus === 'offline' ? (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase animate-pulse"
+                  style={{ background: 'rgba(220,20,60,0.12)', color: '#DC143C', borderColor: 'rgba(220,20,60,0.35)' }}>
+                  Mất kết nối
+                </span>
+              ) : deviceStatus === 'online' ? (
+                <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">
+                  Đang hoạt động
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold bg-slate-500/10 text-slate-400 px-2 py-0.5 rounded-full border border-slate-500/20 uppercase">
+                  Đang kết nối...
+                </span>
+              )}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
               <span>NẤM RƠM CP</span>
@@ -172,8 +226,13 @@ export function Header() {
             </p>
           </div>
 
-          {/* Right: Actions */}
+          {/* Right: Hardware Status + Actions */}
           <div className="flex items-center gap-2">
+            {/* Hardware telemetry widget (device status indicator) */}
+            <div className="hidden md:block">
+              <HardwareTelemetryWidget />
+            </div>
+
             {/* Notifications */}
             <div className="relative">
               <Button

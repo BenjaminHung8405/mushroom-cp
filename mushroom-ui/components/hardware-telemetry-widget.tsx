@@ -1,7 +1,7 @@
 'use client'
 
-import { Cloud, HardDrive } from 'lucide-react'
-import { useState } from 'react'
+import { Cloud, HardDrive, Wifi, WifiOff, AlertTriangle } from 'lucide-react'
+import { useSimulation, DeviceStatus } from '@/lib/simulation-context'
 
 interface HardwareTelemetryWidgetProps {
   sdLoggingActive?: boolean
@@ -9,15 +9,72 @@ interface HardwareTelemetryWidgetProps {
   systemUptime?: string
 }
 
+/**
+ * HardwareTelemetryWidget
+ *
+ * Displays real-time hardware status indicators in the header:
+ *   - SD Card logging status
+ *   - Cloud sync status
+ *   - Device connection status (driven by MQTT LWT events)
+ *
+ * Device Status Visual Encoding:
+ *   🟢 Emerald + pulse  = online (ESP32-S3 actively connected)
+ *   🔴 Crimson + shake  = offline (EMQX fired LWT — device lost)
+ *   ⚪ Slate             = unknown (waiting for first status event)
+ */
+function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
+  if (status === 'offline') {
+    return (
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 rounded bg-red-950/40 border border-red-500/40 animate-pulse"
+        title="Thiết bị mất kết nối — EMQX đã kích hoạt Last Will and Testament"
+      >
+        <WifiOff className="w-4 h-4 text-red-400" />
+        <span className="text-xs font-semibold text-red-400">
+          Mất kết nối
+        </span>
+        <AlertTriangle className="w-3 h-3 text-red-400" />
+      </div>
+    )
+  }
+
+  if (status === 'online') {
+    return (
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50"
+        title="ESP32-S3 đang hoạt động"
+      >
+        <div className="relative flex items-center justify-center">
+          <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-60" />
+          <Wifi className="w-4 h-4 text-emerald-400 relative" />
+        </div>
+        <span className="text-xs text-muted-foreground">
+          <span className="text-emerald-400 font-semibold">Online</span>
+        </span>
+      </div>
+    )
+  }
+
+  // Unknown state: initial load or no status received yet
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50"
+      title="Đang chờ trạng thái thiết bị..."
+    >
+      <div className="w-2 h-2 rounded-full bg-slate-500" />
+      <span className="text-xs text-slate-500">Đang kết nối...</span>
+    </div>
+  )
+}
+
 export function HardwareTelemetryWidget({
   sdLoggingActive = true,
   cloudSynced = true,
-  systemUptime = '7d 12h 34m',
 }: HardwareTelemetryWidgetProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const { deviceStatus } = useSimulation()
 
   return (
-    <div className="flex items-center gap-4 px-4 py-2">
+    <div className="flex items-center gap-3 px-4 py-2">
       {/* SD Logging Status */}
       <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50 hover:border-slate-600/50 cursor-pointer transition-colors">
         <HardDrive className="w-4 h-4 text-blue-400" />
@@ -39,37 +96,8 @@ export function HardwareTelemetryWidget({
         </span>
       </div>
 
-      {/* System Status Indicator */}
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50">
-        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-xs text-muted-foreground">
-          <span className="hidden sm:inline">Online</span>
-        </span>
-      </div>
-
-      {/* Expanded Details (Mobile/Compact View) */}
-      {isExpanded && (
-        <div className="absolute top-16 right-4 bg-slate-900 border border-slate-700 rounded-lg p-4 shadow-lg z-50 min-w-max">
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">SD Logging:</span>
-              <span className={sdLoggingActive ? 'text-blue-400' : 'text-red-400'}>
-                {sdLoggingActive ? 'Active (5-min intervals)' : 'Inactive'}
-              </span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Cloud Sync:</span>
-              <span className={cloudSynced ? 'text-cyan-400' : 'text-amber-400'}>
-                {cloudSynced ? 'Synced (now)' : 'Pending (5 records)'}
-              </span>
-            </div>
-            <div className="border-t border-slate-700 pt-2 mt-2 flex justify-between gap-4">
-              <span className="text-muted-foreground">System Uptime:</span>
-              <span className="text-foreground font-semibold">{systemUptime}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Device Connection Status (LWT-driven) */}
+      <DeviceStatusIndicator status={deviceStatus} />
     </div>
   )
 }

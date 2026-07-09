@@ -7,39 +7,87 @@ services:
     container_name: mushroom_db
     restart: always
     environment:
-      POSTGRES_USER: mushroom_user
-      POSTGRES_PASSWORD: mushroom_secure_password
-      POSTGRES_DB: mushroom_iot_db
+      POSTGRES_USER: ${POSTGRES_USER:-mushroom_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mushroom_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-mushroom_iot_db}
     volumes:
       - mushroom_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mushroom_user -d mushroom_iot_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mushroom_user} -d ${POSTGRES_DB:-mushroom_iot_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - mushroom-network
+    # NOTE: Port 5432 is NOT exposed to host. DB is only reachable
+    # from within the mushroom-network Docker bridge network.
 
   # ==========================================
-  # 2. MQTT BROKER: EMQX
+  # 2. MQTT BROKER: EMQX (Secured)
   # ==========================================
   mushroom-mqtt:
     image: emqx/emqx:5.3.0
     container_name: mushroom_mqtt
     restart: always
     ports:
-      - "${MQTT_TCP_PORT:-1883}:1883"       # MQTT for ESP32-S3
-      - "${EMQX_DASHBOARD_PORT:-18083}:18083"     # EMQX Dashboard
+      - "${MQTT_TCP_PORT:-1883}:1883"           # MQTT for ESP32-S3 devices
+      - "${EMQX_DASHBOARD_PORT:-18083}:18083"   # EMQX Web Dashboard (restrict in production)
     environment:
-      - "EMQX_DASHBOARD__BOOTSTRAP_USER_PASSWORD=admin_mushroom_2026"
+      # Node configuration (required for EMQX 5.x) - use double underscores
+      - "EMQX_NODE__NAME=emqx@127.0.0.1"
+      - "EMQX_NODE__COOKIE=emqx_secret_cookie"
+      - "EMQX_NODE__DATA_DIR=/opt/emqx/data"
+      # Disable cluster
+      - "EMQX_CLUSTER__DISCOVERY_STRATEGY=manual"
     volumes:
       - mushroom_emqx_data:/opt/emqx/data
       - mushroom_emqx_log:/opt/emqx/log
+      # Mount our custom security configuration files (read-only)
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - mushroom-network
 
   # ==========================================
-  # 3. BACKEND: NestJS Application
+  # 3. EMQX USER INITIALIZER (One-shot sidecar)
+  #
+  # This container runs ONCE at startup to bootstrap MQTT user accounts
+  # in EMQX's built-in database via the REST API.
+  # It exits automatically after completion.
+  # Credentials come from .env, never from docker-compose.yml.
+  # ==========================================
+  init-mqtt:
+    image: alpine:latest
+    container_name: mushroom_mqtt_init
+    # on-failure: retry if script exits with error code, but stop after success (exit 0)
+    restart: "on-failure"
+    depends_on:
+      mushroom-mqtt:
+        condition: service_healthy
+    environment:
+      - EMQX_HOST=mushroom-mqtt
+      - EMQX_ADMIN_USER=${EMQX_ADMIN_USER:-admin}
+      - EMQX_ADMIN_PASS=${EMQX_ADMIN_PASS:-admin_mushroom_2026}
+      - MQTT_BACKEND_USER=${MQTT_BACKEND_USER:-nestjs_backend}
+      - MQTT_BACKEND_PASS=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - MQTT_ESP32_USER=${MQTT_ESP32_USER:-esp32_mushroom_s3_01}
+      - MQTT_ESP32_PASS=${MQTT_ESP32_PASS:-changeme_esp32_pass}
+    volumes:
+      - ./emqx/init-users.sh:/init-users.sh:ro
+    # Install curl then run the initialization script
+    command: >
+      sh -c "apk add --no-cache curl && sh /init-users.sh"
+    networks:
+      - mushroom-network
+
+  # ==========================================
+  # 4. BACKEND: NestJS Application
   # ==========================================
   mushroom-backend:
     build:
@@ -51,12 +99,18 @@ services:
       - "${BE_HOST_PORT:-3001}:3001"
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=postgresql://mushroom_user:mushroom_secure_password@mushroom-db:5432/mushroom_iot_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:-mushroom_secure_password}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
       - MQTT_HOST=mushroom-mqtt
       - MQTT_PORT=1883
+      - MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
+      - MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
     depends_on:
-      - mushroom-db
-      - mushroom-mqtt
+      mushroom-db:
+        condition: service_healthy
+      mushroom-mqtt:
+        condition: service_healthy
+      init-mqtt:
+        condition: service_completed_successfully
     networks:
       - mushroom-network
     volumes:
@@ -64,7 +118,7 @@ services:
       - /usr/src/app/node_modules
 
   # ==========================================
-  # 4. FRONTEND: Next.js (mushroom-ui)
+  # 5. FRONTEND: Next.js (mushroom-ui)
   # ==========================================
   mushroom-ui:
     build:

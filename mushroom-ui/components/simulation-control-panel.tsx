@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { useBatch } from '@/lib/batch-context'
 import { useSimulation } from '@/lib/simulation-context'
-import { Calendar, Clock, FastForward, Pause, Play } from 'lucide-react'
+import { Calendar, Clock, FastForward, Pause, Play, WifiOff, Wifi } from 'lucide-react'
  
 export function SimulationControlPanel() {
   const { totalCropDays } = useBatch()
@@ -16,6 +16,9 @@ export function SimulationControlPanel() {
     setCurrentSimulatedDay,
     simulatedTimeMinutes,
     setSimulatedTimeMinutes,
+    deviceStatus,
+    simulateDeviceOffline,
+    simulateDeviceOnline,
   } = useSimulation()
  
   const formatMinutesToTime = (totalMinutes: number): string => {
@@ -136,6 +139,65 @@ export function SimulationControlPanel() {
           <span>12:00 AM</span>
           <span className="text-amber-500/70">11:00 AM - 1:30 PM (Khóa tưới)</span>
           <span>11:50 PM</span>
+        </div>
+      </div>
+
+      {/* ============================================================
+          LWT / DEVICE STATUS SIMULATOR
+          Allows developers to test the Crimson alert UI flow without
+          needing real ESP32-S3 hardware.
+          ============================================================ */}
+      <div className="border-t border-slate-800 pt-4 space-y-3">
+        <div>
+          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 flex items-center gap-1.5">
+            <WifiOff className="w-3 h-3" />
+            Kiểm Thử LWT (Dev Only)
+          </span>
+          <p className="text-[9px] text-slate-600 mt-0.5">
+            Giả lập sự kiện thiết bị mất kết nối (Last Will & Testament) để kiểm tra giao diện cảnh báo Crimson.
+          </p>
+        </div>
+
+        {/* Current status display */}
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className="text-slate-500">Trạng thái hiện tại:</span>
+          {deviceStatus === 'offline' && (
+            <span className="font-bold text-red-400 flex items-center gap-1">
+              <WifiOff className="w-3 h-3" /> OFFLINE (LWT kích hoạt)
+            </span>
+          )}
+          {deviceStatus === 'online' && (
+            <span className="font-bold text-emerald-400 flex items-center gap-1">
+              <Wifi className="w-3 h-3" /> ONLINE
+            </span>
+          )}
+          {deviceStatus === 'unknown' && (
+            <span className="font-bold text-slate-400">UNKNOWN</span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={simulateDeviceOffline}
+            disabled={deviceStatus === 'offline'}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: deviceStatus !== 'offline' ? 'rgba(220,20,60,0.08)' : undefined,
+              borderColor: 'rgba(220,20,60,0.35)',
+              color: '#DC143C',
+            }}
+          >
+            <WifiOff className="w-3 h-3" />
+            Ngắt kết nối
+          </button>
+          <button
+            onClick={simulateDeviceOnline}
+            disabled={deviceStatus === 'online'}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase rounded border border-emerald-700/50 bg-emerald-950/20 text-emerald-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Wifi className="w-3 h-3" />
+            Kết nối lại
+          </button>
         </div>
       </div>
     </div>
