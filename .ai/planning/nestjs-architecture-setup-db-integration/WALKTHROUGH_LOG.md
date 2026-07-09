@@ -1,5 +1,14 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:15:00+07:00] - QA Review: Duyệt hoàn thành Sprint 1 (Tasks A1, B1, B2, B3)
+- **Trạng thái**: LGTM (Looks Good To Me)
+- **Đánh giá kiểm toán**:
+  - **Kiến trúc & Conventions**: Cấu trúc thư mục NestJS phân tầng rõ ràng, tách biệt layer Infrastructure (MQTT), Application, và Data Access (TypeORM). Các hàm đều được tách helper đảm bảo độ dài < 50 dòng theo Clean Code.
+  - **Bảo mật**: Không hardcode password/credentials nhạy cảm. Input được validate chặt chẽ ở cấp độ DTO (DeviceParamsDto, DeviceSetpointDto) và endpoint với global ValidationPipe, triệt tiêu nguy cơ SQL Injection và Path Traversal.
+  - **Logic & Edge-cases**: Bổ sung fallback biến môi trường local. Cơ chế check null/undefined cho các luồng dữ liệu thô đảm bảo không xảy ra sập ứng dụng (Null Pointer Exception).
+  - **Độ tối ưu**: Consolidated Connection Pool của TypeORM hoạt động ổn định với các giới hạn tối ưu (`max = 20`, `idleTimeoutMillis = 30000`, `connectionTimeoutMillis = 2000`). Chạy E2E test ổn định không bị treo.
+- **Quyết định**: Duyệt và chuyển trạng thái Sprint 1 sang `[x] Done`.
+
 ## [2026-07-09T22:11:00+07:00] - Task B1: Khắc phục lỗi bộ phân tích cú pháp .env theo Feedback của QA
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Danh sách file thay đổi**:
