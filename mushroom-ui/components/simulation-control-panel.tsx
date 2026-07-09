@@ -1,10 +1,9 @@
 'use client'
  
-import { Card } from '@/components/ui/card'
-import { useSimulation } from '@/lib/simulation-context'
-import { useBatch } from '@/lib/batch-context'
-import { Calendar, Clock, Zap, Battery, Sliders, Play, Pause, FastForward } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useBatch } from '@/lib/batch-context'
+import { useSimulation } from '@/lib/simulation-context'
+import { Calendar, Clock, FastForward, Pause, Play } from 'lucide-react'
  
 export function SimulationControlPanel() {
   const { totalCropDays } = useBatch()
@@ -17,8 +16,6 @@ export function SimulationControlPanel() {
     setCurrentSimulatedDay,
     simulatedTimeMinutes,
     setSimulatedTimeMinutes,
-    powerSource,
-    setPowerSource,
   } = useSimulation()
  
   const formatMinutesToTime = (totalMinutes: number): string => {
@@ -139,38 +136,6 @@ export function SimulationControlPanel() {
           <span>12:00 AM</span>
           <span className="text-amber-500/70">11:00 AM - 1:30 PM (Khóa tưới)</span>
           <span>11:50 PM</span>
-        </div>
-      </div>
-
-      {/* Power Source Selector */}
-      <div>
-        <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5 mb-2.5">
-          <Zap className="w-3.5 h-3.5 text-amber-400" />
-          Nguồn điện vận hành (Kiểm thử UPS)
-        </span>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setPowerSource('GRID_POWER')}
-            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
-              powerSource === 'GRID_POWER'
-                ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-400'
-                : 'bg-slate-900/30 border-slate-800 text-slate-400 hover:border-slate-700/50'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Điện lưới
-          </button>
-          <button
-            onClick={() => setPowerSource('UPS_BATTERY')}
-            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
-              powerSource === 'UPS_BATTERY'
-                ? 'bg-amber-950/20 border-amber-500/40 text-amber-400 animate-pulse'
-                : 'bg-slate-900/30 border-slate-800 text-slate-400 hover:border-slate-700/50'
-            }`}
-          >
-            <Battery className="w-3.5 h-3.5" />
-            Bình dự phòng
-          </button>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { useBatch, PowerSource } from './batch-context'
+import { useBatch } from './batch-context'
 
 interface SimulationContextType {
   isSimulationActive: boolean
@@ -12,8 +12,6 @@ interface SimulationContextType {
   setCurrentSimulatedDay: (day: number) => void
   simulatedTimeMinutes: number
   setSimulatedTimeMinutes: (minutes: number) => void
-  powerSource: PowerSource
-  setPowerSource: (source: PowerSource) => void
 
   // Real-time Telemetry States
   humidityCurrent: number
@@ -38,7 +36,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [simulationSpeedMultiplier, setSimulationSpeedMultiplier] = useState(1)
   const [currentSimulatedDay, setCurrentSimulatedDay] = useState(1)
   const [simulatedTimeMinutes, setSimulatedTimeMinutes] = useState(540) // 9:00 AM
-  const [powerSource, setPowerSource] = useState<PowerSource>('GRID_POWER')
 
   // Real-time Telemetry States
   const [humidityCurrent, setHumidityCurrent] = useState(78)
@@ -132,8 +129,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         setCurrentSimulatedDay,
         simulatedTimeMinutes,
         setSimulatedTimeMinutes,
-        powerSource,
-        setPowerSource,
         humidityCurrent,
         humidityTrend,
         temperatureCurrent,

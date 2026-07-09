@@ -125,7 +125,6 @@ export interface FarmHouseConfig {
   activeProfileId: string | null; // Associated optimization profile template ID
   currentCropDay: number; // Current day within the ongoing 21-day production cycle
   hardwareHealth: {
-    powerSource: "GRID_POWER" | "UPS_BATTERY";
     batteryBackupPercent: number;
     sdCardLoggingActive: boolean;
     cloudSyncStatus: "CONNECTED" | "DEGRADED" | "DISCONNECTED";
