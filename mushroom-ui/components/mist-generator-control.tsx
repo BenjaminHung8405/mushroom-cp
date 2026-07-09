@@ -13,16 +13,32 @@ interface MistGeneratorControlProps {
 type MotorState = 'idle' | 'forward' | 'backward'
 
 export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlProps) {
-  const { simulatedTimeMinutes, thermalShockProtection } = useSimulation()
+  const {
+    simulatedTimeMinutes,
+    thermalShockProtection,
+    thermalShockStart,
+    thermalShockEnd,
+  } = useSimulation()
   const [motorState, setMotorState] = useState<MotorState>('idle')
   const [position, setPosition] = useState(50) // 0-100% travel
   const [endLimitActivated, setEndLimitActivated] = useState(false)
 
-  // Midday blackout window guard: 11:00 AM (660m) to 1:30 PM (810m)
-  const isBlackoutActive =
-    thermalShockProtection &&
-    simulatedTimeMinutes >= 660 &&
-    simulatedTimeMinutes <= 810
+  // Helper helper to convert 'HH:MM' string to total minutes
+  const timeToMinutes = (timeStr: string): number => {
+    if (!timeStr || !timeStr.includes(':')) return 0
+    const [h, m] = timeStr.split(':').map(Number)
+    return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m)
+  }
+
+  const startMin = timeToMinutes(thermalShockStart || "11:00")
+  const endMin = timeToMinutes(thermalShockEnd || "13:30")
+
+  // Robust check supporting both normal and cross-midnight ranges
+  const isTimeInWindow = startMin <= endMin
+    ? simulatedTimeMinutes >= startMin && simulatedTimeMinutes <= endMin
+    : simulatedTimeMinutes >= startMin || simulatedTimeMinutes <= endMin
+
+  const isBlackoutActive = thermalShockProtection && isTimeInWindow
 
   // Automatically halt motor if blackout is triggered
   useEffect(() => {
@@ -76,14 +92,14 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
   }
 
   const getMotorStateLabel = (state: MotorState): string => {
-    if (isBlackoutActive) return 'Locked OFF (Thermal Guard)'
+    if (isBlackoutActive) return 'Đã khóa TẮT (Khóa nhiệt độ)'
     switch (state) {
       case 'idle':
-        return 'Idle'
+        return 'Đang chờ'
       case 'forward':
-        return 'Moving Forward'
+        return 'Đang tiến'
       case 'backward':
-        return 'Moving Backward'
+        return 'Đang lùi'
     }
   }
 
@@ -110,14 +126,14 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           </div>
           <div>
             <h3 className="font-semibold text-foreground flex items-center gap-2">
-              Mist Generator (220V Motor)
+              Máy phun sương (Động cơ 220V)
               {isBlackoutActive && (
                 <span className="text-[10px] font-bold uppercase bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-500/20">
-                  Locked
+                  Đã khóa
                 </span>
               )}
             </h3>
-            <p className="text-xs text-muted-foreground">Reversible Motor on Rails</p>
+            <p className="text-xs text-muted-foreground">Động cơ đảo chiều trên đường ray</p>
           </div>
         </div>
 
@@ -125,7 +141,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
         {isBlackoutActive && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)] animate-pulse">
             <Shield className="w-4 h-4" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Midday Thermal Guard Active</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">Khóa sốc nhiệt đang bật</span>
           </div>
         )}
       </div>
@@ -142,15 +158,15 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {endLimitActivated && !isBlackoutActive && (
             <div className="flex items-center gap-2 px-2 py-1 rounded bg-amber-500/20 border border-amber-500/40">
               <AlertCircle className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-amber-300">End-Limit Hit</span>
+              <span className="text-xs text-amber-300">Đã chạm giới hạn biên</span>
             </div>
           )}
         </div>
         <p className="text-xs text-muted-foreground">
           {isBlackoutActive ? (
-            <span className="text-red-400 font-medium">Automatic misting paused to prevent crop thermal shock.</span>
+            <span className="text-red-400 font-medium">Tự động ngưng phun sương để tránh sốc nhiệt cho nấm.</span>
           ) : (
-            `Motor: ${motorState === 'forward' ? '→ Forward' : motorState === 'backward' ? '← Backward' : '⊘ Stopped'}`
+            `Động cơ: ${motorState === 'forward' ? '→ Tiến' : motorState === 'backward' ? '← Lùi' : '⊘ Đã dừng'}`
           )}
         </p>
       </div>
@@ -158,7 +174,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
       {/* Position Slider */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm text-muted-foreground">Rail Position</span>
+          <span className="text-sm text-muted-foreground">Vị trí đường ray</span>
           <span className="text-sm font-semibold text-foreground">{position}%</span>
         </div>
         <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
@@ -172,8 +188,8 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           />
         </div>
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
-          <span>Start</span>
-          <span>End</span>
+          <span>Bắt đầu</span>
+          <span>Kết thúc</span>
         </div>
       </div>
 
@@ -181,7 +197,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
       {pwmDutyCycle !== undefined && (
         <div className="mb-6 p-3 rounded bg-slate-900/30 border border-slate-700/30">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-muted-foreground">PWM Duty Cycle</span>
+            <span className="text-xs text-muted-foreground">Chu kỳ nhiệm vụ PWM</span>
             <span className="text-sm font-semibold text-foreground">
               {isBlackoutActive ? '0.0%' : `${pwmDutyCycle.toFixed(1)}%`}
             </span>
@@ -214,10 +230,10 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           className="flex-1"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Backward
+          Lùi
         </Button>
         <Button onClick={handleStop} disabled={isBlackoutActive} variant="outline" className="flex-1">
-          Stop
+          Dừng
         </Button>
         <Button
           onClick={handleForward}
@@ -225,7 +241,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           variant={motorState === 'forward' ? 'default' : 'outline'}
           className="flex-1"
         >
-          Forward
+          Tiến
           <ArrowRight className="w-4 h-4 ml-2" />
         </Button>
       </div>
@@ -236,10 +252,10 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {isBlackoutActive ? (
             <span className="text-red-400 font-medium flex items-center gap-1">
               <Lock className="w-3.5 h-3.5" />
-              Controls locked between 11:00 AM and 1:30 PM
+              Đã khóa điều khiển từ {thermalShockStart} đến {thermalShockEnd}
             </span>
           ) : (
-            '💡 System monitors end-limit switches automatically'
+            '💡 Hệ thống tự động giám sát các công tắc hành trình'
           )}
         </p>
       </div>
