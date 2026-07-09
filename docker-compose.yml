@@ -4,13 +4,12 @@ services:
   # ==========================================
   mushroom-db:
     image: timescale/timescaledb:latest-pg15
+    container_name: mushroom_db
     restart: always
     environment:
       POSTGRES_USER: mushroom_user
       POSTGRES_PASSWORD: mushroom_secure_password
       POSTGRES_DB: mushroom_iot_db
-    ports:
-      - "${PG_HOST_PORT:-5432}:5432"
     volumes:
       - mushroom_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,10 +25,10 @@ services:
   # ==========================================
   mushroom-mqtt:
     image: emqx/emqx:5.3.0
+    container_name: mushroom_mqtt
     restart: always
     ports:
       - "${MQTT_TCP_PORT:-1883}:1883"       # MQTT for ESP32-S3
-      - "${MQTT_WS_PORT:-8083}:8083"       # MQTT over WebSockets
       - "${EMQX_DASHBOARD_PORT:-18083}:18083"     # EMQX Dashboard
     environment:
       - "EMQX_DASHBOARD__BOOTSTRAP_USER_PASSWORD=admin_mushroom_2026"
@@ -46,6 +45,7 @@ services:
     build:
       context: ./mushroom-backend
       dockerfile: Dockerfile
+    container_name: mushroom_backend
     restart: always
     ports:
       - "${BE_HOST_PORT:-3001}:3001"
@@ -70,9 +70,10 @@ services:
     build:
       context: ./mushroom-ui
       dockerfile: Dockerfile
+    container_name: mushroom_ui
     restart: always
     ports:
-      - "${UI_HOST_PORT:-3000}:3000"
+      - "${UI_HOST_PORT:-3002}:3000"
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://mushroom-backend:3001
