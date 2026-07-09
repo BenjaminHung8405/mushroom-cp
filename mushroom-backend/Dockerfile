@@ -1,8 +1,10 @@
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install
+# Copy package manifest and pnpm lockfile first to leverage layer caching
+COPY package.json pnpm-lock.yaml* ./
+# Enable Corepack and activate pnpm, then install dependencies using pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 EXPOSE 3001
-# Development entry (NestJS): ensure package.json has `start:dev` script
-CMD ["npm", "run", "start:dev"]
+# Development entry (NestJS): ensure `start:dev` exists in package.json and uses watch mode
+CMD ["pnpm", "run", "start:dev"]

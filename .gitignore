@@ -1,0 +1,91 @@
+# Root .gitignore
+# Merged from mushroom-backend/.gitignore and mushroom-ui/.gitignore
+
+### Global / repo-level ignores
+# Logs
+*.log
+logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Test coverage / build artifacts
+lib-cov
+coverage
+*.lcov
+.nyc_output
+
+# Bundler / cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+.cache
+.parcel-cache
+
+# Dependency directories
+**/node_modules/
+bower_components
+jspm_packages/
+web_modules/
+
+# TypeScript / editor cache
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.node_repl_history
+
+# Package artifacts
+*.tgz
+.yarn-integrity
+
+# Env files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+### Project-specific ignores
+
+# Backend (mushroom-backend)
+/mushroom-backend/dist
+/mushroom-backend/node_modules/
+/mushroom-backend/coverage
+/mushroom-backend/.nyc_output
+/mushroom-backend/*.tsbuildinfo
+
+# Frontend (mushroom-ui)
+/mushroom-ui/.next/
+/mushroom-ui/out/
+/mushroom-ui/.cache/
+/mushroom-ui/.parcel-cache/
+/mushroom-ui/.nuxt/
+/mushroom-ui/dist
+/mushroom-ui/.vuepress/dist
+/mushroom-ui/.next/cache
+/mushroom-ui/node_modules/
+
+# VS Code workspace settings in subprojects
+/.vscode/
+/mushroom-ui/.vscode/
+/mushroom-backend/.vscode/
+
+### Docker / compose artifacts
+# ignore generated Docker/compose files if any
+docker-compose.override.yml
