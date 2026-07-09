@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'AgriSmart Dashboard',
-  description: 'Intelligent agricultural management system',
+  title: 'Bảng điều khiển AgriSmart',
+  description: 'Hệ thống quản lý nông nghiệp thông minh',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -38,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="vi" className="dark">
       <body className="antialiased bg-background text-foreground">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

@@ -1,17 +1,17 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { LayoutGrid, Leaf, Library, Settings, Menu, X } from 'lucide-react'
-import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { LayoutGrid, Leaf, Library, Menu, Settings, X } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useState } from 'react'
 
 const navItems = [
-  { name: 'Dashboard', href: '/', icon: LayoutGrid },
-  { name: 'Farm Manager', href: '/farms', icon: Leaf },
-  { name: 'Profile Library', href: '/library', icon: Library },
-  { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Tổng quan', href: '/', icon: LayoutGrid },
+  { name: 'Quản lý trang trại', href: '/farms', icon: Leaf },
+  { name: 'Thư viện hồ sơ', href: '/library', icon: Library },
+  { name: 'Cài đặt', href: '/settings', icon: Settings },
 ]
 
 export function Sidebar() {
@@ -52,7 +52,7 @@ export function Sidebar() {
           </div>
           <div className="flex-1">
             <h1 className="text-lg font-bold text-sidebar-foreground">NẤM RƠM CP</h1>
-            <p className="text-xs text-sidebar-foreground/60">Straw Mushroom IoT</p>
+            <p className="text-xs text-sidebar-foreground/60">IoT nấm rơm</p>
           </div>
         </div>
 
@@ -87,14 +87,14 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border p-4">
           <div className="bg-sidebar-accent/20 rounded-lg p-4 text-center">
             <p className="text-sm text-sidebar-foreground/75 mb-3">
-              Pillar Houses: <span className="font-semibold text-emerald-400">1</span> (35 pillars)
+              Nhà trụ: <span className="font-semibold text-emerald-400">1</span> (35 trụ)
             </p>
             <Button
               variant="outline"
               size="sm"
               className="w-full border-emerald-500/50 text-emerald-400 hover:bg-emerald-500 hover:text-white"
             >
-              Add Pillar House
+              Thêm nhà trụ
             </Button>
           </div>
         </div>

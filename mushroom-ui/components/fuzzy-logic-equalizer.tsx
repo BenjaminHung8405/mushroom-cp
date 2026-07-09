@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { useSimulation, Checkpoint, DayTrack } from '@/lib/simulation-context'
-import { LightTimelineBlock } from '@/lib/types'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Save, Copy, Lock, Unlock, AlertCircle } from 'lucide-react'
+import { Card } from '@/components/ui/card'
+import { Checkpoint, DayTrack, useSimulation } from '@/lib/simulation-context'
+import { LightTimelineBlock } from '@/lib/types'
+import { AlertCircle, Copy, Lightbulb, Lock, Save, Unlock } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface TimelineProps {
   title: string
@@ -16,6 +16,7 @@ interface TimelineProps {
   onCheckpointChange: (checkpoints: Checkpoint[]) => void
   isCurve?: boolean
   optimalRange?: [number, number]
+  onOptimalRangeChange?: (range: [number, number]) => void
 }
 
 function Timeline({
@@ -27,6 +28,7 @@ function Timeline({
   onCheckpointChange,
   isCurve = true,
   optimalRange,
+  onOptimalRangeChange,
 }: TimelineProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -38,6 +40,56 @@ function Timeline({
   } | null>(null)
   const [hoveredDay, setHoveredDay] = useState<number | null>(null)
   const [isTouch, setIsTouch] = useState(false)
+
+  // Local string states to isolate re-render storm on typing and prevent decimal input glitches
+  const [localMinStr, setLocalMinStr] = useState<string>(optimalRange ? String(optimalRange[0]) : '')
+  const [localMaxStr, setLocalMaxStr] = useState<string>(optimalRange ? String(optimalRange[1]) : '')
+
+  const rangeStart = optimalRange?.[0]
+  const rangeEnd = optimalRange?.[1]
+
+  // Keep local string states in sync when optimalRange changes from outside (e.g. profile change)
+  useEffect(() => {
+    if (optimalRange) {
+      setLocalMinStr(String(optimalRange[0]))
+      setLocalMaxStr(String(optimalRange[1]))
+    }
+  }, [rangeStart, rangeEnd])
+
+  const handleMinBlur = () => {
+    if (!optimalRange) return
+    const val = parseFloat(localMinStr)
+    const currentMax = parseFloat(localMaxStr) || optimalRange[1]
+    // Validation: must be a number, within bounds [min, max], and less than max optimal range
+    if (!isNaN(val) && val >= min && val < currentMax) {
+      onOptimalRangeChange?.([val, currentMax])
+    } else {
+      setLocalMinStr(String(optimalRange[0]))
+    }
+  }
+
+  const handleMaxBlur = () => {
+    if (!optimalRange) return
+    const val = parseFloat(localMaxStr)
+    const currentMin = parseFloat(localMinStr) || optimalRange[0]
+    // Validation: must be a number, within bounds [min, max], and greater than min optimal range
+    if (!isNaN(val) && val <= max && val > currentMin) {
+      onOptimalRangeChange?.([currentMin, val])
+    } else {
+      setLocalMaxStr(String(optimalRange[1]))
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, type: 'min' | 'max') => {
+    if (e.key === 'Enter') {
+      if (type === 'min') {
+        handleMinBlur()
+      } else {
+        handleMaxBlur()
+      }
+      e.currentTarget.blur()
+    }
+  }
 
   // Responsive canvas dimensions - initialized with defaults to avoid hydration mismatch
   const [canvasDimensions, setCanvasDimensions] = useState({
@@ -221,9 +273,39 @@ function Timeline({
             Range: {min}-{max}{unit}
           </span>
           {optimalRange && (
-            <span className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
-              Optimal: {optimalRange[0]}-{optimalRange[1]}{unit}
-            </span>
+            onOptimalRangeChange ? (
+              <div className="flex items-center gap-1.5 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-emerald-400">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Optimal:</span>
+                <input
+                  type="number"
+                  min={min}
+                  max={parseFloat(localMaxStr) || optimalRange[1]}
+                  step={0.5}
+                  value={localMinStr}
+                  onChange={(e) => setLocalMinStr(e.target.value)}
+                  onBlur={handleMinBlur}
+                  onKeyDown={(e) => handleKeyDown(e, 'min')}
+                  className="w-10 bg-slate-800 border border-slate-700/50 text-center rounded text-foreground focus:outline-none focus:border-emerald-500/50 py-0.5 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span>-</span>
+                <input
+                  type="number"
+                  min={parseFloat(localMinStr) || optimalRange[0]}
+                  max={max}
+                  step={0.5}
+                  value={localMaxStr}
+                  onChange={(e) => setLocalMaxStr(e.target.value)}
+                  onBlur={handleMaxBlur}
+                  onKeyDown={(e) => handleKeyDown(e, 'max')}
+                  className="w-10 bg-slate-800 border border-slate-700/50 text-center rounded text-foreground focus:outline-none focus:border-emerald-500/50 py-0.5 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span>{unit}</span>
+              </div>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
+                Optimal: {optimalRange[0]}-{optimalRange[1]}{unit}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -391,8 +473,12 @@ function Timeline({
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground mt-2">
-        💡 <strong>Click</strong> chart to add nodes (snap to 0.5). <strong>Drag</strong> nodes to adjust. <strong>Double-click</strong> intermediate nodes to delete (Day 1 &amp; 21 are locked).
+      <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5">
+        <Lightbulb className="w-3.5 h-3.5 shrink-0 text-amber-400 mt-0.5" />
+        <span>
+          <strong>Nhấp</strong> vào biểu đồ để thêm nút (làm tròn theo bước 0,5). <strong>Kéo</strong> nút để
+          điều chỉnh. <strong>Nhấp đúp</strong> vào nút trung gian để xóa (ngày 1 và 21 bị khóa).
+        </span>
       </p>
     </div>
   )
@@ -530,8 +616,8 @@ function LightSchedule({
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3 md:mb-4">
         <div>
-          <h4 className="font-semibold text-foreground mb-1 text-sm md:text-base">Light Schedule (ON/OFF)</h4>
-          <p className="text-xs text-muted-foreground">Click column to toggle • Drag amber boundaries to stretch/shrink block</p>
+          <h4 className="font-semibold text-foreground mb-1 text-sm md:text-base">Lịch chiếu sáng (BẬT/TẮT)</h4>
+          <p className="text-xs text-muted-foreground">Nhấp vào cột để bật/tắt. Kéo mép màu hổ phách để nới hoặc thu khối.</p>
         </div>
       </div>
 
@@ -589,10 +675,10 @@ function LightSchedule({
 
                 {/* Day Labels */}
                 <span className={`text-[10px] font-medium z-10 ${state.active ? 'text-amber-200' : 'text-slate-500'}`}>
-                  D{day}
+                  Ngày {day}
                 </span>
                 <span className={`text-[11px] font-bold z-10 mt-0.5 ${state.active ? 'text-amber-300' : 'text-slate-600'}`}>
-                  {state.active ? 'ON' : 'OFF'}
+                  {state.active ? 'BẬT' : 'TẮT'}
                 </span>
               </div>
             )
@@ -604,10 +690,10 @@ function LightSchedule({
       {activeBlocks.length > 0 && (
         <div className="mt-3 p-2.5 rounded bg-slate-950/40 border border-amber-500/20">
           <p className="text-xs text-muted-foreground">
-            <span className="text-amber-400 font-semibold">Active Timeline Blocks:</span>{' '}
+            <span className="text-amber-400 font-semibold">Các khối thời gian đang bật:</span>{' '}
             {activeBlocks.map((block, idx) => (
               <span key={idx} className="bg-amber-955/40 border border-amber-900/50 px-2 py-0.5 rounded text-amber-200 font-medium text-[11px] inline-block mr-1.5">
-                Day {block.startDay}–{block.endDay} (ON)
+                Ngày {block.startDay}–{block.endDay} (BẬT)
               </span>
             ))}
           </p>
@@ -629,7 +715,56 @@ export function FuzzyLogicEqualizer() {
     setHumidityCheckpoints,
     lightDayStates,
     setLightDayStates,
+    thermalShockStart,
+    setThermalShockStart,
+    thermalShockEnd,
+    setThermalShockEnd,
+    tempOptimalRange,
+    setTempOptimalRange,
+    humidityOptimalRange,
+    setHumidityOptimalRange,
   } = useSimulation()
+
+  const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
+  const [localShockEnd, setLocalShockEnd] = useState(thermalShockEnd)
+
+  useEffect(() => {
+    setLocalShockStart(thermalShockStart)
+  }, [thermalShockStart])
+
+  useEffect(() => {
+    setLocalShockEnd(thermalShockEnd)
+  }, [thermalShockEnd])
+
+  const handleShockStartBlur = () => {
+    if (localShockStart && localShockStart.includes(':')) {
+      setThermalShockStart(localShockStart)
+    } else {
+      setLocalShockStart(thermalShockStart)
+    }
+  }
+
+  const handleShockEndBlur = () => {
+    if (localShockEnd && localShockEnd.includes(':')) {
+      setThermalShockEnd(localShockEnd)
+    } else {
+      setLocalShockEnd(thermalShockEnd)
+    }
+  }
+
+  const handleShockStartKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleShockStartBlur()
+      e.currentTarget.blur()
+    }
+  }
+
+  const handleShockEndKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleShockEndBlur()
+      e.currentTarget.blur()
+    }
+  }
 
   const lightBlocks = useMemo<LightTimelineBlock[]>(() => {
     const blocks: LightTimelineBlock[] = []
@@ -680,14 +815,14 @@ export function FuzzyLogicEqualizer() {
   }
 
   const handleDistributeProfile = () => {
-    console.log('Profile distributed to all farm houses')
+    console.log('Hồ sơ đã được phân phối đến tất cả nhà trụ')
   }
 
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40 col-span-full mt-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-foreground mb-4">
-          Fuzzy Logic Growth Profile Editor (21-Day Cycle)
+          Trình chỉnh hồ sơ logic mờ (chu kỳ 21 ngày)
         </h2>
 
         {/* Profile Saver Topbar - Responsive stacked on mobile */}
@@ -696,43 +831,62 @@ export function FuzzyLogicEqualizer() {
             type="text"
             value={profileName}
             onChange={(e) => setProfileName(e.target.value)}
-            placeholder="Profile name"
+            placeholder="Tên hồ sơ"
             className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-sm md:text-base"
           />
           <div className="flex gap-2 w-full md:w-auto">
             <Button onClick={handleSaveProfile} className="gap-2 flex-1 md:flex-initial text-xs md:text-sm">
               <Save className="w-4 h-4" />
-              <span className="hidden sm:inline">Save</span>
+              <span className="hidden sm:inline">Lưu</span>
             </Button>
             <Button onClick={handleDistributeProfile} variant="outline" className="gap-2 flex-1 md:flex-initial text-xs md:text-sm">
               <Copy className="w-4 h-4" />
-              <span className="hidden sm:inline">Distribute</span>
+              <span className="hidden sm:inline">Phân phối</span>
             </Button>
           </div>
         </div>
 
         {/* Intraday Thermal Shock Protection */}
         <div
-          className={`p-4 rounded-lg border mb-6 flex items-center justify-between ${
+          className={`p-4 rounded-lg border mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
             thermalShockProtection
               ? 'border-amber-500/30 bg-amber-950/20'
               : 'border-slate-700/50 bg-slate-900/20'
           }`}
         >
           <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-400" />
-            <div>
-              <h4 className="font-semibold text-foreground">
-                Misting Blackout Window
+            <AlertCircle className="w-5.5 h-5.5 text-amber-400 shrink-0" />
+            <div className="flex flex-col gap-1.5">
+              <h4 className="font-semibold text-foreground text-sm sm:text-base">
+                Khung giờ khóa tưới sương
               </h4>
-              <p className="text-xs text-muted-foreground">
-                11:00 AM - 1:30 PM thermal shock protection (misting restricted)
-              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Khóa từ:</span>
+                <input
+                  type="time"
+                  value={localShockStart}
+                  onChange={(e) => setLocalShockStart(e.target.value)}
+                  onBlur={handleShockStartBlur}
+                  onKeyDown={handleShockStartKeyDown}
+                  disabled={!thermalShockProtection}
+                  className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <span className="text-xs text-muted-foreground">đến:</span>
+                <input
+                  type="time"
+                  value={localShockEnd}
+                  onChange={(e) => setLocalShockEnd(e.target.value)}
+                  onBlur={handleShockEndBlur}
+                  onKeyDown={handleShockEndKeyDown}
+                  disabled={!thermalShockProtection}
+                  className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
             </div>
           </div>
           <button
             onClick={() => setThermalShockProtection(!thermalShockProtection)}
-            className="p-2 rounded-lg hover:bg-slate-700/30 transition-colors"
+            className="p-2 rounded-lg hover:bg-slate-700/30 transition-colors self-end sm:self-center"
           >
             {thermalShockProtection ? (
               <Lock className="w-5 h-5 text-amber-400" />
@@ -746,24 +900,26 @@ export function FuzzyLogicEqualizer() {
       {/* Three Parallel Timelines */}
       <div className="space-y-8">
         <Timeline
-          title="Temperature Curve (Substrate Control)"
+          title="Đường nhiệt độ (điều khiển giá thể)"
           min={20}
           max={40}
           unit="°C"
           checkpoints={temperatureCheckpoints}
           onCheckpointChange={setTemperatureCheckpoints}
-          optimalRange={[28, 35]}
+          optimalRange={tempOptimalRange}
+          onOptimalRangeChange={setTempOptimalRange}
           isCurve
         />
 
         <Timeline
-          title="Humidity Curve (Environmental Control)"
+          title="Đường độ ẩm (điều khiển môi trường)"
           min={50}
           max={100}
           unit="%"
           checkpoints={humidityCheckpoints}
           onCheckpointChange={setHumidityCheckpoints}
-          optimalRange={[70, 90]}
+          optimalRange={humidityOptimalRange}
+          onOptimalRangeChange={setHumidityOptimalRange}
           isCurve
         />
 
@@ -776,9 +932,10 @@ export function FuzzyLogicEqualizer() {
       {/* Info Section */}
       <div className="mt-6 p-4 rounded-lg bg-blue-950/20 border border-blue-500/20">
         <p className="text-xs text-blue-300">
-          💡 <strong>Straw Mushroom (Volvariella volvacea) Profile:</strong> This 21-day cycle editor
-          allows precise control over environmental conditions from spawn inoculation through fruiting.
-          Checkpoints snap to 0.5 increments for precise fuzzy logic control.
+          <Lightbulb className="w-3.5 h-3.5 inline-block align-text-bottom mr-1" />
+          <strong>Hồ sơ nấm rơm (Volvariella volvacea):</strong> Trình chỉnh chu kỳ 21 ngày này cho phép
+          kiểm soát chính xác điều kiện môi trường từ lúc cấy giống đến giai đoạn ra quả thể.
+          Các điểm neo tự động làm tròn theo bước 0,5 để điều khiển logic mờ ổn định.
         </p>
       </div>
     </Card>

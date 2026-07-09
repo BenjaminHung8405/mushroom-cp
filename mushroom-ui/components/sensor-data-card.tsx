@@ -23,21 +23,21 @@ interface SensorDataCardProps {
 const sensorConfig = {
   humidity: {
     icon: Droplets,
-    label: 'Humidity (SHT30)',
+    label: 'Độ ẩm (SHT30)',
     optimal: [70, 90],
     warning: [60, 95],
     color: 'text-blue-400',
   },
   temperature: {
     icon: Thermometer,
-    label: 'Substrate Temp (DS18B20)',
+    label: 'Nhiệt độ giá thể (DS18B20)',
     optimal: [28, 35],
     warning: [20, 38],
     color: 'text-orange-400',
   },
   co2: {
     icon: Wind,
-    label: 'CO2 Levels (SCD30)',
+    label: 'Mức CO2 (SCD30)',
     optimal: [800, 1200],
     warning: [600, 1500],
     color: 'text-cyan-400',
@@ -87,7 +87,7 @@ export function SensorDataCard({
   const config = sensorConfig[sensorType]
   const Icon = config.icon
   const errorDelta = setpointValue - currentValue
-  
+
   // Format values: CO2 as integer, others with .toFixed(1)
   const formattedCurrent = sensorType === 'co2' ? Math.round(currentValue) : currentValue.toFixed(1)
   const formattedSetpoint = sensorType === 'co2' ? Math.round(setpointValue) : setpointValue.toFixed(1)
@@ -123,7 +123,7 @@ export function SensorDataCard({
             ) : (
               <TrendingDown size={12} />
             )}
-            <span className="truncate">{Math.abs(trend).toFixed(1)}% change</span>
+            <span className="truncate">{Math.abs(trend).toFixed(1)}% thay đổi</span>
           </div>
         )}
       </div>
@@ -131,14 +131,14 @@ export function SensorDataCard({
       {/* Error Delta Display (Fuzzy Logic) */}
       <div className="bg-slate-900/40 rounded px-2 py-2 mb-2 md:mb-3 border border-slate-700/50">
         <div className="flex justify-between items-center mb-1">
-          <span className="text-xs text-muted-foreground">Error (E)</span>
+          <span className="text-xs text-muted-foreground">Sai lệch (E)</span>
           <span className="text-xs font-semibold text-foreground">
             {errorDelta > 0 ? '+' : ''}{formattedError}{unit}
           </span>
         </div>
         <div className="flex justify-between text-xs text-muted-foreground gap-1">
-          <span className="truncate">Set: {formattedSetpoint}{unit}</span>
-          <span className="truncate">Now: {formattedCurrent}{unit}</span>
+          <span className="truncate">Đặt: {formattedSetpoint}{unit}</span>
+          <span className="truncate">Hiện tại: {formattedCurrent}{unit}</span>
         </div>
       </div>
 
@@ -163,11 +163,11 @@ export function SensorDataCard({
       {/* Threshold Range */}
       <div className="pt-2 border-t border-border/50">
         <div className="flex justify-between text-xs text-muted-foreground gap-1">
-          <span className="truncate">Opt: {config.optimal[0]}-{config.optimal[1]}{unit}</span>
+          <span className="truncate">Tối ưu: {config.optimal[0]}-{config.optimal[1]}{unit}</span>
           {status !== 'optimal' && (
             <div className="flex items-center gap-1 text-amber-400 ml-auto">
               <AlertCircle size={10} />
-              <span className="hidden sm:inline">Out of range</span>
+              <span className="hidden sm:inline">Ngoài ngưỡng</span>
             </div>
           )}
         </div>

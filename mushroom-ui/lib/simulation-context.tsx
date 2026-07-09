@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useMemo, useEffect } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 export type PowerSource = 'GRID_POWER' | 'UPS_BATTERY'
 
@@ -35,6 +35,15 @@ interface SimulationContextType {
   setProfileName: (name: string) => void
   thermalShockProtection: boolean
   setThermalShockProtection: (active: boolean) => void
+  thermalShockStart: string
+  setThermalShockStart: (time: string) => void
+  thermalShockEnd: string
+  setThermalShockEnd: (time: string) => void
+
+  tempOptimalRange: [number, number]
+  setTempOptimalRange: (range: [number, number]) => void
+  humidityOptimalRange: [number, number]
+  setHumidityOptimalRange: (range: [number, number]) => void
   
   temperatureCheckpoints: Checkpoint[]
   setTemperatureCheckpoints: (checkpoints: Checkpoint[]) => void
@@ -85,8 +94,13 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [simulatedTimeMinutes, setSimulatedTimeMinutes] = useState(540) // 9:00 AM
   const [powerSource, setPowerSource] = useState<PowerSource>('GRID_POWER')
 
-  const [profileName, setProfileName] = useState('Dry Season Optimization')
+  const [profileName, setProfileName] = useState('Tối ưu mùa khô')
   const [thermalShockProtection, setThermalShockProtection] = useState(true)
+  const [thermalShockStart, setThermalShockStart] = useState('11:00')
+  const [thermalShockEnd, setThermalShockEnd] = useState('13:30')
+
+  const [tempOptimalRange, setTempOptimalRange] = useState<[number, number]>([28, 35])
+  const [humidityOptimalRange, setHumidityOptimalRange] = useState<[number, number]>([70, 90])
   
   const [temperatureCheckpoints, setTemperatureCheckpoints] = useState<Checkpoint[]>([
     { day: 1, value: 30 },
@@ -171,6 +185,14 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         setProfileName,
         thermalShockProtection,
         setThermalShockProtection,
+        thermalShockStart,
+        setThermalShockStart,
+        thermalShockEnd,
+        setThermalShockEnd,
+        tempOptimalRange,
+        setTempOptimalRange,
+        humidityOptimalRange,
+        setHumidityOptimalRange,
         temperatureCheckpoints,
         setTemperatureCheckpoints,
         humidityCheckpoints,

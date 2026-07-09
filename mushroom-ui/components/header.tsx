@@ -1,11 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { Bell, AlertCircle, ChevronDown, LogOut, User, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
 import { useSimulation } from '@/lib/simulation-context'
 import { cn } from '@/lib/utils'
+import { Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, X } from 'lucide-react'
+import { useState } from 'react'
 
 export function Header() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -13,7 +12,6 @@ export function Header() {
   const [alertsVisible, setAlertsVisible] = useState(true)
 
   const {
-    powerSource,
     humidityCurrent,
     temperatureCurrent,
     co2Current,
@@ -21,44 +19,35 @@ export function Header() {
 
   // Generate dynamic, domain-specific alerts based on biological thresholds
   const alerts = []
-  
-  if (powerSource === 'UPS_BATTERY') {
-    alerts.push({
-      id: 'ups-alert',
-      type: 'critical',
-      title: 'UPS Backup Battery Active',
-      message: 'Grid failure! Drawing power from backup modules. Prevent collapse!',
-    })
-  }
 
   // Humidity alarms
   if (humidityCurrent < 60) {
     alerts.push({
       id: 'hum-crit-low',
       type: 'critical',
-      title: 'Danger: Low Humidity',
-      message: `RH at ${humidityCurrent.toFixed(1)}% (Opt: 70-90%). Contamination risk!`,
+      title: 'Nguy hiểm: Độ ẩm thấp',
+      message: `RH hiện tại ${humidityCurrent.toFixed(1)}% (tối ưu: 70-90%). Nguy cơ nhiễm tạp cao.`,
     })
   } else if (humidityCurrent < 70) {
     alerts.push({
       id: 'hum-warn-low',
       type: 'warning',
-      title: 'Low Humidity Warning',
-      message: `RH at ${humidityCurrent.toFixed(1)}%. Soil/air drying risk.`,
+      title: 'Cảnh báo độ ẩm thấp',
+      message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Nguy cơ khô bề mặt và không khí.`,
     })
   } else if (humidityCurrent > 95) {
     alerts.push({
       id: 'hum-crit-high',
       type: 'critical',
-      title: 'Danger: Oversaturation',
-      message: `RH at ${humidityCurrent.toFixed(1)}%. Contamination / pinhead abortion risk!`,
+      title: 'Nguy hiểm: Quá bão hòa ẩm',
+      message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Nguy cơ nhiễm tạp và rụng đầu kim.`,
     })
   } else if (humidityCurrent > 90) {
     alerts.push({
       id: 'hum-warn-high',
       type: 'warning',
-      title: 'High Humidity Warning',
-      message: `RH at ${humidityCurrent.toFixed(1)}%. Oversaturation risk.`,
+      title: 'Cảnh báo độ ẩm cao',
+      message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Có nguy cơ bão hòa quá mức.`,
     })
   }
 
@@ -67,29 +56,29 @@ export function Header() {
     alerts.push({
       id: 'temp-crit-frost',
       type: 'critical',
-      title: 'CRITICAL FROST WARNING',
-      message: `Substrate is at ${temperatureCurrent.toFixed(1)}°C. Permanent mycelium death below 20°C!`,
+      title: 'CẢNH BÁO LẠNH NGUY HIỂM',
+      message: `Giá thể đang ở ${temperatureCurrent.toFixed(1)}°C. Dưới 20°C có thể gây chết tơ vĩnh viễn.`,
     })
   } else if (temperatureCurrent < 28) {
     alerts.push({
       id: 'temp-warn-low',
       type: 'warning',
-      title: 'Low Substrate Temperature',
-      message: `Substrate is at ${temperatureCurrent.toFixed(1)}°C. Slow tơ growth.`,
+      title: 'Nhiệt độ giá thể thấp',
+      message: `Giá thể đang ở ${temperatureCurrent.toFixed(1)}°C. Tốc độ nuôi tơ sẽ chậm lại.`,
     })
   } else if (temperatureCurrent > 38) {
     alerts.push({
       id: 'temp-crit-high',
       type: 'critical',
-      title: 'Danger: Substrate Heat Stress',
-      message: `Substrate is at ${temperatureCurrent.toFixed(1)}°C. Crop decay risk!`,
+      title: 'Nguy hiểm: Nhiệt giá thể quá cao',
+      message: `Giá thể đang ở ${temperatureCurrent.toFixed(1)}°C. Nguy cơ suy giảm lứa trồng.`,
     })
   } else if (temperatureCurrent > 35) {
     alerts.push({
       id: 'temp-warn-high',
       type: 'warning',
-      title: 'Substrate Heat Warning',
-      message: `Substrate is at ${temperatureCurrent.toFixed(1)}°C. Thermal stress risk.`,
+      title: 'Cảnh báo nhiệt giá thể cao',
+      message: `Giá thể đang ở ${temperatureCurrent.toFixed(1)}°C. Có nguy cơ sốc nhiệt.`,
     })
   }
 
@@ -98,22 +87,22 @@ export function Header() {
     alerts.push({
       id: 'co2-crit-high',
       type: 'critical',
-      title: 'High CO2 Ventilation Alert',
-      message: `CO2 at ${Math.round(co2Current)} ppm. Deformed elongated stalks risk!`,
+      title: 'Cảnh báo CO2 cao',
+      message: `CO2 hiện tại ${Math.round(co2Current)} ppm. Nguy cơ thân nấm kéo dài, biến dạng.`,
     })
   } else if (co2Current > 1200) {
     alerts.push({
       id: 'co2-warn-high',
       type: 'warning',
-      title: 'Inadequate Ventilation',
-      message: `CO2 at ${Math.round(co2Current)} ppm. Target: 800-1200 ppm.`,
+      title: 'Thông gió chưa đạt',
+      message: `CO2 hiện tại ${Math.round(co2Current)} ppm. Mục tiêu: 800-1200 ppm.`,
     })
   }
 
   const notifications = [
-    { id: 1, message: 'Crop cycle day updated to simulation standard', time: 'Just now' },
-    { id: 2, message: 'Fuzzy logic profile compiled successfully', time: '1 hour ago' },
-    { id: 3, message: 'SD Card logging buffer flushed to storage', time: '5 mins ago' },
+    { id: 1, message: 'Ngày chu kỳ cây trồng đã được cập nhật theo mô phỏng', time: 'Vừa xong' },
+    { id: 2, message: 'Hồ sơ logic mờ đã biên dịch thành công', time: '1 giờ trước' },
+    { id: 3, message: 'Bộ đệm ghi SD đã được đẩy vào lưu trữ', time: '5 phút trước' },
   ]
 
   const getAlertBg = (type: string) => {
@@ -159,7 +148,7 @@ export function Header() {
               onClick={() => setAlertsVisible(false)}
               className="text-slate-400 hover:text-white flex-shrink-0 w-8 h-8 p-0"
             >
-              ✕
+              <X size={16} />
             </Button>
           </div>
         </div>
@@ -171,25 +160,20 @@ export function Header() {
           {/* Left: Title */}
           <div>
             <h2 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
-              Straw Mushroom House Beta
+              Nhà nấm rơm Beta
               <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">
-                Active
+                Đang hoạt động
               </span>
             </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">NẤM RƠM CP • Pillar House Alpha (35 pillars)</p>
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+              <span>NẤM RƠM CP</span>
+              <span aria-hidden="true" className="inline-block h-1 w-1 rounded-full bg-muted-foreground/50" />
+              <span>Nhà trụ Alpha (35 trụ)</span>
+            </p>
           </div>
 
           {/* Right: Actions */}
           <div className="flex items-center gap-2">
-            {/* Hardware Telemetry Widget */}
-            <HardwareTelemetryWidget
-              powerSource={powerSource === 'GRID_POWER' ? 'grid' : 'ups'}
-              batteryPercentage={powerSource === 'GRID_POWER' ? 98 : 74}
-              sdLoggingActive={true}
-              cloudSynced={powerSource === 'GRID_POWER'}
-              systemUptime="7d 12h 34m"
-            />
-
             {/* Notifications */}
             <div className="relative">
               <Button
@@ -209,7 +193,7 @@ export function Header() {
               {notificationsOpen && (
                 <div className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50">
                   <div className="p-4 border-b border-border bg-card/50">
-                    <h3 className="font-semibold text-foreground text-sm">System Diagnostics</h3>
+                    <h3 className="font-semibold text-foreground text-sm">Chẩn đoán hệ thống</h3>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.map((notif) => (
@@ -228,7 +212,7 @@ export function Header() {
                       size="sm"
                       className="w-full text-xs text-emerald-400 hover:bg-emerald-500/10"
                     >
-                      Clear Log Messages
+                      Xóa nhật ký
                     </Button>
                   </div>
                 </div>
@@ -258,22 +242,22 @@ export function Header() {
                 <div className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50">
                   <div className="p-3 border-b border-border bg-card/50">
                     <p className="text-sm font-semibold text-foreground">Sarah Chen</p>
-                    <p className="text-xs text-muted-foreground">Facility Chief</p>
+                    <p className="text-xs text-muted-foreground">Quản lý cơ sở</p>
                   </div>
                   <div className="py-2">
                     <button className="w-full px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors flex items-center gap-2 text-left">
                       <User size={16} />
-                      User Profile
+                      Hồ sơ người dùng
                     </button>
                     <button className="w-full px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors flex items-center gap-2 text-left">
-                      <span className="w-4 h-4">⚙</span>
-                      Facility Settings
+                      <Settings2 size={16} />
+                      Cài đặt cơ sở
                     </button>
                   </div>
                   <div className="border-t border-border p-2">
                     <button className="w-full px-4 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2 text-left">
                       <LogOut size={16} />
-                      Disconnect
+                      Ngắt kết nối
                     </button>
                   </div>
                 </div>

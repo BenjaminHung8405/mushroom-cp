@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { useSimulation } from '@/lib/simulation-context'
-import { Wind, Zap, Lock, AlertCircle } from 'lucide-react'
+import { AlertCircle, Lock, Wind, Zap } from 'lucide-react'
+import { useState } from 'react'
 
 interface ActuatorToggleProps {
   id: string
@@ -95,7 +95,7 @@ function ActuatorToggle({
       {isDisabled && (
         <div className="flex items-center gap-1 text-[11px] text-red-400 font-medium">
           <AlertCircle size={12} />
-          <span>Biological safety lock active</span>
+          <span>Khóa an toàn sinh học đang bật</span>
         </div>
       )}
 
@@ -120,7 +120,7 @@ export function StandardActuatorsControl({
   onLampToggle,
 }: StandardActuatorsControlProps) {
   const { currentCropDay } = useSimulation()
-  const [isFFanActive, setFanActive] = useState(false)
+  const [isFanActive, setFanActive] = useState(false)
   const [isLampActive, setLampActive] = useState(false)
 
   const handleFanToggle = (id: string, active: boolean) => {
@@ -139,30 +139,28 @@ export function StandardActuatorsControl({
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40">
       <div className="mb-4">
-        <h3 className="font-semibold text-foreground text-lg">Standard Actuators</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          General environmental controls
-        </p>
+        <h3 className="font-semibold text-foreground text-lg">Bộ chấp hành tiêu chuẩn</h3>
+        <p className="text-xs text-muted-foreground mt-1">Điều khiển môi trường chung</p>
       </div>
 
       <div className="space-y-3">
         <ActuatorToggle
           id="fan"
-          name="Convection Fans"
-          description="Air circulation & humidity control"
+          name="Quạt đối lưu"
+          description="Tuần hoàn không khí và kiểm soát độ ẩm"
           icon={<Wind className="w-5 h-5 text-cyan-400" />}
-          isActive={isFFanActive}
-          pwmDutyCycle={isFFanActive ? fanPWM : undefined}
+          isActive={isFanActive}
+          pwmDutyCycle={isFanActive ? fanPWM : undefined}
           onToggle={handleFanToggle}
         />
 
         <ActuatorToggle
           id="lamp"
-          name="Heating Lamps"
+          name="Đèn gia nhiệt"
           description={
             isLampsLocked
-              ? 'Locked OFF during fruiting phase (Day 9-21)'
-              : 'Spawn-running phase (Day 1-8) active heating'
+              ? 'Đã khóa tắt trong giai đoạn ra quả thể (ngày 9-21)'
+              : 'Gia nhiệt hoạt động trong giai đoạn nuôi tơ (ngày 1-8)'
           }
           icon={
             isLampsLocked ? (
@@ -182,19 +180,19 @@ export function StandardActuatorsControl({
       <div className="mt-4 p-3 rounded bg-slate-900/30 border border-slate-700/30">
         <div className="text-xs text-muted-foreground space-y-1">
           <div>
-            <span className="text-slate-400">Fans: </span>
-            <span className={isFFanActive ? 'text-emerald-400 font-semibold' : 'text-slate-500'}>
-              {isFFanActive ? `Active (${fanPWM.toFixed(0)}%)` : 'Off'}
+            <span className="text-slate-400">Quạt: </span>
+            <span className={isFanActive ? 'text-emerald-400 font-semibold' : 'text-slate-500'}>
+              {isFanActive ? `Đang hoạt động (${fanPWM.toFixed(0)}%)` : 'Tắt'}
             </span>
           </div>
           <div>
-            <span className="text-slate-400">Lamps: </span>
+            <span className="text-slate-400">Đèn: </span>
             <span className={effectiveLampActive ? 'text-amber-400 font-semibold' : 'text-slate-500'}>
               {isLampsLocked
-                ? 'Locked OFF (Safety Lock)'
+                ? 'Đã khóa tắt (khóa an toàn)'
                 : effectiveLampActive
-                  ? `Active (${lampPWM.toFixed(0)}%)`
-                  : 'Off'}
+                  ? `Đang hoạt động (${lampPWM.toFixed(0)}%)`
+                  : 'Tắt'}
             </span>
           </div>
         </div>
