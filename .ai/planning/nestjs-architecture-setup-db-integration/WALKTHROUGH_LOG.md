@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T21:35:00+07:00] - Task B3: Refactor DatabaseService để loại bỏ pg Pool
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [database.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.service.ts)
+- **Giải trình giải pháp**:
+  - Refactor `DatabaseService` loại bỏ hoàn toàn `pg` Pool và thay thế bằng TypeORM `DataSource`.
+  - Sử dụng Adapter Pattern bằng cách bọc phương thức `query()` của TypeORM `DataSource` để giữ nguyên chữ ký hàm (interface) cũ (trả về đối tượng `{ rows: T[] }`), giúp các service đang phụ thuộc như `TelemetryQueryService` hoạt động bình thường mà không cần chỉnh sửa.
+  - Ngăn chặn SQL Injection thông qua truyền các tham số parameterized query vào `this.dataSource.query(text, params)`.
+  - Gỡ bỏ hoàn toàn thư viện `pg` thô khỏi phần imports của file.
+  - Sử dụng NestJS built-in `Logger` thay cho `console.log` và gọi một câu lệnh query kiểm tra kết nối đơn giản `SELECT NOW()` trong `onModuleInit()` để xác thực kết nối database tại thời điểm startup.
+  - Xử lý kiểu bắt lỗi `unknown` trong try-catch và kiểm tra kiểu mảng an toàn để sửa lỗi eslint (`no-unsafe-member-access`, `no-unsafe-assignment`).
+- **Kết quả tự kiểm tra**:
+  - Chạy `npm run build` thành công, biên dịch dự án hoàn hảo không lỗi.
+  - Chạy `npm run test` thành công, các bài kiểm thử đơn vị đều vượt qua.
+  - Chạy `npm run lint` thành công trên file `database.service.ts`, khắc phục hoàn toàn mọi lỗi eslint liên quan.
+
 ## [2026-07-09T21:32:00+07:00] - Task B2: Refactor DatabaseModule để tích hợp TypeOrmModule
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

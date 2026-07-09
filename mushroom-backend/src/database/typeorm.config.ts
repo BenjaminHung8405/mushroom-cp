@@ -14,7 +14,7 @@ if (!process.env.DATABASE_URL) {
       const content = fs.readFileSync(envPath, 'utf8');
       const lines = content.split('\n');
       const parsedEnv: Record<string, string> = {};
-      
+
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed && !trimmed.startsWith('#')) {
@@ -30,11 +30,18 @@ if (!process.env.DATABASE_URL) {
       }
 
       // Reconstruct DATABASE_URL if individual credentials are provided
-      const user = parsedEnv.POSTGRES_USER || process.env.POSTGRES_USER || 'admin';
-      const password = parsedEnv.POSTGRES_PASSWORD || process.env.POSTGRES_PASSWORD || '123456';
-      const host = parsedEnv.POSTGRES_HOST || process.env.POSTGRES_HOST || 'localhost';
-      const port = parsedEnv.POSTGRES_PORT || process.env.POSTGRES_PORT || '5432';
-      const db = parsedEnv.POSTGRES_DB || process.env.POSTGRES_DB || 'mushroom_iot_db';
+      const user =
+        parsedEnv.POSTGRES_USER || process.env.POSTGRES_USER || 'admin';
+      const password =
+        parsedEnv.POSTGRES_PASSWORD ||
+        process.env.POSTGRES_PASSWORD ||
+        '123456';
+      const host =
+        parsedEnv.POSTGRES_HOST || process.env.POSTGRES_HOST || 'localhost';
+      const port =
+        parsedEnv.POSTGRES_PORT || process.env.POSTGRES_PORT || '5432';
+      const db =
+        parsedEnv.POSTGRES_DB || process.env.POSTGRES_DB || 'mushroom_iot_db';
 
       process.env.DATABASE_URL = `postgresql://${user}:${password}@${host}:${port}/${db}`;
       break;

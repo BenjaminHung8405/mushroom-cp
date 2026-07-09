@@ -1,74 +1,42 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
 @Injectable()
-export class DatabaseService implements OnModuleInit, OnModuleDestroy {
+export class DatabaseService implements OnModuleInit {
   private readonly logger = new Logger(DatabaseService.name);
-  private pool: Pool;
 
-  onModuleInit() {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      this.logger.error('DATABASE_URL environment variable is missing.');
-      throw new Error('DATABASE_URL is not defined');
+  constructor(private readonly dataSource: DataSource) {}
+
+  async onModuleInit() {
+    this.logger.log('Testing database connection using TypeORM DataSource...');
+    try {
+      await this.dataSource.query('SELECT NOW()');
+      this.logger.log('✅ Database connection test succeeded.');
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`❌ Database connection test failed: ${errorMessage}`);
     }
-
-    this.logger.log('Initializing PostgreSQL Connection Pool...');
-    this.pool = new Pool({
-      connectionString,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
-
-    // Test the connection immediately
-    this.pool.query('SELECT NOW()', (err) => {
-      if (err) {
-        this.logger.error(`PostgreSQL connection failed: ${err.message}`);
-      } else {
-        this.logger.log(
-          '✅ PostgreSQL connection pool initialized successfully.',
-        );
-      }
-    });
-  }
-
-  async onModuleDestroy() {
-    this.logger.log('Closing PostgreSQL Connection Pool...');
-    await this.pool.end();
-    this.logger.log('PostgreSQL Connection Pool closed.');
   }
 
   /**
-   * Helper to execute queries on the pool
+   * Helper to execute queries on the DataSource (Adapter Pattern)
    */
-  async query<T extends QueryResultRow = any>(
-    text: string,
-    params?: any[],
-  ): Promise<QueryResult<T>> {
+  async query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
     const start = Date.now();
     try {
-      const res = await this.pool.query<T>(text, params);
+      const res = (await this.dataSource.query(text, params)) as unknown;
       const duration = Date.now() - start;
       this.logger.debug(`Executed query | Duration: ${duration}ms`);
-      return res;
-    } catch (error) {
+      const rows = Array.isArray(res) ? (res as T[]) : [];
+      return { rows };
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Query failed: ${text.slice(0, 100)}... | Error: ${error.message}`,
+        `Query failed: ${text.slice(0, 100)}... | Error: ${errorMessage}`,
       );
       throw error;
     }
-  }
-
-  /**
-   * Get direct access to the pool if needed (e.g. for transactions)
-   */
-  getPool(): Pool {
-    return this.pool;
   }
 }
