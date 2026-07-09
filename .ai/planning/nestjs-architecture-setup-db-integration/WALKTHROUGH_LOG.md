@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:48:00+07:00] - Task D1: Triển khai các phương thức cốt lõi trong BatchService
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts)
+  - Tạo mới: [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts)
+- **Giải trình giải pháp**:
+  - Triển khai `BatchService` cung cấp 2 phương thức chính: `getActiveBatchByHouseId` và `getBatchContext`.
+  - Thiết kế `getActiveBatchByHouseId` truy vấn vụ nuôi đang hoạt động (`ACTIVE`) cho nhà nấm và cảnh báo nếu phát hiện nhiều vụ nuôi đang `ACTIVE` đồng thời.
+  - Thiết kế `getBatchContext` xử lý tính toán số ngày tuổi `cropDay` chính xác dựa trên múi giờ Việt Nam (`Asia/Ho_Chi_Minh`) và giới hạn từ `1` đến `totalCropDays`.
+  - Triển khai thuật toán nội suy tuyến tính (Linear Interpolation) động từ dữ liệu checkpoints `CurveCheckpoint` đối với nhiệt độ (`TEMPERATURE`) và độ ẩm (`HUMIDITY`).
+  - Xử lý các biên của thuật toán nội suy: lấy giá trị checkpoint biên gần nhất nếu ngày tuổi ngoài dải, fallback về trung điểm của optimal range của batch nếu danh sách checkpoints rỗng.
+  - Tích hợp kiểm tra trạng thái ánh sáng của `LightScheduleBlock` cho `cropDay` hiện tại.
+  - Trả về đối tượng `BatchContext` chứa đầy đủ thông tin hỗ trợ cả camelCase và snake_case cho các sprint sau.
+  - Viết bộ unit test đầy đủ trong `batch.service.spec.ts` phủ toàn bộ các trường hợp logic, chạy kiểm thử nội bộ pass 100% (25/25 test cases thành công).
+
 ## [2026-07-09T22:41:00+07:00] - Task C5: Tạo thực thể LightScheduleBlock
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
