@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T21:28:45+07:00] - Task B1: Khởi tạo file cấu hình typeorm.config.ts
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
+- **Giải trình giải pháp**:
+  - Tạo file cấu hình TypeORM `DataSource` kết nối đến cơ sở dữ liệu TimescaleDB.
+  - Hỗ trợ cả chạy runtime trong Docker (đọc qua `process.env.DATABASE_URL`) và chạy CLI trên máy host (tự động phát hiện và đọc tệp `.env` ở thư mục backend hoặc thư mục gốc, phân tích cú pháp để dựng chuỗi kết nối).
+  - Tắt tự động đồng bộ hóa schema (`synchronize: false`) để tránh ảnh hưởng đến các TimescaleDB hypertable chunks, bảo vệ an toàn cho cơ sở dữ liệu.
+  - Định cấu hình kết nối tối ưu tránh starvation: `max = 20`, `idleTimeoutMillis = 30000`, `connectionTimeoutMillis = 2000`.
+  - Cấu hình đường dẫn cho các entity (`src/**/*.entity{.ts,.js}`) và các file migrations (`src/database/migrations/*{.ts,.js}`).
+- **Kết quả tự kiểm tra**:
+  - Chạy `pnpm run build` thành công, không gặp lỗi biên dịch.
+  - Chạy `pnpm run test` thành công, toàn bộ 100% test case hiện tại vượt qua.
+
 ## [2026-07-09T21:28:00+07:00] - Task A1: Cập nhật dependency và scripts trong package.json
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
