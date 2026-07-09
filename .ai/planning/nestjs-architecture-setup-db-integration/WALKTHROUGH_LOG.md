@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:40:00+07:00] - Task C4: Tạo thực thể CurveCheckpoint
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [curve-checkpoint.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/curve-checkpoint.entity.ts)
+  - Tạo mới: [curve-checkpoint.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/curve-checkpoint.entity.spec.ts)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `CurveCheckpoint` tương ứng với bảng `curve_checkpoints` trong schema PostgreSQL.
+  - Sử dụng `@PrimaryGeneratedColumn({ type: 'bigint' })` cho khóa chính `id` để tương thích với cột kiểu BIGSERIAL trong DB.
+  - Cấu hình quan hệ `@ManyToOne` với `GrowthProfile` và `CropBatch` sử dụng `@JoinColumn` tương ứng với `profile_id` và `batch_id`, đồng thời cài đặt cascade delete.
+  - Sử dụng transformer cho cột `targetValue` (numeric(4,1)) để tự động parse giá trị string trả về từ PostgreSQL driver sang số thực trong Javascript, tránh lỗi tính toán.
+  - Thiết lập chỉ mục `@Index('idx_checkpoints_batch', ['batch'])` ở cấp độ entity nhằm tối ưu hóa hiệu năng truy vấn, tránh full table scan khi lọc checkpoints theo vụ nuôi.
+  - Viết unit test đầy đủ cho entity `CurveCheckpoint` bao gồm kiểm thử liên kết với `GrowthProfile` và `CropBatch`.
+  - Tự kiểm tra: Chạy lệnh `npm test` thành công 100%, tất cả 5 test suites (bao gồm cả `curve-checkpoint.entity.spec.ts`) đều pass.
+
 ## [2026-07-09T22:32:00+07:00] - Task C3: Tạo thực thể CropBatch
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
