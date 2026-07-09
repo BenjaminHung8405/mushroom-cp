@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-09T22:30:00+07:00] - Task C2: Tạo thực thể GrowthProfile
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [growth-profile.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/growth-profile.entity.ts)
+  - Tạo mới: [growth-profile.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/growth-profile.entity.spec.ts)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `GrowthProfile` tương ứng với bảng `growth_profiles` trong schema PostgreSQL.
+  - Sử dụng `@PrimaryColumn()` cho thuộc tính `id` dạng string (VARCHAR(50)).
+  - Ánh xạ chính xác các thuộc tính: `name` (VARCHAR(100)), `description` (TEXT, nullable).
+  - Định cấu hình tự động cho các thuộc tính ngày tháng với `@CreateDateColumn({ name: 'created_at', type: 'timestamptz' })` và `@UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })` để đồng bộ timezone.
+  - Viết unit test cho entity `GrowthProfile` để kiểm thử cấu trúc và kiểu dữ liệu.
+  - Tự kiểm tra: Build ứng dụng (`pnpm run build`), chạy ESLint (`pnpm run lint`) và kiểm thử đơn vị (`pnpm test`) thành công 100%.
+
 ## [2026-07-09T22:26:00+07:00] - Task C1: Tạo thực thể MushroomHouse
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
