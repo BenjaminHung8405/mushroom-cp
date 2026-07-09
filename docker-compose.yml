@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. DATABASE: PostgreSQL + TimescaleDB
+  # ==========================================
+  mushroom-db:
+    image: timescale/timescaledb:latest-pg15
+    restart: always
+    environment:
+      POSTGRES_USER: mushroom_user
+      POSTGRES_PASSWORD: mushroom_secure_password
+      POSTGRES_DB: mushroom_iot_db
+    ports:
+      - "${PG_HOST_PORT:-5432}:5432"
+    volumes:
+      - mushroom_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mushroom_user -d mushroom_iot_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mushroom-network
+
+  # ==========================================
+  # 2. MQTT BROKER: EMQX
+  # ==========================================
+  mushroom-mqtt:
+    image: emqx/emqx:5.3.0
+    restart: always
+    ports:
+      - "${MQTT_TCP_PORT:-1883}:1883"       # MQTT for ESP32-S3
+      - "${MQTT_WS_PORT:-8083}:8083"       # MQTT over WebSockets
+      - "${EMQX_DASHBOARD_PORT:-18083}:18083"     # EMQX Dashboard
+    environment:
+      - "EMQX_DASHBOARD__BOOTSTRAP_USER_PASSWORD=admin_mushroom_2026"
+    volumes:
+      - mushroom_emqx_data:/opt/emqx/data
+      - mushroom_emqx_log:/opt/emqx/log
+    networks:
+      - mushroom-network
+
+  # ==========================================
+  # 3. BACKEND: NestJS Application
+  # ==========================================
+  mushroom-backend:
+    build:
+      context: ./mushroom-backend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "${BE_HOST_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://mushroom_user:mushroom_secure_password@mushroom-db:5432/mushroom_iot_db
+      - MQTT_HOST=mushroom-mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      - mushroom-db
+      - mushroom-mqtt
+    networks:
+      - mushroom-network
+    volumes:
+      - ./mushroom-backend:/usr/src/app
+      - /usr/src/app/node_modules
+
+  # ==========================================
+  # 4. FRONTEND: Next.js (mushroom-ui)
+  # ==========================================
+  mushroom-ui:
+    build:
+      context: ./mushroom-ui
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "${UI_HOST_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://mushroom-backend:3001
+    depends_on:
+      - mushroom-backend
+    networks:
+      - mushroom-network
+    volumes:
+      - ./mushroom-ui:/usr/src/app
+      - /usr/src/app/node_modules
+      - /usr/src/app/.next
+
+volumes:
+  mushroom_postgres_data:
+    driver: local
+  mushroom_emqx_data:
+    driver: local
+  mushroom_emqx_log:
+    driver: local
+
+networks:
+  mushroom-network:
+    driver: bridge
