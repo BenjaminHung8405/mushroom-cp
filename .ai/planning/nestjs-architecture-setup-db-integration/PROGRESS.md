@@ -73,7 +73,7 @@
 #### Track F: Tầng Thực Thể Cơ Sở Dữ Liệu Telemetry (Telemetry DB Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| F1 | Tạo entity `TelemetryLog` ánh xạ hypertable | [ ] Pending | - **Không Auto-Sync Hypertable**: `@Entity('telemetry_logs', { synchronize: false })` — cấm TypeORM tự tạo/sửa đổi bảng.<br>- **Composite PK**: `@PrimaryColumn time: timestamptz` + `@PrimaryColumn batchId`.<br>- **SHT30 Only**: Lưu `humidityMeasured` và `temperatureMeasured` (đều lấy từ SHT30, loại bỏ DS18B20).<br>- **ON/OFF Boolean**: Lưu `mistGeneratorActive` (boolean) và `convectionFanActive` (boolean) thay thế cho các cột PWM cũ.<br>- **File**: `src/telemetry/entities/telemetry-log.entity.ts`. |
+| F1 | Tạo entity `TelemetryLog` ánh xạ hypertable | [ ] QA Review | - **Không Auto-Sync Hypertable**: `@Entity('telemetry_logs', { synchronize: false })` — cấm TypeORM tự tạo/sửa đổi bảng.<br>- **Composite PK**: `@PrimaryColumn time: timestamptz` + `@PrimaryColumn batchId`.<br>- **SHT30 Only**: Lưu `humidityMeasured` và `temperatureMeasured` (đều lấy từ SHT30, loại bỏ DS18B20).<br>- **ON/OFF Boolean**: Lưu `mistGeneratorActive` (boolean) và `convectionFanActive` (boolean) thay thế cho các cột PWM cũ.<br>- **File**: `src/telemetry/entities/telemetry-log.entity.ts`. |
 
 #### Track G: Tầng Nghiệp Vụ & Điều Khiển Telemetry (Telemetry Control & Timezone Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |

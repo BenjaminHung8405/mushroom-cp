@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:25:00+07:00] - Task F1: Tạo thực thể TelemetryLog ánh xạ hypertable
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [telemetry-log.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/entities/telemetry-log.entity.ts)
+  - Tạo mới: [telemetry-log.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/entities/telemetry-log.entity.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Khởi tạo TypeORM entity `TelemetryLog` tương ứng với bảng TimescaleDB hypertable `telemetry_logs`.
+  - Thiết lập `@Entity('telemetry_logs', { synchronize: false })` để ngăn chặn TypeORM tự động đồng bộ hóa/thay đổi cấu trúc bảng TimescaleDB.
+  - Định nghĩa khóa chính phức hợp (Composite PK) gồm `@PrimaryColumn({ name: 'time', type: 'timestamptz' })` và `@PrimaryColumn({ name: 'batch_id', type: 'varchar', length: 50 })` theo đúng schema thực tế.
+  - Sử dụng `numericTransformer` cho các trường kiểu `numeric` (`humidity_measured`, `temperature_measured`, `humidity_setpoint`, `temperature_setpoint`, `humidity_error_delta`, `temperature_error_delta`) để tự động chuyển đổi chuỗi từ PostgreSQL driver thành kiểu `number` an toàn hoặc trả về `null` nếu dữ liệu trống.
+  - Khai báo đúng các cột trạng thái ON/OFF kiểu `boolean` cho thiết bị chấp hành (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) thay cho cấu hình PWM cũ, khớp chuẩn xác với database.
+  - Viết bộ unit test đầy đủ trong `telemetry-log.entity.spec.ts` nhằm đảm bảo việc gán và đọc dữ liệu hoạt động chính xác.
+  - Tự kiểm tra: Đã chạy `pnpm run lint`, `pnpm run build` và `pnpm test` thành công 100% không phát sinh bất kỳ warning hay lỗi nào.
+
 ## [2026-07-10T15:30:00+07:00] - QA Review Round 2: Tasks C4 + C5 — ✅ LGTM
 - **Trạng thái**: LGTM (Duyệt)
 - **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)
