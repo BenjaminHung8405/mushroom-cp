@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:10:00+07:00] - QA Review Track C (Entities C1–C5) — ⚠️ 2 FINDINGS
+- **Trạng thái**: Từ chối duyệt C4 + C5 · C1–C3 LGTM
+- **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)
+- **Kết quả rà soát**:
+  - **C1 MushroomHouse**: ✅ LGTM — mapping schema chính xác, snake_case đúng, test đủ.
+  - **C2 GrowthProfile**: ✅ LGTM — mapping schema chính xác, timestamps đúng, không relation.
+  - **C3 CropBatch**: ✅ LGTM — mapping schema chính xác, numeric transformer fallback an toàn, FK RESTRICT đúng. Minor: `status` field nên dùng enum TypeORM thay vì `string` (không chặn).
+  - **C4 CurveCheckpoint**: ⚠️ **Finding C4-1 (Medium)** — Index `@Index('idx_checkpoints_batch', ['batch'])` sai column name. Schema SQL tạo index trên `batch_id` (snake_case) + `metric_type` với `INCLUDE (crop_day, target_value)`. Entity đang index trên `batch` (camelCase) — TypeORM sẽ tạo index trùng tên trên column không tồn tại. **Fix**: Đổi thành `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])`.
+  - **C5 LightScheduleBlock**: ⚠️ **Finding C5-1 (Medium)** — Thiếu validation CHECK constraints của schema SQL: (1) `check_light_origin`: profile_id XOR batch_id (không null cả 2, không có cả 2); (2) `check_days_order`: start_day ≤ end_day. Entity không validate → client gửi dữ liệu vi phạm → DB reject với error khó debug. **Fix**: Thêm validation trong BatchService hoặc DTO.
+  - **Kiến trúc & Conventions**: Tất cả 5 entities tuân thủ Clean Architecture, naming conventions đúng, không DRY violation.
+  - **Bảo mật**: Không hardcode secret. Input validation nằm ở DTO/controller layer (đã cover D1/E1).
+  - **Logic & Edge-cases**: Numeric transformer null-safe. Relations cascade delete đúng. Tests pass 7/7.
+  - **Test**: 5 suites pass, 7 tests pass. Build + lint sạch.
+- **Quyết định**: Từ chối duyệt C4 + C5. Fix 2 findings rồi submit lại. C1–C3 đã LGTM.
+
 ## [2026-07-10T15:00:00+07:00] - QA Review Final: Tasks D1 + E1 — ✅ LGTM
 - **Trạng thái**: LGTM (Duyệt)
 - **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)

@@ -52,4 +52,46 @@ describe('LightScheduleBlock Entity', () => {
     expect(block.batch).toBeInstanceOf(CropBatch);
     expect(block.profile).toBeNull();
   });
+
+  describe('validation', () => {
+    it('should throw BadRequestException if both profileId and batchId are null', () => {
+      const block = new LightScheduleBlock();
+      block.profileId = null;
+      block.batchId = null;
+      block.startDay = 1;
+      block.endDay = 10;
+      expect(() => block.validate()).toThrow(
+        'Must specify profile OR batch, not both/neither',
+      );
+    });
+
+    it('should throw BadRequestException if both profileId and batchId are provided', () => {
+      const block = new LightScheduleBlock();
+      block.profileId = 'profile-123';
+      block.batchId = 'batch-123';
+      block.startDay = 1;
+      block.endDay = 10;
+      expect(() => block.validate()).toThrow(
+        'Must specify profile OR batch, not both/neither',
+      );
+    });
+
+    it('should throw BadRequestException if startDay > endDay', () => {
+      const block = new LightScheduleBlock();
+      block.profileId = 'profile-123';
+      block.batchId = null;
+      block.startDay = 15;
+      block.endDay = 10;
+      expect(() => block.validate()).toThrow('startDay must be <= endDay');
+    });
+
+    it('should pass validation if profileId is set, batchId is null, and startDay <= endDay', () => {
+      const block = new LightScheduleBlock();
+      block.profileId = 'profile-123';
+      block.batchId = null;
+      block.startDay = 5;
+      block.endDay = 10;
+      expect(() => block.validate()).not.toThrow();
+    });
+  });
 });

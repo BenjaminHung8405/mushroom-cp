@@ -55,7 +55,10 @@ describe('BatchController', () => {
       const mockResult = { id: 'batch-1', status: 'COMPLETED' } as CropBatch;
       service.endBatch.mockResolvedValue(mockResult);
 
-      const result = await controller.end({ id: 'batch-1' }, { status: 'COMPLETED' });
+      const result = await controller.end(
+        { id: 'batch-1' },
+        { status: 'COMPLETED' },
+      );
       expect(result).toEqual(mockResult);
       expect(service.endBatch).toHaveBeenCalledWith('batch-1', 'COMPLETED');
     });

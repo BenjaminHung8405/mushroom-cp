@@ -2,7 +2,7 @@
 
 ## Started
 - **Thời gian bắt đầu**: 2026-07-09T21:25:38+07:00
-- **Cập nhật lần cuối**: 2026-07-10T15:00:00+07:00
+- **Cập nhật lần cuối**: 2026-07-10T15:10:00+07:00
 - **Agent thực thi**: Gemini
 - **Agent rà soát / khởi tạo PROGRESS**: Claude (Senior Solution Architect)
 
@@ -43,17 +43,17 @@
 
 ---
 
-### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — 🔧 IN PROGRESS (Entities C1–C5 vẫn chờ QA)
-> QA duyệt D1+E1: 2026-07-10T15:00:00+07:00 · LGTM · Entities C1–C5 vẫn `[ ] In Progress`
+### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — 🔧 IN PROGRESS (C4+C5 cần fix, C1–C3 LGTM, D1+E1 Done)
+> QA duyệt D1+E1: 2026-07-10T15:00:00+07:00 · LGTM · C1–C3 LGTM · C4-1 index mismatch · C5-1 missing constraints
 
 #### Track C: Tầng Thực Thể Cơ Sở Dữ Liệu Vụ Nuôi (Crop Batch Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| C1 | Tạo entity `MushroomHouse` | [ ] In Progress | - **Mapping**: `@Entity` → bảng `mushroom_houses`. `@PrimaryColumn() id: string` (VARCHAR 50).<br>- **Snake_case**: Mọi cột DB map qua `@Column({ name: '...' })` (`area_meters`, `pillar_count`).<br>- **File**: `src/batch/entities/mushroom-house.entity.ts` + unit test. |
-| C2 | Tạo entity `GrowthProfile` | [ ] In Progress | - **Timestamps**: `@CreateDateColumn({ type: 'timestamptz' })` + `@UpdateDateColumn({ type: 'timestamptz' })` — đồng bộ timezone hệ thống.<br>- **Fields**: `name`, `description` (nullable TEXT).<br>- **File**: `src/batch/entities/growth-profile.entity.ts` + unit test. |
-| C3 | Tạo entity `CropBatch` | [ ] In Progress | - **Numeric transformer**: Mọi cột `numeric` dùng `transformer: { to: v => v, from: v => parseFloat(v) }` — PostgreSQL trả string sẽ phá tính toán nếu bỏ qua.<br>- **Relation**: `@ManyToOne(MushroomHouse) @JoinColumn({ name: 'house_id' })`.<br>- **Business fields**: `status` default `'ACTIVE'`, `startDate`, `totalCropDays`, `spawnRunningEndDay`, `tempOptimalMin/Max`, `humidityOptimalMin/Max`, `thermalShockProtection`, `thermalShockStart/End` (TIME).<br>- **File**: `src/batch/entities/crop-batch.entity.ts` + unit test. |
-| C4 | Tạo entity `CurveCheckpoint` | [ ] In Progress | - **PK**: `@PrimaryGeneratedColumn({ type: 'bigint' })` tương thích BIGSERIAL.<br>- **Index**: `@Index('idx_checkpoints_batch', ['batch'])` — tránh full table scan khi filter theo vụ nuôi.<br>- **metricType**: `'TEMPERATURE' \| 'HUMIDITY'`. `targetValue` dùng numeric transformer.<br>- **Relations**: `@ManyToOne` với `GrowthProfile` + `CropBatch` (cascade delete).<br>- **File**: `src/batch/entities/curve-checkpoint.entity.ts` + unit test. |
-| C5 | Tạo entity `LightScheduleBlock` | [ ] In Progress | - **PK**: `@PrimaryGeneratedColumn({ type: 'bigint' })`.<br>- **Union type**: `status: 'ON' \| 'OFF'`; fields `startDay`, `endDay`.<br>- **Relations**: `@ManyToOne` `GrowthProfile` + `CropBatch` (cascade delete).<br>- **File**: `src/batch/entities/light-schedule-block.entity.ts` + unit test. |
+| C1 | Tạo entity `MushroomHouse` | [x] Done | - **LGTM 2026-07-10**. Mapping schema chính xác. Snake_case đúng. Test pass. |
+| C2 | Tạo entity `GrowthProfile` | [x] Done | - **LGTM 2026-07-10**. Timestamps timestamptz đúng. Test pass. |
+| C3 | Tạo entity `CropBatch` | [x] Done | - **LGTM 2026-07-10**. Numeric transformer fallback an toàn. FK RESTRICT đúng. Minor: status nên typed enum (không chặn). |
+| C4 | Tạo entity `CurveCheckpoint` | [ ] In Progress | - **Finding C4-1 (Medium)**: Index `@Index('idx_checkpoints_batch', ['batch'])` sai column — schema SQL index trên `batch_id + metric_type`. **Fix**: Đổi thành `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])`.<br>- PK bigint, numeric transformer, cascade delete đã đúng. |
+| C5 | Tạo entity `LightScheduleBlock` | [ ] In Progress | - **Finding C5-1 (Medium)**: Thiếu validation CHECK constraints schema: (1) profile_id XOR batch_id; (2) start_day ≤ end_day. **Fix**: Thêm validation trong BatchService hoặc DTO trước khi save.<br>- PK bigint, union type status, cascade delete đã đúng. |
 
 #### Track D: Tầng Nghiệp Vụ Vụ Nuôi (Crop Batch Business Logic Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |

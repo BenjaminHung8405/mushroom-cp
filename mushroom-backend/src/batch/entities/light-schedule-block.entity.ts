@@ -4,9 +4,12 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
 import { GrowthProfile } from './growth-profile.entity';
 import { CropBatch } from './crop-batch.entity';
+import { BadRequestException } from '@nestjs/common';
 
 @Entity('light_schedule_blocks')
 export class LightScheduleBlock {
@@ -35,4 +38,17 @@ export class LightScheduleBlock {
 
   @Column({ name: 'status', type: 'varchar', length: 5 })
   status: 'ON' | 'OFF';
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  validate() {
+    if ((this.profileId == null) === (this.batchId == null)) {
+      throw new BadRequestException(
+        'Must specify profile OR batch, not both/neither',
+      );
+    }
+    if (this.startDay > this.endDay) {
+      throw new BadRequestException('startDay must be <= endDay');
+    }
+  }
 }

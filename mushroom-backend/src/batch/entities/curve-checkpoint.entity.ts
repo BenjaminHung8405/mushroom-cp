@@ -10,7 +10,7 @@ import { GrowthProfile } from './growth-profile.entity';
 import { CropBatch } from './crop-batch.entity';
 
 @Entity('curve_checkpoints')
-@Index('idx_checkpoints_batch', ['batch'])
+@Index('idx_checkpoints_batch', ['batchId', 'metricType'])
 export class CurveCheckpoint {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: string;
