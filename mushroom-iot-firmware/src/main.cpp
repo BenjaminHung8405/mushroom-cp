@@ -24,7 +24,12 @@ void setup()
 {
     // Initialize Serial interface
     Serial.begin(115200);
-    delay(500); // Give serial monitor time to connect
+    // Native USB CDC (ARDUINO_USB_CDC_ON_BOOT=1) cần thời gian để re-enumerate
+    // sau khi esptool hard-reset. delay(500) không đủ — tăng lên 2000ms.
+    // Thêm wait loop để không miss log nếu monitor mở chậm hơn.
+    uint32_t t0 = millis();
+    while (!Serial && (millis() - t0) < 3000) { ; } // chờ tối đa 3s
+    delay(200); // buffer nhỏ cho USB host xử lý
     Serial.println("[MAIN] ESP32 Firmware Starting...");
 
     // 1. Initialize NVS Storage
