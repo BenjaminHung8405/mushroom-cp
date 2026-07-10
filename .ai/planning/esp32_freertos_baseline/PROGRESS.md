@@ -40,7 +40,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| E1 | Tạo file `include/models.h` định nghĩa các Data Structures. | [ ] Pending | Gom nhóm data toàn cục để truyền tải qua FreeRTOS Queue. |
+| E1 | Tạo file `include/models.h` định nghĩa các Data Structures. | [ ] QA Review | Gom nhóm data toàn cục để truyền tải qua FreeRTOS Queue. |
 | E2 | Khởi tạo struct `TelemetryData` và `ActuatorCommand`. | [ ] Pending | Ép kiểu Plain Old Data (POD). Khuyến nghị dùng memory alignment đúng chuẩn của 32-bit MCU để tối ưu tốc độ copy data giữa 2 core. |
 
 ### Track F: Tầng Giao tiếp Cảm biến (Sprint 2 - Sensors Mock)

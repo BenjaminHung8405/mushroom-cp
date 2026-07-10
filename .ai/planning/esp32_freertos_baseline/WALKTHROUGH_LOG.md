@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:57:00+07:00] - Task E1: Tạo file `include/models.h` định nghĩa các Data Structures
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Tạo cấu trúc dữ liệu mô hình (Models)**:
+    - Định nghĩa cấu trúc `TelemetryData` (chứa `temp_substrate`, `humidity_air`, `co2_level`).
+    - Định nghĩa cấu trúc `ActuatorCommand` (chứa `relay_id`, `state`, kèm theo 2 bytes padding tường minh để tối ưu hóa memory alignment 32-bit MCU).
+    - Cả hai cấu trúc đều được định nghĩa là Plain Old Data (POD) và được tối ưu hóa alignment 4 bytes (`__attribute__((aligned(4)))`) để truyền tải hiệu quả qua FreeRTOS Queue mà không bị lỗi padding hoặc hiệu năng copy giữa các Core.
+  - **Bổ sung Unit Test**:
+    - Thêm test case 15 vào bộ kiểm thử offline `test/run_tests.cpp` để kiểm nghiệm thuộc tính `is_pod` của `TelemetryData` và `ActuatorCommand`, cũng như kiểm tra kích thước bộ nhớ (`sizeof`) và độ căn chỉnh (`alignof`) chính xác 4-byte.
+    - Biên dịch và chạy bộ kiểm thử thành công vượt qua 100% không lỗi.
+
 ## [2026-07-10T10:53:50+07:00] - Sprint 1 QA Review & Code Approval
 - **Trạng thái**: LGTM (Looks Good To Me) - Approved
 - **Danh sách file kiểm duyệt**:

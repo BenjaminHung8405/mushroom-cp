@@ -5,7 +5,9 @@
 #include "wifi_manager.h"
 #include "mqtt_client.h"
 #include "definitions.h"
+#include "models.h"
 #include <cassert>
+#include <type_traits>
 
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
@@ -327,6 +329,15 @@ int main() {
     Serial.println("[TEST] Starting Task D2 - setup() and loop() Unit Tests...");
     setup();
     loop();
+
+    // 15. Test Task E1/E2 - Models and Data Structures POD and Alignment properties
+    Serial.println("[TEST] Starting Task E1 - Models and Data Structures Unit Tests...");
+    assert(std::is_pod<TelemetryData>::value == true);
+    assert(std::is_pod<ActuatorCommand>::value == true);
+    assert(sizeof(TelemetryData) == 12);
+    assert(sizeof(ActuatorCommand) == 4);
+    assert(alignof(TelemetryData) == 4);
+    assert(alignof(ActuatorCommand) == 4);
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
