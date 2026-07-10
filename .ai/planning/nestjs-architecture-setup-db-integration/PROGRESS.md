@@ -83,8 +83,8 @@
 | G3 | `saveTelemetryLog` + REST queries + `latestCache` | [ ] QA Review | - **Raw SQL INSERT**: Dùng `DatabaseService.query()` lưu dữ liệu. Các trạng thái actuator là boolean.<br>- **In-memory cache**: `latestCache: Map<string, Snapshot>` lưu cache thời gian thực sub-ms phục vụ REST/SSE.<br>- **History**: Query `time BETWEEN $from AND $to` ORDER BY time ASC vẽ biểu đồ lịch sử. |
 | G4 | Tạo TelemetryController (REST + SSE + history) | [ ] QA Review | - Endpoints: GET /devices/:id/telemetry (snapshot cache), SSE /devices/:id/telemetry/stream (stream live + seed ban đầu), GET /devices/:id/telemetry/history. |
 | G5 | Tạo `TelemetryModule` wire dependencies | [ ] QA Review | - Imports: `MqttModule`, `BatchModule`. `DatabaseService` dùng `@Global() DatabaseModule`. |
-| G6 | Xóa `TelemetryQueryService` legacy (Dọn dẹp) | [ ] Pending | - **Cleanup**: Xóa file `src/database/telemetry-query.service.ts` và loại bỏ hoàn toàn các re-export / provider khai báo trong `database.module.ts`. |
-| G7 | Wire `BatchModule` & `TelemetryModule` vào `AppModule` | [ ] Pending | - **Integration**: Import cả 2 module vào `AppModule`. Chạy thử `pnpm start:dev` để đảm bảo không lỗi DI hay circular dependencies. |
+| G6 | Xóa `TelemetryQueryService` legacy (Dọn dẹp) | [ ] QA Review | - **Cleanup**: Xóa file `src/database/telemetry-query.service.ts` và loại bỏ hoàn toàn các re-export / provider khai báo trong `database.module.ts`. |
+| G7 | Wire `BatchModule` & `TelemetryModule` vào `AppModule` | [ ] In Progress | - **Integration**: Import cả 2 module vào `AppModule`. Chạy thử `pnpm start:dev` để đảm bảo không lỗi DI hay circular dependencies. |
 | G8 | Verify lint / build / test | [ ] Pending | - **Gate**: `pnpm lint && pnpm build && pnpm test` đạt 0 errors, 0 warnings. |
 
 #### Track H: Tầng Tích Hợp MQTT (MQTT Integration Track)

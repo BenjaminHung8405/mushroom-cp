@@ -1,7 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DatabaseService } from './database.service';
-import { TelemetryQueryService } from './telemetry-query.service';
 import { typeOrmConfig } from './typeorm.config';
 
 @Global()
@@ -11,7 +10,7 @@ import { typeOrmConfig } from './typeorm.config';
       useFactory: () => typeOrmConfig,
     }),
   ],
-  providers: [DatabaseService, TelemetryQueryService],
-  exports: [DatabaseService, TelemetryQueryService, TypeOrmModule],
+  providers: [DatabaseService],
+  exports: [DatabaseService, TypeOrmModule],
 })
 export class DatabaseModule {}

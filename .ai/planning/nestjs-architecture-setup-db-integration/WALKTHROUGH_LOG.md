@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:36:10+07:00] - Task G6: Xóa TelemetryQueryService legacy (Dọn dẹp)
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [database.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.module.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+  - Xóa: `src/database/telemetry-query.service.ts`
+- **Giải trình giải pháp**:
+  - Tiến hành xóa file legacy `telemetry-query.service.ts` và gỡ bỏ khai báo, import/export liên quan đến `TelemetryQueryService` trong `database.module.ts`.
+  - Thực hiện dọn dẹp sạch sẽ để loại bỏ technical debt từ các Sprint trước.
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 64 tests của dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:35:42+07:00] - Task G5: Tạo TelemetryModule wire dependencies
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
