@@ -6,6 +6,7 @@ import { DeviceModule } from './device/device.module';
 import { DatabaseModule } from './database/database.module';
 import { BatchModule } from './batch/batch.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
     DeviceModule, // /devices/* REST + SSE endpoints
     BatchModule,
     TelemetryModule,
+    AuthModule, // POST /auth/token for ESP32 bootstrap
   ],
   controllers: [AppController],
   providers: [AppService],

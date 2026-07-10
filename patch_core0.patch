@@ -1,0 +1,17 @@
+--- mushroom-iot-firmware/src/core0_tasks.cpp	2026-07-10
++++ mushroom-iot-firmware/src/core0_tasks.cpp	2026-07-10
+@@ -69,7 +69,14 @@
+ 
+         // 5. Yield and feed Watchdog
+         #ifndef UNIT_TEST
+-        vTaskDelay(pdMS_TO_TICKS(100)); // Delay 100ms
++        // Nếu đang ở chế độ SoftAP (Captive Portal), cần xử lý các request HTTP
++        // nhanh chóng hơn để điện thoại không bị timeout và tự ngắt kết nối.
++        if (wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE) {
++            vTaskDelay(pdMS_TO_TICKS(10)); // Delay 10ms
++        } else {
++            vTaskDelay(pdMS_TO_TICKS(100)); // Delay 100ms
++        }
+         #endif
+     }
+ }

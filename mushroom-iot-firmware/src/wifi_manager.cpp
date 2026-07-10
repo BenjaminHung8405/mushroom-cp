@@ -21,18 +21,88 @@ namespace wifi
     static WebServer webServer(80);
     static void setup_web_server();
 #endif
+    static bool start_softap();
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
     static unsigned long last_reconnect_attempt = 0;
+    static unsigned long last_auth_attempt = 0;
     static int reconnect_attempts = 0;
     static unsigned long softap_start_time = 0;
+    static unsigned long softap_last_activity_ms = 0;
+    static unsigned long config_button_hold_start_ms = 0;
+    static bool config_button_force_latched = false;
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
     constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
+    constexpr unsigned long AUTH_RETRY_INTERVAL_MS = 30000;      // 30 giây, retry backend token without dropping WiFi
+    constexpr unsigned long AUTH_HTTP_TIMEOUT_MS = 10000;       // 10 giây
     constexpr int MAX_RECONNECT_ATTEMPTS = 3;
-    constexpr unsigned long SOFTAP_TIMEOUT_MS = 900000; // 15 phút (900000 ms)
+    // Idle timeout for SoftAP. Reset whenever user opens / interacts with portal.
+    constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 900000; // 15 phút idle
+    constexpr unsigned long CONFIG_BUTTON_HOLD_MS = 5000;    // giữ BOOT 5 giây để vào SoftAP
+
+    static void mark_softap_activity()
+    {
+        softap_last_activity_ms = millis();
+    }
+
+#ifndef UNIT_TEST
+    static bool has_softap_clients()
+    {
+        return WiFi.softAPgetStationNum() > 0;
+    }
+
+    static void reset_config_button_tracking()
+    {
+        config_button_hold_start_ms = 0;
+        config_button_force_latched = false;
+    }
+
+    static void check_config_button(unsigned long now)
+    {
+        // Active LOW with internal pull-up. BOOT/GPIO0 is safe to read at runtime;
+        // only avoid holding it while powering/resetting if you don't want download mode.
+        bool pressed = (digitalRead(config::pins::PIN_WIFI_CONFIG_BUTTON) == LOW);
+
+        if (!pressed)
+        {
+            reset_config_button_tracking();
+            return;
+        }
+
+        if (config_button_hold_start_ms == 0)
+        {
+            config_button_hold_start_ms = now;
+            return;
+        }
+
+        if (!config_button_force_latched && (now - config_button_hold_start_ms >= CONFIG_BUTTON_HOLD_MS))
+        {
+            config_button_force_latched = true;
+            Serial.println("[WIFI] Config button held for 5s. Forcing SoftAP provisioning portal...");
+
+            // Do not erase NVS credentials. Portal will be pre-filled, allowing user
+            // to update WiFi safely. MQTT loop will disconnect once state becomes SoftAP.
+            config::network::AUTH_JWT_TOKEN = "";
+            last_auth_attempt = 0;
+            reconnect_attempts = 0;
+#ifndef UNIT_TEST
+            dnsServer.stop();
+            webServer.stop();
+#endif
+            start_softap();
+        }
+    }
+#else
+    static bool has_softap_clients()
+    {
+        return false;
+    }
+
+    static void check_config_button(unsigned long /*now*/) {}
+#endif
 
     static void set_state(WifiState new_state)
     {
@@ -41,6 +111,7 @@ namespace wifi
         if (new_state == WifiState::SOFTAP_ACTIVE)
         {
             softap_start_time = millis();
+            softap_last_activity_ms = softap_start_time;
         }
 
         // Synchronize Event Bits to Core 1
@@ -66,22 +137,44 @@ namespace wifi
     static bool start_softap()
     {
         Serial.println("[WIFI] Activating SoftAP Mode...");
+
+        // Stop any previous STA attempt so the radio is fully dedicated to AP.
+        // WIFI_AP_STA + background STA reconnect is a common cause of phones
+        // dropping the captive-portal association while the user is typing.
+        WiFi.persistent(false);
+        WiFi.disconnect(true, true);
+        WiFi.mode(WIFI_OFF);
+        delay(100);
         WiFi.mode(WIFI_AP);
+        WiFi.setSleep(false);
+
+        // channel=1, hidden=false, max_connection=4, ftm_responder=false
         bool ap_started = WiFi.softAP(
             config::network::AP_SSID,
-            config::network::AP_PASS);
+            config::network::AP_PASS,
+            1,
+            0,
+            4);
 
         if (ap_started)
         {
+            // Keep classic 192.168.4.1 captive portal address.
+            IPAddress ap_ip(192, 168, 4, 1);
+            IPAddress gateway(192, 168, 4, 1);
+            IPAddress subnet(255, 255, 255, 0);
+            WiFi.softAPConfig(ap_ip, gateway, subnet);
+
             Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
             Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
             set_state(WifiState::SOFTAP_ACTIVE);
 
 #ifndef UNIT_TEST
             // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
+            dnsServer.stop();
             dnsServer.start(53, "*", WiFi.softAPIP());
 
             // Khởi động WebServer
+            webServer.stop();
             setup_web_server();
             webServer.begin();
 #endif
@@ -130,7 +223,7 @@ namespace wifi
         HTTPClient http;
         http.begin(url);
         http.addHeader("Content-Type", "application/json");
-        http.setTimeout(5000);
+        http.setTimeout(AUTH_HTTP_TIMEOUT_MS);
 
         // Build request body
         StaticJsonDocument<256> req;
@@ -181,43 +274,307 @@ namespace wifi
     }
 
 #ifndef UNIT_TEST
+    // ---------------------------------------------------------------------------
+    // Captive portal UI
+    // ---------------------------------------------------------------------------
+    // Known UX/failure modes fixed here:
+    // 1) Fields inside <details> still have HTML5 "required" → mobile browsers
+    //    block submit silently when Advanced is collapsed.
+    // 2) Classic form POST + captive mini-browser often loses the response or
+    //    gets 302'd by DNS spoofing → "press Save and nothing happens".
+    // 3) Save was all-or-nothing (WiFi + backend + MQTT). Empty/invalid advanced
+    //    values could fail NVS write even when WiFi creds were fine.
+    // 4) ESP.restart() too early can cut the HTTP response before the phone
+    //    finishes reading it.
+    // ---------------------------------------------------------------------------
     static const char *captive_html = R"rawliteral(
-<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TraiNam Cau Hinh WiFi & MQTT</title>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="format-detection" content="telephone=no">
+<title>TraiNam Cau Hinh WiFi</title>
 <style>
-body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
-.container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-h2 { text-align: center; color: #333; }
-label { font-weight: bold; margin-top: 10px; display: block; color: #555; }
-input { width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-input[type="submit"] { background: #4CAF50; color: white; border: none; cursor: pointer; padding: 12px; font-size: 16px; font-weight: bold; }
-input[type="submit"]:hover { background: #45a049; }
-summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; margin-bottom: 10px; outline: none; }
-</style></head><body>
-<div class="container">
-  <h2>Trai Nam - Cau Hinh</h2>
-  <form action="/save" method="POST">
-    <label>WiFi SSID</label><input type="text" name="ssid" value="%SSID%" required>
-    <label>WiFi Password</label><input type="password" name="pass" value="%PASS%">
-    
-    <details>
-      <summary>Cau hinh nang cao (Advanced Settings)</summary>
-      <div style="padding-left: 10px; border-left: 2px solid #1a73e8; margin-top: 10px;">
-        <label>Backend API URL</label><input type="text" name="backend_url" value="%BACKEND_URL%" required>
-        <label>MQTT Broker IP</label><input type="text" name="mqtt_broker" value="%MQTT_BROKER%" required>
-        <label>MQTT Port</label><input type="number" name="mqtt_port" value="%MQTT_PORT%" required>
-        <label>MQTT Username</label><input type="text" name="mqtt_user" value="%MQTT_USER%">
-        <label>MQTT Password</label><input type="password" name="mqtt_pass" value="%MQTT_PASS%">
+:root { --ok:#1e8e3e; --err:#d93025; --pri:#1a73e8; --bg:#f0f2f5; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; margin: 0; background: var(--bg); color: #202124; }
+.wrap { max-width: 440px; margin: 0 auto; padding: 16px; }
+.card { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
+.sub { font-size: 13px; color: #5f6368; text-align: center; margin: 0 0 16px; line-height: 1.4; }
+label { display:block; font-size: 13px; font-weight: 600; color: #3c4043; margin: 12px 0 6px; }
+input[type=text], input[type=password], input[type=number], select {
+  width: 100%; font-size: 16px; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; background: #fff;
+}
+input:focus, select:focus { outline: 2px solid #aecbfa; border-color: var(--pri); }
+.row { display:flex; gap:8px; align-items:stretch; }
+.row > :first-child { flex:1; min-width:0; }
+.btn {
+  font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid #dadce0; background:#fff; color:#3c4043;
+  padding: 0 12px; min-height: 46px; cursor: pointer; white-space: nowrap;
+}
+.btn-pri { background: var(--ok); color:#fff; border-color: var(--ok); width:100%; font-size:16px; margin-top:16px; }
+.btn-pri:disabled { opacity: .65; cursor: wait; }
+.btn-sec { background:#e8f0fe; color:var(--pri); border-color:#aecbfa; width:100%; margin-top:8px; }
+.btn-toggle { min-width: 72px; color:var(--pri); border-color:#aecbfa; background:#e8f0fe; }
+details { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
+summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; }
+.msg { display:none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
+.msg.show { display:block; }
+.msg.ok { background:#e6f4ea; color:#137333; border:1px solid #ceead6; }
+.msg.err { background:#fce8e6; color:#a50e0e; border:1px solid #f5c6c2; }
+.msg.info { background:#e8f0fe; color:#174ea6; border:1px solid #d2e3fc; }
+.scan-box { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #e0e0e0; border-radius:8px; display:none; }
+.scan-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #f1f3f4; background:#fff; font-size:14px; cursor:pointer; }
+.scan-item:last-child { border-bottom:0; }
+.scan-item:active { background:#e8f0fe; }
+.meta { font-size:11px; color:#80868b; margin-top:14px; text-align:center; line-height:1.4; }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; vertical-align:-2px; margin-right:6px; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>Trai Nam - Cau hinh WiFi</h1>
+  <p class="sub">Buoc 1: chon/nhap WiFi nha ban.<br>Buoc 2: bam Luu. May se tu ket noi lai.</p>
+
+  <div id="banner" class="msg"></div>
+
+  <form id="cfgForm" autocomplete="off" onsubmit="return false;">
+    <label for="ssid">WiFi SSID</label>
+    <div class="row">
+      <input id="ssid" name="ssid" type="text" value="%SSID%" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    </div>
+    <button type="button" class="btn btn-sec" id="btnScan" onclick="scanWifi()">Quet mang WiFi xung quanh</button>
+    <div id="scanBox" class="scan-box"></div>
+
+    <label for="pass">WiFi Password</label>
+    <div class="row">
+      <input id="pass" name="pass" type="password" value="%PASS%" maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <button type="button" class="btn btn-toggle" id="btnPass" onclick="togglePass('pass','btnPass')">Hien</button>
+    </div>
+
+    <details id="adv">
+      <summary>Cau hinh nang cao (tuy chon)</summary>
+      <label for="backend_url">Backend API URL</label>
+      <input id="backend_url" name="backend_url" type="text" value="%BACKEND_URL%" autocapitalize="none" autocorrect="off" spellcheck="false">
+
+      <label for="mqtt_broker">MQTT Broker IP</label>
+      <input id="mqtt_broker" name="mqtt_broker" type="text" value="%MQTT_BROKER%" autocapitalize="none" autocorrect="off" spellcheck="false">
+
+      <label for="mqtt_port">MQTT Port</label>
+      <input id="mqtt_port" name="mqtt_port" type="number" value="%MQTT_PORT%" min="1" max="65535">
+
+      <label for="mqtt_user">MQTT Username</label>
+      <input id="mqtt_user" name="mqtt_user" type="text" value="%MQTT_USER%" autocapitalize="none" autocorrect="off" spellcheck="false">
+
+      <label for="mqtt_pass">MQTT Password</label>
+      <div class="row">
+        <input id="mqtt_pass" name="mqtt_pass" type="password" value="%MQTT_PASS%" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button type="button" class="btn btn-toggle" id="btnMqttPass" onclick="togglePass('mqtt_pass','btnMqttPass')">Hien</button>
       </div>
     </details>
-    
-    <input type="submit" value="Luu & Khoi dong lai" style="margin-top: 20px;">
+
+    <button type="button" class="btn btn-pri" id="btnSave" onclick="saveConfig()">Luu & Khoi dong lai</button>
   </form>
-</div></body></html>
+
+  <p class="meta">Neu mat ket noi AP: mo WiFi, ket noi lai <b>TraiNam_Setup_KhongDay</b><br>roi mo trinh duyet toi <b>192.168.4.1</b></p>
+</div></div>
+
+<script>
+function $(id){ return document.getElementById(id); }
+function showMsg(type, text){
+  var el = $('banner');
+  el.className = 'msg show ' + type;
+  el.innerHTML = text;
+}
+function togglePass(inputId, btnId){
+  var el = $(inputId), btn = $(btnId);
+  if(!el) return;
+  if(el.type === 'password'){ el.type='text'; if(btn) btn.textContent='An'; }
+  else { el.type='password'; if(btn) btn.textContent='Hien'; }
+}
+function setBusy(busy, label){
+  var b = $('btnSave');
+  if(!b) return;
+  b.disabled = !!busy;
+  b.innerHTML = busy ? ('<span class="spinner"></span>' + (label||'Dang luu...')) : 'Luu & Khoi dong lai';
+}
+function scanWifi(){
+  var box = $('scanBox');
+  var btn = $('btnScan');
+  btn.disabled = true;
+  btn.textContent = 'Dang quet...';
+  box.style.display = 'block';
+  box.innerHTML = '<div class="scan-item">Dang quet mang...</div>';
+  var x = new XMLHttpRequest();
+  x.open('GET', '/scan?t=' + Date.now(), true);
+  x.timeout = 12000;
+  x.onreadystatechange = function(){
+    if(x.readyState !== 4) return;
+    btn.disabled = false;
+    btn.textContent = 'Quet mang WiFi xung quanh';
+    if(x.status !== 200){
+      box.innerHTML = '<div class="scan-item">Quet that bai. Hay nhap SSID thu cong.</div>';
+      return;
+    }
+    try {
+      var list = JSON.parse(x.responseText || '[]');
+      if(!list.length){
+        box.innerHTML = '<div class="scan-item">Khong thay mang nao. Hay nhap SSID thu cong.</div>';
+        return;
+      }
+      box.innerHTML = '';
+      for(var i=0;i<list.length;i++){
+        (function(item){
+          var a = document.createElement('button');
+          a.type = 'button';
+          a.className = 'scan-item';
+          var lock = item.secure ? ' 🔒' : ' 🔓';
+          a.textContent = item.ssid + lock + '  (' + item.rssi + ' dBm)';
+          a.onclick = function(){ $('ssid').value = item.ssid; $('pass').focus(); };
+          box.appendChild(a);
+        })(list[i]);
+      }
+    } catch(e){
+      box.innerHTML = '<div class="scan-item">Loi doc ket qua quet.</div>';
+    }
+  };
+  x.onerror = function(){
+    btn.disabled = false;
+    btn.textContent = 'Quet mang WiFi xung quanh';
+    box.innerHTML = '<div class="scan-item">Mat ket noi AP khi quet. Thu lai.</div>';
+  };
+  x.send();
+}
+function saveConfig(){
+  var ssid = ($('ssid').value || '').trim();
+  if(!ssid){
+    showMsg('err', 'Vui long nhap WiFi SSID.');
+    $('ssid').focus();
+    return;
+  }
+  var port = parseInt(($('mqtt_port').value || '1883'), 10);
+  if(isNaN(port) || port < 1 || port > 65535){
+    showMsg('err', 'MQTT Port khong hop le.');
+    return;
+  }
+
+  setBusy(true, 'Dang luu...');
+  showMsg('info', 'Dang gui cau hinh toi thiet bi...');
+
+  var body =
+    'ssid=' + encodeURIComponent(ssid) +
+    '&pass=' + encodeURIComponent($('pass').value || '') +
+    '&backend_url=' + encodeURIComponent(($('backend_url').value || '').trim()) +
+    '&mqtt_broker=' + encodeURIComponent(($('mqtt_broker').value || '').trim()) +
+    '&mqtt_port=' + encodeURIComponent(String(port)) +
+    '&mqtt_user=' + encodeURIComponent(($('mqtt_user').value || '').trim()) +
+    '&mqtt_pass=' + encodeURIComponent($('mqtt_pass').value || '');
+
+  var x = new XMLHttpRequest();
+  // Absolute URL to SoftAP IP avoids captive mini-browser rewriting relative /save.
+  x.open('POST', 'http://192.168.4.1/save', true);
+  x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.timeout = 20000;
+  x.onreadystatechange = function(){
+    if(x.readyState !== 4) return;
+    if(x.status >= 200 && x.status < 300){
+      var resp = {};
+      try { resp = JSON.parse(x.responseText || '{}'); } catch(e) {}
+      if(resp.ok){
+        showMsg('ok', 'Da luu thanh cong! Thiet bi dang khoi dong lai va se ket noi WiFi <b>' + ssid + '</b>. Ban co the dong trang nay.');
+        setBusy(true, 'Da luu - dang reboot...');
+      } else {
+        showMsg('err', (resp.error || 'Luu that bai. Thu lai.'));
+        setBusy(false);
+      }
+    } else if(x.status === 0){
+      // Connection dropped right after reboot/save — usually still OK.
+      showMsg('ok', 'Da gui lenh luu. Neu AP bien mat, thiet bi dang reboot de ket noi WiFi moi.');
+      setBusy(true, 'Da gui lenh...');
+    } else {
+      showMsg('err', 'Loi HTTP ' + x.status + '. Kiem tra ket noi AP roi thu lai.');
+      setBusy(false);
+    }
+  };
+  x.onerror = function(){
+    // Many captive browsers fire error when device reboots after successful save.
+    showMsg('ok', 'Mat ket noi AP sau khi gui. Neu dung, thiet bi dang reboot de vao WiFi moi.');
+    setBusy(true, 'Da gui lenh...');
+  };
+  x.ontimeout = function(){
+    showMsg('err', 'Het thoi gian cho phan hoi. Hay giu ket noi AP va bam Luu lai.');
+    setBusy(false);
+  };
+  x.send(body);
+}
+// Keep association warm while user is filling the form.
+setInterval(function(){
+  try {
+    var x = new XMLHttpRequest();
+    x.open('GET', '/keep-alive?t=' + Date.now(), true);
+    x.timeout = 2000;
+    x.send();
+  } catch(e) {}
+}, 12000);
+</script>
+</body>
+</html>
 )rawliteral";
+
+    static void send_json(int code, const String &json)
+    {
+        webServer.sendHeader("Cache-Control", "no-store");
+        webServer.sendHeader("Access-Control-Allow-Origin", "*");
+        webServer.sendHeader("Connection", "close");
+        webServer.send(code, "application/json; charset=utf-8", json);
+    }
+
+    static String json_escape(const String &in)
+    {
+        String out;
+        out.reserve(in.length() + 8);
+        for (size_t i = 0; i < in.length(); ++i)
+        {
+            char c = in[i];
+            if (c == '"' || c == '\\')
+            {
+                out += '\\';
+                out += c;
+            }
+            else if (c == '\n')
+            {
+                out += "\\n";
+            }
+            else if (static_cast<unsigned char>(c) < 0x20)
+            {
+                // drop control chars
+            }
+            else
+            {
+                out += c;
+            }
+        }
+        return out;
+    }
+
+    static void handle_config()
+    {
+        mark_softap_activity();
+        String resp = "{";
+        resp += "\"ssid\":\"" + json_escape(config::network::STA_SSID) + "\",";
+        resp += "\"pass_len\":" + String(config::network::STA_PASS.length()) + ",";
+        resp += "\"wifi_state\":" + String((int)current_state) + ",";
+        resp += "\"ap_clients\":" + String(WiFi.softAPgetStationNum());
+        resp += "}";
+        send_json(200, resp);
+    }
 
     static void handle_root()
     {
+        mark_softap_activity();
         String html = captive_html;
         html.replace("%SSID%", config::network::STA_SSID);
         html.replace("%PASS%", config::network::STA_PASS);
@@ -226,41 +583,262 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
         html.replace("%MQTT_PORT%", String(config::network::MQTT_PORT_VAL));
         html.replace("%MQTT_USER%", config::network::MQTT_USER_VAL);
         html.replace("%MQTT_PASS%", config::network::MQTT_PASSWORD_VAL);
-        webServer.send(200, "text/html", html);
+        webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        webServer.sendHeader("Pragma", "no-cache");
+        webServer.sendHeader("Connection", "close");
+        webServer.send(200, "text/html; charset=utf-8", html);
     }
 
+    static void handle_keep_alive()
+    {
+        mark_softap_activity();
+        webServer.sendHeader("Cache-Control", "no-store");
+        webServer.sendHeader("Connection", "close");
+        webServer.send(204, "text/plain", "");
+    }
+
+    static void handle_scan()
+    {
+        mark_softap_activity();
+        Serial.println("[WIFI] SoftAP portal requested WiFi scan...");
+
+        // WIFI_AP_STA is required on ESP32 to scan while SoftAP stays up.
+        // Keep SoftAP alive so the phone does not drop mid-scan.
+        wifi_mode_t mode = WiFi.getMode();
+        if (mode != WIFI_AP_STA)
+        {
+            WiFi.mode(WIFI_AP_STA);
+        }
+
+        int n = WiFi.scanNetworks(/*async=*/false, /*hidden=*/false);
+        String json = "[";
+        int added = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            String ssid = WiFi.SSID(i);
+            if (ssid.length() == 0)
+            {
+                continue; // skip hidden
+            }
+            if (added > 0)
+            {
+                json += ',';
+            }
+            bool secure = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+            json += "{\"ssid\":\"";
+            json += json_escape(ssid);
+            json += "\",\"rssi\":";
+            json += String(WiFi.RSSI(i));
+            json += ",\"secure\":";
+            json += secure ? "true" : "false";
+            json += '}';
+            ++added;
+            if (added >= 20)
+            {
+                break; // keep payload small for captive browsers
+            }
+        }
+        json += ']';
+        WiFi.scanDelete();
+
+        // Return to pure AP mode for stable captive portal.
+        WiFi.mode(WIFI_AP);
+        WiFi.setSleep(false);
+
+        Serial.printf("[WIFI] Scan complete: %d network(s) returned.\n", added);
+        send_json(200, json);
+    }
+
+
+    // Test WiFi credentials synchronously without losing AP
+    static bool test_wifi_connection(const String &ssid, const String &pass)
+    {
+        Serial.printf("[WIFI] Testing STA connection to '%s'...\n", ssid.c_str());
+        
+        // Switch to AP_STA so AP doesn't drop while testing
+        if (WiFi.getMode() != WIFI_AP_STA)
+        {
+            WiFi.mode(WIFI_AP_STA);
+        }
+
+        WiFi.disconnect(false, false);
+        delay(100);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+
+        int attempt = 0;
+        // Wait up to 12 seconds for connection
+        while (WiFi.status() != WL_CONNECTED && attempt < 24)
+        {
+            delay(500);
+            attempt++;
+            
+            // Keep serving AP requests so captive portal doesn't timeout on the phone
+            #ifndef UNIT_TEST
+            dnsServer.processNextRequest();
+            webServer.handleClient();
+            #endif
+        }
+
+        bool success = (WiFi.status() == WL_CONNECTED);
+        
+        // Disconnect STA to return radio fully to AP until reboot
+        WiFi.disconnect(false, false);
+        WiFi.mode(WIFI_AP);
+        WiFi.setSleep(false);
+
+        if (success) {
+            Serial.println("[WIFI] Test success! Credentials are valid.");
+        } else {
+            Serial.printf("[WIFI] Test failed! Status: %d\n", WiFi.status());
+        }
+        
+        return success;
+    }
     static void handle_save()
     {
+        mark_softap_activity();
+
+        // Always respond to OPTIONS for stubborn captive browsers.
+        if (webServer.method() == HTTP_OPTIONS)
+        {
+            webServer.sendHeader("Access-Control-Allow-Origin", "*");
+            webServer.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+            webServer.send(204);
+            return;
+        }
+
         String ssid = webServer.arg("ssid");
+        ssid.trim();
         String pass = webServer.arg("pass");
         String backend_url = webServer.arg("backend_url");
+        backend_url.trim();
         String broker = webServer.arg("mqtt_broker");
-        uint16_t port = webServer.arg("mqtt_port").toInt();
+        broker.trim();
+        String port_raw = webServer.arg("mqtt_port");
+        port_raw.trim();
         String user = webServer.arg("mqtt_user");
+        user.trim();
         String mpass = webServer.arg("mqtt_pass");
 
+        Serial.printf("[WIFI] Portal save request: ssid='%s' pass_len=%u backend='%s' broker='%s' port='%s'\n",
+                      ssid.c_str(),
+                      static_cast<unsigned>(pass.length()),
+                      backend_url.c_str(),
+                      broker.c_str(),
+                      port_raw.c_str());
+
+        if (ssid.length() == 0)
+        {
+            send_json(400, "{\"ok\":false,\"error\":\"SSID khong duoc de trong\"}");
+            return;
+        }
+        if (ssid.length() > 32)
+        {
+            send_json(400, "{\"ok\":false,\"error\":\"SSID qua dai (toi da 32 ky tu)\"}");
+            return;
+        }
+        if (pass.length() > 0 && pass.length() < 8)
+        {
+            // WPA2 PSK minimum; allow empty for open networks.
+            send_json(400, "{\"ok\":false,\"error\":\"WiFi password toi thieu 8 ky tu (hoac de trong neu mang mo)\"}");
+            return;
+        }
+        
+        // 1. Test WiFi connection live
+        if (!test_wifi_connection(ssid, pass))
+        {
+            send_json(400, "{\"ok\":false,\"error\":\"Khong the ket noi toi WiFi nay. Vui long kiem tra lai ten/mat khau.\"}");
+            return;
+        }
+
+        // Fill advanced defaults if user left them blank (collapsed details).
+        if (backend_url.length() == 0)
+        {
+            backend_url = config::network::BACKEND_API_URL.length()
+                              ? config::network::BACKEND_API_URL
+                              : String(config::network::DEFAULT_BACKEND_URL);
+        }
+        if (broker.length() == 0)
+        {
+            broker = config::network::MQTT_BROKER_VAL.length()
+                         ? config::network::MQTT_BROKER_VAL
+                         : String(config::network::DEFAULT_MQTT_BROKER);
+        }
+        uint16_t port = port_raw.length() ? static_cast<uint16_t>(port_raw.toInt()) : config::network::MQTT_PORT_VAL;
+        if (port == 0)
+        {
+            port = config::network::DEFAULT_MQTT_PORT;
+        }
+        if (user.length() == 0)
+        {
+            user = config::network::MQTT_USER_VAL.length()
+                       ? config::network::MQTT_USER_VAL
+                       : String(config::network::DEFAULT_MQTT_USER);
+        }
+        if (mpass.length() == 0)
+        {
+            mpass = config::network::MQTT_PASSWORD_VAL.length()
+                        ? config::network::MQTT_PASSWORD_VAL
+                        : String(config::network::DEFAULT_MQTT_PASS);
+        }
+
         bool wifi_saved = storage::StorageManager::get_instance().save_wifi_credentials(ssid, pass);
+        if (!wifi_saved)
+        {
+            send_json(500, "{\"ok\":false,\"error\":\"Loi luu WiFi vao NVS\"}");
+            return;
+        }
+
+        // Advanced config is best-effort: never block a successful WiFi save.
         bool backend_saved = storage::StorageManager::get_instance().save_backend_config(backend_url);
         bool mqtt_saved = storage::StorageManager::get_instance().save_mqtt_config(broker, port, user, mpass);
+        if (!backend_saved || !mqtt_saved)
+        {
+            Serial.printf("[WIFI] WARNING: advanced save partial failure backend=%d mqtt=%d\n",
+                          backend_saved, mqtt_saved);
+        }
 
-        if (wifi_saved && backend_saved && mqtt_saved)
-        {
-            webServer.send(200, "text/html", "<h2>Da luu thanh cong! Thiet bi dang khoi dong lai...</h2>");
-            delay(1000);
-            ESP.restart();
-        }
-        else
-        {
-            webServer.send(500, "text/html", "<h2>Loi khi luu vao NVS Flash! Thu lai sau.</h2>");
-        }
+        // Mirror into runtime config so post-reboot path is consistent if restart is delayed.
+        config::network::STA_SSID = ssid;
+        config::network::STA_PASS = pass;
+        config::network::BACKEND_API_URL = backend_url;
+        config::network::MQTT_BROKER_VAL = broker;
+        config::network::MQTT_PORT_VAL = port;
+        config::network::MQTT_USER_VAL = user;
+        config::network::MQTT_PASSWORD_VAL = mpass;
+
+        String ok_json = String("{\"ok\":true,\"ssid\":\"") + json_escape(ssid) +
+                         "\",\"reboot\":true,\"advanced_ok\":" +
+                         ((backend_saved && mqtt_saved) ? "true" : "false") + '}';
+        send_json(200, ok_json);
+
+        // Give the TCP stack time to flush the JSON response before reboot.
+        // Without this, many phones see "nothing happened" because the socket dies mid-response.
+        webServer.client().flush();
+        delay(300);
+        Serial.printf("[WIFI] Config saved from portal. New SSID='%s'. Wiping SDK WiFi cache and restarting...\n", ssid.c_str());
+        delay(700);
+        WiFi.persistent(false);
+        WiFi.disconnect(true, true);
+        ESP.restart();
     }
 
     static void handle_not_found()
     {
-        // Captive portal redirect:
-        // Khi điện thoại gửi request tới bất kỳ domain nào (VD: google.com),
-        // ta chuyển hướng (302) về trang cấu hình (IP của SoftAP).
-        webServer.sendHeader("Location", String("http://") + WiFi.softAPIP().toString(), true);
+        mark_softap_activity();
+
+        // Do not 302 POST/PUT bodies away — that silently drops save attempts.
+        if (webServer.method() == HTTP_POST || webServer.method() == HTTP_PUT)
+        {
+            send_json(404, "{\"ok\":false,\"error\":\"Endpoint khong ton tai\"}");
+            return;
+        }
+
+        // Captive portal redirect for browser probes / random hosts.
+        webServer.sendHeader("Location", String("http://") + WiFi.softAPIP().toString() + "/", true);
+        webServer.sendHeader("Cache-Control", "no-store");
+        webServer.sendHeader("Connection", "close");
         webServer.send(302, "text/plain", "");
     }
 
@@ -268,10 +846,22 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
     {
         webServer.on("/", HTTP_GET, handle_root);
         webServer.on("/save", HTTP_POST, handle_save);
+        webServer.on("/save", HTTP_OPTIONS, handle_save);
+        webServer.on("/scan", HTTP_GET, handle_scan);
+        webServer.on("/keep-alive", HTTP_GET, handle_keep_alive);
+        webServer.on("/config", HTTP_GET, handle_config);
 
-        // Dành cho iOS/Android Captive portal checks (thường gõ URL ảo)
-        webServer.on("/generate_204", handle_root);        // Android captive portal
-        webServer.on("/hotspot-detect.html", handle_root); // iOS captive portal
+        // Captive portal probes — serve config page so OS keeps association open.
+        webServer.on("/generate_204", HTTP_GET, handle_root);              // Android
+        webServer.on("/gen_204", HTTP_GET, handle_root);                   // Android alt
+        webServer.on("/hotspot-detect.html", HTTP_GET, handle_root);       // iOS/macOS
+        webServer.on("/library/test/success.html", HTTP_GET, handle_root); // iOS
+        webServer.on("/ncsi.txt", HTTP_GET, handle_root);                  // Windows
+        webServer.on("/connecttest.txt", HTTP_GET, handle_root);           // Windows
+        webServer.on("/canonical.html", HTTP_GET, handle_root);            // Firefox
+        webServer.on("/success.txt", HTTP_GET, handle_root);               // Firefox
+        webServer.on("/fwlink/", HTTP_GET, handle_root);                   // Windows
+        webServer.on("/fwlink", HTTP_GET, handle_root);
 
         webServer.onNotFound(handle_not_found);
     }
@@ -281,6 +871,17 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
     {
         Serial.println("[WIFI] Initializing WiFi Manager...");
 
+#ifndef UNIT_TEST
+        pinMode(config::pins::PIN_WIFI_CONFIG_BUTTON, INPUT_PULLUP);
+        reset_config_button_tracking();
+        Serial.printf("[WIFI] Config button initialized on GPIO%d (hold 5s to force SoftAP).\n",
+                      config::pins::PIN_WIFI_CONFIG_BUTTON);
+
+        // Disable Arduino SDK auto-reconnect so it cannot keep retrying a stale
+        // SSID cached outside our application NVS keys.
+        WiFi.setAutoReconnect(false);
+#endif
+
         // Đọc cấu hình WiFi STA từ NVS thông qua cấu hình hệ thống
         bool has_config = config::network::load_runtime_config();
 
@@ -288,9 +889,14 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
         {
             Serial.printf("[WIFI] Found WiFi credentials in NVS (SSID: %s). Transitioning to STA_CONNECTING.\n",
                           config::network::STA_SSID.c_str());
+            WiFi.persistent(false);
+            WiFi.setAutoReconnect(false);
+            WiFi.disconnect(false, false);
+            delay(100);
             WiFi.mode(WIFI_STA);
             WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
+            last_auth_attempt = 0;
             set_state(WifiState::STA_CONNECTING);
         }
         else
@@ -305,6 +911,7 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
     void check_wifi_connection()
     {
         unsigned long now = millis();
+        check_config_button(now);
 
         switch (current_state)
         {
@@ -312,20 +919,25 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
         {
             if (WiFi.status() == WL_CONNECTED)
             {
-                Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
+                // WiFi association and DHCP are already OK. Auth/backend problems must
+                // not force a WiFi disconnect/reconnect loop, otherwise ESP32 leaves
+                // the BSS by itself (disconnect reason 8) while the router is healthy.
+                if (last_auth_attempt == 0 || now - last_auth_attempt >= AUTH_RETRY_INTERVAL_MS)
+                {
+                    Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
+                    last_auth_attempt = now;
 
-                // Fetch JWT before advertising STA_CONNECTED so MQTT never races with empty password
-                if (fetch_auth_token())
-                {
-                    reconnect_attempts = 0; // Reset counter on success
-                    set_state(WifiState::STA_CONNECTED);
-                }
-                else
-                {
-                    Serial.println("[WIFI] Auth token fetch failed. Transitioning to STA_DISCONNECTED for retry.");
-                    config::network::AUTH_JWT_TOKEN = "";
-                    set_state(WifiState::STA_DISCONNECTED);
-                    last_reconnect_attempt = now;
+                    // Fetch JWT before advertising STA_CONNECTED so MQTT never races with empty password.
+                    if (fetch_auth_token())
+                    {
+                        reconnect_attempts = 0; // Reset counter on success
+                        set_state(WifiState::STA_CONNECTED);
+                    }
+                    else
+                    {
+                        Serial.println("[WIFI] Auth token fetch failed. Keeping WiFi connected and retrying auth later.");
+                        config::network::AUTH_JWT_TOKEN = "";
+                    }
                 }
             }
             else if (now - connection_start_time >= WIFI_CONNECTION_TIMEOUT_MS)
@@ -355,6 +967,7 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
                 Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
                 // Clear JWT so it is re-fetched after reconnection
                 config::network::AUTH_JWT_TOKEN = "";
+                last_auth_attempt = 0;
                 set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
             }
@@ -372,17 +985,28 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
         case WifiState::SOFTAP_ACTIVE:
         {
 #ifndef UNIT_TEST
-            dnsServer.processNextRequest();
-            webServer.handleClient();
-            vTaskDelay(10 / portTICK_PERIOD_MS); // Yield CPU to avoid TWDT
-#endif
-            if (now - softap_start_time >= SOFTAP_TIMEOUT_MS)
+            // Drain multiple clients/packets per tick so form typing/submit
+            // is responsive even under captive-portal probe spam.
+            for (int i = 0; i < 4; ++i)
             {
-                Serial.println("[WIFI] SoftAP timeout reached (15 minutes). Shutting down SoftAP and reverting to STA_DISCONNECTED.");
+                dnsServer.processNextRequest();
+                webServer.handleClient();
+            }
+#endif
+            // Idle timeout: only shut AP when there are NO clients.
+            // If a phone/laptop is still associated, keep portal alive indefinitely.
+            if (has_softap_clients())
+            {
+                softap_last_activity_ms = now;
+            }
+            else if (now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
+            {
+                Serial.println("[WIFI] SoftAP idle timeout (15 minutes, no clients). Shutting down SoftAP and reverting to STA_DISCONNECTED.");
 #ifndef UNIT_TEST
                 dnsServer.stop();
-                webServer.close();
+                webServer.stop();
 #endif
+                WiFi.softAPdisconnect(true);
                 WiFi.mode(WIFI_STA);
                 reconnect_attempts = 0; // Reset attempts to try connecting again
                 set_state(WifiState::STA_DISCONNECTED);
@@ -404,9 +1028,13 @@ summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; 
             return;
         }
         Serial.printf("[WIFI] Reconnecting to SSID: %s...\n", config::network::STA_SSID.c_str());
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect(false, false);
+        delay(100);
         // Gọi WiFi.begin để tái kết nối
         WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
         connection_start_time = millis();
+        last_auth_attempt = 0;
         set_state(WifiState::STA_CONNECTING);
     }
 

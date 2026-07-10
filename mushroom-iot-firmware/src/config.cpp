@@ -13,7 +13,7 @@ namespace config
         String MQTT_BROKER_VAL = DEFAULT_MQTT_BROKER;
         uint16_t MQTT_PORT_VAL = DEFAULT_MQTT_PORT;
         String MQTT_CLIENT_ID_VAL = "esp32_mushroom_client";
-        String MQTT_USER_VAL = DEFAULT_MQTT_USER;
+        String MQTT_USER_VAL = "esp32_mushroom_client";
         String MQTT_PASSWORD_VAL = DEFAULT_MQTT_PASS;
         String BACKEND_API_URL = DEFAULT_BACKEND_URL;
         String AUTH_JWT_TOKEN = "";

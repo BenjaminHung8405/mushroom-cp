@@ -95,7 +95,13 @@ void task_core0_communication(void* /*pvParameters*/)
 
         // 5. Yield and feed Watchdog
         #ifndef UNIT_TEST
-        vTaskDelay(pdMS_TO_TICKS(100)); // Delay 100ms
+        // SoftAP captive portal needs tighter HTTP/DNS polling so phones don't
+        // drop the association while the user is typing the WiFi password.
+        if (wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
         #endif
     }
 }

@@ -106,6 +106,7 @@ services:
       - MQTT_PORT=1883
       - MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
       - MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - MQTT_ESP32_PASS=${MQTT_ESP32_PASS:-changeme_esp32_pass}
     depends_on:
       mushroom-db:
         condition: service_healthy

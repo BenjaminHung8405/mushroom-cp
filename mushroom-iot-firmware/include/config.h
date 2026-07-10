@@ -25,6 +25,11 @@ namespace config
         // OneWire Bus (e.g. DS18B20)
         constexpr uint8_t PIN_ONE_WIRE = 14;
 
+        // WiFi provisioning button.
+        // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).
+        // Hold 5 seconds during runtime to force SoftAP config portal.
+        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
+
     } // namespace pins
 
     namespace network
@@ -37,8 +42,8 @@ namespace config
         constexpr const char *DEFAULT_BACKEND_URL = "http://192.168.1.50:3001";
         constexpr const char *DEFAULT_MQTT_BROKER = "192.168.1.50";
         constexpr uint16_t DEFAULT_MQTT_PORT = 1883;
-        constexpr const char *DEFAULT_MQTT_USER = "esp32";
-        constexpr const char *DEFAULT_MQTT_PASS = "esp32@123";
+        constexpr const char *DEFAULT_MQTT_USER = "esp32_mushroom_client";
+        constexpr const char *DEFAULT_MQTT_PASS = "changeme_esp32_pass";
 
         // NVS Storage namespace and keys (Preference keys must be <= 15 chars)
         constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
