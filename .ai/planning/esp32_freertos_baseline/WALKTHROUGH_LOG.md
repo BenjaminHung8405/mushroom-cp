@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:14:00+07:00] - Task G1: Tạo `actuators.h` và `actuators.cpp` với hàm `init_actuators_gpio()`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [actuators.h](mushroom-iot-firmware/include/actuators.h)
+  - Tạo mới: [actuators.cpp](mushroom-iot-firmware/src/actuators.cpp)
+  - Sửa đổi: [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Fail-Safe Phần cứng**: Hàm `init_actuators_gpio()` trong namespace `actuators` khởi tạo 4 chân GPIO cho rơ-le (MIST Pin 10, FAN Pin 11, HEATER_1 Pin 12, HEATER_2 Pin 13) theo đúng thứ tự: `pinMode(pin, OUTPUT)` rồi ngay lập tức `digitalWrite(pin, LOW)` để tránh rơ-le tự kích khi khởi động (Glitch Protection).
+  - **Logging chi tiết**: Mỗi chân được in log ra Serial với tên rơ-le và số pin giúp trace bug dễ dàng.
+  - **Tự kiểm tra (Self-test)**: Test Case 17 trong [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp) xác thực rằng tất cả 4 chân đều được cấu hình OUTPUT, trạng thái LOW, và `digitalWrite` đã được gọi. Biên dịch và chạy bộ kiểm thử offline thành công 100%, output "--- All Unit Tests Passed Successfully! ---".
+
 ## [2026-07-10T11:01:51+07:00] - Task F2: Viết các hàm giả lập đọc SHT30, DS18B20 và SCD30
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

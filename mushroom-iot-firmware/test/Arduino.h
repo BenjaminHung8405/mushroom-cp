@@ -4,6 +4,29 @@
 #include <string>
 #include <sstream>
 #include <cstdint>
+#include <map>
+
+#define INPUT 0x01
+#define OUTPUT 0x02
+#define INPUT_PULLUP 0x04
+
+#define LOW 0x00
+#define HIGH 0x01
+
+extern std::map<uint8_t, uint8_t> mock_pin_modes;
+extern std::map<uint8_t, uint8_t> mock_pin_values;
+extern std::map<uint8_t, int> mock_pin_write_order;
+extern int mock_operation_counter;
+
+inline void pinMode(uint8_t pin, uint8_t mode) {
+    mock_pin_modes[pin] = mode;
+}
+
+inline void digitalWrite(uint8_t pin, uint8_t val) {
+    mock_pin_values[pin] = val;
+    mock_pin_write_order[pin] = ++mock_operation_counter;
+}
+
 
 class String : public std::string {
 public:

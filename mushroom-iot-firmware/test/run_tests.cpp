@@ -7,6 +7,7 @@
 #include "definitions.h"
 #include "models.h"
 #include "sensors.h"
+#include "actuators.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -23,6 +24,12 @@ WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
+
+std::map<uint8_t, uint8_t> mock_pin_modes;
+std::map<uint8_t, uint8_t> mock_pin_values;
+std::map<uint8_t, int> mock_pin_write_order;
+int mock_operation_counter = 0;
+
 
 void setup();
 void loop();
@@ -426,6 +433,40 @@ int main() {
     assert(!std::isnan(telemetry_mock.humidity_air));
     assert(!std::isnan(telemetry_mock.temp_substrate));
     assert(!std::isnan(telemetry_mock.co2_level));
+
+    // 17. Test Task G1 - Actuators Mock & Fail-Safe init
+    Serial.println("[TEST] Starting Task G1 - Actuators GPIO Initialization Unit Tests...");
+    
+    // Clear mocks
+    mock_pin_modes.clear();
+    mock_pin_values.clear();
+    mock_pin_write_order.clear();
+    mock_operation_counter = 0;
+
+    // Call initialization
+    actuators::init_actuators_gpio();
+
+    // Check that all relay pins are configured as OUTPUT and set to LOW
+    uint8_t relay_pins[] = {
+        config::pins::PIN_RELAY_MIST,
+        config::pins::PIN_RELAY_FAN,
+        config::pins::PIN_RELAY_HEATER_1,
+        config::pins::PIN_RELAY_HEATER_2
+    };
+
+    for (uint8_t pin : relay_pins) {
+        // Assert pin mode is OUTPUT
+        assert(mock_pin_modes.count(pin) > 0);
+        assert(mock_pin_modes[pin] == OUTPUT);
+
+        // Assert pin state is LOW (fail-safe)
+        assert(mock_pin_values.count(pin) > 0);
+        assert(mock_pin_values[pin] == LOW);
+
+        // Assert that digitalWrite was called (write order is recorded)
+        assert(mock_pin_write_order.count(pin) > 0);
+        assert(mock_pin_write_order[pin] > 0);
+    }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
