@@ -1,5 +1,25 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:30:00+07:00] - Task G2: calculateControlOutputs() ON/OFF + Midday Blackout
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [telemetry.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Rà soát logic `calculateControlOutputs` trong `TelemetryService` để đảm bảo:
+    - Sử dụng `toZonedTime(timestamp, 'Asia/Ho_Chi_Minh')` để tính toán độc lập múi giờ cho Midday Blackout.
+    - Khóa sốc nhiệt (blackout) khi `thermalShockProtection === true` và thời gian thuộc `[11:00, 13:30]`.
+    - Mist Generator: `!blackout` và `humidityMeasured < targetHumid`.
+    - Convection Fan: `temperatureMeasured > targetTemp` hoặc `co2Measured > 1000`.
+    - Heating Lamp: `temperatureMeasured < tempOptimalMin`.
+  - Logic hiện tại của `calculateControlOutputs` đã hoàn toàn tuân thủ các quy tắc trên.
+  - Bổ sung bộ unit test toàn diện cho `calculateControlOutputs` để xác thực:
+    - Tính độc lập timezone sử dụng timestamp dạng UTC (chuyển đổi sang `Asia/Ho_Chi_Minh` để tính blackout chính xác).
+    - Blackout không kích hoạt khi `thermalShockProtection` tắt dù nằm trong khung giờ.
+    - Kiểm tra điều kiện biên của blackout (phút `11:00`, `13:30`, trước và sau blackout 1 phút).
+    - Đèn sưởi và quạt đối lưu giữ trạng thái `OFF` khi nhiệt độ nằm trong khoảng tối ưu sinh học (giữa `tempOptimalMin` và `targetTemp`).
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 56 tests trong dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:29:00+07:00] - Task G1: processTelemetry() + Bio-safety Fail-Safe & Idle Guard
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

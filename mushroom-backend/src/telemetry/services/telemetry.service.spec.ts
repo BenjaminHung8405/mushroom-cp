@@ -192,6 +192,107 @@ describe('TelemetryService', () => {
       );
       expect(outputs.heatingLampActive).toBe(true);
     });
+
+    it('should handle timezone-independent calculations for midday blackout (UTC timestamp)', () => {
+      // 11:30 AM Asia/Ho_Chi_Minh is 04:30 AM UTC
+      const timestamp = new Date('2026-07-10T04:30:00Z');
+      const event: TelemetryEvent = {
+        deviceId: 'house-1',
+        temp_air: 24.0,
+        humidity_air: 80.0,
+        co2_level: 600,
+        timestamp: timestamp.toISOString(),
+      };
+
+      const outputs = service.calculateControlOutputs(
+        event,
+        defaultContext,
+        timestamp,
+      );
+      expect(outputs.middayBlackoutActive).toBe(true);
+      expect(outputs.mistGeneratorActive).toBe(false); // blocked by blackout
+    });
+
+    it('should NOT trigger midday blackout if thermalShockProtection is disabled', () => {
+      const timestamp = new Date('2026-07-10T12:00:00+07:00');
+      const noProtectionContext = {
+        ...defaultContext,
+        thermalShockProtection: false,
+        thermal_shock_protection: false,
+      };
+      const event: TelemetryEvent = {
+        deviceId: 'house-1',
+        temp_air: 24.0,
+        humidity_air: 80.0,
+        co2_level: 600,
+        timestamp: timestamp.toISOString(),
+      };
+
+      const outputs = service.calculateControlOutputs(
+        event,
+        noProtectionContext,
+        timestamp,
+      );
+      expect(outputs.middayBlackoutActive).toBe(false);
+      expect(outputs.mistGeneratorActive).toBe(true); // mist active because no blackout
+    });
+
+    it('should check midday blackout boundary conditions', () => {
+      const startTimestamp = new Date('2026-07-10T11:00:00+07:00');
+      const endTimestamp = new Date('2026-07-10T13:30:00+07:00');
+      const justBeforeTimestamp = new Date('2026-07-10T10:59:00+07:00');
+      const justAfterTimestamp = new Date('2026-07-10T13:31:00+07:00');
+
+      const event: TelemetryEvent = {
+        deviceId: 'house-1',
+        temp_air: 24.0,
+        humidity_air: 80.0,
+        co2_level: 600,
+        timestamp: startTimestamp.toISOString(),
+      };
+
+      expect(
+        service.calculateControlOutputs(event, defaultContext, startTimestamp)
+          .middayBlackoutActive,
+      ).toBe(true);
+      expect(
+        service.calculateControlOutputs(event, defaultContext, endTimestamp)
+          .middayBlackoutActive,
+      ).toBe(true);
+      expect(
+        service.calculateControlOutputs(
+          event,
+          defaultContext,
+          justBeforeTimestamp,
+        ).middayBlackoutActive,
+      ).toBe(false);
+      expect(
+        service.calculateControlOutputs(
+          event,
+          defaultContext,
+          justAfterTimestamp,
+        ).middayBlackoutActive,
+      ).toBe(false);
+    });
+
+    it('should keep heating lamp and convection fan OFF when temperature is optimal (between tempOptimalMin and targetTemp)', () => {
+      const timestamp = new Date('2026-07-10T10:00:00+07:00');
+      const event: TelemetryEvent = {
+        deviceId: 'house-1',
+        temp_air: 23.5, // > 22.0 (optimal min) and < 25.0 (target)
+        humidity_air: 90.0,
+        co2_level: 600,
+        timestamp: timestamp.toISOString(),
+      };
+
+      const outputs = service.calculateControlOutputs(
+        event,
+        defaultContext,
+        timestamp,
+      );
+      expect(outputs.heatingLampActive).toBe(false);
+      expect(outputs.convectionFanActive).toBe(false);
+    });
   });
 
   describe('processTelemetry', () => {
