@@ -1,7 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:00:00+07:00] - QA Review Final: Tasks D1 + E1 — ✅ LGTM
+- **Trạng thái**: LGTM (Duyệt)
+- **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)
+- **Kết quả rà soát**:
+  - **Kiến trúc & Conventions**: Phân tầng Clean Architecture đúng — DTO → Controller → Service → Entity. Không có sai layer. Hàm ngắn (<50 dòng), DRY tuân thủ. Naming conventions (kebab-case, PascalCase, camelCase, snake_case DB) nhất quán.
+  - **Bảo mật**: Không hardcode secret. Input validate toàn diện: route params `@Matches` regex + `@MaxLength(50)`, DTO bounded numeric (`@Min/@Max`), time format `@Matches`, enum status. Query parameterized qua TypeORM ORM — không SQL injection.
+  - **Logic & Edge-cases**: Error handling kín — `NotFoundException`, `ConflictException`, null-safe `?? null`. State machine guard `endBatch` (chỉ ACTIVE mới end được). Race condition `createBatch` dùng transaction + `pessimistic_write`. Timezone `Asia/Ho_Chi_Minh` clamp `[1, totalCropDays]`. Interpolation xử lý đầy đủ biên (empty, before-first, after-last, equal-days). Bio-safety fallback an toàn.
+  - **Độ tối ưu**: Không N+1 query (4 queries cho 1 batch context là chấp nhận được). Sorting trong interpolate overhead thấp với checkpoint count nhỏ.
+  - **Minor observations (không chặn)**: (1) `endBatch` TOCTOU gap — có thể thêm `@VersionColumn` optimistic locking. (2) `createBatch` house check ngoài transaction — rủi ro thấp. (3) `interpolate` linear scan thay vì binary search — OK cho dataset nhỏ.
+  - **Test**: 35/35 pass (batch.controller.spec.ts + batch.service.spec.ts).
+- **Quyết định**: Duyệt. Cho phép cập nhật Task D1 và E1 sang `[x] Done` trong PROGRESS.md.
+
 ## [2026-07-10T14:50:00+07:00] - QA Fix Round 2: Tasks D1 + E1 (Findings Finding 1 - Finding 2)
-- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Trạng thái**: Đã được fix và submit lại cho QA Review (Lần 2)
 - **Task ID**: D1, E1
 - **Danh sách file đã sửa**:
   - Tạo mới: [batch.params.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/batch.params.dto.ts)
