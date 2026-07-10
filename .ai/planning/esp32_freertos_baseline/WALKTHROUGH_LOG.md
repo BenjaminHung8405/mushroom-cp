@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:18:00+07:00] - Task A2: Triển khai cấu hình dynamic cho WiFi STA và MQTT Broker đọc từ NVS
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+  - Tạo mới: [config.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/config.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Tách biệt nhóm cấu hình WiFi**: 
+    1. WiFi cứu hộ (SoftAP): `AP_SSID` và `AP_PASS` được định nghĩa là hằng tĩnh `constexpr` để đảm bảo hoạt động độc lập không phụ thuộc vào NVS.
+    2. WiFi hoạt động (STA): `STA_SSID` và `STA_PASS` được khai báo là biến động (`extern String`), khởi tạo mặc định là chuỗi trống và bắt buộc phải nạp động từ bộ nhớ Flash (NVS).
+  - **Dynamic MQTT Broker**: Các biến cấu hình MQTT (`MQTT_BROKER_VAL`, `MQTT_PORT_VAL`, `MQTT_USER_VAL`, `MQTT_PASSWORD_VAL`) cũng được chuyển đổi thành biến động `extern` để hỗ trợ ghi đè cấu hình runtime khi nạp từ NVS.
+  - **Triển khai hàm `load_runtime_config()`**: Cài đặt logic tải tham số từ NVS thông qua `StorageManager`. Nếu NVS chưa có dữ liệu cấu hình, hệ thống sẽ sử dụng các giá trị fallback an toàn thay vì gây crash.
+  - **Tự kiểm duyệt (Self-test)**: Tích hợp kịch bản kiểm thử cho cơ chế nạp cấu hình động runtime trong `test/run_tests.cpp`. Chạy biên dịch offline và test thành công tốt đẹp với compiler Clang++/G++ trên local host.
+
 ## [2026-07-10T10:13:00+07:00] - Task A2: Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS)
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <Arduino.h>
 
 namespace config
 {
@@ -24,70 +25,36 @@ namespace config
 
     namespace network
     {
+        // Default SoftAP Configuration for WiFi Setup (Captive Portal)
+        constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
+        constexpr const char *AP_PASS = "12345678";
 
-// WiFi credentials (defined in ifndef blocks to allow override via compiler flags for development)
-#ifndef WIFI_SSID
-#define WIFI_SSID ""
-#endif
+        // NVS Storage namespace and keys (Preference keys must be <= 15 chars)
+        constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
+        constexpr const char *KEY_WIFI_SSID = "wifi_ssid";
+        constexpr const char *KEY_WIFI_PASS = "wifi_pass";
+        constexpr const char *KEY_MQTT_BROKER = "mqtt_broker";
+        constexpr const char *KEY_MQTT_PORT = "mqtt_port";
+        constexpr const char *KEY_MQTT_USER = "mqtt_user";
+        constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
 
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD ""
-#endif
+        // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
+        extern String STA_SSID;
+        extern String STA_PASS;
 
-// Fallback WiFi credentials for redundancy (default empty)
-#ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID ""
-#endif
+        // MQTT configuration variables - Động, khởi tạo dạng chuỗi trống hoặc mặc định, bắt buộc đọc từ NVS
+        extern String MQTT_BROKER_VAL;
+        extern uint16_t MQTT_PORT_VAL;
+        extern String MQTT_CLIENT_ID_VAL;
+        extern String MQTT_USER_VAL;
+        extern String MQTT_PASSWORD_VAL;
 
-#ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD ""
-#endif
-
-// Default SoftAP Configuration for WiFi Setup (Captive Portal)
-constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
-constexpr const char *AP_PASS = "12345678";
-
-// NVS Storage namespace and keys (Preference keys must be <= 15 chars)
-constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
-constexpr const char *KEY_WIFI_SSID = "wifi_ssid";
-constexpr const char *KEY_WIFI_PASS = "wifi_pass";
-constexpr const char *KEY_MQTT_BROKER = "mqtt_broker";
-constexpr const char *KEY_MQTT_PORT = "mqtt_port";
-constexpr const char *KEY_MQTT_USER = "mqtt_user";
-constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
-
-// MQTT configuration
-#ifndef MQTT_BROKER
-#define MQTT_BROKER "192.168.1.50"
-#endif
-
-#ifndef MQTT_PORT
-#define MQTT_PORT 1883
-#endif
-
-#ifndef MQTT_CLIENT_ID
-#define MQTT_CLIENT_ID "esp32_mushroom_client"
-#endif
-
-#ifndef MQTT_USER
-#define MQTT_USER "mushroom_device"
-#endif
-
-#ifndef MQTT_PASSWORD
-#define MQTT_PASSWORD "mqtt_secure_pass"
-#endif
-
-        // Type-safe constants for use in codebase
-        constexpr const char *WIFI_SSID_VAL = WIFI_SSID;
-        constexpr const char *WIFI_PASS_VAL = WIFI_PASSWORD;
-        constexpr const char *WIFI_BACKUP_SSID_VAL = WIFI_FALLBACK_SSID;
-        constexpr const char *WIFI_BACKUP_PASS_VAL = WIFI_FALLBACK_PASSWORD;
-
-        constexpr const char *MQTT_BROKER_VAL = MQTT_BROKER;
-        constexpr uint16_t MQTT_PORT_VAL = MQTT_PORT;
-        constexpr const char *MQTT_CLIENT_ID_VAL = MQTT_CLIENT_ID;
-        constexpr const char *MQTT_USER_VAL = MQTT_USER;
-        constexpr const char *MQTT_PASSWORD_VAL = MQTT_PASSWORD;
+        /**
+         * @brief Nạp các cấu hình động (WiFi STA và MQTT) từ NVS Flash.
+         * Nếu NVS trống hoặc lỗi, các biến động sẽ giữ nguyên giá trị mặc định (chuỗi rỗng hoặc giá trị mặc định).
+         * @return true nếu đọc thành công ít nhất cấu hình WiFi STA từ NVS, false nếu NVS trống.
+         */
+        bool load_runtime_config();
 
     } // namespace network
 

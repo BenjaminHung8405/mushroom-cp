@@ -1,6 +1,7 @@
 #include "Arduino.h"
 #include "Preferences.h"
 #include "storage.h"
+#include "config.h"
 #include <cassert>
 
 HardwareSerial Serial;
@@ -59,6 +60,29 @@ int main() {
     // 9. Factory Reset
     assert(storage.factory_reset() == true);
     assert(storage.has_mqtt_config() == false);
+
+    // 10. Test dynamic configuration loading
+    // Initial status should be empty
+    assert(config::network::STA_SSID == "");
+    assert(config::network::STA_PASS == "");
+    
+    // Save new values
+    assert(storage.save_wifi_credentials("DynamicWiFi", "dynamicpass123") == true);
+    assert(storage.save_mqtt_config("192.168.1.99", 1884, "dynamic_user", "dynamic_pass") == true);
+    
+    // Load config
+    assert(config::network::load_runtime_config() == true);
+    
+    // Verify updated variables
+    assert(config::network::STA_SSID == "DynamicWiFi");
+    assert(config::network::STA_PASS == "dynamicpass123");
+    assert(config::network::MQTT_BROKER_VAL == "192.168.1.99");
+    assert(config::network::MQTT_PORT_VAL == 1884);
+    assert(config::network::MQTT_USER_VAL == "dynamic_user");
+    assert(config::network::MQTT_PASSWORD_VAL == "dynamic_pass");
+
+    // Clean up
+    assert(storage.factory_reset() == true);
 
     Serial.println("--- All StorageManager Unit Tests Passed Successfully! ---");
     return 0;

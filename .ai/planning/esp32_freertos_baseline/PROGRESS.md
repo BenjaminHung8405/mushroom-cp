@@ -12,15 +12,14 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [ ] QA Review | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
-| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS). | [ ] QA Review | **CHỈ THỊ CAPTIVE PORTAL:** Nghiêm cấm đặt chuỗi SSID/PASS cố định trong mã nguồn. Sử dụng thư viện `Preferences.h` của ESP32 để khởi tạo phân vùng Non-Volatile Storage (NVS). Định nghĩa sẵn các key: `wifi_ssid`, `wifi_pass`. Khai báo thêm một chuỗi cấu hình mặc định cho SoftAP (VD: `AP_SSID = "TraiNam_Setup_KhongDay"`). |
+| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker. | [ ] QA Review | Tách biệt rõ hai nhóm biến: <br>1. `AP_SSID`/`AP_PASS`: Tĩnh (`constexpr`), dùng để phát WiFi cứu hộ cấu hình.<br>2. `STA_SSID`/`STA_PASS`: Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS (Flash). |
 
 ### Track B: Tầng Mạng (Sprint 1 - Network WiFi)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] Pending | Áp dụng nguyên lý Single Responsibility Principle (SRP). Khối này chỉ chịu trách nhiệm duy trì liên kết vật lý (L2/L3). |
-| B2 | Cài đặt logic kết nối sử dụng thư viện `WiFiManager`. | [ ] Pending | **Chỉ thị kỹ thuật:** Cấu hình hằng số `wifiManager.setConfigPortalTimeout(300)` (5 phút tự ngắt portal để tránh treo luồng). Bắt buộc sử dụng phương thức non-blocking của thư viện nếu chạy trong FreeRTOS Task. |
-| B3 | Cấu hình lưu trữ bộ đệm Flash (NVS) tự động của thư viện. | [ ] Pending | Xác thực bộ nhớ không bị rò rỉ (Memory leak) khi ngắt/bật cổng SoftAP liên tục. Đảm bảo các biến trả về từ WiFiManager cấp phát đúng vùng nhớ tĩnh hoặc stack an toàn. |
+| B2 | Cài đặt logic `init_wifi()`, `check_wifi_connection()` và `reconnect_wifi()`. | [ ] Pending | Nếu `WiFi.begin()` với thông số đọc từ NVS thất bại sau 5 lần retry (hoặc NVS trống), lập tức kích hoạt `WiFi.mode(WIFI_AP)` sử dụng `AP_SSID` và `AP_PASS` để mở cổng cứu hộ không dây. |
 
 ### Track C: Tầng Mạng (Sprint 1 - Network MQTT)
 
