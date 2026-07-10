@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:05:00+07:00] QA Review — Security Auditor & Senior Code Reviewer (Claude)
+
+- **Trạng thái hiện tại**: LGTM — Toàn bộ Sprint 1/2/3 đã được duyệt
+- **Phạm vi rà soát**:
+  - `mushroom-iot-firmware/src/sensors.cpp`
+  - `mushroom-iot-firmware/platformio.ini`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `.ai/planning/setup-sht30-driver-integration/{PROGRESS.md,sprint_1.md,sprint_2.md,sprint_3.md,WALKTHROUGH_LOG.md}`
+- **Checklist kết quả**:
+  1. **Kiến trúc & Conventions**: PASS — HAL isolation `#ifndef UNIT_TEST` đúng layer; public API `sensors` bất biến; heater SM chỉ dùng static local; không DRY violation / hàm phình to.
+  2. **Bảo mật / Safety**: PASS — không hardcode pin/secret; bounds check `temp/hum`; fail path luôn trả `NAN` + error code.
+  3. **Logic & Edge-cases**: PASS — fail-fast I2C init; CRC/NaN → `ERR_CRC_MISMATCH`; heater hysteresis 10 phút / 5 phút / 90% đúng spec; `temp=NAN` khi heating.
+  4. **Tối ưu**: PASS — non-blocking `millis()`; không `delay()` / busy-wait; không N+1; flash budget < 1 MB.
+- **Kết luận**: **LGTM**. Cho phép đổi trạng thái toàn bộ Task A1→G2 sang `[x] Done`.
+- **Ghi chú vận hành**: Task G1 ghi nhận validation HW thật bị giới hạn môi trường ảo — checklist code/build/unit-test đã pass; e2e board vật lý vẫn nên được kỹ sư vận hành xác nhận trên thiết bị thật khi có hardware.
+
+
 ## [2026-07-10T15:53:30+07:00] Task G2 - Ghi nhận kết quả verification vào WALKTHROUGH_LOG
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

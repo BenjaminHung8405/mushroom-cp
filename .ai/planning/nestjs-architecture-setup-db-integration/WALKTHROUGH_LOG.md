@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:35:42+07:00] - Task G5: Tạo TelemetryModule wire dependencies
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [telemetry.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/telemetry.module.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Triển khai `TelemetryModule` kế thừa đầy đủ và gọn gàng cấu trúc Dependency Injection trong NestJS:
+    - Imports: `MqttModule`, `BatchModule`.
+    - Controllers: `TelemetryController`.
+    - Providers: `TelemetryService`.
+    - Exports: `TelemetryService`.
+  - Đảm bảo cấu trúc import chuẩn xác theo tương quan thư mục trong dự án NestJS.
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 64 tests của dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:35:00+07:00] - Task G4: Tạo TelemetryController (REST + SSE + history)
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
