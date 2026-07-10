@@ -1,5 +1,30 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T12:11:49+07:00] - QA Audit Round 2: Kiểm toán Sprint 2 toàn bộ (Tasks C1–C3, E1–E2, F1–F2, G1–G2, H1–H2)
+- **Trạng thái**: ✅ LGTM (Looks Good To Me) — Approved
+- **Auditor**: Senior Code Reviewer / Security Auditor
+- **Danh sách file kiểm duyệt**:
+  - [config.h](mushroom-iot-firmware/include/config.h)
+  - [models.h](mushroom-iot-firmware/include/models.h)
+  - [sensors.h](mushroom-iot-firmware/include/sensors.h) / [sensors.cpp](mushroom-iot-firmware/src/sensors.cpp)
+  - [actuators.h](mushroom-iot-firmware/include/actuators.h) / [actuators.cpp](mushroom-iot-firmware/src/actuators.cpp)
+  - [mqtt_client.h](mushroom-iot-firmware/include/mqtt_client.h) / [mqtt_client.cpp](mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [serial_mutex.h](mushroom-iot-firmware/include/serial_mutex.h) / [serial_mutex.cpp](mushroom-iot-firmware/src/serial_mutex.cpp)
+  - [core0_tasks.cpp](mushroom-iot-firmware/src/core0_tasks.cpp)
+  - [core1_tasks.cpp](mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [main.cpp](mushroom-iot-firmware/src/main.cpp)
+- **Đánh giá theo 4 tiêu chí**:
+  - **1. Kiến trúc & Conventions (PASS)**: Clean Architecture tuân thủ đúng — Config/HAL/Network/Orchestration tách biệt rõ ràng. DRY: không có duplicate AP_SSID/AP_PASS hay relay whitelist. Naming conventions đúng 100% sau khi F-03 rename `set_relay_state`. Tất cả hàm ≤ 50 dòng logic thực tế (task entry point và setup() là exception có lý do chính đáng).
+  - **2. Bảo mật (PASS)**: Không có hardcode credentials production — STA WiFi và MQTT đều đọc từ NVS. AP_SSID/AP_PASS là SoftAP cứu hộ công khai theo thiết kế. MQTT payload bị chặn tại MAX_PAYLOAD_SIZE=512. Null-pointer guard tại topic/payload callback. Physical safety boundaries [10–45]°C / [30–95]%. Relay whitelist từ chối 100% chân GPIO không hợp lệ. C-01 magic number -999.0f đã được loại bỏ hoàn toàn.
+  - **3. Logic & Edge-Cases (PASS)**: Error handling kín kẽ ở cả HAL (SensorError enum, NAN propagation) lẫn Network (WiFi state machine, MQTT state machine). Null-check cho tất cả queue handle và mutex handle. ScopedSerialLock RAII ngăn race condition trên UART. `last_sensor_ms == 0` guard đảm bảo đọc cảm biến ngay vòng lặp đầu tiên. H-01 fix: return value của `set_relay_state()` được kiểm tra và log.
+  - **4. Tối ưu hóa (PASS)**: Không có heap allocation trong vòng lặp task. NVS chỉ đọc 1 lần tại setup(). `is_valid_relay_pin()` O(4) cố định. Actuator queue drain là non-blocking (wait=0). Telemetry queue send là non-blocking với drop strategy.
+- **Lỗi đã xác nhận sửa thành công**: C-01 (sentinel -999.0f → bool has_*), C-02 (Arduino.h guard actuators.cpp), C-03 (Arduino.h guard config.h), F-01 (Arduino.h guard sensors.cpp), F-02 (temp_air field + SHT30 assignment), F-03 (snake_case rename), H-01 (return value check + warning log), H-02 (static HWM guard trong core1_tasks.cpp).
+- **Observations (Non-blocking Technical Debt)**:
+  - OBS-01: `mqtt_client.h:3` — `#include <Arduino.h>` không có UNIT_TEST guard (inconsistent với pattern còn lại).
+  - OBS-02: `core0_tasks.cpp:41` — `static unsigned long last_stack_log` chưa bọc UNIT_TEST guard (tương tự H-02 đã sửa ở core1_tasks.cpp nhưng core0 thì chưa).
+- **Kết luận**: Đạt yêu cầu 100% chất lượng kiểm soát. Chuyển trạng thái toàn bộ task Sprint 2 sang `[x] Done`.
+
+
 ## [2026-07-10T12:15:00+07:00] - QA Fix Round 2: Sửa 3 lỗi C-01/C-02/C-03 (Tasks C1–C3, G1–G2, A1)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Task ID**: C1, C2, C3, G1, G2, A1 (re-submit sau QA từ chối — Sprint 2 audit)

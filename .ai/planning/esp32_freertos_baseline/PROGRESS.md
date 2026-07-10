@@ -25,9 +25,9 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [ ] QA Review | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
-| C2 | Cài đặt `init_mqtt()` và `mqtt_reconnect()`. | [ ] QA Review | Thêm cờ khóa (Mutex/Flag) để không gọi reconnect liên tục khi WiFi chưa sẵn sàng hoặc đang trong chế độ Captive Portal (SoftAP Mode). |
-| C3 | Cài đặt `mqtt_callback()` và logic xử lý payload JSON. | [ ] QA Review | **Bảo mật & Bộ nhớ:** Giới hạn byte payload tối đa. Ép dùng `StaticJsonDocument` của ArduinoJson để phân tích cú pháp, tuyệt đối tránh `DynamicJsonDocument` gây phân mảnh RAM (Heap Fragmentation). |
+| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [x] Done | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
+| C2 | Cài đặt `init_mqtt()` và `mqtt_reconnect()`. | [x] Done | Thêm cờ khóa (Mutex/Flag) để không gọi reconnect liên tục khi WiFi chưa sẵn sàng hoặc đang trong chế độ Captive Portal (SoftAP Mode). |
+| C3 | Cài đặt `mqtt_callback()` và logic xử lý payload JSON. | [x] Done | **Bảo mật & Bộ nhớ:** Giới hạn byte payload tối đa. Ép dùng `StaticJsonDocument` của ArduinoJson để phân tích cú pháp, tuyệt đối tránh `DynamicJsonDocument` gây phân mảnh RAM (Heap Fragmentation). |
 
 ### Track D: Tầng Điều phối Core 0 (Sprint 1 - Core 0 Task)
 
@@ -40,26 +40,26 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| E1 | Tạo file `include/models.h` định nghĩa các Data Structures. | [ ] QA Review | Gom nhóm data toàn cục để truyền tải qua FreeRTOS Queue. |
-| E2 | Khởi tạo struct `TelemetryData` và `ActuatorCommand`. | [ ] QA Review | Ép kiểu Plain Old Data (POD). Khuyến nghị dùng memory alignment đúng chuẩn của 32-bit MCU để tối ưu tốc độ copy data giữa 2 core. |
+| E1 | Tạo file `include/models.h` định nghĩa các Data Structures. | [x] Done | Gom nhóm data toàn cục để truyền tải qua FreeRTOS Queue. |
+| E2 | Khởi tạo struct `TelemetryData` và `ActuatorCommand`. | [x] Done | Ép kiểu Plain Old Data (POD). Khuyến nghị dùng memory alignment đúng chuẩn của 32-bit MCU để tối ưu tốc độ copy data giữa 2 core. |
 
 ### Track F: Tầng Giao tiếp Cảm biến (Sprint 2 - Sensors Mock)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| F1 | Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`. | [ ] QA Review | Xây dựng theo mẫu Hardware Abstraction Layer (HAL). Khai báo các interface/hàm giao tiếp độc lập hoàn toàn với main. |
-| F2 | Viết các hàm giả lập đọc SHT30, DS18B20 và SCD30. | [ ] QA Review | Cấu trúc giá trị trả về phải có mã lỗi (Error Code) hoặc cơ chế nhận diện dữ liệu NaN/Out of range để chuẩn bị cho cảm biến thật bị hỏng/chập mạch. |
+| F1 | Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`. | [x] Done | Xây dựng theo mẫu Hardware Abstraction Layer (HAL). Khai báo các interface/hàm giao tiếp độc lập hoàn toàn với main. |
+| F2 | Viết các hàm giả lập đọc SHT30, DS18B20 và SCD30. | [x] Done | Cấu trúc giá trị trả về phải có mã lỗi (Error Code) hoặc cơ chế nhận diện dữ liệu NaN/Out of range để chuẩn bị cho cảm biến thật bị hỏng/chập mạch. |
 
 ### Track G: Tầng Giao tiếp Chấp hành (Sprint 2 - Actuators Mock)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| G1 | Tạo `actuators.h` và `actuators.cpp` với hàm `init_actuators_gpio()`. | [ ] QA Review | **Fail-Safe Phần cứng:** Hàm khởi tạo phải gọi `digitalWrite(pin, LOW)` (hoặc trạng thái OFF của Relay) NGAY SAU KHI khởi tạo `pinMode` để tránh Rơ-le tự kích nổ khi khởi động (Glitch). |
-| G2 | Viết hàm `set_relay_state()` xuất log Terminal và thay đổi trạng thái chân. | [ ] QA Review | Bọc hàm này bằng các hằng số kiểm tra ranh giới an toàn. Bắt buộc có Serial log rõ ràng để trace bug trong lúc mock. |
+| G1 | Tạo `actuators.h` và `actuators.cpp` với hàm `init_actuators_gpio()`. | [x] Done | **Fail-Safe Phần cứng:** Hàm khởi tạo phải gọi `digitalWrite(pin, LOW)` (hoặc trạng thái OFF của Relay) NGAY SAU KHI khởi tạo `pinMode` để tránh Rơ-le tự kích nổ khi khởi động (Glitch). |
+| G2 | Viết hàm `set_relay_state()` xuất log Terminal và thay đổi trạng thái chân. | [x] Done | Bọc hàm này bằng các hằng số kiểm tra ranh giới an toàn. Bắt buộc có Serial log rõ ràng để trace bug trong lúc mock. |
 
 ### Track H: Tầng Điều phối Core 1 (Sprint 2 - Core 1 Task)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| H1 | Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ. | [ ] QA Review | Setup FreeRTOS Queue để nhận `ActuatorCommand` từ Core 0. Thiết kế luồng xử lý ưu tiên (Priority) cao để đảm bảo đáp ứng thời gian thực (Real-time). |
-| H2 | Cập nhật hàm `setup()` ghim Task vào Core 1. | [ ] QA Review | Tránh tranh chấp tài nguyên (Race Condition) nếu có in ra chung cổng Serial (khuyên dùng Mutex cho lệnh `Serial.print` nếu gọi từ cả 2 Core). |
+| H1 | Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ. | [x] Done | Setup FreeRTOS Queue để nhận `ActuatorCommand` từ Core 0. Thiết kế luồng xử lý ưu tiên (Priority) cao để đảm bảo đáp ứng thời gian thực (Real-time). |
+| H2 | Cập nhật hàm `setup()` ghim Task vào Core 1. | [x] Done | Tránh tranh chấp tài nguyên (Race Condition) nếu có in ra chung cổng Serial (khuyên dùng Mutex cho lệnh `Serial.print` nếu gọi từ cả 2 Core). |
