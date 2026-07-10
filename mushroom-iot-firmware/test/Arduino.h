@@ -18,6 +18,7 @@ public:
 
 class HardwareSerial {
 public:
+    void begin(unsigned long baud) {}
     void print(const String& s) { std::cout << s; }
     void print(const char* s) { std::cout << s; }
     void print(int n) { std::cout << n; }
@@ -37,6 +38,8 @@ extern HardwareSerial Serial;
 #include <chrono>
 
 extern unsigned long mock_millis_offset;
+
+inline void delay(unsigned long ms) {}
 
 inline unsigned long millis() {
     static auto start_time = std::chrono::steady_clock::now();

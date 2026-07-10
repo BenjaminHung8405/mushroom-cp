@@ -20,6 +20,9 @@ unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 
+void setup();
+void loop();
+
 int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
@@ -295,6 +298,11 @@ int main() {
 
     // Clean up
     assert(storage.factory_reset() == true);
+
+    // 14. Test main.cpp setup() and loop()
+    Serial.println("[TEST] Starting Task D2 - setup() and loop() Unit Tests...");
+    setup();
+    loop();
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

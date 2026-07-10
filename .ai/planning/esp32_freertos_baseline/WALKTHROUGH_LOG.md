@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:36:00+07:00] - Task D2: Cập nhật hàm `setup()` trong `main.cpp` để ghim Task vào Core 0
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Triển khai setup() & loop() trong main.cpp**: Hoàn thiện hàm `setup()` thực hiện khởi tạo kết nối Serial baudrate 115200, khởi tạo quản lý bộ nhớ `StorageManager` (NVS), nạp cấu hình dynamic `load_runtime_config()`, và thực hiện tạo và ghim tác vụ truyền thông `task_core0_communication` vào Core 0 thông qua `xTaskCreatePinnedToCore` với dung lượng stack 4096 bytes và độ ưu tiên priority 1.
+  - **Cập nhật Mock & Môi trường Unit Test**:
+    - Bổ sung mock cho `delay` và `Serial.begin` vào `test/Arduino.h`.
+    - Cập nhật test case số 14 trong `test/run_tests.cpp` để gọi `setup()` và `loop()` trong môi trường giả lập.
+    - Biên dịch và chạy thử nghiệm cục bộ thành công với kết quả 14/14 test cases đều đạt 100%.
+
 ## [2026-07-10T10:34:00+07:00] - Task D1: Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
