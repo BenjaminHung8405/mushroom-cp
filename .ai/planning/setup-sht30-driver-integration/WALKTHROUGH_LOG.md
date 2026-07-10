@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:50:08+07:00] Task F1 - Audit isolation — Wire/Adafruit/heater SM/real read chỉ trong `#ifndef UNIT_TEST`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - Không có (Chỉ thực hiện rà soát tĩnh và kiểm thử biên dịch cô lập)
+- **Giải trình giải pháp**:
+  - Thực hiện rà soát tĩnh (static audit) mã nguồn trong file `mushroom-iot-firmware/src/sensors.cpp` và xác nhận tất cả các thành phần phụ thuộc phần cứng (bao gồm thư viện `Wire.h`, `Adafruit_SHT31.h`, khai báo thực thể `static Adafruit_SHT31 sht30`, các hàm điều khiển/bắt tay I2C, cơ chế timeout của bus I2C, các lệnh đọc giá trị thật từ cảm biến và Heater State Machine) đều được đóng gói và cô lập trọn vẹn trong khối `#ifndef UNIT_TEST` ... `#endif`.
+  - Nhánh `#else` (chạy giả lập trong UNIT_TEST trên máy host) giữ nguyên 100% logic sine/cosine giả lập động theo thời gian, không rò rỉ bất kỳ thư viện hay symbol phần cứng nào của Arduino/Adafruit ra môi trường host g++.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và chạy thành công host unit tests suite qua lệnh g++: `g++ -std=c++11 -DUNIT_TEST -Iinclude -Itest -I.pio/libdeps/uart/ArduinoJson/src test/run_tests.cpp src/sensors.cpp src/actuators.cpp src/serial_mutex.cpp src/storage.cpp src/config.cpp src/wifi_manager.cpp src/mqtt_client.cpp src/main.cpp src/core0_tasks.cpp src/core1_tasks.cpp src/fuzzy_engine.cpp -o run_tests && ./run_tests` với kết quả: `--- All Unit Tests Passed Successfully! ---`.
+  - PlatformIO build cho board nhúng ESP32-S3 (`~/.platformio/penv/bin/pio run`) biên dịch thành công 100% không có lỗi (`SUCCESS`), kích thước flash đạt ~806 KB (đáp ứng ngân sách bộ nhớ ≤ 1 MB).
+
 ## [2026-07-10T15:50:00+07:00] Task E1 - Chạy host unit tests section 16.x — zero regression
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

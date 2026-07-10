@@ -69,7 +69,7 @@
 #### Track F: Verify `#ifndef UNIT_TEST` Isolation
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| F1 | Audit isolation — Wire/Adafruit/heater SM/real read chỉ trong `#ifndef UNIT_TEST` | [ ] Pending | - **Checklist tĩnh (đọc code, không sửa nếu đã đúng)**: (1) `#include <Wire.h>` + `#include <Adafruit_SHT31.h>` bọc `#ifndef UNIT_TEST`; (2) `static Adafruit_SHT31 sht30` bọc tương tự; (3) real I2C path trong `init_sensors_placeholder()` nằm `#ifndef`; (4) `sht30.readTemperature/Humidity` + heater SM nằm `#ifndef` trong `read_sht30()`; (5) `#else` vẫn là mock sine/cosine nguyên vẹn.<br>- **Leak = bug**: Bất kỳ symbol Arduino/Adafruit nào lọt ra ngoài `#ifndef` → host g++ fail. Fix ngay, không workaround mock header.<br>- **File audit**: `mushroom-iot-firmware/src/sensors.cpp`. |
+| F1 | Audit isolation — Wire/Adafruit/heater SM/real read chỉ trong `#ifndef UNIT_TEST` | [ ] QA Review | - **Checklist tĩnh (đọc code, không sửa nếu đã đúng)**: (1) `#include <Wire.h>` + `#include <Adafruit_SHT31.h>` bọc `#ifndef UNIT_TEST`; (2) `static Adafruit_SHT31 sht30` bọc tương tự; (3) real I2C path trong `init_sensors_placeholder()` nằm `#ifndef`; (4) `sht30.readTemperature/Humidity` + heater SM nằm `#ifndef` trong `read_sht30()`; (5) `#else` vẫn là mock sine/cosine nguyên vẹn.<br>- **Leak = bug**: Bất kỳ symbol Arduino/Adafruit nào lọt ra ngoài `#ifndef` → host g++ fail. Fix ngay, không workaround mock header.<br>- **File audit**: `mushroom-iot-firmware/src/sensors.cpp`. |
 
 #### Track G: Manual Hardware Validation & Documentation
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
