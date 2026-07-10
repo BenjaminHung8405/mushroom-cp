@@ -1,5 +1,25 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:45:00+07:00] - Task H2: Cập nhật hàm `setup()` ghim Task vào Core 1 + Serial Mutex
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [serial_mutex.h](mushroom-iot-firmware/include/serial_mutex.h)
+  - Tạo mới: [serial_mutex.cpp](mushroom-iot-firmware/src/serial_mutex.cpp)
+  - Sửa đổi: [main.cpp](mushroom-iot-firmware/src/main.cpp) — gọi `init_serial_mutex()` trước khi tạo task
+  - Sửa đổi: [core0_tasks.cpp](mushroom-iot-firmware/src/core0_tasks.cpp) — bọc Serial bằng `ScopedSerialLock`
+  - Sửa đổi: [core1_tasks.cpp](mushroom-iot-firmware/src/core1_tasks.cpp) — bọc Serial bằng `ScopedSerialLock`
+  - Sửa đổi: [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp) — Test Case 20
+- **Giải trình giải pháp**:
+  - **Serial Mutex chống Race Condition**:
+    - `SerialLock` (singleton) bọc FreeRTOS `xSemaphoreCreateMutex()`. Được tạo trong `setup()` TRƯỚC khi ghim bất kỳ task nào.
+    - `ScopedSerialLock` (RAII guard): acquire khi vào scope, auto-release khi ra scope — tránh quên unlock.
+    - Tất cả lệnh `Serial.print/printf/println` trong `task_core0_communication` và `task_core1_control` đều được bọc bởi `ScopedSerialLock`.
+    - UART ESP32 là shared peripheral; nếu 2 Core ghi đồng thời → byte interleaved → log rác. Mutex đảm bảo atomic write.
+  - **Ghim Task Core 1** (đã hoàn tất ở H1, xác nhận lại):
+    - `xTaskCreatePinnedToCore(task_core1_control, ..., priority=2, core=1)`.
+    - Priority Core 1 (2) > Core 0 (1) — sensor/actuator không bị starve khi mạng chập chờn.
+  - **Tự kiểm tra (Self-test)**: Test Case 20 xác thực: `init_serial_mutex()` trả true, `lock()/unlock()` tăng/giảm depth đúng, `ScopedSerialLock` RAII auto-unlock (kể cả nested). 100% assertions pass.
+
 ## [2026-07-10T11:35:00+07:00] - Task H1: Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

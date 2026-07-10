@@ -2,6 +2,7 @@
 #include "definitions.h"
 #include "storage.h"
 #include "config.h"
+#include "serial_mutex.h"
 
 // Queue depth constants — sized for the expected inter-core message rate.
 // Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
@@ -40,7 +41,10 @@ void setup()
     // 2. Load runtime configuration from NVS
     config::network::load_runtime_config();
 
-    // 3. Create FreeRTOS Queues for inter-core communication
+    // 3. Create Serial mutex (protects UART from concurrent Core 0/Core 1 writes)
+    init_serial_mutex();
+
+    // 4. Create FreeRTOS Queues for inter-core communication
     //    Must be created BEFORE either task starts so both cores see valid handles.
     xActuatorQueue = xQueueCreate(ACTUATOR_QUEUE_DEPTH, sizeof(ActuatorCommand));
     if (xActuatorQueue == nullptr)

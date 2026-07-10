@@ -8,6 +8,7 @@
 #include "models.h"
 #include "sensors.h"
 #include "actuators.h"
+#include "serial_mutex.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -610,6 +611,45 @@ int main() {
     // 19.7 Cleanup queues
     vQueueDelete(test_act_queue);
     vQueueDelete(test_tel_queue);
+
+    // 20. Test Task H2 - Serial Mutex for cross-core race-condition protection
+    Serial.println("[TEST] Starting Task H2 - Serial Mutex Unit Tests...");
+
+    // 20.1 init_serial_mutex() must succeed in UNIT_TEST mode
+    assert(init_serial_mutex() == true);
+
+    // 20.2 SerialLock starts unlocked
+    SerialLock& slock = SerialLock::get_instance();
+    assert(slock.lock_count() == 0);
+
+    // 20.3 lock() increments depth, unlock() decrements
+    slock.lock();
+    assert(slock.lock_count() == 1);
+    slock.lock();
+    assert(slock.lock_count() == 2);
+    slock.unlock();
+    assert(slock.lock_count() == 1);
+    slock.unlock();
+    assert(slock.lock_count() == 0);
+
+    // 20.4 ScopedSerialLock RAII: auto-unlocks on scope exit
+    {
+        ScopedSerialLock guard(slock);
+        assert(slock.lock_count() == 1);
+    }
+    assert(slock.lock_count() == 0);
+
+    // 20.5 Nested ScopedSerialLock
+    {
+        ScopedSerialLock outer(slock);
+        assert(slock.lock_count() == 1);
+        {
+            ScopedSerialLock inner(slock);
+            assert(slock.lock_count() == 2);
+        }
+        assert(slock.lock_count() == 1);
+    }
+    assert(slock.lock_count() == 0);
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

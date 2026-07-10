@@ -62,4 +62,4 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | H1 | Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ. | [ ] QA Review | Setup FreeRTOS Queue để nhận `ActuatorCommand` từ Core 0. Thiết kế luồng xử lý ưu tiên (Priority) cao để đảm bảo đáp ứng thời gian thực (Real-time). |
-| H2 | Cập nhật hàm `setup()` ghim Task vào Core 1. | [ ] In Progress | Tránh tranh chấp tài nguyên (Race Condition) nếu có in ra chung cổng Serial (khuyên dùng Mutex cho lệnh `Serial.print` nếu gọi từ cả 2 Core). |
+| H2 | Cập nhật hàm `setup()` ghim Task vào Core 1. | [ ] QA Review | Tránh tranh chấp tài nguyên (Race Condition) nếu có in ra chung cổng Serial (khuyên dùng Mutex cho lệnh `Serial.print` nếu gọi từ cả 2 Core). |

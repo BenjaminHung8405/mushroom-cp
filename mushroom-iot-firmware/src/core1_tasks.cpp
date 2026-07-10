@@ -3,6 +3,7 @@
 #include "actuators.h"
 #include "config.h"
 #include "models.h"
+#include "serial_mutex.h"
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
@@ -27,7 +28,7 @@ QueueHandle_t xTelemetryQueue = nullptr;
 // raise this to 5 minutes.
 static constexpr unsigned long SENSOR_READ_INTERVAL_MS = 5000UL;
 
-// How long to wait (ms) when draining the actuator command queue each tick.
+// How long to wait when draining the actuator command queue each tick.
 // Non-blocking (0) so the task never stalls waiting for Core 0.
 static constexpr TickType_t ACTUATOR_QUEUE_WAIT_TICKS = 0;
 
@@ -59,11 +60,14 @@ static void process_actuator_commands()
     // Drain every pending command without blocking
     while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
     {
-        Serial.printf(
-            "[CORE1_TASK] ActuatorCommand received: pin=%u state=%s\n",
-            static_cast<unsigned>(cmd.relay_id),
-            cmd.state ? "ON" : "OFF"
-        );
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf(
+                "[CORE1_TASK] ActuatorCommand received: pin=%u state=%s\n",
+                static_cast<unsigned>(cmd.relay_id),
+                cmd.state ? "ON" : "OFF"
+            );
+        }
         actuators::set_Relay_State(cmd.relay_id, cmd.state);
     }
 }
@@ -78,13 +82,16 @@ static void sample_and_enqueue_telemetry()
 
     bool ok = sensors::read_all_telemetry(data);
 
-    Serial.printf(
-        "[CORE1_TASK] Telemetry: temp_sub=%.2f°C  humidity=%.2f%%  co2=%.1fppm  ok=%d\n",
-        data.temp_substrate,
-        data.humidity_air,
-        data.co2_level,
-        static_cast<int>(ok)
-    );
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf(
+            "[CORE1_TASK] Telemetry: temp_sub=%.2f°C  humidity=%.2f%%  co2=%.1fppm  ok=%d\n",
+            data.temp_substrate,
+            data.humidity_air,
+            data.co2_level,
+            static_cast<int>(ok)
+        );
+    }
 
     if (xTelemetryQueue != nullptr)
     {
@@ -93,6 +100,7 @@ static void sample_and_enqueue_telemetry()
         BaseType_t sent = xQueueSend(xTelemetryQueue, &data, 0);
         if (sent != pdTRUE)
         {
+            ScopedSerialLock guard(SerialLock::get_instance());
             Serial.println("[CORE1_TASK] WARNING: Telemetry queue full — sample dropped.");
         }
     }
@@ -103,7 +111,10 @@ static void sample_and_enqueue_telemetry()
 // ---------------------------------------------------------------------------
 void task_core1_control(void* /*pvParameters*/)
 {
-    Serial.println("[CORE1_TASK] Starting task_core1_control on Core 1...");
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[CORE1_TASK] Starting task_core1_control on Core 1...");
+    }
 
     // 1. Initialise HAL layers (safe to call once; idempotent for mock)
     sensors::init_sensors_placeholder();
@@ -146,6 +157,7 @@ void task_core1_control(void* /*pvParameters*/)
         if (now - last_stack_log >= 5000UL)
         {
             last_stack_log = now;
+            ScopedSerialLock guard(SerialLock::get_instance());
             #ifndef UNIT_TEST
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(nullptr);
             Serial.printf("[CORE1_TASK] Stack High Water Mark: %u words\n",
