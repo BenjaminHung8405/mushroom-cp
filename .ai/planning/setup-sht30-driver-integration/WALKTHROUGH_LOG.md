@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:49:00+07:00] Task D3 - Guard — không thay đổi `read_ds18b20` / `read_scd30` / `read_all_telemetry` / fault-injection API
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - Không có (Chỉ rà soát và thực hiện chạy kiểm thử host unit test)
+- **Giải trình giải pháp**:
+  - Rà soát toàn bộ tệp nguồn `sensors.cpp` và `sensors.h` để đảm bảo:
+    - Cảm biến DS18B20 và SCD30 vẫn giữ nguyên logic giả lập động (mock) theo thời gian, không có bất kỳ logic điều khiển phần cứng nào rò rỉ vào.
+    - API surface của namespace `sensors` không đổi chữ ký hàm, enum `SensorError`, hoặc các API fault-injection liên quan.
+    - Sự cô lập của module SHT30 trong khối `#ifndef UNIT_TEST` là hoàn chỉnh, không ảnh hưởng đến các file/thư viện khác hay test suite của hệ thống.
+  - Không phát sinh nợ kỹ thuật hay refactor ngoài kế hoạch đã phê duyệt.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và chạy thành công host unit tests: `g++` compilation pass và 100% test cases trong `run_tests` chạy thành công không có regression.
+
 ## [2026-07-10T15:47:00+07:00] Task D2 - Implement Heater State Machine hysteresis (non-blocking `millis()`)
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
