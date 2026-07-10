@@ -57,9 +57,18 @@ namespace storage
             return false;
         }
 
-        ssid = prefs.getString(config::network::KEY_WIFI_SSID, "");
-        pass = prefs.getString(config::network::KEY_WIFI_PASS, "");
-        
+        if (prefs.isKey(config::network::KEY_WIFI_SSID) &&
+            prefs.isKey(config::network::KEY_WIFI_PASS))
+        {
+            ssid = prefs.getString(config::network::KEY_WIFI_SSID, "");
+            pass = prefs.getString(config::network::KEY_WIFI_PASS, "");
+        }
+        else
+        {
+            ssid = "";
+            pass = "";
+        }
+
         prefs.end();
 
         if (ssid.length() > 0)
@@ -137,10 +146,26 @@ namespace storage
             return false;
         }
 
-        broker = prefs.getString(config::network::KEY_MQTT_BROKER, "");
-        port = prefs.getUShort(config::network::KEY_MQTT_PORT, 0);
-        user = prefs.getString(config::network::KEY_MQTT_USER, "");
-        pass = prefs.getString(config::network::KEY_MQTT_PASS, "");
+        if (prefs.isKey(config::network::KEY_MQTT_BROKER))
+        {
+            broker = prefs.getString(config::network::KEY_MQTT_BROKER, "");
+            port = prefs.isKey(config::network::KEY_MQTT_PORT)
+                       ? prefs.getUShort(config::network::KEY_MQTT_PORT, 0)
+                       : 0;
+            user = prefs.isKey(config::network::KEY_MQTT_USER)
+                       ? prefs.getString(config::network::KEY_MQTT_USER, "")
+                       : "";
+            pass = prefs.isKey(config::network::KEY_MQTT_PASS)
+                       ? prefs.getString(config::network::KEY_MQTT_PASS, "")
+                       : "";
+        }
+        else
+        {
+            broker = "";
+            port = 0;
+            user = "";
+            pass = "";
+        }
 
         prefs.end();
 
@@ -182,6 +207,78 @@ namespace storage
         prefs.end();
         Serial.println("[STORAGE] Cleared MQTT config from NVS.");
         return res1 || res2 || res3 || res4;
+    }
+
+    bool StorageManager::save_backend_config(const String &backend_url)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing Backend API URL.");
+            return false;
+        }
+
+        size_t url_bytes = prefs.putString(config::network::KEY_BACKEND_URL, backend_url);
+        prefs.end();
+
+        if (url_bytes > 0)
+        {
+            Serial.printf("[STORAGE] Saved Backend API URL successfully: %s\n", backend_url.c_str());
+            return true;
+        }
+
+        Serial.println("[STORAGE] Error: Failed to save Backend API URL.");
+        return false;
+    }
+
+    bool StorageManager::load_backend_config(String &backend_url)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading Backend API URL.");
+            return false;
+        }
+
+        backend_url = prefs.isKey(config::network::KEY_BACKEND_URL)
+                          ? prefs.getString(config::network::KEY_BACKEND_URL, "")
+                          : "";
+        prefs.end();
+
+        if (backend_url.length() > 0)
+        {
+            Serial.println("[STORAGE] Loaded Backend API URL from NVS.");
+            return true;
+        }
+
+        Serial.println("[STORAGE] Backend API URL empty or not found in NVS.");
+        return false;
+    }
+
+    bool StorageManager::has_backend_config()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        bool exists = prefs.isKey(config::network::KEY_BACKEND_URL) &&
+                      (prefs.getString(config::network::KEY_BACKEND_URL, "").length() > 0);
+        prefs.end();
+        return exists;
+    }
+
+    bool StorageManager::clear_backend_config()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.remove(config::network::KEY_BACKEND_URL);
+        prefs.end();
+        Serial.println("[STORAGE] Cleared Backend API URL from NVS.");
+        return result;
     }
 
     bool StorageManager::factory_reset()

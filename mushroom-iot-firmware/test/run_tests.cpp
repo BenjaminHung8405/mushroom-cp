@@ -81,30 +81,44 @@ int main() {
     assert(loaded_user == "admin");
     assert(loaded_mqtt_pass == "adminpass");
 
-    // 8. Clear WiFi credentials
+    // 8. Backend API URL check when empty, then save/load
+    assert(storage.has_backend_config() == false);
+    String backend_url;
+    assert(storage.load_backend_config(backend_url) == false);
+    assert(storage.save_backend_config("http://192.168.1.10:3001") == true);
+    assert(storage.has_backend_config() == true);
+    String loaded_backend_url;
+    assert(storage.load_backend_config(loaded_backend_url) == true);
+    assert(loaded_backend_url == "http://192.168.1.10:3001");
+
+    // 9. Clear WiFi credentials
     assert(storage.clear_wifi_credentials() == true);
     assert(storage.has_wifi_credentials() == false);
     assert(storage.load_wifi_credentials(loaded_ssid, loaded_pass) == false);
 
-    // MQTT should still exist
+    // MQTT and Backend API URL should still exist
     assert(storage.has_mqtt_config() == true);
+    assert(storage.has_backend_config() == true);
 
-    // 9. Factory Reset
+    // 10. Factory Reset
     assert(storage.factory_reset() == true);
     assert(storage.has_mqtt_config() == false);
+    assert(storage.has_backend_config() == false);
 
-    // 10. Test dynamic configuration loading
+    // 11. Test dynamic configuration loading
     // Initial status should be empty
     assert(config::network::STA_SSID == "");
     assert(config::network::STA_PASS == "");
-    
+    assert(config::network::BACKEND_API_URL == "");
+
     // Save new values
     assert(storage.save_wifi_credentials("DynamicWiFi", "dynamicpass123") == true);
     assert(storage.save_mqtt_config("192.168.1.99", 1884, "dynamic_user", "dynamic_pass") == true);
-    
+    assert(storage.save_backend_config("http://farm.local:3001") == true);
+
     // Load config
     assert(config::network::load_runtime_config() == true);
-    
+
     // Verify updated variables
     assert(config::network::STA_SSID == "DynamicWiFi");
     assert(config::network::STA_PASS == "dynamicpass123");
@@ -112,11 +126,12 @@ int main() {
     assert(config::network::MQTT_PORT_VAL == 1884);
     assert(config::network::MQTT_USER_VAL == "dynamic_user");
     assert(config::network::MQTT_PASSWORD_VAL == "dynamic_pass");
+    assert(config::network::BACKEND_API_URL == "http://farm.local:3001");
 
     // Clean up
     assert(storage.factory_reset() == true);
 
-    // 11. Test WiFi Manager Connection Logic
+    // 12. Test WiFi Manager Connection Logic
     Serial.println("[TEST] Starting WiFi Manager Unit Tests...");
     
     // Ensure NVS is empty

@@ -314,17 +314,24 @@ namespace mqtt
     bool MqttClient::perform_mqtt_connection()
     {
         Serial.println("[MQTT] Attempting connection to MQTT broker...");
-        
+
+        if (config::network::AUTH_JWT_TOKEN.length() == 0)
+        {
+            Serial.println("[MQTT] Missing JWT token. MQTT connection aborted.");
+            current_state = MqttState::DISCONNECTED;
+            return false;
+        }
+
         String client_id = get_effective_client_id();
-        
+
         // Define Last Will and Testament (LWT) status offline payload
         String lwt_topic = resolved_topics.status;
         String lwt_payload = "{\"status\":\"offline\"}";
-        
+
         bool connected = mqtt_client.connect(
             client_id.c_str(),
             config::network::MQTT_USER_VAL.c_str(),
-            config::network::MQTT_PASSWORD_VAL.c_str(),
+            config::network::AUTH_JWT_TOKEN.c_str(),
             lwt_topic.c_str(),
             1, // QoS
             true, // Retain

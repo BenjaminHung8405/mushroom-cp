@@ -41,6 +41,7 @@ namespace config
         constexpr const char *KEY_MQTT_PORT = "mqtt_port";
         constexpr const char *KEY_MQTT_USER = "mqtt_user";
         constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
+        constexpr const char *KEY_BACKEND_URL = "backend_url";
 
         // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
         extern String STA_SSID;
@@ -52,6 +53,10 @@ namespace config
         extern String MQTT_CLIENT_ID_VAL;
         extern String MQTT_USER_VAL;
         extern String MQTT_PASSWORD_VAL;
+
+        // Backend API URL (persisted in NVS) and runtime JWT token (RAM only)
+        extern String BACKEND_API_URL;
+        extern String AUTH_JWT_TOKEN;
 
         /**
          * @brief Nạp các cấu hình động (WiFi STA và MQTT) từ NVS Flash.

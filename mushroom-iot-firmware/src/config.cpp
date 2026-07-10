@@ -15,6 +15,8 @@ namespace config
         String MQTT_CLIENT_ID_VAL = "esp32_mushroom_client";
         String MQTT_USER_VAL = "";
         String MQTT_PASSWORD_VAL = "";
+        String BACKEND_API_URL = "";
+        String AUTH_JWT_TOKEN = "";
 
         bool load_runtime_config()
         {
@@ -33,6 +35,19 @@ namespace config
                 STA_PASS = "";
             }
             
+            String temp_backend_url;
+            bool backend_loaded = storage.load_backend_config(temp_backend_url);
+            if (backend_loaded)
+            {
+                BACKEND_API_URL = temp_backend_url;
+                Serial.printf("[CONFIG] Loaded Backend API URL from NVS: %s\n", BACKEND_API_URL.c_str());
+            }
+            else
+            {
+                BACKEND_API_URL = "";
+                Serial.println("[CONFIG] No Backend API URL found in NVS.");
+            }
+
             // Nạp cấu hình MQTT từ NVS
             String temp_broker;
             uint16_t temp_port = 0;

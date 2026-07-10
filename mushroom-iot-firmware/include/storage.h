@@ -86,6 +86,32 @@ namespace storage
         bool clear_mqtt_config();
 
         /**
+         * @brief Saves Backend API URL to NVS.
+         * @param backend_url Base URL of the NestJS backend (e.g. http://192.168.1.10:3001)
+         * @return true if saved successfully, false otherwise.
+         */
+        bool save_backend_config(const String &backend_url);
+
+        /**
+         * @brief Loads Backend API URL from NVS.
+         * @param[out] backend_url Output parameter for Backend API URL
+         * @return true if configuration existed and was loaded successfully, false otherwise.
+         */
+        bool load_backend_config(String &backend_url);
+
+        /**
+         * @brief Checks if Backend API URL exists in NVS.
+         * @return true if backend URL exists, false otherwise.
+         */
+        bool has_backend_config();
+
+        /**
+         * @brief Clears Backend API URL from NVS storage.
+         * @return true if cleared successfully, false otherwise.
+         */
+        bool clear_backend_config();
+
+        /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.
          * @return true if reset successfully, false otherwise.
          */
