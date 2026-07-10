@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T12:15:00+07:00] - QA Fix Round 2: Sửa 3 lỗi C-01/C-02/C-03 (Tasks C1–C3, G1–G2, A1)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Task ID**: C1, C2, C3, G1, G2, A1 (re-submit sau QA từ chối — Sprint 2 audit)
+- **Danh sách file đã sửa**:
+  - [mqtt_client.cpp](mushroom-iot-firmware/src/mqtt_client.cpp) — C-01: thay sentinel `-999.0f` bằng `bool has_temp`/`has_humi`
+  - [actuators.cpp](mushroom-iot-firmware/src/actuators.cpp) — C-02: bọc `#include <Arduino.h>` trong `#ifndef UNIT_TEST`
+  - [config.h](mushroom-iot-firmware/include/config.h) — C-03: bọc `#include <Arduino.h>` trong `#ifndef UNIT_TEST`
+- **Giải trình sửa lỗi dựa trên feedback QA**:
+  - **C-01 (Critical — Logic/UB)**: Loại bỏ hoàn toàn magic number `-999.0f`. `process_setpoints()` giờ dùng `bool has_temp`/`has_humi` để phân biệt "key tồn tại" vs "key vắng". `validate_single_setpoint()` chỉ còn kiểm tra `!isnan(val) && val ∈ [min, max]` — không còn so sánh float equality. Tránh cả float-comparison UB lẫn logic bug khi backend gửi đúng `-999`.
+  - **C-02 (Medium — Consistency)**: `actuators.cpp` giờ tuân thủ pattern `#ifndef UNIT_TEST / #include <Arduino.h> / #else / #include "Arduino.h"` giống `sensors.cpp`, `core0_tasks.cpp`, `core1_tasks.cpp` — biên dịch offline host-side unit test không còn phụ thuộc Arduino framework.
+  - **C-03 (Medium — Layer Isolation)**: `config.h` (Configuration Layer) có cùng UNIT_TEST guard — decoupling framework dependency khi build mock, giữ nguyên `String` type cho runtime config variables.
+  - **Self-test**: Chạy `./run_tests` — 100% assertions pass, output `"--- All Unit Tests Passed Successfully! ---"`. Case A/B (valid setpoints), Case G (out-of-range), Case H (NaN) đều hoạt động đúng với logic `has_*` mới.
+
 ## [2026-07-10T12:05:00+07:00] - QA Fix Round 2: Sửa 5 lỗi F-01/F-02/F-03/H-01/H-02 (Tasks F1, F2, G2, H1)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Task ID**: F1, F2, G2, H1 (re-submit sau QA từ chối)

@@ -1,7 +1,11 @@
 #pragma once
 
 #include <stdint.h>
+#ifndef UNIT_TEST
 #include <Arduino.h>
+#else
+#include "Arduino.h"
+#endif
 
 namespace config
 {

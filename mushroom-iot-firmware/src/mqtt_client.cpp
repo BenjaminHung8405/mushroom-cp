@@ -230,23 +230,29 @@ namespace mqtt
         constexpr float MAX_SAFE_HUMI = 95.0f;
 
         // Kiểm tra và validate setpoint nhiệt độ
-        float temp_sp = -999.0f;
+        bool has_temp = false;
+        float temp_sp = 0.0f;
         if (doc.containsKey("temperatureSetpoint")) {
             temp_sp = doc["temperatureSetpoint"].as<float>();
+            has_temp = true;
         } else if (doc.containsKey("temperature")) {
             temp_sp = doc["temperature"].as<float>();
+            has_temp = true;
         }
 
         // Kiểm tra và validate setpoint độ ẩm
-        float humi_sp = -999.0f;
+        bool has_humi = false;
+        float humi_sp = 0.0f;
         if (doc.containsKey("humiditySetpoint")) {
             humi_sp = doc["humiditySetpoint"].as<float>();
+            has_humi = true;
         } else if (doc.containsKey("humidity")) {
             humi_sp = doc["humidity"].as<float>();
+            has_humi = true;
         }
 
-        bool valid_temp = validate_single_setpoint("temperature", temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
-        bool valid_humi = validate_single_setpoint("humidity", humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
+        bool valid_temp = has_temp && validate_single_setpoint("temperature", temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
+        bool valid_humi = has_humi && validate_single_setpoint("humidity", humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
 
         if (!valid_temp && !valid_humi)
         {
@@ -256,15 +262,12 @@ namespace mqtt
 
     bool MqttClient::validate_single_setpoint(const char* name, float val, float min_val, float max_val)
     {
-        if (val != -999.0f) {
-            if (val >= min_val && val <= max_val && !isnan(val)) {
-                Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
-                return true;
-            } else {
-                Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n", 
-                              name, val, min_val, max_val);
-            }
+        if (!isnan(val) && val >= min_val && val <= max_val) {
+            Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
+            return true;
         }
+        Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n",
+                      name, val, min_val, max_val);
         return false;
     }
 

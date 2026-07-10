@@ -1,6 +1,10 @@
 #include "actuators.h"
 #include "config.h"
+#ifndef UNIT_TEST
 #include <Arduino.h>
+#else
+#include "Arduino.h"
+#endif
 
 namespace actuators
 {
