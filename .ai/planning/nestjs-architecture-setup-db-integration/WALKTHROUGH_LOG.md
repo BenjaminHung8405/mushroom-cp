@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:18:00+07:00] - QA Fix Round 2: Tasks C4 + C5 (Findings C4-1 & C5-1)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Task ID**: C4, C5
+- **Danh sách file đã sửa**:
+  - Sửa đổi: [curve-checkpoint.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/curve-checkpoint.entity.ts)
+  - Sửa đổi: [light-schedule-block.entity.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/light-schedule-block.entity.ts)
+  - Sửa đổi: [light-schedule-block.entity.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/entities/light-schedule-block.entity.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình sửa lỗi theo feedback QA**:
+  - **Finding C4-1 (Index mismatch)**: Đổi `@Index('idx_checkpoints_batch', ['batch'])` thành `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])` để khớp chuẩn xác với chỉ mục phức hợp `idx_checkpoints_batch` trên database SQL schema thực tế (`batch_id`, `metric_type`).
+  - **Finding C5-1 (Missing constraints)**: Thêm các TypeORM lifecycle hooks `@BeforeInsert()` và `@BeforeUpdate()` trên entity `LightScheduleBlock` để tự động kích hoạt hàm validation thực thi 2 ràng buộc CHECK ở tầng database: (1) `check_light_origin` (yêu cầu XOR: `profileId` hoặc `batchId` phải được chỉ định, không được đồng thời set cả 2 và không được null cả 2), và (2) `check_days_order` (yêu cầu `startDay <= endDay`). Đồng thời bổ sung đầy đủ unit tests kiểm định các case vi phạm ràng buộc này.
+
 ## [2026-07-10T15:10:00+07:00] - QA Review Track C (Entities C1–C5) — ⚠️ 2 FINDINGS
 - **Trạng thái**: Từ chối duyệt C4 + C5 · C1–C3 LGTM
 - **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)
