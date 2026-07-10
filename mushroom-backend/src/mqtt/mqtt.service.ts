@@ -19,6 +19,14 @@ export interface DeviceStatusEvent {
   timestamp: string;
 }
 
+export interface TelemetryEvent {
+  deviceId: string;
+  temp_air: number | null; // Air temperature from SHT30
+  humidity_air: number | null; // Air humidity from SHT30
+  co2_level: number | null; // CO2 from SCD30
+  timestamp: string; // ISO string
+}
+
 /**
  * MqttService — Core infrastructure service for MQTT connectivity.
  *
@@ -47,6 +55,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * Controllers subscribe to this to push updates via SSE.
    */
   public readonly deviceStatus$ = new Subject<DeviceStatusEvent>();
+
+  /**
+   * Observable stream of telemetry events.
+   */
+  public readonly telemetry$ = new Subject<TelemetryEvent>();
 
   /**
    * In-memory store of the last known status for each device.
@@ -128,52 +141,88 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.logger.log("📡 Subscribed to 'mushroom/device/+/status'");
       }
     });
+
+    // Subscribe to all device telemetry topics
+    this.client.subscribe('mushroom/device/+/telemetry', { qos: 1 }, (err) => {
+      if (err) {
+        this.logger.error(
+          `Failed to subscribe to telemetry topics: ${err.message}`,
+        );
+      } else {
+        this.logger.log("📡 Subscribed to 'mushroom/device/+/telemetry'");
+      }
+    });
   }
 
   private handleIncomingMessage(topic: string, payload: Buffer): void {
     try {
-      // Extract deviceId from topic: mushroom/device/{deviceId}/status
       const topicParts = topic.split('/');
-      if (
-        topicParts.length !== 4 ||
-        topicParts[0] !== 'mushroom' ||
-        topicParts[3] !== 'status'
-      ) {
+      if (topicParts.length !== 4 || topicParts[0] !== 'mushroom') {
         return;
       }
       const deviceId = topicParts[2];
+      const action = topicParts[3];
 
-      const parsedPayload = JSON.parse(payload.toString()) as unknown;
-      if (
-        !parsedPayload ||
-        typeof parsedPayload !== 'object' ||
-        !('status' in parsedPayload)
-      ) {
-        this.logger.warn(`Received invalid JSON payload from ${deviceId}`);
-        return;
-      }
+      if (action === 'status') {
+        const parsedPayload = JSON.parse(payload.toString()) as unknown;
+        if (
+          !parsedPayload ||
+          typeof parsedPayload !== 'object' ||
+          !('status' in parsedPayload)
+        ) {
+          this.logger.warn(`Received invalid JSON payload from ${deviceId}`);
+          return;
+        }
 
-      const status = parsedPayload.status;
-      if (status !== 'online' && status !== 'offline') {
-        this.logger.warn(
-          `Received unknown status '${status as string}' from ${deviceId}`,
+        const status = parsedPayload.status;
+        if (status !== 'online' && status !== 'offline') {
+          this.logger.warn(
+            `Received unknown status '${status as string}' from ${deviceId}`,
+          );
+          return;
+        }
+
+        const event: DeviceStatusEvent = {
+          deviceId,
+          status,
+          timestamp: new Date().toISOString(),
+        };
+
+        // Update cache and broadcast to all SSE subscribers
+        this.deviceStateCache.set(deviceId, event);
+        this.deviceStatus$.next(event);
+
+        this.logger.log(
+          `📨 Device '${deviceId}' → ${event.status.toUpperCase()}`,
         );
-        return;
+      } else if (action === 'telemetry') {
+        const parsedPayload = JSON.parse(payload.toString()) as Record<
+          string,
+          unknown
+        >;
+
+        const event: TelemetryEvent = {
+          deviceId,
+          temp_air:
+            typeof parsedPayload.temp_air === 'number'
+              ? parsedPayload.temp_air
+              : null,
+          humidity_air:
+            typeof parsedPayload.humidity_air === 'number'
+              ? parsedPayload.humidity_air
+              : null,
+          co2_level:
+            typeof parsedPayload.co2_level === 'number'
+              ? parsedPayload.co2_level
+              : null,
+          timestamp: new Date().toISOString(),
+        };
+
+        this.telemetry$.next(event);
+        this.logger.debug(
+          `📨 Telemetry from '${deviceId}': ${JSON.stringify(event)}`,
+        );
       }
-
-      const event: DeviceStatusEvent = {
-        deviceId,
-        status,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Update cache and broadcast to all SSE subscribers
-      this.deviceStateCache.set(deviceId, event);
-      this.deviceStatus$.next(event);
-
-      this.logger.log(
-        `📨 Device '${deviceId}' → ${event.status.toUpperCase()}`,
-      );
     } catch (err) {
       this.logger.warn(
         `Failed to parse MQTT message on topic '${topic}': ${err}`,
@@ -202,6 +251,37 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Failed to publish to '${topic}': ${err.message}`);
       } else {
         this.logger.log(`📤 Published to '${topic}': ${message}`);
+      }
+    });
+  }
+
+  /**
+   * Publish a setpoint to a specific device using preset schema.
+   */
+  dispatchSetpoint(
+    houseId: string,
+    payload: {
+      mist_generator_active: boolean;
+      convection_fan_active: boolean;
+      heating_lamp_active: boolean;
+      midday_blackout_active: boolean;
+    },
+  ): void {
+    const topic = `mushroom/device/${houseId}/setpoint`;
+    const message = JSON.stringify(payload);
+    if (!this.client?.connected) {
+      this.logger.error(
+        `Cannot publish setpoint: MQTT client is not connected.`,
+      );
+      return;
+    }
+    this.client.publish(topic, message, { qos: 1 }, (err) => {
+      if (err) {
+        this.logger.error(
+          `Failed to publish setpoint to '${topic}': ${err.message}`,
+        );
+      } else {
+        this.logger.log(`📤 Published setpoint to '${topic}': ${message}`);
       }
     });
   }

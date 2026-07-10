@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:29:00+07:00] - Task G1: processTelemetry() + Bio-safety Fail-Safe & Idle Guard
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [telemetry.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.ts)
+  - Tạo mới: [telemetry.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.spec.ts)
+  - Sửa đổi: [mqtt.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Triển khai `TelemetryService` thực thi logic xử lý `processTelemetry` khép kín bằng mô hình `try/catch/finally` nghiêm ngặt:
+    - Trong khối `try`: Thực hiện lấy `BatchContext` qua `BatchService.getBatchContext`. Nếu `context.batchId` là null (Idle Guard - nhà nấm trống), tắt toàn bộ actuator để tiết kiệm năng lượng, sau đó ghi log thô vào DB và cập nhật cache snapshot. Nếu có vụ nuôi `ACTIVE`, tính toán đầu ra điều khiển ON/OFF (Mist Generator, Convection Fan, Heating Lamp) có xem xét Midday Blackout (11:00-13:30), lưu dữ liệu qua SQL thô và cập nhật cache snapshot.
+    - Trong khối `catch`: Ghi log lỗi chi tiết và thiết lập trạng thái khẩn cấp (Emergency Fallback: `mist = false`, `fan = true`, `lamp = false`) để bảo vệ sinh học cho nấm.
+    - Trong khối `finally`: Luôn gọi `mqttService.dispatchSetpoint` để đồng bộ trạng thái thiết bị chấp hành tới ESP32, bọc trong một khối `try/catch` độc lập để tránh nuốt exception gốc từ khối `try`.
+  - Triển khai cơ chế hủy subscribe `telemetry$` bằng cách implement interface `OnModuleDestroy` và gọi `unsubscribe()` để ngăn chặn rò rỉ bộ nhớ (RxJS memory leaks).
+  - Cập nhật `MqttService` để hỗ trợ stream dữ liệu cảm biến cảm biến SHT30/SCD30 (`telemetry$`) và phát setpoint điều khiển ON/OFF (`dispatchSetpoint`).
+  - Viết bộ unit tests đầy đủ bao gồm kiểm thử logic điều khiển ON/OFF, Idle Guard, Emergency Fallback và MQTT dispatch error handling.
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 52 tests trong dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:25:00+07:00] - Task F1: Tạo thực thể TelemetryLog ánh xạ hypertable
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
