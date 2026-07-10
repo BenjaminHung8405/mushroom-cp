@@ -1,5 +1,15 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T09:59:00+07:00] - Task A2: Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+- **Giải trình giải pháp**:
+  - Thêm cấu hình WiFi (bao gồm cả fallback SSID/Password) và MQTT Broker vào tệp tiêu đề [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) dưới không gian tên `config::network`.
+  - Sử dụng các chỉ thị tiền xử lý `#ifndef` / `#define` / `#endif` cho các thông tin nhạy cảm để hỗ trợ việc ghi đè bằng cờ compile `-D` khi thực hiện build hoặc chạy CI, tránh lộ thông tin bảo mật lên mã nguồn Git.
+  - Định nghĩa các hằng số tĩnh dạng `constexpr const char*` và `constexpr uint16_t` trỏ đến các định nghĩa macro để đảm bảo an toàn kiểu dữ liệu (Type-Safe) và dễ tiếp cận trong codebase.
+  - Tự kiểm duyệt (Self-test): Tạo một file kiểm tra độc lập và biên dịch thử bằng `g++` (cả trường hợp mặc định lẫn trường hợp dùng cờ `-D` ghi đè giá trị hằng số). Kết quả biên dịch thành công và các giá trị cấu hình được xuất ra chính xác.
+
 ## [2026-07-10T09:55:03+07:00] - Task A1: Tạo config.h và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
