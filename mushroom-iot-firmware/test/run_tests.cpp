@@ -4,6 +4,7 @@
 #include "config.h"
 #include "wifi_manager.h"
 #include "mqtt_client.h"
+#include "definitions.h"
 #include <cassert>
 
 HardwareSerial Serial;
@@ -261,6 +262,36 @@ int main() {
         std::string payload = "{\"temperature\":24.00}";
         PubSubClient::mock_callback(unexpected_topic, (uint8_t*)payload.c_str(), payload.length());
     }
+
+    // 13. Test Task D1 - Core 0 Communication Task
+    Serial.println("[TEST] Starting Task D1 - Core 0 Communication Task Unit Tests...");
+    assert(storage.factory_reset() == true);
+    config::network::MQTT_BROKER_VAL = "";
+    WiFi.mock_status = WL_IDLE_STATUS;
+    PubSubClient::mock_connected = false;
+
+    // Run task once
+    task_core0_communication(nullptr);
+
+    // Check that WiFi transitioned to SOFTAP_ACTIVE (since NVS credentials are empty)
+    assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
+    // Check that MQTT client is in ERROR_NO_WIFI (since WiFi is not connected STA_CONNECTED)
+    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+
+    // Save mock credentials and MQTT config to NVS to test successful initialization path
+    assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
+    assert(storage.save_mqtt_config("192.168.1.50", 1883, "admin", "adminpass") == true);
+
+    // Re-initialize WiFi & MQTT via next task invocation
+    WiFi.mock_status = WL_CONNECTED;      // Mock WiFi as connected
+    PubSubClient::mock_connected = true;   // Mock MQTT as connected
+
+    // Run task once again
+    task_core0_communication(nullptr);
+
+    // Because NVS credentials are saved, it should load config and transition to STA_CONNECTED
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
+    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
 
     // Clean up
     assert(storage.factory_reset() == true);

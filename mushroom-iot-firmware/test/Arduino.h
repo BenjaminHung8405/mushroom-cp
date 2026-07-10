@@ -84,7 +84,9 @@ public:
     void begin(const char* ssid, const char* pass) {
         mock_ssid = ssid ? ssid : "";
         mock_pass = pass ? pass : "";
-        mock_status = WL_DISCONNECTED;
+        if (mock_status != WL_CONNECTED) {
+            mock_status = WL_DISCONNECTED;
+        }
     }
 
     wl_status_t status() {

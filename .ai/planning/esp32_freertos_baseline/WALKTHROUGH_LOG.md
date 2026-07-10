@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:34:00+07:00] - Task D1: Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - Sửa đổi: [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Triển khai Task Core 0 điều phối truyền thông**: Cài đặt hàm `task_core0_communication()` chạy vòng lặp vô hạn điều khiển mạng WiFi và duy trì MQTT. Tác vụ này thực hiện gọi `wifi::init_wifi()` và `mqtt::MqttClient::get_instance().init()` khi khởi tạo, sau đó chạy vòng lặp cập nhật kết nối mạng qua `wifi::check_wifi_connection()` và `MqttClient::loop()`.
+  - **Chống tràn Watchdog & An toàn luồng**: Đảm bảo an toàn WDT bằng cách sử dụng `vTaskDelay(pdMS_TO_TICKS(100))` để nhả CPU ở mỗi chu kỳ lặp. Đo đạc và in Stack High Water Mark của tác vụ định kỳ mỗi 5 giây (`uxTaskGetStackHighWaterMark(nullptr)`) phục vụ việc tối ưu hóa dung lượng stack thực tế khi ghim tác vụ trên ESP32.
+  - **Khả năng tự kiểm thử (Self-test)**: Tích hợp cấu trúc macro `#ifndef UNIT_TEST` bao bọc các lời gọi FreeRTOS. Giới hạn vòng lặp chạy đúng 1 lần trong môi trường UNIT_TEST để tránh treo bộ kiểm thử. Cập nhật file mock `test/Arduino.h` và bổ sung test case số 13 trong `test/run_tests.cpp`. Toàn bộ bộ test offline đã chạy và đạt kết quả đúng 100%.
+
 ## [2026-07-10T10:32:00+07:00] - Task C3: Cài đặt `mqtt_callback()` và logic xử lý payload JSON
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

@@ -33,7 +33,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| D1 | Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT. | [ ] Pending | Chống tràn Watchdog: Bắt buộc dùng `vTaskDelay()` ở cuối vòng `while(1)`. Theo dõi sát Stack High Water Mark. |
+| D1 | Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT. | [ ] QA Review | Chống tràn Watchdog: Bắt buộc dùng `vTaskDelay()` ở cuối vòng `while(1)`. Theo dõi sát Stack High Water Mark. |
 | D2 | Cập nhật hàm `setup()` trong `main.cpp` để ghim Task vào Core 0. | [ ] Pending | Cấu hình stack size hợp lý (VD: 4096 bytes) cho tác vụ có liên quan đến mạng và mã hóa/phân tích JSON. |
 
 ### Track E: Tầng Dữ liệu Cấu trúc (Sprint 2 - Models)
