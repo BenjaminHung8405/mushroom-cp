@@ -1,5 +1,42 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:47:00+07:00] Task D2 - Implement Heater State Machine hysteresis (non-blocking `millis()`)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Triển khai logic State Machine Heater cho cảm biến SHT30 sử dụng 3 biến `static` cục bộ: `humidity_saturated_start`, `heat_start_time`, và `is_heating`. Trạng thái này được đặt hoàn toàn trong khối `#ifndef UNIT_TEST` để đảm bảo cách ly HAL và không làm rò rỉ các lệnh phần cứng sang môi trường host g++.
+  - Nhánh khi chưa bật sấy (`!is_heating`): 
+    - Nếu độ ẩm đạt ngưỡng bão hòa (`hum >= 99.0f`), chúng ta khởi tạo hoặc tiếp tục bộ đếm thời gian bão hòa `humidity_saturated_start`. Khi thời gian bão hòa liên tục vượt quá 10 phút (600,000 ms), heater được kích hoạt qua `sht30.heater(true)`, chuyển trạng thái `is_heating = true`, và lưu mốc thời gian bật `heat_start_time = now`.
+    - Nếu độ ẩm giảm xuống dưới 99.0% trước khi bật sấy, bộ đếm thời gian bão hòa bị reset về `0` (cơ chế cooldown/hysteresis bắt buộc).
+  - Nhánh khi đang sấy (`is_heating`):
+    - Đảm bảo trả về nhiệt độ `temp = NAN` để khóa các bộ điều khiển logic hạ nguồn (fuzzy/actuators), tránh việc kích hoạt nhầm thiết bị khi cảm biến đang tự làm nóng.
+    - Tự động tắt heater bằng `sht30.heater(false)` và chuyển `is_heating = false` khi thời gian sấy vượt quá 5 phút (300,000 ms) HOẶC khi độ ẩm giảm xuống dưới 90.0%. Đồng thời reset bộ đếm bão hòa về `0` để chuẩn bị cho chu kỳ giám sát tiếp theo.
+  - Đảm bảo an toàn luồng và non-blocking: Toàn bộ quá trình sử dụng so sánh delta `millis()`, tuyệt đối không dùng delay chặn.
+- **Kết quả tự kiểm thử**:
+  - Đã chạy thành công unit test suite trên host: `g++` compile pass và toàn bộ 100% test cases (chạy thông qua `./run_tests`) pass thành công.
+  - PlatformIO build cho board ESP32-S3 (`~/.platformio/penv/bin/pio run`) biên dịch thành công (`SUCCESS`), dung lượng flash sau khi tích hợp SM là ~806 KB (đáp ứng ngân sách bộ nhớ ≤ 1 MB).
+
+
+## [2026-07-10T15:46:00+07:00] Task D1 - Thay thế logic sine/cosine mock bằng đọc I2C thực tế trong `read_sht30()`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Sửa đổi hàm `read_sht30` trong `mushroom-iot-firmware/src/sensors.cpp`.
+  - Giữ nguyên các guard clauses đầu tiên về trạng thái khởi tạo cảm biến (`!sensors_initialized`) và tình trạng cảm biến (`!sht30_healthy`), đảm bảo trả về `false` cùng với outputs là `NAN` và mã lỗi tương ứng.
+  - Tách biệt logic đọc phần cứng và logic giả lập qua khối `#ifndef UNIT_TEST` ... `#else` ... `#endif`.
+  - Trong nhánh không phải UNIT_TEST, thực hiện đọc trực tiếp từ cảm biến qua `sht30.readTemperature()` và `sht30.readHumidity()`. Nếu một trong hai giá trị trả về là `NAN` (báo hiệu lỗi CRC hoặc lỗi phần cứng), thiết lập `sht30_last_error = SensorError::ERR_CRC_MISMATCH`, gán outputs thành `NAN` và trả về `false`.
+  - Trong nhánh UNIT_TEST (khối `#else`), giữ nguyên 100% logic sine/cosine giả lập động theo thời gian như ban đầu để bảo vệ tính nhất quán của host unit tests.
+  - Áp dụng kiểm tra dải đo vật lý hợp lệ (`temp` ∈ [-40, 125], `hum` ∈ [0, 100]) chung cho cả hai nhánh, trả về `SensorError::ERR_OUT_OF_RANGE` nếu không thỏa mãn.
+  - Thiết lập trạng thái `SensorError::SUCCESS` và trả về `true` khi đọc dữ liệu thành công.
+- **Kết quả tự kiểm thử**:
+  - Unit test suite trên host (`g++` + `./run_tests`) pass 100% không gặp lỗi hay regression.
+  - PlatformIO build cho board nhúng ESP32-S3 (`pio run` và `pio run -e otg`) thành công (`SUCCESS`). Kích thước bộ nhớ Flash sử dụng đều dưới ngưỡng tối đa 1 MB (~788 KB cho env `uart` và ~770 KB cho env `otg`).
+
+
 ## [2026-07-10T15:43:00+07:00] Task C1 - Cập nhật `init_sensors_placeholder()` — real I2C init trong `#ifndef UNIT_TEST`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

@@ -105,12 +105,67 @@ namespace sensors
             return false;
         }
 
+#ifndef UNIT_TEST
+        temp = sht30.readTemperature();
+        hum = sht30.readHumidity();
+
+        if (std::isnan(temp) || std::isnan(hum))
+        {
+            sht30_last_error = SensorError::ERR_CRC_MISMATCH;
+            temp = NAN;
+            hum = NAN;
+            return false;
+        }
+
+        // --- Heater State Machine (Task D2) ---
+        static unsigned long humidity_saturated_start = 0;
+        static unsigned long heat_start_time = 0;
+        static bool is_heating = false;
+
+        unsigned long now = millis();
+
+        if (!is_heating)
+        {
+            if (hum >= 99.0f)
+            {
+                if (humidity_saturated_start == 0)
+                {
+                    humidity_saturated_start = now;
+                }
+                else if (now - humidity_saturated_start > 600000UL) // 10 minutes
+                {
+                    Serial.println("[SENSORS] WARNING: Humidity saturated (>= 99%) for 10 minutes. Enabling SHT30 heater!");
+                    sht30.heater(true);
+                    is_heating = true;
+                    heat_start_time = now;
+                }
+            }
+            else
+            {
+                humidity_saturated_start = 0;
+            }
+        }
+        else
+        {
+            // Always set temperature output to NAN while heating
+            temp = NAN;
+
+            if ((now - heat_start_time > 300000UL) || (hum < 90.0f)) // 5 minutes OR humidity < 90%
+            {
+                Serial.println("[SENSORS] INFO: Disabling SHT30 heater, returning to normal operation.");
+                sht30.heater(false);
+                is_heating = false;
+                humidity_saturated_start = 0; // reset saturation timer for cooldown
+            }
+        }
+#else
         // Tạo dữ liệu giả lập động chạy theo thời gian (sử dụng hàm lượng giác sine/cosine)
         unsigned long m = millis();
         // Nhiệt độ không khí dao động trong khoảng [23.0, 27.0] °C
         temp = 25.0f + 2.0f * std::sin(m / 10000.0f);
         // Độ ẩm không khí dao động trong khoảng [75.0, 85.0] %
         hum = 80.0f + 5.0f * std::cos(m / 15000.0f);
+#endif
 
         // Kiểm tra xem dữ liệu có nằm trong dải đo an toàn vật lý hợp lệ không
         if (temp < -40.0f || temp > 125.0f || hum < 0.0f || hum > 100.0f)
