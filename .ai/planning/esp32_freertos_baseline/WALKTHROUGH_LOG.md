@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:13:00+07:00] - Task A2: Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS)
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+  - Tạo mới: [storage.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/storage.h)
+  - Tạo mới: [storage.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/storage.cpp)
+  - Khởi tạo: [platformio.ini](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/platformio.ini)
+  - Thiết lập môi trường mock test: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h), [Preferences.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Preferences.h), [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Loại bỏ Hardcode Credentials**: Thay đổi toàn bộ các giá trị mặc định của SSID và Password WiFi trong [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) thành chuỗi rỗng để ngăn chặn hoàn toàn việc đặt thông tin cấu hình mạng cố định trong mã nguồn.
+  - **Tích hợp Key/Namespace NVS**: Định nghĩa không gian tên NVS (`mushroom_cfg`), các key tương ứng để truy xuất các trường cấu hình thông qua thư viện `Preferences` (`wifi_ssid`, `wifi_pass`, `mqtt_broker`, `mqtt_port`, `mqtt_user`, `mqtt_pass`), và hằng số chuỗi cấu hình mặc định cho SoftAP (`AP_SSID = "TraiNam_Setup_KhongDay"`).
+  - **Triển khai Storage Wrapper**: Xây dựng lớp Singleton `StorageManager` để quản lý việc lưu và đọc cấu hình từ bộ nhớ flash thông qua `Preferences.h`. Lớp này đảm bảo đóng/mở namespace NVS an toàn (`begin` và `end`) để tránh rò rỉ dữ liệu hoặc lỗi ghi khi mất nguồn điện đột ngột.
+  - **Tự kiểm duyệt (Self-test)**: Tạo môi trường mô phỏng (Mock runtime) cho thư viện Arduino và Preferences trong thư mục `test/` và triển khai bộ kiểm thử tự động tại [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp). Biên dịch offline thành công bằng Clang++ trên macOS và vượt qua toàn bộ 9 bước kiểm tra logic ghi/đọc/xóa dữ liệu.
+
 ## [2026-07-10T10:08:00+07:00] - Task A1: Tạo config.h và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

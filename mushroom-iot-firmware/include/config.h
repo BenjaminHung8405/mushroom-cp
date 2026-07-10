@@ -25,23 +25,36 @@ namespace config
     namespace network
     {
 
-// WiFi credentials (defined in ifndef blocks to allow override via compiler flags)
+// WiFi credentials (defined in ifndef blocks to allow override via compiler flags for development)
 #ifndef WIFI_SSID
-#define WIFI_SSID "TanLeQuyen_02"
+#define WIFI_SSID ""
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "AnhHung326_7"
+#define WIFI_PASSWORD ""
 #endif
 
-// Fallback WiFi credentials for redundancy
+// Fallback WiFi credentials for redundancy (default empty)
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "Mushroom_WiFi_Backup"
+#define WIFI_FALLBACK_SSID ""
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "backup_secure_pass"
+#define WIFI_FALLBACK_PASSWORD ""
 #endif
+
+// Default SoftAP Configuration for WiFi Setup (Captive Portal)
+constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
+constexpr const char *AP_PASS = "12345678";
+
+// NVS Storage namespace and keys (Preference keys must be <= 15 chars)
+constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
+constexpr const char *KEY_WIFI_SSID = "wifi_ssid";
+constexpr const char *KEY_WIFI_PASS = "wifi_pass";
+constexpr const char *KEY_MQTT_BROKER = "mqtt_broker";
+constexpr const char *KEY_MQTT_PORT = "mqtt_port";
+constexpr const char *KEY_MQTT_USER = "mqtt_user";
+constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
 
 // MQTT configuration
 #ifndef MQTT_BROKER

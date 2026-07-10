@@ -12,14 +12,15 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [ ] QA Review | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
-| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS). | [ ] Pending | **CHỈ THỊ CAPTIVE PORTAL:** Nghiêm cấm đặt chuỗi SSID/PASS cố định trong mã nguồn. Sử dụng thư viện `Preferences.h` của ESP32 để khởi tạo phân vùng Non-Volatile Storage (NVS). Định nghĩa sẵn các key: `wifi_ssid`, `wifi_pass`. Khai báo thêm một chuỗi cấu hình mặc định cho SoftAP (VD: `AP_SSID = "TraiNam_Setup_KhongDay"`). |
+| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS). | [ ] QA Review | **CHỈ THỊ CAPTIVE PORTAL:** Nghiêm cấm đặt chuỗi SSID/PASS cố định trong mã nguồn. Sử dụng thư viện `Preferences.h` của ESP32 để khởi tạo phân vùng Non-Volatile Storage (NVS). Định nghĩa sẵn các key: `wifi_ssid`, `wifi_pass`. Khai báo thêm một chuỗi cấu hình mặc định cho SoftAP (VD: `AP_SSID = "TraiNam_Setup_KhongDay"`). |
 
 ### Track B: Tầng Mạng (Sprint 1 - Network WiFi)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] Pending | Áp dụng nguyên lý Single Responsibility Principle (SRP). Khối này chỉ chịu trách nhiệm duy trì liên kết vật lý (L2/L3). |
-| B2 | Cài đặt logic `init_wifi()`, `check_wifi_connection()` và `reconnect_wifi()`. | [ ] Pending | **CHỈ THỊ CAPTIVE PORTAL (Kiến trúc phi tuần tự):** <br>1. Hàm `init_wifi()` phải đọc SSID/PASS từ NVS trước. Nếu NVS trống, lập tức chuyển trạng thái sang `WIFI_STATE_START_AP`. <br>2. Hàm `reconnect_wifi()` sử dụng Non-blocking State Machine. Thiết lập bộ đếm thử lại (`wifi_retry_counter`). Nếu thử lại thất bại quá 5 lần (hoặc mất mạng liên tục 2 phút), hàm phải tự động kích hoạt trạng thái SoftAP và chừa sẵn một hàm vùng chờ `void start_captive_portal_placeholder()`. <br>3. **Tuyệt đối không sử dụng hàm delay blocking** để tránh làm treo Task điều khiển Rơ-le Fuzzy trên Core 1. |
+| B2 | Cài đặt logic kết nối sử dụng thư viện `WiFiManager`. | [ ] Pending | **Chỉ thị kỹ thuật:** Cấu hình hằng số `wifiManager.setConfigPortalTimeout(300)` (5 phút tự ngắt portal để tránh treo luồng). Bắt buộc sử dụng phương thức non-blocking của thư viện nếu chạy trong FreeRTOS Task. |
+| B3 | Cấu hình lưu trữ bộ đệm Flash (NVS) tự động của thư viện. | [ ] Pending | Xác thực bộ nhớ không bị rò rỉ (Memory leak) khi ngắt/bật cổng SoftAP liên tục. Đảm bảo các biến trả về từ WiFiManager cấp phát đúng vùng nhớ tĩnh hoặc stack an toàn. |
 
 ### Track C: Tầng Mạng (Sprint 1 - Network MQTT)
 
