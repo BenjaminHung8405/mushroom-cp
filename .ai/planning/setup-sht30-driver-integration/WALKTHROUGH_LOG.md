@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T21:46:00+07:00] Task Integration: Telemetry JSON Keys Correction for NestJS Backend
+
+- **Trạng thái hiện tại**: Đã hoàn thành (Done)
+- **Danh sách file sửa đổi**:
+  - [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp) (Sửa đổi)
+  - [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - **Sửa đổi JSON Keys**: Đã cập nhật các khóa JSON khi đóng gói telemetry trong `task_core0_communication()` từ `temperature` -> `temp_air`, `humidity` -> `humidity_air`, và `co2` -> `co2_level` để khớp chính xác với DTO cấu trúc dữ liệu mà NestJS Backend (`mushroom-backend/src/mqtt/mqtt.service.ts`) mong đợi.
+  - **Khả năng tương thích ngược**: Giữ lại các khóa cũ (`temperature`, `humidity`, `co2`) song song với các khóa mới để đảm bảo các hệ thống cũ hoặc các bên tiêu thụ tin nhắn khác không bị ảnh hưởng.
+  - **Sửa lỗi biên dịch Unit Test**: Bổ sung khai báo mock cho các hàm `softAP` và `softAPIP` vào `WiFiClass` trong `test/Arduino.h` để tránh lỗi biên dịch trên môi trường host (`UNIT_TEST`).
+  - **Biên dịch và chạy Test thành công**: Biên dịch lại thành công tệp chạy thử nghiệm `run_tests` trên host nhắm mục tiêu toàn bộ các tệp nguồn (`src/core0_tasks.cpp`, `src/core1_tasks.cpp`, và `src/main.cpp`) và xác nhận 100% các ca kiểm thử đều vượt qua (`PASS`).
+
 ## [2026-07-10T16:05:00+07:00] QA Review — Security Auditor & Senior Code Reviewer (Claude)
 
 - **Trạng thái hiện tại**: LGTM — Toàn bộ Sprint 1/2/3 đã được duyệt

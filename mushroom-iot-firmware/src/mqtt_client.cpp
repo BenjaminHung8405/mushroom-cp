@@ -1,6 +1,7 @@
 #include "mqtt_client.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include "definitions.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -221,6 +222,31 @@ namespace mqtt
         process_setpoints(doc);
     }
 
+    static void enqueue_actuator_command(uint8_t relay_pin, bool state)
+    {
+        if (xActuatorQueue == nullptr)
+        {
+            Serial.println("[MQTT] Warning: xActuatorQueue is null, cannot enqueue command.");
+            return;
+        }
+
+        ActuatorCommand cmd;
+        cmd.relay_id = relay_pin;
+        cmd.state = state;
+        memset(cmd.padding, 0, sizeof(cmd.padding));
+
+        if (xQueueSend(xActuatorQueue, &cmd, 0) == pdTRUE)
+        {
+            Serial.printf("[MQTT] Enqueued command: pin=%u state=%s\n",
+                          static_cast<unsigned>(relay_pin), state ? "ON" : "OFF");
+        }
+        else
+        {
+            Serial.printf("[MQTT] Warning: xActuatorQueue full, dropped command for pin %u\n",
+                          static_cast<unsigned>(relay_pin));
+        }
+    }
+
     void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)
     {
         // Bổ sung ngưỡng validate vật lý (Physical Safety Boundaries Check)
@@ -254,11 +280,31 @@ namespace mqtt
         bool valid_temp = has_temp && validate_single_setpoint("temperature", temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
         bool valid_humi = has_humi && validate_single_setpoint("humidity", humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
 
-        if (!valid_temp && !valid_humi)
+        // Kiểm tra và xử lý các lệnh bật/tắt thiết bị (actuators)
+        bool has_actuator = false;
+        if (doc.containsKey("mist_generator_active")) {
+            bool state = doc["mist_generator_active"].as<bool>();
+            enqueue_actuator_command(config::pins::PIN_RELAY_MIST, state);
+            has_actuator = true;
+        }
+        if (doc.containsKey("convection_fan_active")) {
+            bool state = doc["convection_fan_active"].as<bool>();
+            enqueue_actuator_command(config::pins::PIN_RELAY_FAN, state);
+            has_actuator = true;
+        }
+        if (doc.containsKey("heating_lamp_active")) {
+            bool state = doc["heating_lamp_active"].as<bool>();
+            enqueue_actuator_command(config::pins::PIN_RELAY_HEATER_1, state);
+            enqueue_actuator_command(config::pins::PIN_RELAY_HEATER_2, state);
+            has_actuator = true;
+        }
+
+        if (!valid_temp && !valid_humi && !has_actuator)
         {
-            Serial.println("[MQTT] Warning: JSON payload does not contain any valid/safe setpoint values.");
+            Serial.println("[MQTT] Warning: JSON payload does not contain any valid/safe setpoint values or actuator commands.");
         }
     }
+
 
     bool MqttClient::validate_single_setpoint(const char* name, float val, float min_val, float max_val)
     {

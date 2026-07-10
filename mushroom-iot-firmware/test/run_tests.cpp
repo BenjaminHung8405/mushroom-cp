@@ -25,6 +25,7 @@ WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
+EventBits_t mock_event_group_bits = 0;
 
 std::map<uint8_t, uint8_t> mock_pin_modes;
 std::map<uint8_t, uint8_t> mock_pin_values;
@@ -197,8 +198,56 @@ int main() {
     WiFi.disconnect_called = false;
     mock_millis_offset = 27000;
     wifi::check_wifi_connection();
+    assert(WiFi.disconnect_called == true);
+
+    // 11.7 Verify Fallback to SoftAP after 3 failed attempts
+    Serial.println("[TEST] Verifying fallback to SoftAP after 3 failed connection attempts...");
+    
+    // Attempt 1 failed at offset=27000, state is STA_DISCONNECTED.
+    // Transition to Attempt 2: Reconnection interval is 10s. Advance to offset=38000.
+    mock_millis_offset = 38000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // Timeout Attempt 2: Connection timeout is 15s. Advance to offset=54000.
+    mock_millis_offset = 54000;
+    WiFi.disconnect_called = false;
+    wifi::check_wifi_connection();
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
     assert(WiFi.disconnect_called == true);
+
+    // Transition to Attempt 3: Reconnection interval is 10s. Advance to offset=65000.
+    mock_millis_offset = 65000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // Timeout Attempt 3: Connection timeout is 15s. Advance to offset=81000.
+    mock_millis_offset = 81000;
+    WiFi.disconnect_called = false;
+    wifi::check_wifi_connection();
+    // This was the 3rd failed attempt! We should fall back to SOFTAP_ACTIVE.
+    assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
+    assert(WiFi.disconnect_called == true);
+    
+    // Verify Multi-core event bits synchronization (WIFI_SOFTAP_BIT set, WIFI_CONNECTED_BIT clear)
+    assert((mock_event_group_bits & WIFI_SOFTAP_BIT) != 0);
+    assert((mock_event_group_bits & WIFI_CONNECTED_BIT) == 0);
+
+    // 11.8 Verify SoftAP Inactivity Timeout (15 minutes / 900,000 ms)
+    Serial.println("[TEST] Verifying SoftAP inactivity timeout...");
+    // SoftAP started at offset=81000.
+    // Advance by 14 minutes (840,000 ms) -> offset=921000. SoftAP should remain active.
+    mock_millis_offset = 921000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
+
+    // Advance by another 2 minutes (total 16 minutes / 960,000 ms) -> offset=1041000.
+    // SoftAP should timeout and revert to STA_DISCONNECTED to retry network.
+    mock_millis_offset = 1041000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
+    assert((mock_event_group_bits & WIFI_SOFTAP_BIT) == 0);
+    assert((mock_event_group_bits & WIFI_CONNECTED_BIT) == 0);
 
     // Clean up
     assert(storage.factory_reset() == true);
@@ -319,6 +368,47 @@ int main() {
         Serial.println("--- Case H: NaN values for setpoint ---");
         std::string payload_nan = "{\"temperature\":nan,\"humidity\":nan}";
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_nan.c_str(), payload_nan.length());
+    }
+
+    // Case I: Valid JSON with actuator controls
+    {
+        Serial.println("--- Case I: Valid JSON with actuator controls ---");
+        bool created_temp_queue = false;
+        if (xActuatorQueue == nullptr) {
+            xActuatorQueue = xQueueCreate(8, sizeof(ActuatorCommand));
+            created_temp_queue = true;
+        } else {
+            ActuatorCommand discard;
+            while (xQueueReceive(xActuatorQueue, &discard, 0) == pdTRUE);
+        }
+
+        std::string payload = "{\"mist_generator_active\":true,\"convection_fan_active\":false,\"heating_lamp_active\":true}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+        
+        assert(xActuatorQueue != nullptr);
+        assert(uxQueueMessagesWaiting(xActuatorQueue) == 4);
+        
+        ActuatorCommand c1, c2, c3, c4;
+        assert(xQueueReceive(xActuatorQueue, &c1, 0) == pdTRUE);
+        assert(c1.relay_id == config::pins::PIN_RELAY_MIST);
+        assert(c1.state == true);
+        
+        assert(xQueueReceive(xActuatorQueue, &c2, 0) == pdTRUE);
+        assert(c2.relay_id == config::pins::PIN_RELAY_FAN);
+        assert(c2.state == false);
+        
+        assert(xQueueReceive(xActuatorQueue, &c3, 0) == pdTRUE);
+        assert(c3.relay_id == config::pins::PIN_RELAY_HEATER_1);
+        assert(c3.state == true);
+        
+        assert(xQueueReceive(xActuatorQueue, &c4, 0) == pdTRUE);
+        assert(c4.relay_id == config::pins::PIN_RELAY_HEATER_2);
+        assert(c4.state == true);
+
+        if (created_temp_queue) {
+            vQueueDelete(xActuatorQueue);
+            xActuatorQueue = nullptr;
+        }
     }
 
     // 13. Test Task D1 - Core 0 Communication Task

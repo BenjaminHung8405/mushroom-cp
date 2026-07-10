@@ -4,6 +4,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <freertos/event_groups.h>
 #else
 // Host-side unit-test stubs — QueueHandle_t is defined in test/Arduino.h.
 // Provide a forward typedef so this header can be included before Arduino.h.
@@ -12,6 +13,12 @@
 typedef void* QueueHandle_t;
 #endif
 #endif
+
+// Wifi Event Bits for multi-core synchronization
+#define WIFI_CONNECTED_BIT  (1 << 0)
+#define WIFI_SOFTAP_BIT     (1 << 1)
+
+extern EventGroupHandle_t xWifiEventGroup;
 
 #include "models.h"
 

@@ -130,6 +130,14 @@ public:
         mock_status = WL_DISCONNECTED;
         return true;
     }
+
+    bool softAP(const char* ssid, const char* pass = nullptr) {
+        return true;
+    }
+
+    IPAddress softAPIP() {
+        return IPAddress();
+    }
 };
 
 extern WiFiClass WiFi;
@@ -184,6 +192,28 @@ typedef void* SemaphoreHandle_t;
 typedef int32_t BaseType_t;
 typedef uint32_t UBaseType_t;
 typedef uint32_t TickType_t;
+typedef void* EventGroupHandle_t;
+typedef uint32_t EventBits_t;
+
+extern EventBits_t mock_event_group_bits;
+
+inline EventGroupHandle_t xEventGroupCreate() {
+    return (EventGroupHandle_t)1;
+}
+
+inline EventBits_t xEventGroupSetBits(EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet) {
+    mock_event_group_bits |= uxBitsToSet;
+    return mock_event_group_bits;
+}
+
+inline EventBits_t xEventGroupClearBits(EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToClear) {
+    mock_event_group_bits &= ~uxBitsToClear;
+    return mock_event_group_bits;
+}
+
+inline EventBits_t xEventGroupGetBits(EventGroupHandle_t xEventGroup) {
+    return mock_event_group_bits;
+}
 
 #define pdTRUE  1
 #define pdFALSE 0

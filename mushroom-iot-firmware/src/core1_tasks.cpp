@@ -15,10 +15,11 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// FreeRTOS Queue handles (defined here, declared in definitions.h)
+// FreeRTOS Queue and Event Group handles (defined here, declared in definitions.h)
 // ---------------------------------------------------------------------------
 QueueHandle_t xActuatorQueue  = nullptr;
 QueueHandle_t xTelemetryQueue = nullptr;
+EventGroupHandle_t xWifiEventGroup = nullptr;
 
 // ---------------------------------------------------------------------------
 // Local constants — no heap allocation inside the infinite loop
@@ -155,10 +156,28 @@ void task_core1_control(void* /*pvParameters*/)
             // Sprint-2 mock exercise: cycle one relay ON/OFF so Serial output
             // proves the actuator path is live without needing a real Core-0
             // command.  This block will be replaced by fuzzy-logic control later.
+            #ifdef UNIT_TEST
             demo_state = !demo_state;
             uint8_t pin = DEMO_RELAY_PINS[demo_relay_idx];
             actuators::set_relay_state(pin, demo_state);
             demo_relay_idx = (demo_relay_idx + 1) % DEMO_RELAY_COUNT;
+            #endif
+        }
+
+        // --- Monitor Wifi Event Group for Fail-Safe Edge Autonomy -----------
+        if (xWifiEventGroup != nullptr)
+        {
+            EventBits_t bits = xEventGroupGetBits(xWifiEventGroup);
+            if (bits & WIFI_SOFTAP_BIT)
+            {
+                static unsigned long last_autonomy_log = 0;
+                if (now - last_autonomy_log >= 5000UL || last_autonomy_log == 0)
+                {
+                    last_autonomy_log = now;
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[CORE1_TASK] WARNING: WiFi lost completely. Entering Edge Autonomy Mode (Fuzzy Control running).");
+                }
+            }
         }
 
         // --- Stack High Water Mark (every ~5 s, same cadence as Core 0) ----

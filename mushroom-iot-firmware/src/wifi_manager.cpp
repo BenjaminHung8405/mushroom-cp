@@ -1,6 +1,7 @@
 #include "wifi_manager.h"
 #include "config.h"
 #include "storage.h"
+#include "definitions.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -18,15 +19,81 @@ namespace wifi
 #ifndef UNIT_TEST
     static DNSServer dnsServer;
     static WebServer webServer(80);
+    static void setup_web_server();
 #endif
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
     static unsigned long last_reconnect_attempt = 0;
+    static int reconnect_attempts = 0;
+    static unsigned long softap_start_time = 0;
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
     constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
+    constexpr int MAX_RECONNECT_ATTEMPTS = 3;
+    constexpr unsigned long SOFTAP_TIMEOUT_MS = 900000; // 15 phút (900000 ms)
+
+    static void set_state(WifiState new_state)
+    {
+        current_state = new_state;
+
+        if (new_state == WifiState::SOFTAP_ACTIVE)
+        {
+            softap_start_time = millis();
+        }
+
+        // Synchronize Event Bits to Core 1
+        if (xWifiEventGroup != nullptr)
+        {
+            if (new_state == WifiState::STA_CONNECTED)
+            {
+                xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
+                xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
+            }
+            else if (new_state == WifiState::SOFTAP_ACTIVE)
+            {
+                xEventGroupSetBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
+                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
+            }
+            else
+            {
+                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT | WIFI_SOFTAP_BIT);
+            }
+        }
+    }
+
+    static bool start_softap()
+    {
+        Serial.println("[WIFI] Activating SoftAP Mode...");
+        WiFi.mode(WIFI_AP);
+        bool ap_started = WiFi.softAP(
+            config::network::AP_SSID,
+            config::network::AP_PASS);
+
+        if (ap_started)
+        {
+            Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
+            Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
+            set_state(WifiState::SOFTAP_ACTIVE);
+
+#ifndef UNIT_TEST
+            // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
+            dnsServer.start(53, "*", WiFi.softAPIP());
+
+            // Khởi động WebServer
+            setup_web_server();
+            webServer.begin();
+#endif
+            return true;
+        }
+        else
+        {
+            Serial.println("[WIFI] ERROR: Failed to start SoftAP.");
+            set_state(WifiState::IDLE);
+            return false;
+        }
+    }
 
     /**
      * @brief Fetch JWT auth token from the NestJS backend after WiFi connects.
@@ -125,25 +192,41 @@ label { font-weight: bold; margin-top: 10px; display: block; color: #555; }
 input { width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 input[type="submit"] { background: #4CAF50; color: white; border: none; cursor: pointer; padding: 12px; font-size: 16px; font-weight: bold; }
 input[type="submit"]:hover { background: #45a049; }
+summary { font-weight: bold; color: #1a73e8; cursor: pointer; margin-top: 15px; margin-bottom: 10px; outline: none; }
 </style></head><body>
 <div class="container">
   <h2>Trai Nam - Cau Hinh</h2>
   <form action="/save" method="POST">
-    <label>WiFi SSID</label><input type="text" name="ssid" required>
-    <label>WiFi Password</label><input type="password" name="pass">
-    <label>Backend API URL</label><input type="text" name="backend_url" placeholder="http://192.168.1.x:3001" required>
-    <label>MQTT Broker IP</label><input type="text" name="mqtt_broker" required>
-    <label>MQTT Port</label><input type="number" name="mqtt_port" value="1883" required>
-    <label>MQTT Username</label><input type="text" name="mqtt_user">
-    <label>MQTT Password</label><input type="password" name="mqtt_pass">
-    <input type="submit" value="Luu & Khoi dong lai">
+    <label>WiFi SSID</label><input type="text" name="ssid" value="%SSID%" required>
+    <label>WiFi Password</label><input type="password" name="pass" value="%PASS%">
+    
+    <details>
+      <summary>Cau hinh nang cao (Advanced Settings)</summary>
+      <div style="padding-left: 10px; border-left: 2px solid #1a73e8; margin-top: 10px;">
+        <label>Backend API URL</label><input type="text" name="backend_url" value="%BACKEND_URL%" required>
+        <label>MQTT Broker IP</label><input type="text" name="mqtt_broker" value="%MQTT_BROKER%" required>
+        <label>MQTT Port</label><input type="number" name="mqtt_port" value="%MQTT_PORT%" required>
+        <label>MQTT Username</label><input type="text" name="mqtt_user" value="%MQTT_USER%">
+        <label>MQTT Password</label><input type="password" name="mqtt_pass" value="%MQTT_PASS%">
+      </div>
+    </details>
+    
+    <input type="submit" value="Luu & Khoi dong lai" style="margin-top: 20px;">
   </form>
 </div></body></html>
 )rawliteral";
 
     static void handle_root()
     {
-        webServer.send(200, "text/html", captive_html);
+        String html = captive_html;
+        html.replace("%SSID%", config::network::STA_SSID);
+        html.replace("%PASS%", config::network::STA_PASS);
+        html.replace("%BACKEND_URL%", config::network::BACKEND_API_URL);
+        html.replace("%MQTT_BROKER%", config::network::MQTT_BROKER_VAL);
+        html.replace("%MQTT_PORT%", String(config::network::MQTT_PORT_VAL));
+        html.replace("%MQTT_USER%", config::network::MQTT_USER_VAL);
+        html.replace("%MQTT_PASS%", config::network::MQTT_PASSWORD_VAL);
+        webServer.send(200, "text/html", html);
     }
 
     static void handle_save()
@@ -208,36 +291,12 @@ input[type="submit"]:hover { background: #45a049; }
             WiFi.mode(WIFI_STA);
             WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
-            current_state = WifiState::STA_CONNECTING;
+            set_state(WifiState::STA_CONNECTING);
         }
         else
         {
             Serial.println("[WIFI] No WiFi credentials found in NVS. Activating SoftAP Mode...");
-            WiFi.mode(WIFI_AP);
-            bool ap_started = WiFi.softAP(
-                config::network::AP_SSID,
-                config::network::AP_PASS);
-
-            if (ap_started)
-            {
-                Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
-                Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
-                current_state = WifiState::SOFTAP_ACTIVE;
-
-#ifndef UNIT_TEST
-                // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
-                dnsServer.start(53, "*", WiFi.softAPIP());
-
-                // Khởi động WebServer
-                setup_web_server();
-                webServer.begin();
-#endif
-            }
-            else
-            {
-                Serial.println("[WIFI] ERROR: Failed to start SoftAP.");
-                current_state = WifiState::IDLE;
-            }
+            start_softap();
         }
 
         return current_state;
@@ -258,13 +317,14 @@ input[type="submit"]:hover { background: #45a049; }
                 // Fetch JWT before advertising STA_CONNECTED so MQTT never races with empty password
                 if (fetch_auth_token())
                 {
-                    current_state = WifiState::STA_CONNECTED;
+                    reconnect_attempts = 0; // Reset counter on success
+                    set_state(WifiState::STA_CONNECTED);
                 }
                 else
                 {
                     Serial.println("[WIFI] Auth token fetch failed. Transitioning to STA_DISCONNECTED for retry.");
                     config::network::AUTH_JWT_TOKEN = "";
-                    current_state = WifiState::STA_DISCONNECTED;
+                    set_state(WifiState::STA_DISCONNECTED);
                     last_reconnect_attempt = now;
                 }
             }
@@ -272,8 +332,19 @@ input[type="submit"]:hover { background: #45a049; }
             {
                 Serial.println("[WIFI] WiFi connection timeout! Transitioning to STA_DISCONNECTED.");
                 WiFi.disconnect();
-                current_state = WifiState::STA_DISCONNECTED;
-                last_reconnect_attempt = now;
+                reconnect_attempts++;
+                Serial.printf("[WIFI] Reconnection attempt %d of %d failed.\n", reconnect_attempts, MAX_RECONNECT_ATTEMPTS);
+
+                if (reconnect_attempts >= MAX_RECONNECT_ATTEMPTS)
+                {
+                    Serial.println("[WIFI] Max reconnection attempts reached. Falling back to SoftAP mode...");
+                    start_softap();
+                }
+                else
+                {
+                    set_state(WifiState::STA_DISCONNECTED);
+                    last_reconnect_attempt = now;
+                }
             }
             break;
         }
@@ -284,7 +355,7 @@ input[type="submit"]:hover { background: #45a049; }
                 Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
                 // Clear JWT so it is re-fetched after reconnection
                 config::network::AUTH_JWT_TOKEN = "";
-                current_state = WifiState::STA_DISCONNECTED;
+                set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
             }
             break;
@@ -299,11 +370,26 @@ input[type="submit"]:hover { background: #45a049; }
             break;
         }
         case WifiState::SOFTAP_ACTIVE:
+        {
 #ifndef UNIT_TEST
             dnsServer.processNextRequest();
             webServer.handleClient();
+            vTaskDelay(10 / portTICK_PERIOD_MS); // Yield CPU to avoid TWDT
 #endif
+            if (now - softap_start_time >= SOFTAP_TIMEOUT_MS)
+            {
+                Serial.println("[WIFI] SoftAP timeout reached (15 minutes). Shutting down SoftAP and reverting to STA_DISCONNECTED.");
+#ifndef UNIT_TEST
+                dnsServer.stop();
+                webServer.close();
+#endif
+                WiFi.mode(WIFI_STA);
+                reconnect_attempts = 0; // Reset attempts to try connecting again
+                set_state(WifiState::STA_DISCONNECTED);
+                last_reconnect_attempt = now;
+            }
             break;
+        }
         case WifiState::IDLE:
         default:
             break;
@@ -321,7 +407,7 @@ input[type="submit"]:hover { background: #45a049; }
         // Gọi WiFi.begin để tái kết nối
         WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
         connection_start_time = millis();
-        current_state = WifiState::STA_CONNECTING;
+        set_state(WifiState::STA_CONNECTING);
     }
 
     WifiState get_wifi_state()

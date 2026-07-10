@@ -75,6 +75,16 @@ void setup()
                       static_cast<unsigned>(sizeof(TelemetryData)));
     }
 
+    xWifiEventGroup = xEventGroupCreate();
+    if (xWifiEventGroup == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xWifiEventGroup!");
+    }
+    else
+    {
+        Serial.println("[MAIN] xWifiEventGroup created successfully.");
+    }
+
     #ifndef UNIT_TEST
     // 4. Create and pin Task Core 0 Communication to Core 0
     {
