@@ -2,6 +2,7 @@
 #include "Preferences.h"
 #include "storage.h"
 #include "config.h"
+#include "wifi_manager.h"
 #include <cassert>
 
 HardwareSerial Serial;
@@ -84,6 +85,30 @@ int main() {
     // Clean up
     assert(storage.factory_reset() == true);
 
-    Serial.println("--- All StorageManager Unit Tests Passed Successfully! ---");
+    // 11. Test WiFi Manager Skeleton
+    Serial.println("[TEST] Starting WiFi Manager Unit Tests...");
+    
+    // Ensure NVS is empty
+    assert(storage.has_wifi_credentials() == false);
+    
+    // Test init_wifi when NVS is empty (should result in SOFTAP_ACTIVE)
+    assert(wifi::init_wifi() == wifi::WifiState::SOFTAP_ACTIVE);
+    assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
+    
+    // Save credentials to NVS
+    assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
+    
+    // Test init_wifi when NVS has credentials (should result in STA_CONNECTING)
+    assert(wifi::init_wifi() == wifi::WifiState::STA_CONNECTING);
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+    
+    // Call other skeleton functions to ensure no crash/errors
+    wifi::check_wifi_connection();
+    wifi::reconnect_wifi();
+
+    // Clean up
+    assert(storage.factory_reset() == true);
+
+    Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

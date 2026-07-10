@@ -18,8 +18,8 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] Pending | Áp dụng nguyên lý Single Responsibility Principle (SRP). Khối này chỉ chịu trách nhiệm duy trì liên kết vật lý (L2/L3). |
-| B2 | Cài đặt logic `init_wifi()`, `check_wifi_connection()` và `reconnect_wifi()`. | [ ] Pending | Nếu `WiFi.begin()` với thông số đọc từ NVS thất bại sau 5 lần retry (hoặc NVS trống), lập tức kích hoạt `WiFi.mode(WIFI_AP)` sử dụng `AP_SSID` và `AP_PASS` để mở cổng cứu hộ không dây. |
+| B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] QA Review | Áp dụng cấu trúc phân tách rõ ràng. Khai báo sẵn các hằng số `AP_SSID` và `AP_PASS` cho mạng SoftAP dự phòng. |
+| B2 | Cài đặt logic `init_wifi()` và `check_wifi_connection()`. | [ ] Pending | **Chỉ thị cốt lõi:** Hàm `init_wifi()` bắt buộc phải ưu tiên gọi lệnh đọc SSID/PASS lưu trong NVS Flash trước. Nếu NVS trống, lập tức bỏ qua và trả về mã trạng thái kích hoạt SoftAP (sẽ làm ở Sprint sau), tuyệt đối không hardcode cứng WiFi ra Internet tại đây. |
 
 ### Track C: Tầng Mạng (Sprint 1 - Network MQTT)
 

@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:21:00+07:00] - Task B1: Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [wifi_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/wifi_manager.h)
+  - Tạo mới: [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Tạo khung cho WiFi Manager**: Khai báo và cấu trúc hóa module `wifi` dưới dạng namespace để tránh xung đột tên. Dựng sẵn khung các hàm giao tiếp mạng non-blocking bao gồm `init_wifi()`, `check_wifi_connection()`, `reconnect_wifi()`, và `get_wifi_state()`.
+  - **Khởi tạo thông tin WiFi SoftAP dự phòng**: Khai báo các hằng số tĩnh dạng `constexpr` cho `AP_SSID` và `AP_PASS` dùng làm mạng phát sóng phục vụ cơ chế Captive Portal cứu hộ cấu hình.
+  - **Tương thích môi trường Test**: Sử dụng chỉ thị tiền xử lý `#ifndef UNIT_TEST` bao bọc lấy `#include <WiFi.h>` để cho phép mã nguồn WiFi Manager biên dịch độc lập offline trên máy chủ host mà không cần thư viện phần cứng ESP32.
+  - **Tự kiểm duyệt (Self-test)**: Bổ sung Test Case 11 trong `test/run_tests.cpp` để kiểm nghiệm logic chuyển trạng thái của `init_wifi()`. Khi NVS rỗng, trạng thái chuyển về `SOFTAP_ACTIVE`. Khi NVS có cấu hình hợp lệ, chuyển sang `STA_CONNECTING`. Biên dịch và vượt qua toàn bộ kiểm thử thành công trên macOS host.
+
 ## [2026-07-10T10:18:00+07:00] - Task A2: Triển khai cấu hình dynamic cho WiFi STA và MQTT Broker đọc từ NVS
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
