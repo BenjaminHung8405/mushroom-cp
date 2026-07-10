@@ -47,7 +47,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| F1 | Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`. | [ ] Pending | Xây dựng theo mẫu Hardware Abstraction Layer (HAL). Khai báo các interface/hàm giao tiếp độc lập hoàn toàn với main. |
+| F1 | Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`. | [ ] QA Review | Xây dựng theo mẫu Hardware Abstraction Layer (HAL). Khai báo các interface/hàm giao tiếp độc lập hoàn toàn với main. |
 | F2 | Viết các hàm giả lập đọc SHT30, DS18B20 và SCD30. | [ ] Pending | Cấu trúc giá trị trả về phải có mã lỗi (Error Code) hoặc cơ chế nhận diện dữ liệu NaN/Out of range để chuẩn bị cho cảm biến thật bị hỏng/chập mạch. |
 
 ### Track G: Tầng Giao tiếp Chấp hành (Sprint 2 - Actuators Mock)

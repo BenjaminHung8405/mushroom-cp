@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:00:35+07:00] - Task F1: Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [sensors.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/sensors.h)
+  - Sửa đổi: [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp)
+- **Giải trình giải pháp**:
+  - **Thiết kế giao diện phần cứng HAL cho Sensors**:
+    - Định nghĩa các interface đọc cảm biến trong namespace `sensors` độc lập hoàn toàn với hàm main: `init_sensors_placeholder()`, `read_sht30()`, `read_ds18b20()`, `read_scd30()`, và `read_all_telemetry()`.
+    - Trả về kiểu dữ liệu boolean thể hiện trạng thái thành công/thất bại của quá trình đọc cảm biến để phục vụ việc xử lý ngoại lệ và lỗi cảm biến thật ở các bước tiếp theo.
+  - **Triển khai Placeholder & Trạng thái khởi tạo**:
+    - Hàm `init_sensors_placeholder()` quản lý biến trạng thái khởi tạo `sensors_initialized`, ghi nhận và in log thông báo chi tiết ra cổng Serial.
+    - Cài đặt placeholder trả về giá trị mặc định cho các hàm đọc cụ thể (`temp = 25.0f`, `hum = 60.0f` đối với SHT30, `temp = 28.0f` đối với DS18B20, và `co2 = 800.0f` đối với SCD30), đồng thời gán dữ liệu `NAN` và ghi log báo lỗi nếu cố tình đọc trước khi gọi khởi tạo.
+  - **Tự kiểm tra & Biên dịch**:
+    - Tiến hành biên dịch dự án firmware ESP32-S3 sử dụng PlatformIO trong môi trường local. Quá trình biên dịch hoàn tất thành công 100% không có cảnh báo hay lỗi biên dịch nào.
+
 ## [2026-07-10T10:59:00+07:00] - Task E2: Khởi tạo struct `TelemetryData` và `ActuatorCommand`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
