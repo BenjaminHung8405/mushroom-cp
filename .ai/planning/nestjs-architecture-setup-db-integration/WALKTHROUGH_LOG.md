@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:32:00+07:00] - Task G3: saveTelemetryLog + REST queries + latestCache
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [telemetry.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.ts)
+  - Sửa đổi: [telemetry.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Triển khai phương thức `getTelemetryHistory` sử dụng raw SQL query qua `DatabaseService.query` để lấy lịch sử đo đạc của thiết bị theo khoảng thời gian, sắp xếp theo thời gian tăng dần (`ORDER BY time ASC`).
+  - Thực hiện mapping các cột từ database về định dạng `TelemetrySnapshot` của ứng dụng, hỗ trợ chuyển đổi từ `'idle'` sang `null` cho `batchId`, cũng như parse các giá trị `numeric` (trả về dưới dạng chuỗi bởi driver Postgres) sang kiểu `number` chính xác để đảm bảo hoàn toàn type-safe và tuân thủ ESLint.
+  - Khai báo thêm `telemetryUpdates$ = new Subject<TelemetrySnapshot>()` phục vụ phát dữ liệu live cập nhật cache thời gian thực (REST/SSE). Phát tín hiệu thông qua `.next(snapshot)` tại thời điểm cache snapshot được cập nhật thành công trong `updateCache`.
+  - Bổ sung unit tests kiểm tra cơ chế map dữ liệu của `getTelemetryHistory` và việc emit dữ liệu snapshot của `telemetryUpdates$`.
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 58 tests trong dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:30:00+07:00] - Task G2: calculateControlOutputs() ON/OFF + Midday Blackout
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

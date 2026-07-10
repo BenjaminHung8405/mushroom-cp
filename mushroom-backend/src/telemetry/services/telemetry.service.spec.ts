@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { Test, TestingModule } from '@nestjs/testing';
 import { Subject } from 'rxjs';
-import { TelemetryService } from './telemetry.service';
+import { TelemetryService, TelemetrySnapshot } from './telemetry.service';
 import { MqttService, TelemetryEvent } from '../../mqtt/mqtt.service';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
@@ -477,6 +477,119 @@ describe('TelemetryService', () => {
 
       // Should not throw exception since errors in finally dispatch block are handled
       await expect(service.processTelemetry(event)).resolves.not.toThrow();
+    });
+  });
+
+  describe('getTelemetryHistory', () => {
+    it('should query telemetry logs and map database columns to camelCase properties', async () => {
+      const from = new Date('2026-07-10T00:00:00Z');
+      const to = new Date('2026-07-10T23:59:59Z');
+      const mockRows = [
+        {
+          time: new Date('2026-07-10T12:00:00Z').toISOString(),
+          batchId: 'batch-123',
+          houseId: 'house-1',
+          cropDayInt: 5,
+          humidityMeasured: '80.5',
+          temperatureMeasured: '24.2',
+          co2Measured: 950,
+          humiditySetpoint: '85.0',
+          temperatureSetpoint: '25.0',
+          humidityErrorDelta: '4.5',
+          temperatureErrorDelta: '0.8',
+          mistGeneratorActive: true,
+          convectionFanActive: false,
+          heatingLampActive: false,
+          middayBlackoutActive: false,
+        },
+        {
+          time: new Date('2026-07-10T12:01:00Z').toISOString(),
+          batchId: 'idle',
+          houseId: 'house-1',
+          cropDayInt: 1,
+          humidityMeasured: null,
+          temperatureMeasured: null,
+          co2Measured: null,
+          humiditySetpoint: null,
+          temperatureSetpoint: null,
+          humidityErrorDelta: null,
+          temperatureErrorDelta: null,
+          mistGeneratorActive: false,
+          convectionFanActive: false,
+          heatingLampActive: false,
+          middayBlackoutActive: false,
+        },
+      ];
+
+      dbService.query.mockResolvedValueOnce({ rows: mockRows });
+
+      const history = await service.getTelemetryHistory('house-1', from, to);
+
+      expect(dbService.query).toHaveBeenCalledWith(
+        expect.stringContaining('SELECT'),
+        ['house-1', from, to],
+      );
+      expect(history.length).toBe(2);
+      expect(history[0].batchId).toBe('batch-123');
+      expect(history[0].humidityMeasured).toBe(80.5);
+      expect(history[0].temperatureMeasured).toBe(24.2);
+      expect(history[1].batchId).toBeNull(); // mapped from 'idle'
+      expect(history[1].humidityMeasured).toBeNull();
+    });
+  });
+
+  describe('telemetryUpdates$', () => {
+    it('should emit a snapshot when updateCache is called', async () => {
+      const event: TelemetryEvent = {
+        deviceId: 'house-1',
+        temp_air: 24.0,
+        humidity_air: 80.0,
+        co2_level: 800,
+        timestamp: new Date().toISOString(),
+      };
+
+      const context: BatchContext = {
+        batchId: 'batch-1',
+        batch_id: 'batch-1',
+        cropDay: 5,
+        crop_day: 5,
+        targetTemp: 25.0,
+        target_temp: 25.0,
+        targetHumid: 85.0,
+        target_humid: 85.0,
+        tempOptimalMin: 22.0,
+        temp_optimal_min: 22.0,
+        tempOptimalMax: 28.0,
+        temp_optimal_max: 28.0,
+        humidityOptimalMin: 70.0,
+        humidity_optimal_min: 70.0,
+        humidityOptimalMax: 90.0,
+        humidity_optimal_max: 90.0,
+        thermalShockProtection: false,
+        thermal_shock_protection: false,
+        thermalShockStart: '11:00:00',
+        thermal_shock_start: '11:00:00',
+        thermalShockEnd: '13:30:00',
+        thermal_shock_end: '13:30:00',
+        lightStatus: 'OFF',
+        light_status: 'OFF',
+      };
+
+      batchService.getBatchContext.mockResolvedValue(context);
+
+      const emitPromise = new Promise<TelemetrySnapshot>((resolve) => {
+        service.telemetryUpdates$.subscribe((snapshot) => {
+          resolve(snapshot);
+        });
+      });
+
+      await service.processTelemetry(event);
+
+      const emitted = await emitPromise;
+      expect(emitted).toBeDefined();
+      expect(emitted.houseId).toBe('house-1');
+      expect(emitted.batchId).toBe('batch-1');
+      expect(emitted.humidityMeasured).toBe(80.0);
     });
   });
 });

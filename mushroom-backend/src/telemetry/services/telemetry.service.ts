@@ -4,7 +4,7 @@ import {
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { Subscription } from 'rxjs';
+import { Subscription, Subject } from 'rxjs';
 import { toZonedTime } from 'date-fns-tz';
 import { MqttService, TelemetryEvent } from '../../mqtt/mqtt.service';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
@@ -28,10 +28,31 @@ export interface TelemetrySnapshot {
   middayBlackoutActive: boolean;
 }
 
+export interface TelemetryLogDbRow {
+  time: string | Date;
+  batchId: string;
+  houseId: string;
+  cropDayInt: number;
+  humidityMeasured: string | number | null;
+  temperatureMeasured: string | number | null;
+  co2Measured: number | null;
+  humiditySetpoint: string | number | null;
+  temperatureSetpoint: string | number | null;
+  humidityErrorDelta: string | number | null;
+  temperatureErrorDelta: string | number | null;
+  mistGeneratorActive: boolean;
+  convectionFanActive: boolean;
+  heatingLampActive: boolean;
+  middayBlackoutActive: boolean;
+}
+
 @Injectable()
 export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetryService.name);
   private telemetrySubscription: Subscription | null = null;
+
+  // Subject for SSE/REST stream updates
+  readonly telemetryUpdates$ = new Subject<TelemetrySnapshot>();
 
   // In-memory cache for sub-ms real-time queries (REST/SSE)
   private readonly latestCache = new Map<string, TelemetrySnapshot>();
@@ -380,5 +401,77 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.latestCache.set(houseId, snapshot);
+    this.telemetryUpdates$.next(snapshot);
+  }
+
+  /**
+   * Queries telemetry history from TimescaleDB between two dates using Raw SQL.
+   */
+  async getTelemetryHistory(
+    houseId: string,
+    from: Date,
+    to: Date,
+  ): Promise<TelemetrySnapshot[]> {
+    const queryText = `
+      SELECT
+        time,
+        batch_id AS "batchId",
+        house_id AS "houseId",
+        crop_day_int AS "cropDayInt",
+        humidity_measured AS "humidityMeasured",
+        temperature_measured AS "temperatureMeasured",
+        co2_measured AS "co2Measured",
+        humidity_setpoint AS "humiditySetpoint",
+        temperature_setpoint AS "temperatureSetpoint",
+        humidity_error_delta AS "humidityErrorDelta",
+        temperature_error_delta AS "temperatureErrorDelta",
+        mist_generator_active AS "mistGeneratorActive",
+        convection_fan_active AS "convectionFanActive",
+        heating_lamp_active AS "heatingLampActive",
+        midday_blackout_active AS "middayBlackoutActive"
+      FROM telemetry_logs
+      WHERE house_id = $1 AND time BETWEEN $2 AND $3
+      ORDER BY time ASC;
+    `;
+    const res = await this.db.query<TelemetryLogDbRow>(queryText, [
+      houseId,
+      from,
+      to,
+    ]);
+    return res.rows.map((row) => ({
+      time: new Date(row.time),
+      batchId: row.batchId === 'idle' ? null : row.batchId,
+      houseId: row.houseId,
+      cropDayInt: Number(row.cropDayInt),
+      humidityMeasured:
+        row.humidityMeasured != null
+          ? parseFloat(String(row.humidityMeasured))
+          : null,
+      temperatureMeasured:
+        row.temperatureMeasured != null
+          ? parseFloat(String(row.temperatureMeasured))
+          : null,
+      co2Measured: row.co2Measured != null ? Number(row.co2Measured) : null,
+      humiditySetpoint:
+        row.humiditySetpoint != null
+          ? parseFloat(String(row.humiditySetpoint))
+          : null,
+      temperatureSetpoint:
+        row.temperatureSetpoint != null
+          ? parseFloat(String(row.temperatureSetpoint))
+          : null,
+      humidityErrorDelta:
+        row.humidityErrorDelta != null
+          ? parseFloat(String(row.humidityErrorDelta))
+          : null,
+      temperatureErrorDelta:
+        row.temperatureErrorDelta != null
+          ? parseFloat(String(row.temperatureErrorDelta))
+          : null,
+      mistGeneratorActive: Boolean(row.mistGeneratorActive),
+      convectionFanActive: Boolean(row.convectionFanActive),
+      heatingLampActive: Boolean(row.heatingLampActive),
+      middayBlackoutActive: Boolean(row.middayBlackoutActive),
+    }));
   }
 }
