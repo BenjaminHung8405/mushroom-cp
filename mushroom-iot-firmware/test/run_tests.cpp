@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include "mqtt_client.h"
 #include <cassert>
 
 HardwareSerial Serial;
@@ -15,6 +16,7 @@ std::string WiFiClass::mock_pass = "";
 bool WiFiClass::disconnect_called = false;
 WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
+bool PubSubClient::mock_connected = false;
 
 int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
@@ -161,6 +163,59 @@ int main() {
     wifi::check_wifi_connection();
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
     assert(WiFi.disconnect_called == true);
+
+    // Clean up
+    assert(storage.factory_reset() == true);
+
+    // 12. Test MQTT Client Initialization and Topic Resolution
+    Serial.println("[TEST] Starting MQTT Client Unit Tests...");
+    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
+
+    // 12.1 Test initialization failure when MQTT broker is empty
+    config::network::MQTT_BROKER_VAL = "";
+    assert(mqtt_client.init() == false);
+    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_CONFIG);
+
+    // 12.2 Test successful initialization and dynamic topic resolution
+    config::network::MQTT_BROKER_VAL = "192.168.1.50";
+    config::network::MQTT_PORT_VAL = 1883;
+    config::network::MQTT_CLIENT_ID_VAL = "esp32_mushroom_test_client";
+    
+    assert(mqtt_client.init() == true);
+    assert(mqtt_client.get_state() == mqtt::MqttState::IDLE);
+    
+    {
+        const mqtt::MqttTopics& topics = mqtt_client.get_resolved_topics();
+        assert(topics.status == "mushroom/device/esp32_mushroom_test_client/status");
+        assert(topics.telemetry == "mushroom/device/esp32_mushroom_test_client/telemetry");
+        assert(topics.setpoint == "mushroom/device/esp32_mushroom_test_client/setpoint");
+    }
+
+    // 12.3 Test loop behavior when WiFi is disconnected (no connection)
+    // WiFiManager is currently in STA_DISCONNECTED (from step 11)
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+
+    // 12.4 Test loop behavior when WiFi becomes connected
+    // WiFiManager is currently in STA_DISCONNECTED, with last reconnect attempt at t=27000.
+    // We must advance mock time to exceed the 10-second reconnect interval (e.g. t=38000).
+    mock_millis_offset = 38000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // Now set WiFi mock status to connected, and check connection again to transition to STA_CONNECTED
+    WiFi.mock_status = WL_CONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
+    
+    // Call loop, it should transition state when reconnect_mqtt is called in UNIT_TEST mock
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.is_connected() == true);
+
+    // 12.5 Test publish functions return value under connected state
+    assert(mqtt_client.publish_status(true) == true);
+    assert(mqtt_client.publish_telemetry("{\"temp\":25.5}") == true);
 
     // Clean up
     assert(storage.factory_reset() == true);

@@ -104,3 +104,38 @@ public:
 
 extern WiFiClass WiFi;
 
+class WiFiClient {
+public:
+    WiFiClient() {}
+};
+
+class PubSubClient {
+public:
+    static bool mock_connected;
+    PubSubClient() {}
+    PubSubClient(WiFiClient& client) {}
+    
+    typedef void (*MQTT_CALLBACK_SIGNATURE)(char*, uint8_t*, unsigned int);
+    
+    PubSubClient& setServer(const char* ip, uint16_t port) { return *this; }
+    PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { return *this; }
+    
+    bool connect(const char* id) { mock_connected = true; return true; }
+    bool connect(const char* id, const char* user, const char* pass) { mock_connected = true; return true; }
+    bool connect(const char* id, const char* user, const char* pass, const char* willTopic, uint8_t willQos, bool willRetain, const char* willMessage) { mock_connected = true; return true; }
+    
+    void disconnect() { mock_connected = false; }
+    
+    bool loop() { return true; }
+    
+    bool publish(const char* topic, const char* payload) { return true; }
+    bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return true; }
+    
+    bool subscribe(const char* topic) { return true; }
+    bool subscribe(const char* topic, uint8_t qos) { return true; }
+    
+    bool connected() { return mock_connected; }
+    
+    int state() { return 0; }
+};
+

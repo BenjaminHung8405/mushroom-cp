@@ -25,7 +25,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [ ] Pending | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
+| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [ ] QA Review | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
 | C2 | Cài đặt `init_mqtt()` và `mqtt_reconnect()`. | [ ] Pending | Thêm cờ khóa (Mutex/Flag) để không gọi reconnect liên tục khi WiFi chưa sẵn sàng hoặc đang trong chế độ Captive Portal (SoftAP Mode). |
 | C3 | Cài đặt `mqtt_callback()` và logic xử lý payload JSON. | [ ] Pending | **Bảo mật & Bộ nhớ:** Giới hạn byte payload tối đa. Ép dùng `StaticJsonDocument` của ArduinoJson để phân tích cú pháp, tuyệt đối tránh `DynamicJsonDocument` gây phân mảnh RAM (Heap Fragmentation). |
 

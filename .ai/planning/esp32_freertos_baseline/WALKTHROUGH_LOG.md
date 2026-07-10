@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:26:00+07:00] - Task C1: Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - Tạo mới: [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Thiết kế cấu trúc lớp MQTT Client**: Tạo lớp Singleton `MqttClient` quản lý trạng thái, vòng lặp mạng và callback.
+  - **Phân nhóm Topic rõ ràng**: Gom nhóm các topic publish và subscribe vào struct `MqttTopics`. Định nghĩa cơ chế phân giải các topic động theo Client ID khi khởi tạo:
+    - Status (LWT): `mushroom/device/{clientId}/status`
+    - Telemetry (Publish): `mushroom/device/{clientId}/telemetry`
+    - Setpoint (Subscribe): `mushroom/device/{clientId}/setpoint`
+  - **Xây dựng khung logic kết nối và Last Will**: Cài đặt kết nối với Last Will and Testament cấu hình sẵn (`status` offline, QoS 1, Retain true), tự động đăng ký topic setpoint và publish trạng thái online khi kết nối thành công.
+  - **Tương thích Mock Test**: Bổ sung mock cho `WiFiClient` và `PubSubClient` (bao gồm static field `mock_connected` để kiểm soát trạng thái kết nối ảo) trong `test/Arduino.h`, giúp chạy kiểm thử offline mượt mà không cần các preprocessor guards phức tạp.
+  - **Tự kiểm duyệt (Self-test)**: Thêm bộ kiểm thử toàn diện (Test Case 12) vào `test/run_tests.cpp` bao quát quá trình khởi tạo lỗi khi thiếu config, khởi tạo thành công phân giải topic chính xác, xử lý lỗi mất WiFi (`ERROR_NO_WIFI`), và logic kết nối lại, gửi bản tin telemetry và status khi có mạng trở lại. Vượt qua 100% các bài test offline thành công.
+
 ## [2026-07-10T10:23:00+07:00] - Task B2: Cài đặt logic `init_wifi()` và `check_wifi_connection()`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
