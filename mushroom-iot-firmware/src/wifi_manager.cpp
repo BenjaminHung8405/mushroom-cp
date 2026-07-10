@@ -93,6 +93,11 @@ namespace wifi
 
     void reconnect_wifi()
     {
+        if (config::network::STA_SSID.length() == 0)
+        {
+            Serial.println("[WIFI] Abort reconnect: No SSID config available.");
+            return;
+        }
         Serial.printf("[WIFI] Reconnecting to SSID: %s...\n", config::network::STA_SSID.c_str());
         // Gọi WiFi.begin để tái kết nối
         WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());

@@ -29,12 +29,7 @@ namespace mqtt
         }
 
         // 2. Resolve topics dynamically based on Client ID
-        String client_id = config::network::MQTT_CLIENT_ID_VAL;
-        if (client_id.length() == 0)
-        {
-            // Fallback default client id if empty
-            client_id = "esp32_mushroom_default";
-        }
+        String client_id = get_effective_client_id();
 
         resolved_topics.status = "mushroom/device/" + client_id + "/status";
         resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
@@ -62,9 +57,21 @@ namespace mqtt
 
     void MqttClient::loop()
     {
-        constexpr unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000;
-        
-        // 1. Check WiFi state first before running MQTT loop
+        if (!check_wifi_for_mqtt())
+        {
+            return;
+        }
+
+        if (current_state == MqttState::ERROR_NO_CONFIG)
+        {
+            return;
+        }
+
+        maintain_mqtt_connection();
+    }
+
+    bool MqttClient::check_wifi_for_mqtt()
+    {
         wifi::WifiState wifi_state = wifi::get_wifi_state();
         
         if (wifi_state != wifi::WifiState::STA_CONNECTED)
@@ -78,23 +85,21 @@ namespace mqtt
                     mqtt_client.disconnect();
                 }
             }
-            return;
+            return false;
         }
 
-        // If WiFi is connected and we are in error state, transition back to disconnected
         if (current_state == MqttState::ERROR_NO_WIFI)
         {
             Serial.println("[MQTT] WiFi restored. MQTT client back to DISCONNECTED state.");
             current_state = MqttState::DISCONNECTED;
         }
+        return true;
+    }
 
-        // Avoid trying to connect if we don't have broker configuration
-        if (current_state == MqttState::ERROR_NO_CONFIG)
-        {
-            return;
-        }
+    void MqttClient::maintain_mqtt_connection()
+    {
+        constexpr unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000;
 
-        // 2. Maintain connection
         if (mqtt_client.connected())
         {
             mqtt_client.loop();
@@ -168,16 +173,26 @@ namespace mqtt
 
     void MqttClient::handle_message(char* topic, uint8_t* payload, unsigned int length)
     {
+        // 1. Sanity Check / Null Pointer Safeguards
+        if (topic == nullptr)
+        {
+            Serial.println("[MQTT] Error: Received message with null topic pointer.");
+            return;
+        }
+        if (payload == nullptr && length > 0)
+        {
+            Serial.println("[MQTT] Error: Received message with null payload pointer but non-zero length.");
+            return;
+        }
+
         Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
 
-        // 1. Validate topic
         if (resolved_topics.setpoint != topic)
         {
             Serial.println("[MQTT] Warning: Received message on unexpected topic.");
             return;
         }
 
-        // 2. Validate payload size
         constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
         if (length > MAX_PAYLOAD_SIZE)
         {
@@ -185,14 +200,16 @@ namespace mqtt
             return;
         }
 
-        // 3. Construct a safe null-terminated stack-allocated buffer to print and parse
         char safe_payload[MAX_PAYLOAD_SIZE + 1];
-        memcpy(safe_payload, payload, length);
+        if (length > 0)
+        {
+            memcpy(safe_payload, payload, length);
+        }
         safe_payload[length] = '\0';
         Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
 
-        // 4. Parse JSON using StaticJsonDocument (ArduinoJson 6)
-        StaticJsonDocument<MAX_PAYLOAD_SIZE> doc;
+        // Tăng dung lượng StaticJsonDocument lên 768 bytes để tránh tràn RAM overhead khi parse
+        StaticJsonDocument<768> doc;
         DeserializationError error = deserializeJson(doc, safe_payload);
 
         if (error)
@@ -201,40 +218,58 @@ namespace mqtt
             return;
         }
 
-        // 5. Extract setpoint values and log
+        process_setpoints(doc);
+    }
+
+    void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)
+    {
         bool has_valid_setpoint = false;
 
-        // Support both temperatureSetpoint and temperature
-        if (doc.containsKey("temperatureSetpoint"))
-        {
-            float temp_sp = doc["temperatureSetpoint"].as<float>();
-            Serial.printf("[MQTT] Parse Setpoint: temperatureSetpoint = %.2f\n", temp_sp);
-            has_valid_setpoint = true;
-        }
-        else if (doc.containsKey("temperature"))
-        {
-            float temp_sp = doc["temperature"].as<float>();
-            Serial.printf("[MQTT] Parse Setpoint: temperature = %.2f\n", temp_sp);
-            has_valid_setpoint = true;
+        // Bổ sung ngưỡng validate vật lý (Physical Safety Boundaries Check)
+        constexpr float MIN_SAFE_TEMP = 10.0f;
+        constexpr float MAX_SAFE_TEMP = 45.0f;
+        constexpr float MIN_SAFE_HUMI = 30.0f;
+        constexpr float MAX_SAFE_HUMI = 95.0f;
+
+        // Kiểm tra và validate setpoint nhiệt độ
+        float temp_sp = -999.0f;
+        if (doc.containsKey("temperatureSetpoint")) {
+            temp_sp = doc["temperatureSetpoint"].as<float>();
+        } else if (doc.containsKey("temperature")) {
+            temp_sp = doc["temperature"].as<float>();
         }
 
-        // Support both humiditySetpoint and humidity
-        if (doc.containsKey("humiditySetpoint"))
-        {
-            float humi_sp = doc["humiditySetpoint"].as<float>();
-            Serial.printf("[MQTT] Parse Setpoint: humiditySetpoint = %.2f\n", humi_sp);
-            has_valid_setpoint = true;
+        if (temp_sp != -999.0f) {
+            if (temp_sp >= MIN_SAFE_TEMP && temp_sp <= MAX_SAFE_TEMP && !isnan(temp_sp)) {
+                Serial.printf("[MQTT] Parse & Validate Setpoint: temperature = %.2f (SAFE)\n", temp_sp);
+                has_valid_setpoint = true;
+            } else {
+                Serial.printf("[MQTT] Error: temperature setpoint %.2f out of safe range [%.1f, %.1f]\n", 
+                              temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
+            }
         }
-        else if (doc.containsKey("humidity"))
-        {
-            float humi_sp = doc["humidity"].as<float>();
-            Serial.printf("[MQTT] Parse Setpoint: humidity = %.2f\n", humi_sp);
-            has_valid_setpoint = true;
+
+        // Kiểm tra và validate setpoint độ ẩm
+        float humi_sp = -999.0f;
+        if (doc.containsKey("humiditySetpoint")) {
+            humi_sp = doc["humiditySetpoint"].as<float>();
+        } else if (doc.containsKey("humidity")) {
+            humi_sp = doc["humidity"].as<float>();
+        }
+
+        if (humi_sp != -999.0f) {
+            if (humi_sp >= MIN_SAFE_HUMI && humi_sp <= MAX_SAFE_HUMI && !isnan(humi_sp)) {
+                Serial.printf("[MQTT] Parse & Validate Setpoint: humidity = %.2f (SAFE)\n", humi_sp);
+                has_valid_setpoint = true;
+            } else {
+                Serial.printf("[MQTT] Error: humidity setpoint %.2f out of safe range [%.1f, %.1f]\n", 
+                              humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
+            }
         }
 
         if (!has_valid_setpoint)
         {
-            Serial.println("[MQTT] Warning: JSON payload does not contain recognized setpoint fields.");
+            Serial.println("[MQTT] Warning: JSON payload does not contain any valid/safe setpoint values.");
         }
     }
 
@@ -265,13 +300,24 @@ namespace mqtt
         
         is_reconnecting = true;
         last_reconnect_attempt = millis();
+
+        perform_mqtt_connection();
+        
+        is_reconnecting = false;
+
+#ifndef UNIT_TEST
+        if (mqtt_mutex != nullptr)
+        {
+            xSemaphoreGive((SemaphoreHandle_t)mqtt_mutex);
+        }
+#endif
+    }
+
+    bool MqttClient::perform_mqtt_connection()
+    {
         Serial.println("[MQTT] Attempting connection to MQTT broker...");
         
-        String client_id = config::network::MQTT_CLIENT_ID_VAL;
-        if (client_id.length() == 0)
-        {
-            client_id = "esp32_mushroom_default";
-        }
+        String client_id = get_effective_client_id();
         
         // Define Last Will and Testament (LWT) status offline payload
         String lwt_topic = resolved_topics.status;
@@ -304,15 +350,17 @@ namespace mqtt
             Serial.println("[MQTT] Connection to broker failed. Will retry later.");
             current_state = MqttState::DISCONNECTED;
         }
-        
-        is_reconnecting = false;
+        return connected;
+    }
 
-#ifndef UNIT_TEST
-        if (mqtt_mutex != nullptr)
+    String MqttClient::get_effective_client_id() const
+    {
+        String client_id = config::network::MQTT_CLIENT_ID_VAL;
+        if (client_id.length() == 0)
         {
-            xSemaphoreGive((SemaphoreHandle_t)mqtt_mutex);
+            client_id = "esp32_mushroom_default";
         }
-#endif
+        return client_id;
     }
 
 } // namespace mqtt

@@ -50,11 +50,11 @@ namespace config
             }
             else
             {
-                Serial.println("[CONFIG] No MQTT config found in NVS, using default fallback parameters.");
-                MQTT_BROKER_VAL = "192.168.1.50"; // default MQTT broker IP
-                MQTT_PORT_VAL = 1883;
-                MQTT_USER_VAL = "mushroom_device";
-                MQTT_PASSWORD_VAL = "mqtt_secure_pass";
+                Serial.println("[CONFIG] ERROR: No MQTT configuration found in NVS. Setting state to ERROR_NO_CONFIG.");
+                MQTT_BROKER_VAL = "";
+                MQTT_PORT_VAL = 0;
+                MQTT_USER_VAL = "";
+                MQTT_PASSWORD_VAL = "";
             }
             
             return wifi_loaded;

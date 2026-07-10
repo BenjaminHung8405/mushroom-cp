@@ -266,6 +266,30 @@ int main() {
         PubSubClient::mock_callback(unexpected_topic, (uint8_t*)payload.c_str(), payload.length());
     }
 
+    // Case F: Null pointer topic or payload
+    {
+        Serial.println("--- Case F: Null pointer topic or payload ---");
+        PubSubClient::mock_callback(nullptr, (uint8_t*)"{}", 2);
+        PubSubClient::mock_callback(setpoint_topic, nullptr, 10);
+    }
+
+    // Case G: Setpoints out of physical boundaries (Temp: [10.0, 45.0], Humi: [30.0, 95.0])
+    {
+        Serial.println("--- Case G: Setpoints out of boundaries ---");
+        std::string payload_too_high = "{\"temperature\":50.00,\"humidity\":99.00}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_too_high.c_str(), payload_too_high.length());
+
+        std::string payload_too_low = "{\"temperature\":5.00,\"humidity\":20.00}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_too_low.c_str(), payload_too_low.length());
+    }
+
+    // Case H: NaN values for setpoint
+    {
+        Serial.println("--- Case H: NaN values for setpoint ---");
+        std::string payload_nan = "{\"temperature\":nan,\"humidity\":nan}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_nan.c_str(), payload_nan.length());
+    }
+
     // 13. Test Task D1 - Core 0 Communication Task
     Serial.println("[TEST] Starting Task D1 - Core 0 Communication Task Unit Tests...");
     assert(storage.factory_reset() == true);

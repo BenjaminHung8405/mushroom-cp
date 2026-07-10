@@ -7,6 +7,8 @@
 #include <PubSubClient.h>
 #endif
 
+#include <ArduinoJson.h>
+
 namespace mqtt
 {
     /**
@@ -109,9 +111,34 @@ namespace mqtt
         void handle_message(char* topic, uint8_t* payload, unsigned int length);
 
         /**
+         * @brief Internal helper to process setpoint JSON fields.
+         */
+        void process_setpoints(const StaticJsonDocument<768>& doc);
+
+        /**
          * @brief Non-blocking reconnect strategy method.
          */
         void reconnect_mqtt();
+
+        /**
+         * @brief Internal helper to execute the connection to the MQTT broker.
+         */
+        bool perform_mqtt_connection();
+
+        /**
+         * @brief Internal helper to check WiFi state for MQTT.
+         */
+        bool check_wifi_for_mqtt();
+
+        /**
+         * @brief Internal helper to maintain MQTT connection.
+         */
+        void maintain_mqtt_connection();
+
+        /**
+         * @brief Get effective Client ID, returning default if empty.
+         */
+        String get_effective_client_id() const;
 
         // Network clients
 #ifndef UNIT_TEST

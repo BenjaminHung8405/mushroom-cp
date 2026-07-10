@@ -1,5 +1,25 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:45:00+07:00] - Sprint 1 Fixes: Sửa lỗi bảo mật, logic, và tái cấu trúc mã nguồn theo yêu cầu của Chuyên gia Kiểm toán (Round 2)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [config.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/config.cpp)
+  - Sửa đổi: [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - Sửa đổi: [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - Sửa đổi: [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Khắc phục lỗi bảo mật hardcode**: Loại bỏ hoàn toàn tài khoản MQTT broker mặc định trong `src/config.cpp`. Khi NVS không chứa cấu hình, biến `MQTT_BROKER_VAL` sẽ để trống, cổng port 0, dẫn tới việc `MqttClient::init()` đánh dấu trạng thái `MqttState::ERROR_NO_CONFIG`.
+  - **Ngăn chặn SSID rỗng khi tái kết nối**: Bổ sung kiểm tra SSID hợp lệ (độ dài > 0) trong `reconnect_wifi()` của `src/wifi_manager.cpp`.
+  - **Tái cấu trúc code (SRP & DRY)**:
+    - Thêm hàm helper `get_effective_client_id()` để dùng chung và giải quyết lặp code (DRY).
+    - Phân tách hàm `handle_message()`, `reconnect_mqtt()`, và `loop()` thành các hàm helper nhỏ hơn (`process_setpoints`, `check_wifi_for_mqtt`, `maintain_mqtt_connection`, `perform_mqtt_connection`) nhằm đảm bảo SRP và giới hạn độ dài hàm dưới 50 dòng.
+  - **Bảo mật và an toàn dữ liệu setpoint (Physical Safety Boundaries)**:
+    - Bổ sung kiểm tra Null Pointer cho `topic` và `payload` ở đầu callback.
+    - Giới hạn ranh giới vật lý: Nhiệt độ setpoint phải thuộc đoạn `[10.0, 45.0]`°C và độ ẩm setpoint phải thuộc đoạn `[30.0, 95.0]`%.
+    - Tăng dung lượng `StaticJsonDocument` của ArduinoJson lên 768 bytes tránh lỗi phân tách `NoMemory`.
+  - **Cập nhật Unit Test**: Bổ sung các kịch bản kiểm thử (Case F, G, H) cho Null topic/payload, giá trị ngoài ranh giới và NaN. Tất cả các test cases biên dịch và vượt qua 100% thành công.
+
 ## [2026-07-10T10:36:00+07:00] - Task D2: Cập nhật hàm `setup()` trong `main.cpp` để ghim Task vào Core 0
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
