@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:01:51+07:00] - Task F2: Viết các hàm giả lập đọc SHT30, DS18B20 và SCD30
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [sensors.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/sensors.h)
+  - Sửa đổi: [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Giả lập dữ liệu động**:
+    - Sử dụng hàm lượng giác `std::sin` và `std::cos` kết hợp thời gian hệ thống qua `millis()` để mô phỏng các giá trị cảm biến thay đổi liên tục theo thời gian thực (nhiệt độ không khí SHT30: `[23.0, 27.0]°C`, độ ẩm không khí SHT30: `[75.0, 85.0]%`, nhiệt độ cơ chất DS18B20: `[20.5, 23.5]°C`, nồng độ CO2 SCD30: `[450.0, 750.0] ppm`).
+  - **Quản lý lỗi & An toàn phần cứng**:
+    - Định nghĩa enum `SensorError` chứa chi tiết các trạng thái lỗi cảm biến: `SUCCESS`, `ERR_NOT_INITIALIZED`, `ERR_TIMEOUT`, `ERR_CRC_MISMATCH`, `ERR_DISCONNECTED`, `ERR_OUT_OF_RANGE`.
+    - Hỗ trợ cơ chế Fault Injection qua các hàm `set_simulated_health_*`. Khi cờ health của một cảm biến chuyển sang `false`, hàm đọc tương ứng sẽ trả về `false`, ghi nhận lỗi `ERR_DISCONNECTED` và đặt dữ liệu ngõ ra thành `NAN`.
+    - Thêm cơ chế kiểm tra dải đo an toàn vật lý. Nếu dữ liệu vượt qua ngưỡng vật lý giới hạn của cảm biến thật, hàm đọc sẽ gán lỗi `ERR_OUT_OF_RANGE` và trả về `false` kèm giá trị `NAN`.
+    - Hàm `read_all_telemetry` sẽ trả về `false` và gán giá trị `NAN` cho trường tương ứng của cảm biến bị lỗi để luồng logic phía trên có thể nhận biết được sự cố chập mạch/hỏng cảm biến.
+  - **Tự kiểm tra (Self-test)**:
+    - Bổ sung Test Case 16 vào file kiểm thử `test/run_tests.cpp` để xác thực toàn bộ các trường hợp: lỗi khi chưa khởi tạo, đọc giá trị giả lập biến động chính xác, giả lập lỗi và trả về `NAN` cho từng cảm biến đơn lẻ cũng như tích hợp qua `read_all_telemetry`.
+    - Biên dịch và chạy bộ kiểm thử offline `run_tests` thành công 100% không lỗi.
+
 ## [2026-07-10T11:00:35+07:00] - Task F1: Tạo `sensors.h` và `sensors.cpp` với hàm `init_sensors_placeholder()`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

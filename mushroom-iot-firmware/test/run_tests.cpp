@@ -6,8 +6,10 @@
 #include "mqtt_client.h"
 #include "definitions.h"
 #include "models.h"
+#include "sensors.h"
 #include <cassert>
 #include <type_traits>
+#include <cmath>
 
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
@@ -338,6 +340,92 @@ int main() {
     assert(sizeof(ActuatorCommand) == 4);
     assert(alignof(TelemetryData) == 4);
     assert(alignof(ActuatorCommand) == 4);
+
+    // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
+    Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
+    
+    // 16.1 Test before initialization
+    float t_sht = 0, h_sht = 0, t_ds = 0, co2_scd = 0;
+    TelemetryData telemetry_mock;
+    
+    assert(sensors::read_sht30(t_sht, h_sht) == false);
+    assert(std::isnan(t_sht) && std::isnan(h_sht));
+    assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_NOT_INITIALIZED);
+    
+    assert(sensors::read_ds18b20(t_ds) == false);
+    assert(std::isnan(t_ds));
+    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::ERR_NOT_INITIALIZED);
+    
+    assert(sensors::read_scd30(co2_scd) == false);
+    assert(std::isnan(co2_scd));
+    assert(sensors::get_last_error_scd30() == sensors::SensorError::ERR_NOT_INITIALIZED);
+    
+    assert(sensors::read_all_telemetry(telemetry_mock) == false);
+    assert(std::isnan(telemetry_mock.temp_substrate));
+    assert(std::isnan(telemetry_mock.humidity_air));
+    assert(std::isnan(telemetry_mock.co2_level));
+
+    // 16.2 Initialize sensors
+    assert(sensors::init_sensors_placeholder() == true);
+    
+    // 16.3 Read again, should succeed and produce reasonable default mock values (millis is mock-controlled)
+    assert(sensors::read_sht30(t_sht, h_sht) == true);
+    assert(!std::isnan(t_sht) && !std::isnan(h_sht));
+    assert(t_sht >= 23.0f && t_sht <= 27.0f);
+    assert(h_sht >= 75.0f && h_sht <= 85.0f);
+    assert(sensors::get_last_error_sht30() == sensors::SensorError::SUCCESS);
+    
+    assert(sensors::read_ds18b20(t_ds) == true);
+    assert(!std::isnan(t_ds));
+    assert(t_ds >= 20.5f && t_ds <= 23.5f);
+    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::SUCCESS);
+    
+    assert(sensors::read_scd30(co2_scd) == true);
+    assert(!std::isnan(co2_scd));
+    assert(co2_scd >= 450.0f && co2_scd <= 750.0f);
+    assert(sensors::get_last_error_scd30() == sensors::SensorError::SUCCESS);
+    
+    assert(sensors::read_all_telemetry(telemetry_mock) == true);
+    assert(!std::isnan(telemetry_mock.temp_substrate));
+    assert(!std::isnan(telemetry_mock.humidity_air));
+    assert(!std::isnan(telemetry_mock.co2_level));
+    assert(telemetry_mock.humidity_air == h_sht);
+    assert(telemetry_mock.temp_substrate == t_ds);
+    assert(telemetry_mock.co2_level == co2_scd);
+
+    // 16.4 Test dynamic variations over mock time
+    mock_millis_offset = 10000; // Shift by 10s
+    float t_sht2 = 0, h_sht2 = 0;
+    assert(sensors::read_sht30(t_sht2, h_sht2) == true);
+    assert(t_sht2 != t_sht || h_sht2 != h_sht);
+
+    // 16.5 Fault injection - set simulated health to false
+    sensors::set_simulated_health_sht30(false);
+    assert(sensors::read_sht30(t_sht, h_sht) == false);
+    assert(std::isnan(t_sht) && std::isnan(h_sht));
+    assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_DISCONNECTED);
+    
+    assert(sensors::read_all_telemetry(telemetry_mock) == false);
+    assert(std::isnan(telemetry_mock.humidity_air)); // Failed SHT30
+    assert(!std::isnan(telemetry_mock.temp_substrate)); // DS18B20 still works!
+    assert(!std::isnan(telemetry_mock.co2_level)); // SCD30 still works!
+
+    sensors::set_simulated_health_ds18b20(false);
+    assert(sensors::read_ds18b20(t_ds) == false);
+    assert(std::isnan(t_ds));
+    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::ERR_DISCONNECTED);
+    
+    assert(sensors::read_all_telemetry(telemetry_mock) == false);
+    assert(std::isnan(telemetry_mock.humidity_air)); // Failed SHT30
+    assert(std::isnan(telemetry_mock.temp_substrate)); // Failed DS18B20
+    assert(!std::isnan(telemetry_mock.co2_level)); // SCD30 still works!
+
+    sensors::set_simulated_health_sht30(true);
+    sensors::set_simulated_health_ds18b20(true);
+    assert(sensors::read_all_telemetry(telemetry_mock) == true);
+    assert(!std::isnan(telemetry_mock.humidity_air));
+    assert(!std::isnan(telemetry_mock.temp_substrate));
+    assert(!std::isnan(telemetry_mock.co2_level));
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
