@@ -55,7 +55,7 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | G1 | Tạo `actuators.h` và `actuators.cpp` với hàm `init_actuators_gpio()`. | [ ] QA Review | **Fail-Safe Phần cứng:** Hàm khởi tạo phải gọi `digitalWrite(pin, LOW)` (hoặc trạng thái OFF của Relay) NGAY SAU KHI khởi tạo `pinMode` để tránh Rơ-le tự kích nổ khi khởi động (Glitch). |
-| G2 | Viết hàm `set_Relay_State()` xuất log Terminal và thay đổi trạng thái chân. | [ ] Pending | Bọc hàm này bằng các hằng số kiểm tra ranh giới an toàn. Bắt buộc có Serial log rõ ràng để trace bug trong lúc mock. |
+| G2 | Viết hàm `set_Relay_State()` xuất log Terminal và thay đổi trạng thái chân. | [ ] QA Review | Bọc hàm này bằng các hằng số kiểm tra ranh giới an toàn. Bắt buộc có Serial log rõ ràng để trace bug trong lúc mock. |
 
 ### Track H: Tầng Điều phối Core 1 (Sprint 2 - Core 1 Task)
 

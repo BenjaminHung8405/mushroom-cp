@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:20:00+07:00] - Task G2: Viết hàm `set_Relay_State()` xuất log Terminal và thay đổi trạng thái chân
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [actuators.h](mushroom-iot-firmware/include/actuators.h)
+  - Sửa đổi: [actuators.cpp](mushroom-iot-firmware/src/actuators.cpp)
+  - Sửa đổi: [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Ranh giới an toàn (Boundary Check)**: Hàm `set_Relay_State()` kiểm tra chân GPIO đầu vào qua whitelist cứng gồm 4 chân rơ-le (10, 11, 12, 13) từ `config::pins`. Mọi chân không thuộc whitelist (bao gồm cả I2C SDA/Pin 8, OneWire Pin 14, hoặc giá trị ngẫu nhiên như 0x00/0xFF/99) đều bị từ chối ngay lập tức — trả về `false` và KHÔNG gọi `digitalWrite`, ngăn ngừa kích nhầm chân GPIO khác.
+  - **Whitelist static constexpr**: Danh sách chân hợp lệ được lưu trong mảng `static constexpr uint8_t VALID_RELAY_PINS[]` với số lượng `VALID_RELAY_COUNT` — biên dịch tối ưu, không tốn RAM runtime.
+  - **Log chi tiết**: Mỗi lệnh thành công in ra `[ACTUATOR] Pin X (TEN_RELAY) set to HIGH/LOW`. Mỗi lệnh bị từ chối in ra `[ACTUATOR] REJECTED: Pin X is not a valid relay pin. Allowed: [...]` giúp trace bug nhanh chóng.
+  - **Helper nội bộ**: Hàm `relay_name()` ánh xạ chân GPIO sang tên thân thiện (MIST, FAN, HEATER_1, HEATER_2) dùng cho log.
+  - **Tự kiểm tra (Self-test)**: Test Case 18 trong [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp) bao phủ: toggle từng relay ON/OFF (4 chân × 2 trạng thái = 8 lệnh thành công), kiểm tra 5 chân bất hợp lệ (0x00, 0xFF, 99, I2C_SDA, ONE_WIRE) đều bị từ chối, xác nhận `mock_operation_counter` không tăng khi reject — đảm bảo không có `digitalWrite` rò rỉ. Biên dịch và chạy 100% assertions pass.
+
 ## [2026-07-10T11:14:00+07:00] - Task G1: Tạo `actuators.h` và `actuators.cpp` với hàm `init_actuators_gpio()`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

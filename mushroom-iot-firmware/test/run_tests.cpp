@@ -436,7 +436,7 @@ int main() {
 
     // 17. Test Task G1 - Actuators Mock & Fail-Safe init
     Serial.println("[TEST] Starting Task G1 - Actuators GPIO Initialization Unit Tests...");
-    
+
     // Clear mocks
     mock_pin_modes.clear();
     mock_pin_values.clear();
@@ -467,6 +467,37 @@ int main() {
         assert(mock_pin_write_order.count(pin) > 0);
         assert(mock_pin_write_order[pin] > 0);
     }
+
+    // 18. Test Task G2 - set_Relay_State boundary checks and logging
+    Serial.println("[TEST] Starting Task G2 - set_Relay_State Unit Tests...");
+
+    mock_pin_values.clear();
+    mock_pin_write_order.clear();
+
+    // 18.1 Toggle MIST relay ON then OFF — verify return true and correct levels
+    assert(actuators::set_Relay_State(config::pins::PIN_RELAY_MIST, true) == true);
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
+
+    assert(actuators::set_Relay_State(config::pins::PIN_RELAY_MIST, false) == true);
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+
+    // 18.2 Toggle all four relays individually — each must succeed
+    for (uint8_t pin : relay_pins) {
+        assert(actuators::set_Relay_State(pin, true) == true);
+        assert(mock_pin_values[pin] == HIGH);
+        assert(actuators::set_Relay_State(pin, false) == true);
+        assert(mock_pin_values[pin] == LOW);
+    }
+
+    // 18.3 Reject invalid pins — must return false and NOT call digitalWrite
+    int write_count_before = mock_operation_counter;
+    assert(actuators::set_Relay_State(0x00, true) == false);
+    assert(actuators::set_Relay_State(0xFF, true) == false);
+    assert(actuators::set_Relay_State(99, false) == false);
+    assert(actuators::set_Relay_State(config::pins::PIN_I2C_SDA, true) == false);
+    assert(actuators::set_Relay_State(config::pins::PIN_ONE_WIRE, true) == false);
+    // Verify no extra digitalWrite calls were made for rejected pins
+    assert(mock_operation_counter == write_count_before);
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
