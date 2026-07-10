@@ -2,7 +2,7 @@
 
 ## Started
 - **Thời gian bắt đầu**: 2026-07-09T21:25:38+07:00
-- **Cập nhật lần cuối**: 2026-07-10T13:07:48+07:00
+- **Cập nhật lần cuối**: 2026-07-10T14:15:00+07:00
 - **Agent thực thi**: Gemini
 - **Agent rà soát / khởi tạo PROGRESS**: Claude (Senior Solution Architect)
 
@@ -10,7 +10,7 @@
 - **Thư mục kế hoạch**: [nestjs-architecture-setup-db-integration](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/)
 - **Sprints tham chiếu**:
   1. [sprint_1.md (Database Module & Connection Pool) — ✅ HOÀN THÀNH](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_1.md)
-  2. [sprint_2.md (Batch Module & Nghiệp Vụ Vụ Nuôi) — ⏳ PENDING QA](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
+  2. [sprint_2.md (Batch Module & Nghiệp Vụ Vụ Nuôi) — 🔧 QA REVIEW (Round 2)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
   3. [sprint_3.md (Telemetry Module & Closed-Loop Fail-Safe) — ❌ NEXT TO DO](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_3.md)
   4. [sprint_4.md (Simulation, Buffering & Cleanup) — ❌ LATER](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_4.md)
 
@@ -43,8 +43,8 @@
 
 ---
 
-### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — ⏳ PENDING QA REVIEW
-> Code implement xong ~2026-07-10T09:40 · Chờ QA duyệt · Unit tests 25/25 pass
+### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — 🔧 IN PROGRESS (QA REVIEW ROUND 2)
+> QA reject: 2026-07-10 · 5 findings (1 High, 3 Medium, 1 Low-Medium) · Fixed and resubmitted for review
 
 #### Track C: Tầng Thực Thể Cơ Sở Dữ Liệu Vụ Nuôi (Crop Batch Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
@@ -58,12 +58,12 @@
 #### Track D: Tầng Nghiệp Vụ Vụ Nuôi (Crop Batch Business Logic Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| D1 | Triển khai `BatchService` (core methods) | [ ] QA Review | - **Single Source of Truth**: Chỉ 1 batch `ACTIVE` / `house_id`. `createBatch()` dùng transaction + `pessimistic_write` lock; throw `ConflictException` nếu đã có ACTIVE.<br>- **Interpolation**: Linear `V1 + (cropDay-D1)/(D2-D1)*(V2-V1)`, làm tròn bội 0.5. Biên: cropDay ≤ first → first; ≥ last → last; rỗng → midpoint `[optimalMin, optimalMax]` hoặc fallback an toàn.<br>- **Timezone**: `cropDay = floor((now - start_date) / 86400000) + 1` qua `toZonedTime(..., 'Asia/Ho_Chi_Minh')` — kết quả phải giống nhau dù server TZ=UTC hay UTC+7. Clamp `[1, totalCropDays]`.<br>- **`BatchContext` dual format**: Export cả camelCase + snake_case — Sprint 3 `TelemetryService` consume.<br>- **Fallback bio-safety**: Không có active batch → `getFallbackContext()` (temp 28–35°C, humidity 70–90%, thermal shock ON 11:00–13:30).<br>- **Methods bắt buộc**: `getActiveBatchByHouseId`, `getBatchContext`, `interpolate` (private), `createBatch`, `endBatch`, `getFallbackContext` (private).<br>- **File**: `src/batch/services/batch.service.ts` · Tests: 25/25 pass. |
+| D1 | Triển khai `BatchService` (core methods) | [ ] QA Review | - **Fixed (Round 2)**: F1 extracted `calculateCropDay` + `assembleContext`; F2 extracted `safeTargetValue`; F4 now throws `ConflictException` on multiple ACTIVE batches.<br>- **Single Source of Truth**: Chỉ 1 batch `ACTIVE` / `house_id`. `createBatch()` dùng transaction + `pessimistic_write` lock; throw `ConflictException` nếu đã có ACTIVE.<br>- **Interpolation**: Linear `V1 + (cropDay-D1)/(D2-D1)*(V2-V1)`, làm tròn bội 0.5. Biên: cropDay ≤ first → first; ≥ last → last; rỗng → midpoint `[optimalMin, optimalMax]` hoặc fallback an toàn.<br>- **Timezone**: `cropDay = floor((now - start_date) / 86400000) + 1` qua `toZonedTime(..., 'Asia/Ho_Chi_Minh')` — kết quả phải giống nhau dù server TZ=UTC hay UTC+7. Clamp `[1, totalCropDays]`.<br>- **`BatchContext` dual format**: Export cả camelCase + snake_case — Sprint 3 `TelemetryService` consume.<br>- **Fallback bio-safety**: Không có active batch → `getFallbackContext()` (temp 28–35°C, humidity 70–90%, thermal shock ON 11:00–13:30).<br>- **Methods bắt buộc**: `getActiveBatchByHouseId`, `getBatchContext`, `interpolate` (private), `createBatch`, `endBatch`, `getFallbackContext` (private).<br>- **File**: `src/batch/services/batch.service.ts`. |
 
 #### Track E: Tầng Giao Tiếp API Vụ Nuôi (Crop Batch API Controller Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| E1 | Xây dựng `BatchController` + `BatchModule` + DTOs | [ ] QA Review | - **Validation**: `CreateBatchDto` / `UpdateBatchDto` + global ValidationPipe. Validate ID length, crop days 10–45, time `HH:MM:SS`, enum status.<br>- **Endpoints**: `POST /batches`, `PATCH /batches/:id/end`, `GET /batches/active/:houseId`.<br>- **Race condition**: Tạo batch phải qua transaction + lock (xem D1) — không chỉ check-then-insert.<br>- **Module**: `TypeOrmModule.forFeature([...5 entities])`; **export `BatchService`** cho Sprint 3 inject.<br>- **Chưa wire AppModule**: Import `BatchModule` vào `AppModule` chỉ ở Sprint 4 J2 — tránh nửa vời DI.<br>- **Files**: `batch.controller.ts`, `batch.module.ts`, `dto/create-batch.dto.ts`, `dto/update-batch.dto.ts`. |
+| E1 | Xây dựng `BatchController` + `BatchModule` + DTOs | [ ] QA Review | - **Fixed (Round 2)**: F3 added `@MaxLength(50)` on `id` and `houseId`; F5 added `@Min(0)/@Max(60)` on temp fields, `@Min(0)/@Max(100)` on humidity fields.<br>- **Validation**: `CreateBatchDto` / `UpdateBatchDto` + global ValidationPipe. Validate ID length, crop days 10–45, time `HH:MM:SS`, enum status.<br>- **Endpoints**: `POST /batches`, `PATCH /batches/:id/end`, `GET /batches/active/:houseId`.<br>- **Race condition**: Tạo batch phải qua transaction + lock (xem D1) — không chỉ check-then-insert.<br>- **Module**: `TypeOrmModule.forFeature([...5 entities])`; **export `BatchService`** cho Sprint 3 inject.<br>- **Chưa wire AppModule**: Import `BatchModule` vào `AppModule` chỉ ở Sprint 4 J2 — tránh nửa vời DI.<br>- **Files**: `batch.controller.ts`, `batch.module.ts`, `dto/create-batch.dto.ts`, `dto/update-batch.dto.ts`. |
 
 ---
 
@@ -116,7 +116,7 @@
 Sprint 1 [x] Done
     │
     ▼
-Sprint 2 [ ] QA Review  ──export BatchService──┐
+Sprint 2 [ ] QA Review (Round 2) ──export BatchService──┐
     │                                          │
     │ (code song song OK)                      ▼
     └──────────────────────────────► Sprint 3 [ ] Pending

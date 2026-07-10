@@ -57,7 +57,8 @@ export class BatchService {
 
   /**
    * Retrieves the active crop batch for a specific mushroom house.
-   * Enforces that only one active batch should run at any given time.
+   * Enforces the invariant: exactly one ACTIVE batch per house_id.
+   * Throws ConflictException if data integrity is violated.
    */
   async getActiveBatchByHouseId(houseId: string): Promise<CropBatch | null> {
     const activeBatches = await this.cropBatchRepository.find({
@@ -68,12 +69,15 @@ export class BatchService {
     });
 
     if (activeBatches.length > 1) {
-      this.logger.warn(
-        `Multiple active batches found for house ${houseId}. Using the first one.`,
+      this.logger.error(
+        `Data integrity violation: ${activeBatches.length} active batches for house ${houseId}`,
+      );
+      throw new ConflictException(
+        `Data integrity violation: multiple active batches found for house ${houseId}. Manual cleanup required.`,
       );
     }
 
-    return activeBatches.length > 0 ? activeBatches[0] : null;
+    return activeBatches[0] ?? null;
   }
 
   /**
@@ -93,23 +97,8 @@ export class BatchService {
       return this.getFallbackContext();
     }
 
-    // 1. Calculate Crop Day based on Vietnam timezone (Asia/Ho_Chi_Minh)
-    const timezone = 'Asia/Ho_Chi_Minh';
-    const zonedNow = toZonedTime(timestamp, timezone);
-    const zonedStart = toZonedTime(new Date(activeBatch.startDate), timezone);
+    const cropDay = this.calculateCropDay(activeBatch, timestamp);
 
-    const diffMs = zonedNow.getTime() - zonedStart.getTime();
-    let cropDay = Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
-
-    // Bound cropDay: min 1, max totalCropDays
-    if (cropDay < 1) {
-      cropDay = 1;
-    }
-    if (cropDay > activeBatch.totalCropDays) {
-      cropDay = activeBatch.totalCropDays;
-    }
-
-    // 2. Fetch curve checkpoints for interpolation
     const checkpoints = await this.curveCheckpointRepository.find({
       where: { batchId: activeBatch.id },
     });
@@ -121,7 +110,6 @@ export class BatchService {
       (c) => c.metricType === 'HUMIDITY',
     );
 
-    // Default target parameters (midpoint of optimal ranges)
     const defaultTemp =
       Math.round(
         ((activeBatch.tempOptimalMin + activeBatch.tempOptimalMax) / 2) * 2,
@@ -140,7 +128,6 @@ export class BatchService {
       defaultHumid,
     );
 
-    // 3. Query light schedule block status
     const lightBlock = await this.lightScheduleBlockRepository.findOne({
       where: {
         batchId: activeBatch.id,
@@ -151,6 +138,47 @@ export class BatchService {
 
     const lightStatus: 'ON' | 'OFF' = lightBlock ? lightBlock.status : 'OFF';
 
+    return this.assembleContext(
+      activeBatch,
+      cropDay,
+      targetTemp,
+      targetHumid,
+      lightStatus,
+    );
+  }
+
+  /**
+   * Calculates crop day from startDate using Asia/Ho_Chi_Minh timezone.
+   * Result is clamped to [1, totalCropDays].
+   */
+  private calculateCropDay(activeBatch: CropBatch, timestamp: Date): number {
+    const timezone = 'Asia/Ho_Chi_Minh';
+    const zonedNow = toZonedTime(timestamp, timezone);
+    const zonedStart = toZonedTime(new Date(activeBatch.startDate), timezone);
+
+    const diffMs = zonedNow.getTime() - zonedStart.getTime();
+    let cropDay = Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
+
+    if (cropDay < 1) {
+      cropDay = 1;
+    }
+    if (cropDay > activeBatch.totalCropDays) {
+      cropDay = activeBatch.totalCropDays;
+    }
+
+    return cropDay;
+  }
+
+  /**
+   * Assembles the dual-format BatchContext object from computed values.
+   */
+  private assembleContext(
+    activeBatch: CropBatch,
+    cropDay: number,
+    targetTemp: number,
+    targetHumid: number,
+    lightStatus: 'ON' | 'OFF',
+  ): BatchContext {
     return {
       batchId: activeBatch.id,
       batch_id: activeBatch.id,
@@ -180,7 +208,17 @@ export class BatchService {
   }
 
   /**
+   * Safely coerces a checkpoint targetValue to a number.
+   * PostgreSQL numeric columns may arrive as strings from the driver.
+   */
+  private safeTargetValue(cc: CurveCheckpoint): number {
+    const v = cc.targetValue as number | string | null | undefined;
+    return typeof v === 'string' ? parseFloat(v) : (v ?? 0);
+  }
+
+  /**
    * Helper to perform linear interpolation between curve checkpoints.
+   * Rounds to the nearest 0.5 step.
    */
   private interpolate(
     cropDay: number,
@@ -191,22 +229,16 @@ export class BatchService {
       return defaultVal;
     }
 
-    // Sort checkpoints ascending by crop_day
     const sorted = [...checkpoints].sort((a, b) => a.cropDay - b.cropDay);
 
-    // Case 1: cropDay <= first checkpoint's cropDay
     if (cropDay <= sorted[0].cropDay) {
-      const v = sorted[0].targetValue;
-      return typeof v === 'string' ? parseFloat(v) : v;
+      return this.safeTargetValue(sorted[0]);
     }
 
-    // Case 2: cropDay >= last checkpoint's cropDay
     if (cropDay >= sorted[sorted.length - 1].cropDay) {
-      const v = sorted[sorted.length - 1].targetValue;
-      return typeof v === 'string' ? parseFloat(v) : v;
+      return this.safeTargetValue(sorted[sorted.length - 1]);
     }
 
-    // Case 3: Find bounding checkpoints
     let lower = sorted[0];
     let upper = sorted[sorted.length - 1];
 
@@ -219,25 +251,16 @@ export class BatchService {
     }
 
     if (lower.cropDay === upper.cropDay) {
-      const v = lower.targetValue;
-      return typeof v === 'string' ? parseFloat(v) : v;
+      return this.safeTargetValue(lower);
     }
 
     const d1 = lower.cropDay;
     const d2 = upper.cropDay;
-    const v1 =
-      typeof lower.targetValue === 'string'
-        ? parseFloat(lower.targetValue)
-        : lower.targetValue;
-    const v2 =
-      typeof upper.targetValue === 'string'
-        ? parseFloat(upper.targetValue)
-        : upper.targetValue;
+    const v1 = this.safeTargetValue(lower);
+    const v2 = this.safeTargetValue(upper);
 
-    // Linear interpolation calculation
     const interpolatedValue = v1 + ((cropDay - d1) / (d2 - d1)) * (v2 - v1);
 
-    // Round to the nearest 0.5 step
     return Math.round(interpolatedValue * 2) / 2;
   }
 
@@ -279,7 +302,6 @@ export class BatchService {
    * Uses a pessimistic lock transaction to handle race conditions.
    */
   async createBatch(dto: CreateBatchDto): Promise<CropBatch> {
-    // 1. Verify that the mushroom house exists
     const house = await this.mushroomHouseRepository.findOne({
       where: { id: dto.houseId },
     });
@@ -289,7 +311,6 @@ export class BatchService {
       );
     }
 
-    // 2. Perform concurrent active batch checks in a transaction with pessimistic locking
     return await this.cropBatchRepository.manager.transaction(
       async (transactionalEntityManager) => {
         const activeBatch = await transactionalEntityManager.findOne(

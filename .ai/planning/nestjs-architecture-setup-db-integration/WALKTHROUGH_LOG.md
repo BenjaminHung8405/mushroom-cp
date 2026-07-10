@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T14:15:00+07:00] - QA Fix Round 2: Tasks D1 + E1 (Findings F1–F5)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Task ID**: D1, E1
+- **Danh sách file đã sửa**:
+  - Sửa đổi: [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts)
+  - Sửa đổi: [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts)
+  - Sửa đổi: [create-batch.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/create-batch.dto.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình sửa lỗi theo feedback QA**:
+  - **F1 (getBatchContext 98 dòng)**: Tách `calculateCropDay(activeBatch, timestamp)` và `assembleContext(activeBatch, cropDay, targetTemp, targetHumid, lightStatus)` thành private helpers — `getBatchContext` giờ chỉ điều phối, dưới 50 dòng.
+  - **F2 (interpolate 58 dòng)**: Extract `safeTargetValue(cc)` để gộp 4 lần pattern `typeof v === 'string' ? parseFloat(v) : v`; `interpolate` còn ~45 dòng.
+  - **F3 (Missing MaxLength)**: Thêm `@MaxLength(50)` trên `CreateBatchDto.id` và `houseId` — khớp VARCHAR(50) entity, chặn payload oversized trước khi hit DB.
+  - **F4 (Silent degradation multi-ACTIVE)**: `getActiveBatchByHouseId` ném `ConflictException` + `logger.error` khi `length > 1` thay vì warn + return first — bảo vệ invariant "1 ACTIVE / house_id".
+  - **F5 (Unbounded numeric)**: `tempOptimalMin/Max` → `@Min(0) @Max(60)`; `humidityOptimalMin/Max` → `@Min(0) @Max(100)`.
+  - Unit test cập nhật: case multi-active giờ expect `ConflictException`.
+  - Verify: `pnpm exec jest --testPathPatterns=batch` 34/34 pass · `pnpm lint` · `pnpm build` sạch.
+
 ## [2026-07-10T09:40:00+07:00] - Task E1: Xây dựng BatchController và BatchModule
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

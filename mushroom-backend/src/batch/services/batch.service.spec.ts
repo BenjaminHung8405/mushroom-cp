@@ -83,7 +83,7 @@ describe('BatchService', () => {
       expect(result).toEqual(mockBatch);
     });
 
-    it('should return the first active batch and log a warning if multiple exist', async () => {
+    it('should throw ConflictException if multiple active batches exist', async () => {
       const mockBatch1 = {
         id: 'batch-1',
         houseId: 'house-1',
@@ -95,14 +95,15 @@ describe('BatchService', () => {
         status: 'ACTIVE',
       } as CropBatch;
 
-      const loggerWarnSpy = jest
-        .spyOn((service as any).logger, 'warn')
+      const loggerErrorSpy = jest
+        .spyOn((service as any).logger, 'error')
         .mockImplementation();
 
       cropBatchRepo.find.mockResolvedValue([mockBatch1, mockBatch2]);
-      const result = await service.getActiveBatchByHouseId('house-1');
-      expect(result).toEqual(mockBatch1);
-      expect(loggerWarnSpy).toHaveBeenCalled();
+      await expect(service.getActiveBatchByHouseId('house-1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(loggerErrorSpy).toHaveBeenCalled();
     });
   });
 

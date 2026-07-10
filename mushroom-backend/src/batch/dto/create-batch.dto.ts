@@ -8,15 +8,18 @@ import {
   IsNumber,
   IsBoolean,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateBatchDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(50)
   id: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(50)
   houseId: string;
 
   @IsString()
@@ -36,18 +39,26 @@ export class CreateBatchDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(60)
   tempOptimalMin?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(60)
   tempOptimalMax?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   humidityOptimalMin?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   humidityOptimalMax?: number;
 
   @IsOptional()
