@@ -11,30 +11,30 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [ ] QA Review | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
-| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker. | [ ] QA Review | Tách biệt rõ hai nhóm biến: <br>1. `AP_SSID`/`AP_PASS`: Tĩnh (`constexpr`), dùng để phát WiFi cứu hộ cấu hình.<br>2. `STA_SSID`/`STA_PASS`: Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS (Flash). |
+| A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [x] Done | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
+| A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker. | [x] Done | Tách biệt rõ hai nhóm biến: <br>1. `AP_SSID`/`AP_PASS`: Tĩnh (`constexpr`), dùng để phát WiFi cứu hộ cấu hình.<br>2. `STA_SSID`/`STA_PASS`: Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS (Flash). |
 
 ### Track B: Tầng Mạng (Sprint 1 - Network WiFi)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] QA Review | Áp dụng cấu trúc phân tách rõ ràng. Khai báo sẵn các hằng số `AP_SSID` và `AP_PASS` cho mạng SoftAP dự phòng. |
-| B2 | Cài đặt logic `init_wifi()` và `check_wifi_connection()`. | [ ] QA Review | **Chỉ thị cốt lõi:** Hàm `init_wifi()` bắt buộc phải ưu tiên gọi lệnh đọc SSID/PASS lưu trong NVS Flash trước. Nếu NVS trống, lập tức bỏ qua và trả về mã trạng thái kích hoạt SoftAP (sẽ làm ở Sprint sau), tuyệt đối không hardcode cứng WiFi ra Internet tại đây. |
+| B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [x] Done | Áp dụng cấu trúc phân tách rõ ràng. Khai báo sẵn các hằng số `AP_SSID` và `AP_PASS` cho mạng SoftAP dự phòng. |
+| B2 | Cài đặt logic `init_wifi()` và `check_wifi_connection()`. | [x] Done | **Chỉ thị cốt lõi:** Hàm `init_wifi()` bắt buộc phải ưu tiên gọi lệnh đọc SSID/PASS lưu trong NVS Flash trước. Nếu NVS trống, lập tức bỏ qua và trả về mã trạng thái kích hoạt SoftAP (sẽ làm ở Sprint sau), tuyệt đối không hardcode cứng WiFi ra Internet tại đây. |
 
 ### Track C: Tầng Mạng (Sprint 1 - Network MQTT)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [ ] QA Review | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
-| C2 | Cài đặt `init_mqtt()` và `mqtt_reconnect()`. | [ ] QA Review | Thêm cờ khóa (Mutex/Flag) để không gọi reconnect liên tục khi WiFi chưa sẵn sàng hoặc đang trong chế độ Captive Portal (SoftAP Mode). |
-| C3 | Cài đặt `mqtt_callback()` và logic xử lý payload JSON. | [ ] QA Review | **Bảo mật & Bộ nhớ:** Giới hạn byte payload tối đa. Ép dùng `StaticJsonDocument` của ArduinoJson để phân tích cú pháp, tuyệt đối tránh `DynamicJsonDocument` gây phân mảnh RAM (Heap Fragmentation). |
+| C1 | Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`. | [x] Done | Cấu trúc class/module phải gom nhóm các topic subscribe và publish rõ ràng. |
+| C2 | Cài đặt `init_mqtt()` và `mqtt_reconnect()`. | [x] Done | Thêm cờ khóa (Mutex/Flag) để không gọi reconnect liên tục khi WiFi chưa sẵn sàng hoặc đang trong chế độ Captive Portal (SoftAP Mode). |
+| C3 | Cài đặt `mqtt_callback()` và logic xử lý payload JSON. | [x] Done | **Bảo mật & Bộ nhớ:** Giới hạn byte payload tối đa. Ép dùng `StaticJsonDocument` của ArduinoJson để phân tích cú pháp, tuyệt đối tránh `DynamicJsonDocument` gây phân mảnh RAM (Heap Fragmentation). |
 
 ### Track D: Tầng Điều phối Core 0 (Sprint 1 - Core 0 Task)
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| D1 | Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT. | [ ] QA Review | Chống tràn Watchdog: Bắt buộc dùng `vTaskDelay()` ở cuối vòng `while(1)`. Theo dõi sát Stack High Water Mark. |
-| D2 | Cập nhật hàm `setup()` trong `main.cpp` để ghim Task vào Core 0. | [ ] QA Review | Cấu hình stack size hợp lý (VD: 4096 bytes) cho tác vụ có liên quan đến mạng và mã hóa/phân tích JSON. |
+| D1 | Cài đặt `task_core0_communication()` chạy vòng lặp vô tận kiểm tra mạng & MQTT. | [x] Done | Chống tràn Watchdog: Bắt buộc dùng `vTaskDelay()` ở cuối vòng `while(1)`. Theo dõi sát Stack High Water Mark. |
+| D2 | Cập nhật hàm `setup()` trong `main.cpp` để ghim Task vào Core 0. | [x] Done | Cấu hình stack size hợp lý (VD: 4096 bytes) cho tác vụ có liên quan đến mạng và mã hóa/phân tích JSON. |
 
 ### Track E: Tầng Dữ liệu Cấu trúc (Sprint 2 - Models)
 

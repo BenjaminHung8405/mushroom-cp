@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:53:50+07:00] - Sprint 1 QA Review & Code Approval
+- **Trạng thái**: LGTM (Looks Good To Me) - Approved
+- **Danh sách file kiểm duyệt**:
+  - [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+  - [config.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/config.cpp)
+  - [wifi_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/wifi_manager.h)
+  - [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+- **Đánh giá chi tiết**:
+  - **Kiến trúc & Conventions**: Tuân thủ đúng mô hình phân tách Clean Architecture. Không vi phạm DRY (SoftAP SSID/PASS đã được dọn dẹp tập trung tại `config.h`, MqttClient ID sử dụng hàm helper dùng chung). Không có hàm nào dài quá 50 dòng (hàm parsing và reconnect đã được phân rã kỹ càng).
+  - **Bảo mật**: Không có credentials/SSID/Broker bị hardcode trong source code (hoàn toàn lấy từ NVS dynamic). Input payload MQTT JSON đã được validate chống overflow (MAX_PAYLOAD_SIZE = 512 bytes), ép kiểu float, kiểm tra boundary vật lý nghiêm ngặt (Nhiệt độ `[10.0, 45.0]`, Độ ẩm `[30.0, 95.0]`), chống NaN.
+  - **Logic & Edge-Cases**: Error handling chặt chẽ (kiểm tra Null Pointer cho MQTT topic/payload đầu callback, ngắt kết nối MQTT khi WiFi mất). Xử lý chống Watchdog tốt (delay 100ms trong Core 0 Task).
+  - **Tối ưu hóa**: Không có vòng lặp lồng nhau vô tội vạ hoặc query database/đọc NVS liên tục trong loop (SSID/PASS và MQTT config được nạp vào RAM cache 1 lần duy nhất tại hàm `setup()`).
+- **Kết luận**: Đạt yêu cầu 100% chất lượng kiểm soát. Chuyển trạng thái toàn bộ các task của Sprint 1 sang `[x] Done`.
+
 ## [2026-07-10T10:50:50+07:00] - Task A2, B1, C3: Sửa lỗi DRY và tái cấu trúc MqttClient theo feedback của QA
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Danh sách file thay đổi**:
