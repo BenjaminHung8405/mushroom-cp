@@ -11,7 +11,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [ ] Pending | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
+| A1 | Tạo `include/config.h` và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | [ ] QA Review | Không dùng `#define` bừa bãi. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`. |
 | A2 | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker qua không gian lưu trữ Flash (NVS). | [ ] Pending | **CHỈ THỊ CAPTIVE PORTAL:** Nghiêm cấm đặt chuỗi SSID/PASS cố định trong mã nguồn. Sử dụng thư viện `Preferences.h` của ESP32 để khởi tạo phân vùng Non-Volatile Storage (NVS). Định nghĩa sẵn các key: `wifi_ssid`, `wifi_pass`. Khai báo thêm một chuỗi cấu hình mặc định cho SoftAP (VD: `AP_SSID = "TraiNam_Setup_KhongDay"`). |
 
 ### Track B: Tầng Mạng (Sprint 1 - Network WiFi)

@@ -1,5 +1,15 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:08:00+07:00] - Task A1: Tạo config.h và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Xác minh & Cấu trúc lại: [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+- **Giải trình giải pháp**:
+  - Đọc và rà soát kỹ file cấu hình [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) trong thư mục `include/` của dự án firmware ESP32.
+  - Xác nhận các chân GPIO được chỉ định hoàn hảo cho 4 Rơ-le (chân 10, 11, 12, 13), I2C Bus (SDA chân 8, SCL chân 9), và OneWire Bus (chân 14) thông qua từ khóa `constexpr uint8_t` thay vì macro `#define`, đảm bảo quy tắc an toàn kiểu (Type-Safe).
+  - Tệp tiêu đề được trang bị `#pragma once` đầy đủ để tránh trùng lặp tệp tin khi include nhiều lần.
+  - Tự kiểm duyệt (Self-test): Tạo tệp `test_config.cpp` để include `config.h` và in thử các giá trị GPIO. Quá trình compile và chạy diễn ra thành công tốt đẹp mà không phát sinh lỗi biên dịch.
+
 ## [2026-07-10T09:59:00+07:00] - Task A2: Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
