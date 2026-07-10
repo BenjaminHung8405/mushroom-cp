@@ -54,7 +54,7 @@
 #### Track E: Tầng Giao Tiếp API Vụ Nuôi (Crop Batch API Controller Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| E1 | Xây dựng BatchController và BatchModule | [ ] Pending | - **Validation**: Sử dụng ValidationPipe và DTO (`CreateBatchDto`, `UpdateBatchDto`) để kiểm tra dữ liệu đầu vào.<br>- **Concurrency & Race Condition**: API tạo vụ nuôi phải thực hiện transaction hoặc kiểm tra sự tồn tại của vụ nuôi `ACTIVE` hiện tại trước khi tạo mới để tránh xung đột dữ liệu. |
+| E1 | Xây dựng BatchController và BatchModule | [ ] QA Review | - **Validation**: Sử dụng ValidationPipe và DTO (`CreateBatchDto`, `UpdateBatchDto`) để kiểm tra dữ liệu đầu vào.<br>- **Concurrency & Race Condition**: API tạo vụ nuôi phải thực hiện transaction hoặc kiểm tra sự tồn tại của vụ nuôi `ACTIVE` hiện tại trước khi tạo mới để tránh xung đột dữ liệu. |
 
 ---
 

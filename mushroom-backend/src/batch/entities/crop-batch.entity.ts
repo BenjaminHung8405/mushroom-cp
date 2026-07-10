@@ -26,7 +26,11 @@ export class CropBatch {
   @Column({ type: 'varchar', length: 20, default: 'ACTIVE' })
   status: string; // ACTIVE, COMPLETED, ABORTED
 
-  @Column({ name: 'start_date', type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    name: 'start_date',
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   startDate: Date;
 
   @Column({ name: 'total_crop_days', type: 'integer' })
@@ -40,7 +44,10 @@ export class CropBatch {
     precision: 3,
     scale: 1,
     default: 28.0,
-    transformer: { to: (v: number) => v, from: (v: string) => (v != null ? parseFloat(v) : 28.0) },
+    transformer: {
+      to: (v: number) => v,
+      from: (v: string) => (v != null ? parseFloat(v) : 28.0),
+    },
   })
   tempOptimalMin: number;
 
@@ -49,7 +56,10 @@ export class CropBatch {
     precision: 3,
     scale: 1,
     default: 35.0,
-    transformer: { to: (v: number) => v, from: (v: string) => (v != null ? parseFloat(v) : 35.0) },
+    transformer: {
+      to: (v: number) => v,
+      from: (v: string) => (v != null ? parseFloat(v) : 35.0),
+    },
   })
   tempOptimalMax: number;
 
@@ -58,7 +68,10 @@ export class CropBatch {
     precision: 3,
     scale: 1,
     default: 70.0,
-    transformer: { to: (v: number) => v, from: (v: string) => (v != null ? parseFloat(v) : 70.0) },
+    transformer: {
+      to: (v: number) => v,
+      from: (v: string) => (v != null ? parseFloat(v) : 70.0),
+    },
   })
   humidityOptimalMin: number;
 
@@ -67,7 +80,10 @@ export class CropBatch {
     precision: 3,
     scale: 1,
     default: 90.0,
-    transformer: { to: (v: number) => v, from: (v: string) => (v != null ? parseFloat(v) : 90.0) },
+    transformer: {
+      to: (v: number) => v,
+      from: (v: string) => (v != null ? parseFloat(v) : 90.0),
+    },
   })
   humidityOptimalMax: number;
 

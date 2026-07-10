@@ -1,5 +1,28 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T09:40:00+07:00] - Task E1: Xây dựng BatchController và BatchModule
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [create-batch.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/create-batch.dto.ts)
+  - Tạo mới: [update-batch.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/update-batch.dto.ts)
+  - Tạo mới: [batch.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.ts)
+  - Tạo mới: [batch.controller.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.spec.ts)
+  - Tạo mới: [batch.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/batch.module.ts)
+  - Sửa đổi: [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts)
+  - Sửa đổi: [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts)
+- **Giải trình giải pháp**:
+  - Triển khai `CreateBatchDto` và `UpdateBatchDto` bằng `class-validator` để kiểm soát dữ liệu đầu vào (độ dài ID, dải ngày nuôi từ 10 đến 45 ngày, định dạng thời gian bảo vệ sốc nhiệt, và Enum trạng thái).
+  - Cập nhật `BatchService` để cung cấp 2 phương thức cốt lõi mới:
+    - `createBatch`: Kiểm tra sự tồn tại của nhà nấm (`house_id`) trước khi tạo vụ nuôi. Sử dụng cơ chế Transaction kết hợp với khóa đọc ghi bi quan (`pessimistic_write` lock) để kiểm soát điều kiện cạnh tranh (race condition), đảm bảo tại một thời điểm mỗi nhà nấm chỉ có duy nhất một vụ nuôi ở trạng thái `ACTIVE`.
+    - `endBatch`: Cập nhật trạng thái của vụ nuôi thành `COMPLETED` hoặc `ABORTED`.
+  - Triển khai `BatchController` cung cấp các API:
+    - `POST /batches` để tạo mới vụ nuôi với validation DTO chặt chẽ.
+    - `PATCH /batches/:id/end` để kết thúc hoặc hủy vụ nuôi.
+    - `GET /batches/active/:houseId` để lấy thông tin vụ nuôi đang chạy của một nhà nấm cụ thể.
+  - Xây dựng `BatchModule` đăng ký các TypeORM entities cần thiết (`CropBatch`, `MushroomHouse`, `CurveCheckpoint`, `LightScheduleBlock`, `GrowthProfile`), khai báo `BatchController` và `BatchService`, export `BatchService` để tái sử dụng ở các module khác.
+  - Bổ sung bộ unit test đầy đủ cho cả `BatchService` và `BatchController` bao gồm kiểm thử race conditions, kiểm thử validation biên, và cập nhật mock repository của `MushroomHouse`.
+  - Tự kiểm tra: Chạy `npm run format`, `npm run lint`, `npm run build` và `npm test` thành công 100% không gặp bất kỳ lỗi nào.
+
 ## [2026-07-09T22:48:00+07:00] - Task D1: Triển khai các phương thức cốt lõi trong BatchService
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

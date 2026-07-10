@@ -1,10 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { CropBatch } from '../entities/crop-batch.entity';
 import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
+import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
+import { CreateBatchDto } from '../dto/create-batch.dto';
 
 export interface BatchContext {
   batchId: string | null;
@@ -44,6 +51,8 @@ export class BatchService {
     private readonly curveCheckpointRepository: Repository<CurveCheckpoint>,
     @InjectRepository(LightScheduleBlock)
     private readonly lightScheduleBlockRepository: Repository<LightScheduleBlock>,
+    @InjectRepository(MushroomHouse)
+    private readonly mushroomHouseRepository: Repository<MushroomHouse>,
   ) {}
 
   /**
@@ -71,11 +80,16 @@ export class BatchService {
    * Calculates and returns the batch context for control outputs.
    * If no active batch exists, returns default bio-safety configurations.
    */
-  async getBatchContext(houseId: string, timestamp: Date): Promise<BatchContext> {
+  async getBatchContext(
+    houseId: string,
+    timestamp: Date,
+  ): Promise<BatchContext> {
     const activeBatch = await this.getActiveBatchByHouseId(houseId);
 
     if (!activeBatch) {
-      this.logger.log(`No active batch found for house ${houseId}. Returning bio-safety fallback context.`);
+      this.logger.log(
+        `No active batch found for house ${houseId}. Returning bio-safety fallback context.`,
+      );
       return this.getFallbackContext();
     }
 
@@ -100,15 +114,31 @@ export class BatchService {
       where: { batchId: activeBatch.id },
     });
 
-    const tempCheckpoints = checkpoints.filter(c => c.metricType === 'TEMPERATURE');
-    const humidityCheckpoints = checkpoints.filter(c => c.metricType === 'HUMIDITY');
+    const tempCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'TEMPERATURE',
+    );
+    const humidityCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'HUMIDITY',
+    );
 
     // Default target parameters (midpoint of optimal ranges)
-    const defaultTemp = Math.round(((activeBatch.tempOptimalMin + activeBatch.tempOptimalMax) / 2) * 2) / 2;
-    const defaultHumid = Math.round(((activeBatch.humidityOptimalMin + activeBatch.humidityOptimalMax) / 2) * 2) / 2;
+    const defaultTemp =
+      Math.round(
+        ((activeBatch.tempOptimalMin + activeBatch.tempOptimalMax) / 2) * 2,
+      ) / 2;
+    const defaultHumid =
+      Math.round(
+        ((activeBatch.humidityOptimalMin + activeBatch.humidityOptimalMax) /
+          2) *
+          2,
+      ) / 2;
 
     const targetTemp = this.interpolate(cropDay, tempCheckpoints, defaultTemp);
-    const targetHumid = this.interpolate(cropDay, humidityCheckpoints, defaultHumid);
+    const targetHumid = this.interpolate(
+      cropDay,
+      humidityCheckpoints,
+      defaultHumid,
+    );
 
     // 3. Query light schedule block status
     const lightBlock = await this.lightScheduleBlockRepository.findOne({
@@ -195,8 +225,14 @@ export class BatchService {
 
     const d1 = lower.cropDay;
     const d2 = upper.cropDay;
-    const v1 = typeof lower.targetValue === 'string' ? parseFloat(lower.targetValue) : lower.targetValue;
-    const v2 = typeof upper.targetValue === 'string' ? parseFloat(upper.targetValue) : upper.targetValue;
+    const v1 =
+      typeof lower.targetValue === 'string'
+        ? parseFloat(lower.targetValue)
+        : lower.targetValue;
+    const v2 =
+      typeof upper.targetValue === 'string'
+        ? parseFloat(upper.targetValue)
+        : upper.targetValue;
 
     // Linear interpolation calculation
     const interpolatedValue = v1 + ((cropDay - d1) / (d2 - d1)) * (v2 - v1);
@@ -235,5 +271,60 @@ export class BatchService {
       lightStatus: 'OFF',
       light_status: 'OFF',
     };
+  }
+
+  /**
+   * Creates a new crop batch for a mushroom house.
+   * Enforces that only one active batch can exist per house.
+   * Uses a pessimistic lock transaction to handle race conditions.
+   */
+  async createBatch(dto: CreateBatchDto): Promise<CropBatch> {
+    // 1. Verify that the mushroom house exists
+    const house = await this.mushroomHouseRepository.findOne({
+      where: { id: dto.houseId },
+    });
+    if (!house) {
+      throw new NotFoundException(
+        `Mushroom house with ID '${dto.houseId}' not found.`,
+      );
+    }
+
+    // 2. Perform concurrent active batch checks in a transaction with pessimistic locking
+    return await this.cropBatchRepository.manager.transaction(
+      async (transactionalEntityManager) => {
+        const activeBatch = await transactionalEntityManager.findOne(
+          CropBatch,
+          {
+            where: { houseId: dto.houseId, status: 'ACTIVE' },
+            lock: { mode: 'pessimistic_write' },
+          },
+        );
+
+        if (activeBatch) {
+          throw new ConflictException(
+            `An active crop batch already exists for house '${dto.houseId}'.`,
+          );
+        }
+
+        const newBatch = transactionalEntityManager.create(CropBatch, dto);
+        return await transactionalEntityManager.save(CropBatch, newBatch);
+      },
+    );
+  }
+
+  /**
+   * Ends an existing crop batch by updating its status to COMPLETED or ABORTED.
+   */
+  async endBatch(
+    id: string,
+    status: 'COMPLETED' | 'ABORTED',
+  ): Promise<CropBatch> {
+    const batch = await this.cropBatchRepository.findOne({ where: { id } });
+    if (!batch) {
+      throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
+    }
+
+    batch.status = status;
+    return await this.cropBatchRepository.save(batch);
   }
 }

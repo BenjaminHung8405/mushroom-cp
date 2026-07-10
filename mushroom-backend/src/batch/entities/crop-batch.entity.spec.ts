@@ -6,7 +6,7 @@ describe('CropBatch Entity', () => {
     const batch = new CropBatch();
     batch.id = 'batch-123';
     batch.houseId = 'house-123';
-    
+
     const house = new MushroomHouse();
     house.id = 'house-123';
     house.name = 'House A';

@@ -1,3 +1,9 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -5,16 +11,21 @@ import { BatchService } from './batch.service';
 import { CropBatch } from '../entities/crop-batch.entity';
 import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
+import { MushroomHouse } from '../entities/mushroom-house.entity';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 
 describe('BatchService', () => {
   let service: BatchService;
   let cropBatchRepo: jest.Mocked<Repository<CropBatch>>;
   let curveCheckpointRepo: jest.Mocked<Repository<CurveCheckpoint>>;
   let lightScheduleBlockRepo: jest.Mocked<Repository<LightScheduleBlock>>;
+  let mushroomHouseRepo: jest.Mocked<Repository<MushroomHouse>>;
 
   const mockRepository = () => ({
     find: jest.fn(),
     findOne: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn(),
   });
 
   beforeEach(async () => {
@@ -33,6 +44,10 @@ describe('BatchService', () => {
           provide: getRepositoryToken(LightScheduleBlock),
           useFactory: mockRepository,
         },
+        {
+          provide: getRepositoryToken(MushroomHouse),
+          useFactory: mockRepository,
+        },
       ],
     }).compile();
 
@@ -40,6 +55,7 @@ describe('BatchService', () => {
     cropBatchRepo = module.get(getRepositoryToken(CropBatch));
     curveCheckpointRepo = module.get(getRepositoryToken(CurveCheckpoint));
     lightScheduleBlockRepo = module.get(getRepositoryToken(LightScheduleBlock));
+    mushroomHouseRepo = module.get(getRepositoryToken(MushroomHouse));
   });
 
   it('should be defined', () => {
@@ -57,17 +73,31 @@ describe('BatchService', () => {
     });
 
     it('should return the active batch if exactly one exists', async () => {
-      const mockBatch = { id: 'batch-1', houseId: 'house-1', status: 'ACTIVE' } as CropBatch;
+      const mockBatch = {
+        id: 'batch-1',
+        houseId: 'house-1',
+        status: 'ACTIVE',
+      } as CropBatch;
       cropBatchRepo.find.mockResolvedValue([mockBatch]);
       const result = await service.getActiveBatchByHouseId('house-1');
       expect(result).toEqual(mockBatch);
     });
 
     it('should return the first active batch and log a warning if multiple exist', async () => {
-      const mockBatch1 = { id: 'batch-1', houseId: 'house-1', status: 'ACTIVE' } as CropBatch;
-      const mockBatch2 = { id: 'batch-2', houseId: 'house-1', status: 'ACTIVE' } as CropBatch;
-      
-      const loggerWarnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation();
+      const mockBatch1 = {
+        id: 'batch-1',
+        houseId: 'house-1',
+        status: 'ACTIVE',
+      } as CropBatch;
+      const mockBatch2 = {
+        id: 'batch-2',
+        houseId: 'house-1',
+        status: 'ACTIVE',
+      } as CropBatch;
+
+      const loggerWarnSpy = jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation();
 
       cropBatchRepo.find.mockResolvedValue([mockBatch1, mockBatch2]);
       const result = await service.getActiveBatchByHouseId('house-1');
@@ -80,7 +110,7 @@ describe('BatchService', () => {
     it('should return fallback bio-safety context if no active batch is found', async () => {
       cropBatchRepo.find.mockResolvedValue([]);
       const result = await service.getBatchContext('house-1', new Date());
-      
+
       expect(result.batchId).toBeNull();
       expect(result.tempOptimalMin).toBe(28.0);
       expect(result.tempOptimalMax).toBe(35.0);
@@ -156,7 +186,7 @@ describe('BatchService', () => {
 
         const testTime = new Date('2026-07-05T10:00:00+07:00');
         const result = await service.getBatchContext('house-1', testTime);
-        
+
         expect(result.targetTemp).toBe(31.0); // (28 + 34) / 2 = 31.0
         expect(result.targetHumid).toBe(80.0); // (70 + 90) / 2 = 80.0
       });
@@ -179,7 +209,7 @@ describe('BatchService', () => {
           // cropDay will be calculated as 2 (July 2nd)
           const testTime = new Date('2026-07-02T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(2);
           expect(result.targetTemp).toBe(28.0); // first checkpoint is day 4 value 28.0
           expect(result.targetHumid).toBe(70.0); // first checkpoint is day 4 value 70.0
@@ -189,7 +219,7 @@ describe('BatchService', () => {
           // cropDay will be 15 (July 15th), which is after last checkpoint (day 12 temp, day 8 humid)
           const testTime = new Date('2026-07-15T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(15);
           expect(result.targetTemp).toBe(31.0); // last checkpoint for temp is day 12 value 31.0
           expect(result.targetHumid).toBe(80.0); // last checkpoint for humid is day 8 value 80.0
@@ -203,7 +233,7 @@ describe('BatchService', () => {
           // Diff is 10.0 over 4 days (2.5 per day). Day 6 is 2 days from Day 4: 70.0 + 2 * 2.5 = 75.0
           const testTime = new Date('2026-07-06T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(6);
           expect(result.targetTemp).toBe(29.0);
           expect(result.targetHumid).toBe(75.0);
@@ -215,7 +245,7 @@ describe('BatchService', () => {
           // For Humid: Day 5 is 1 day from Day 4: 70.0 + 1 * 2.5 = 72.5
           const testTime = new Date('2026-07-05T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(5);
           expect(result.targetTemp).toBe(28.5);
           expect(result.targetHumid).toBe(72.5);
@@ -227,7 +257,7 @@ describe('BatchService', () => {
           // For Humid: Day 7 is 3 days from Day 4: 70.0 + 3 * 2.5 = 77.5
           const testTime = new Date('2026-07-07T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(7);
           expect(result.targetHumid).toBe(77.5);
         });
@@ -245,7 +275,7 @@ describe('BatchService', () => {
 
           const testTime = new Date('2026-07-05T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(5);
           expect(result.lightStatus).toBe('ON');
           expect(lightScheduleBlockRepo.findOne).toHaveBeenCalled();
@@ -262,11 +292,101 @@ describe('BatchService', () => {
 
           const testTime = new Date('2026-07-05T10:00:00+07:00');
           const result = await service.getBatchContext('house-1', testTime);
-          
+
           expect(result.cropDay).toBe(5);
           expect(result.lightStatus).toBe('OFF');
         });
       });
+    });
+  });
+
+  describe('createBatch', () => {
+    const mockDto = {
+      id: 'batch-2',
+      houseId: 'house-1',
+      profileName: 'Dry Season Optimization',
+      totalCropDays: 30,
+    };
+
+    it('should throw NotFoundException if mushroom house is not found', async () => {
+      mushroomHouseRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.createBatch(mockDto)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mushroomHouseRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'house-1' },
+      });
+    });
+
+    it('should throw ConflictException if an active batch already exists', async () => {
+      mushroomHouseRepo.findOne.mockResolvedValue({
+        id: 'house-1',
+      } as MushroomHouse);
+
+      const mockManager = {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ id: 'batch-active', status: 'ACTIVE' }),
+      };
+      cropBatchRepo.manager = {
+        transaction: jest.fn().mockImplementation((cb) => cb(mockManager)),
+      } as any;
+
+      await expect(service.createBatch(mockDto)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockManager.findOne).toHaveBeenCalledWith(CropBatch, {
+        where: { houseId: 'house-1', status: 'ACTIVE' },
+        lock: { mode: 'pessimistic_write' },
+      });
+    });
+
+    it('should successfully create and save the batch when valid', async () => {
+      mushroomHouseRepo.findOne.mockResolvedValue({
+        id: 'house-1',
+      } as MushroomHouse);
+
+      const mockCreatedBatch = { ...mockDto, status: 'ACTIVE' };
+      const mockManager = {
+        findOne: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockReturnValue(mockCreatedBatch),
+        save: jest.fn().mockResolvedValue(mockCreatedBatch),
+      };
+      cropBatchRepo.manager = {
+        transaction: jest.fn().mockImplementation((cb) => cb(mockManager)),
+      } as any;
+
+      const result = await service.createBatch(mockDto);
+      expect(result).toEqual(mockCreatedBatch);
+      expect(mockManager.create).toHaveBeenCalledWith(CropBatch, mockDto);
+      expect(mockManager.save).toHaveBeenCalledWith(
+        CropBatch,
+        mockCreatedBatch,
+      );
+    });
+  });
+
+  describe('endBatch', () => {
+    it('should throw NotFoundException if the batch is not found', async () => {
+      cropBatchRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.endBatch('batch-1', 'COMPLETED')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(cropBatchRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'batch-1' },
+      });
+    });
+
+    it('should update and save the status of the batch successfully', async () => {
+      const mockBatch = { id: 'batch-1', status: 'ACTIVE' } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+      cropBatchRepo.save.mockImplementation((b: any) => Promise.resolve(b));
+
+      const result = await service.endBatch('batch-1', 'COMPLETED');
+      expect(result.status).toBe('COMPLETED');
+      expect(cropBatchRepo.save).toHaveBeenCalledWith(mockBatch);
     });
   });
 });
