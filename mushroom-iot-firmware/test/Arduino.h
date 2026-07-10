@@ -54,6 +54,8 @@ public:
     void printf(const char* format, Args... args) {
         std::printf(format, args...);
     }
+    
+    operator bool() const { return true; }
 };
 
 extern HardwareSerial Serial;

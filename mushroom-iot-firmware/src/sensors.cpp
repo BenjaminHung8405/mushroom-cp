@@ -1,6 +1,9 @@
 #include "sensors.h"
+#include "config.h"
 #ifndef UNIT_TEST
 #include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_SHT31.h>
 #include <cmath>
 #else
 #include "Arduino.h"  // Mock header from test/Arduino.h
@@ -22,8 +25,49 @@ namespace sensors
     static SensorError ds18b20_last_error = SensorError::SUCCESS;
     static SensorError scd30_last_error = SensorError::SUCCESS;
 
+#ifndef UNIT_TEST
+    static Adafruit_SHT31 sht30 = Adafruit_SHT31();
+#endif
+
     bool init_sensors_placeholder()
     {
+#ifndef UNIT_TEST
+        Serial.println("[SENSORS] Initializing Real I2C Bus and SHT30...");
+        
+        if (!Wire.begin(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL, 50000))
+        {
+            Serial.println("[SENSORS] ERROR: Failed to initialize I2C bus!");
+            sht30_healthy = false;
+            return false;
+        }
+        
+#if defined(ESP32)
+        Wire.setTimeOut(3); // 3ms timeout corresponding to 3000us
+#else
+        Wire.setWireTimeout(3000, true);
+#endif
+        
+        if (!sht30.begin(0x44))
+        {
+            Serial.println("[SENSORS] ERROR: SHT30 not found at 0x44!");
+            sht30_healthy = false;
+            return false;
+        }
+        
+        sht30.heater(false);
+        
+        sensors_initialized = true;
+        sht30_healthy = true;
+        ds18b20_healthy = true;
+        scd30_healthy = true;
+
+        sht30_last_error = SensorError::SUCCESS;
+        ds18b20_last_error = SensorError::SUCCESS;
+        scd30_last_error = SensorError::SUCCESS;
+        
+        Serial.println("[SENSORS] Real I2C Bus and SHT30 initialized successfully.");
+        return true;
+#else
         Serial.println("[SENSORS] Initializing HAL Sensor Placeholders...");
         
         // Giả lập quá trình bắt tay với các cảm biến I2C/OneWire
@@ -38,6 +82,7 @@ namespace sensors
         
         Serial.println("[SENSORS] HAL Sensor Placeholders initialized successfully.");
         return true;
+#endif
     }
 
     bool read_sht30(float &temp, float &hum)
