@@ -2,7 +2,7 @@
 
 ## Started
 - **Thời gian bắt đầu**: 2026-07-09T21:25:38+07:00
-- **Cập nhật lần cuối**: 2026-07-10T15:17:00+07:00
+- **Cập nhật lần cuối**: 2026-07-10T15:30:00+07:00
 - **Agent thực thi**: Gemini
 - **Agent rà soát / khởi tạo PROGRESS**: Claude (Senior Solution Architect)
 
@@ -10,7 +10,7 @@
 - **Thư mục kế hoạch**: [nestjs-architecture-setup-db-integration](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/)
 - **Sprints tham chiếu**:
   1. [sprint_1.md (Database Module & Connection Pool) — ✅ HOÀN THÀNH](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_1.md)
-  2. [sprint_2.md (Batch Module & Nghiệp Vụ Vụ Nuôi) — 🔧 QA REVIEW (Round 2)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
+  2. [sprint_2.md (Batch Module & Nghiệp Vụ Vụ Nuôi) — ✅ HOÀN THÀNH](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
   3. [sprint_3.md (Telemetry Module & Closed-Loop Fail-Safe) — ❌ NEXT TO DO](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_3.md)
   4. [sprint_4.md (Simulation, Buffering & Cleanup) — ❌ LATER](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_4.md)
 
@@ -43,8 +43,8 @@
 
 ---
 
-### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — 🔧 QA REVIEW (Round 2)
-> QA duyệt D1+E1: 2026-07-10T15:00:00+07:00 · LGTM · C1–C3 LGTM · C4-1 index mismatch · C5-1 missing constraints
+### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — ✅ HOÀN THÀNH
+> QA duyệt: 2026-07-10T15:30:00+07:00 · LGTM (C1–C5, D1, E1)
 
 #### Track C: Tầng Thực Thể Cơ Sở Dữ Liệu Vụ Nuôi (Crop Batch Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
@@ -52,8 +52,8 @@
 | C1 | Tạo entity `MushroomHouse` | [x] Done | - **LGTM 2026-07-10**. Mapping schema chính xác. Snake_case đúng. Test pass. |
 | C2 | Tạo entity `GrowthProfile` | [x] Done | - **LGTM 2026-07-10**. Timestamps timestamptz đúng. Test pass. |
 | C3 | Tạo entity `CropBatch` | [x] Done | - **LGTM 2026-07-10**. Numeric transformer fallback an toàn. FK RESTRICT đúng. Minor: status nên typed enum (không chặn). |
-| C4 | Tạo entity `CurveCheckpoint` | [ ] QA Review | - **Finding C4-1 (Medium)**: Index `@Index('idx_checkpoints_batch', ['batch'])` sai column — schema SQL index trên `batch_id + metric_type`. **Fix**: Đổi thành `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])`.<br>- PK bigint, numeric transformer, cascade delete đã đúng. |
-| C5 | Tạo entity `LightScheduleBlock` | [ ] QA Review | - **Finding C5-1 (Medium)**: Thiếu validation CHECK constraints schema: (1) profile_id XOR batch_id; (2) start_day ≤ end_day. **Fix**: Thêm validation trong BatchService hoặc DTO trước khi save.<br>- PK bigint, union type status, cascade delete đã đúng. |
+| C4 | Tạo entity `CurveCheckpoint` | [x] Done | - **LGTM 2026-07-10 Round 2**. Index `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])` khớp schema SQL. PK bigint, numeric transformer, cascade delete đúng. |
+| C5 | Tạo entity `LightScheduleBlock` | [x] Done | - **LGTM 2026-07-10 Round 2**. `@BeforeInsert/@BeforeUpdate` validate XOR origin + days order. PK bigint, union type status, cascade delete đúng. |
 
 #### Track D: Tầng Nghiệp Vụ Vụ Nuôi (Crop Batch Business Logic Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
@@ -116,7 +116,7 @@
 Sprint 1 [x] Done
     │
     ▼
-Sprint 2 [ ] QA Review (Round 2) ──export BatchService──┐
+Sprint 2 [x] Done ──export BatchService──┐
     │                                          │
     │ (code song song OK)                      ▼
     └──────────────────────────────► Sprint 3 [ ] Pending

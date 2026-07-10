@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:30:00+07:00] - QA Review Round 2: Tasks C4 + C5 — ✅ LGTM
+- **Trạng thái**: LGTM (Duyệt)
+- **Reviewer**: Claude (Security Auditor & Senior Code Reviewer)
+- **Kết quả rà soát**:
+  - **C4 CurveCheckpoint**: ✅ LGTM — Finding C4-1 đã fix. `@Index('idx_checkpoints_batch', ['batchId', 'metricType'])` khớp chính xác schema SQL `CREATE INDEX idx_checkpoints_batch ON curve_checkpoints (batch_id, metric_type)`. PK bigint, numeric transformer null-safe, cascade delete đúng.
+  - **C5 LightScheduleBlock**: ✅ LGTM — Finding C5-1 đã fix. `@BeforeInsert()` + `@BeforeUpdate()` validate: (1) XOR origin `(profileId == null) === (batchId == null)` → throw BadRequestException; (2) `startDay > endDay` → throw. Khớp constraints `check_light_origin` + `check_days_order` trong schema SQL. Unit tests cover 4 validation cases + 2 happy paths.
+  - **Kiến trúc & Conventions**: Entity layer đúng Clean Architecture, SRP, naming kebab/Pascal/camel/snake nhất quán. Hàm `validate()` 9 dòng — dưới ngưỡng 50.
+  - **Bảo mật**: Không hardcode secret. Defense-in-depth: entity-level validation + DB CHECK constraints. BadRequestException message an toàn (không leak internals).
+  - **Logic & Edge-cases**: Null-safe (`== null` bao gồm undefined). Error handling kín — throw rõ ràng, không silent fail. Cascade delete đúng.
+  - **Độ tối ưu**: Validation pure in-memory O(1), không query DB. Không N+1.
+  - **Test**: 8/8 pass (curve-checkpoint + light-schedule-block). Lint + build sạch.
+  - **Minor (không chặn)**: `== null` loose equality thay vì `=== null || === undefined` — intentional & safe.
+- **Quyết định**: Duyệt C4 + C5. Sprint 2 (C1–C5, D1, E1) hoàn thành 100%. Cho phép cập nhật Task C4, C5 sang `[x] Done` trong PROGRESS.md.
+
 ## [2026-07-10T15:18:00+07:00] - QA Fix Round 2: Tasks C4 + C5 (Findings C4-1 & C5-1)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Task ID**: C4, C5
