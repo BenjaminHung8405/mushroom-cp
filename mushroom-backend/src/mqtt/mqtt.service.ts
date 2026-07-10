@@ -196,24 +196,28 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           `📨 Device '${deviceId}' → ${event.status.toUpperCase()}`,
         );
       } else if (action === 'telemetry') {
-        const parsedPayload = JSON.parse(payload.toString()) as Record<
-          string,
-          unknown
-        >;
+        const parsedPayload = JSON.parse(payload.toString()) as unknown;
+        if (!parsedPayload || typeof parsedPayload !== 'object') {
+          this.logger.warn(
+            `Received invalid telemetry payload (not an object) from ${deviceId}`,
+          );
+          return;
+        }
 
+        const payloadObj = parsedPayload as Record<string, unknown>;
         const event: TelemetryEvent = {
           deviceId,
           temp_air:
-            typeof parsedPayload.temp_air === 'number'
-              ? parsedPayload.temp_air
+            typeof payloadObj.temp_air === 'number'
+              ? payloadObj.temp_air
               : null,
           humidity_air:
-            typeof parsedPayload.humidity_air === 'number'
-              ? parsedPayload.humidity_air
+            typeof payloadObj.humidity_air === 'number'
+              ? payloadObj.humidity_air
               : null,
           co2_level:
-            typeof parsedPayload.co2_level === 'number'
-              ? parsedPayload.co2_level
+            typeof payloadObj.co2_level === 'number'
+              ? payloadObj.co2_level
               : null,
           timestamp: new Date().toISOString(),
         };

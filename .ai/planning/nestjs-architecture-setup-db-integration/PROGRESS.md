@@ -84,13 +84,13 @@
 | G4 | Tạo TelemetryController (REST + SSE + history) | [ ] QA Review | - Endpoints: GET /devices/:id/telemetry (snapshot cache), SSE /devices/:id/telemetry/stream (stream live + seed ban đầu), GET /devices/:id/telemetry/history. |
 | G5 | Tạo `TelemetryModule` wire dependencies | [ ] QA Review | - Imports: `MqttModule`, `BatchModule`. `DatabaseService` dùng `@Global() DatabaseModule`. |
 | G6 | Xóa `TelemetryQueryService` legacy (Dọn dẹp) | [ ] QA Review | - **Cleanup**: Xóa file `src/database/telemetry-query.service.ts` và loại bỏ hoàn toàn các re-export / provider khai báo trong `database.module.ts`. |
-| G7 | Wire `BatchModule` & `TelemetryModule` vào `AppModule` | [ ] In Progress | - **Integration**: Import cả 2 module vào `AppModule`. Chạy thử `pnpm start:dev` để đảm bảo không lỗi DI hay circular dependencies. |
-| G8 | Verify lint / build / test | [ ] Pending | - **Gate**: `pnpm lint && pnpm build && pnpm test` đạt 0 errors, 0 warnings. |
+| G7 | Wire `BatchModule` & `TelemetryModule` vào `AppModule` | [ ] QA Review | - **Integration**: Import cả 2 module vào `AppModule`. Chạy thử `pnpm start:dev` để đảm bảo không lỗi DI hay circular dependencies. |
+| G8 | Verify lint / build / test | [ ] QA Review | - Gate: `pnpm lint && pnpm build && pnpm test` đạt 0 errors, 0 warnings. |
 
 #### Track H: Tầng Tích Hợp MQTT (MQTT Integration Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| H1 | Cập nhật `MqttService` nhận tin & dispatch setpoint | [ ] Pending | - **Subject Pattern**: `telemetry$` stream một chiều, tránh inject chéo.<br>- **Routing**: Lắng nghe `mushroom/device/+/telemetry`. Parse JSON an toàn (try-catch, không crash khi nhận tin sai định dạng). Đọc `temp_air` (nhiệt độ) và `humidity_air` (độ ẩm) từ SHT30.<br>- **`dispatchSetpoint`**: Gửi payload điều khiển dạng ON/OFF (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) tới topic `mushroom/device/{houseId}/setpoint` QoS 1. |
+| H1 | Cập nhật `MqttService` nhận tin & dispatch setpoint | [ ] In Progress | - **Subject Pattern**: `telemetry$` stream một chiều, tránh inject chéo.<br>- **Routing**: Lắng nghe `mushroom/device/+/telemetry`. Parse JSON an toàn (try-catch, không crash khi nhận tin sai định dạng). Đọc `temp_air` (nhiệt độ) và `humidity_air` (độ ẩm) từ SHT30.<br>- **`dispatchSetpoint`**: Gửi payload điều khiển dạng ON/OFF (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) tới topic `mushroom/device/{houseId}/setpoint` QoS 1. |
 
 ---
 

@@ -1,5 +1,30 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:41:00+07:00] - Task G8: Verify lint / build / test
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Thực hiện chạy kiểm tra toàn bộ ứng dụng qua quy trình kiểm soát chất lượng (Quality Gate): `pnpm lint && pnpm build && pnpm test`.
+  - Kết quả kiểm tra:
+    - ESLint kiểm tra tĩnh (linter) thành công 100% không phát sinh lỗi hay cảnh báo.
+    - Dự án NestJS build biên dịch thành công không gặp lỗi.
+    - Toàn bộ 64/64 test cases thuộc 11 test suites được hoàn thành thành công 100%.
+
+## [2026-07-10T16:39:30+07:00] - Task G7: Wire BatchModule & TelemetryModule vào AppModule
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [app.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/app.module.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Tích hợp thành công `BatchModule` và `TelemetryModule` vào danh sách `imports` của `AppModule`.
+  - Kết nối và wire đầy đủ các dependencies, giải quyết dứt điểm sự chia tách module ở Sprint 2.
+  - Tự kiểm tra:
+    - Chạy `pnpm build` biên dịch thành công 100% không có lỗi.
+    - Chạy `pnpm lint` thành công 100% không có cảnh báo/lỗi code style.
+    - Chạy `pnpm test` vượt qua toàn bộ 64/64 test cases của dự án.
+    - Kiểm tra logs của Docker container `mushroom_backend` sau khi hot-reload: Ứng dụng khởi chạy thành công, load đầy đủ routes của `BatchController` và `TelemetryController`, kết nối thành công tới database và subscribe chính xác các topic MQTT.
+
 ## [2026-07-10T16:36:10+07:00] - Task G6: Xóa TelemetryQueryService legacy (Dọn dẹp)
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
