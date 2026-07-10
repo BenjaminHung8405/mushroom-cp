@@ -164,7 +164,93 @@ public:
     bool subscribe(const char* topic, uint8_t qos) { return true; }
     
     bool connected() { return mock_connected; }
-    
+
     int state() { return 0; }
 };
+
+// ---------------------------------------------------------------------------
+// FreeRTOS stubs for host-side UNIT_TEST builds
+// ---------------------------------------------------------------------------
+
+#include <vector>
+#include <cstring>
+#include <queue>
+
+typedef void* QueueHandle_t;
+typedef void* TaskHandle_t;
+typedef void* SemaphoreHandle_t;
+typedef int32_t BaseType_t;
+typedef uint32_t UBaseType_t;
+typedef uint32_t TickType_t;
+
+#define pdTRUE  1
+#define pdFALSE 0
+#define pdPASS  1
+#define pdFAIL  0
+#define portMAX_DELAY 0xFFFFFFFFUL
+
+/**
+ * @brief Lightweight mock queue backed by std::queue.
+ * QueueHandle_t IS the MockQueue* — no indirection needed.
+ */
+struct MockQueue {
+    size_t item_size = 0;
+    size_t capacity  = 0;
+    std::queue<std::vector<uint8_t>> items;
+};
+
+inline QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemSize) {
+    MockQueue* q = new MockQueue();
+    q->capacity  = uxQueueLength;
+    q->item_size = uxItemSize;
+    return static_cast<QueueHandle_t>(q);
+}
+
+inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, TickType_t /*xTicksToWait*/) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q == nullptr) return pdFALSE;
+    if (q->items.size() >= q->capacity) return pdFALSE;
+    std::vector<uint8_t> buf(q->item_size);
+    std::memcpy(buf.data(), pvItemToQueue, q->item_size);
+    q->items.push(std::move(buf));
+    return pdTRUE;
+}
+
+inline BaseType_t xQueueReceive(QueueHandle_t xQueue, void* pvBuffer, TickType_t /*xTicksToWait*/) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q == nullptr || q->items.empty()) return pdFALSE;
+    std::memcpy(pvBuffer, q->items.front().data(), q->item_size);
+    q->items.pop();
+    return pdTRUE;
+}
+
+inline UBaseType_t uxQueueMessagesWaiting(const QueueHandle_t xQueue) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q == nullptr) return 0;
+    return static_cast<UBaseType_t>(q->items.size());
+}
+
+inline void vQueueDelete(QueueHandle_t xQueue) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q != nullptr) delete q;
+}
+
+inline void vTaskDelay(TickType_t /*xTicksToDelay*/) {}
+inline TickType_t pdMS_TO_TICKS(uint32_t ms) { return ms; }
+
+inline BaseType_t xTaskCreatePinnedToCore(
+    void (*/*pxTaskCode*/)(void*),
+    const char* /*pcName*/,
+    uint32_t /*usStackDepth*/,
+    void* /*pvParameters*/,
+    UBaseType_t /*uxPriority*/,
+    TaskHandle_t* /*pxCreatedTask*/,
+    BaseType_t /*xCoreID*/)
+{
+    return pdPASS;
+}
+
+inline UBaseType_t uxTaskGetStackHighWaterMark(void* /*xTask*/) {
+    return 4096;
+}
 

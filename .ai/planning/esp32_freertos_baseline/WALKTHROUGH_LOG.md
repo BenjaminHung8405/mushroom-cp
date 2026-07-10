@@ -1,5 +1,29 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T11:35:00+07:00] - Task H1: Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [definitions.h](mushroom-iot-firmware/include/definitions.h)
+  - Tạo mới/Sửa đổi: [core1_tasks.cpp](mushroom-iot-firmware/src/core1_tasks.cpp)
+  - Sửa đổi: [main.cpp](mushroom-iot-firmware/src/main.cpp)
+  - Sửa đổi: [Arduino.h](mushroom-iot-firmware/test/Arduino.h) — FreeRTOS Queue stubs
+  - Sửa đổi: [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **FreeRTOS Queue (Inter-Core IPC)**:
+    - `xActuatorQueue` (depth=8, item=`ActuatorCommand` 4 bytes): Core 0 → Core 1, mang lệnh điều khiển rơ-le.
+    - `xTelemetryQueue` (depth=4, item=`TelemetryData` 12 bytes): Core 1 → Core 0, mang dữ liệu cảm biến (chuẩn bị cho module Telemetry sau này).
+    - Cả hai queue được tạo trong `setup()` TRƯỚC khi ghim task, đảm bảo handle hợp lệ khi task khởi động.
+  - **`task_core1_control()` — luồng ưu tiên thời gian thực**:
+    1. Khởi tạo HAL Sensors + Actuators (fail-safe GPIO LOW).
+    2. **Priority path** mỗi tick (50 ms): drain toàn bộ `ActuatorCommand` từ queue (non-blocking `xQueueReceive` với wait=0) → gọi `set_Relay_State()` ngay lập tức.
+    3. **Periodic path** mỗi 5 s: gọi `read_all_telemetry()` → log Serial → enqueue `TelemetryData` (drop nếu queue đầy, không stall).
+    4. Demo toggle rơ-le luân phiên (Sprint-2 mock exercise) để xác nhận actuator path sống.
+    5. Stack High Water Mark log mỗi 5 s + `vTaskDelay(50 ms)` chống Watchdog.
+  - **Không malloc/new trong vòng lặp**: `TelemetryData` và `ActuatorCommand` đều stack-allocated POD.
+  - **Priority Core 1 = 2 > Core 0 = 1**: đảm bảo đọc cảm biến/đóng rơ-le không bị gián đoạn khi mạng chập chờn.
+  - **UNIT_TEST path**: vòng lặp chạy đúng 1 iteration rồi return, cho phép host-side unit test gọi trực tiếp.
+  - **Tự kiểm tra (Self-test)**: Test Case 19 trong [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp) bao phủ: tạo/xóa queue, send/receive `ActuatorCommand` FIFO, overflow guard (depth=8), send/receive `TelemetryData` toàn vẹn, gọi `task_core1_control()` 1 lần và xác nhận relay được toggle + GPIO init. Biên dịch và chạy 100% assertions pass — output `"--- All Unit Tests Passed Successfully! ---"`.
+
 ## [2026-07-10T11:20:00+07:00] - Task G2: Viết hàm `set_Relay_State()` xuất log Terminal và thay đổi trạng thái chân
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

@@ -34,6 +34,10 @@ int mock_operation_counter = 0;
 void setup();
 void loop();
 
+// Symbols exported from core1_tasks.cpp for test visibility
+extern const uint8_t DEMO_RELAY_PINS[];
+extern const size_t  DEMO_RELAY_COUNT;
+
 int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
@@ -498,6 +502,114 @@ int main() {
     assert(actuators::set_Relay_State(config::pins::PIN_ONE_WIRE, true) == false);
     // Verify no extra digitalWrite calls were made for rejected pins
     assert(mock_operation_counter == write_count_before);
+
+    // 19. Test Task H1 - Core 1 Control Task with FreeRTOS Queue Integration
+    Serial.println("[TEST] Starting Task H1 - Core 1 Control Task Unit Tests...");
+
+    // 19.1 Verify queue creation
+    QueueHandle_t test_act_queue = xQueueCreate(8, sizeof(ActuatorCommand));
+    QueueHandle_t test_tel_queue = xQueueCreate(4, sizeof(TelemetryData));
+    assert(test_act_queue != nullptr);
+    assert(test_tel_queue != nullptr);
+    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+    assert(uxQueueMessagesWaiting(test_tel_queue) == 0);
+
+    // 19.2 Send an ActuatorCommand through the queue and verify it arrives intact
+    ActuatorCommand cmd;
+    cmd.relay_id = config::pins::PIN_RELAY_MIST;
+    cmd.state    = true;
+    memset(cmd.padding, 0, sizeof(cmd.padding));
+
+    assert(xQueueSend(test_act_queue, &cmd, 0) == pdTRUE);
+    assert(uxQueueMessagesWaiting(test_act_queue) == 1);
+
+    ActuatorCommand received_cmd;
+    assert(xQueueReceive(test_act_queue, &received_cmd, 0) == pdTRUE);
+    assert(received_cmd.relay_id == config::pins::PIN_RELAY_MIST);
+    assert(received_cmd.state == true);
+    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+
+    // 19.3 Send a second command (different relay) to verify FIFO ordering
+    cmd.relay_id = config::pins::PIN_RELAY_HEATER_1;
+    cmd.state    = false;
+    memset(cmd.padding, 0, sizeof(cmd.padding));
+    assert(xQueueSend(test_act_queue, &cmd, 0) == pdTRUE);
+
+    ActuatorCommand received_cmd2;
+    assert(xQueueReceive(test_act_queue, &received_cmd2, 0) == pdTRUE);
+    assert(received_cmd2.relay_id == config::pins::PIN_RELAY_HEATER_1);
+    assert(received_cmd2.state == false);
+
+    // 19.4 Overflow guard: fill queue to capacity, then verify rejection
+    for (UBaseType_t i = 0; i < 8; ++i)
+    {
+        ActuatorCommand overflow_cmd;
+        overflow_cmd.relay_id = static_cast<uint8_t>(10 + i);
+        overflow_cmd.state    = true;
+        memset(overflow_cmd.padding, 0, sizeof(overflow_cmd.padding));
+        assert(xQueueSend(test_act_queue, &overflow_cmd, 0) == pdTRUE);
+    }
+    // Queue is now full — next send must fail
+    ActuatorCommand overflow_cmd;
+    overflow_cmd.relay_id = 99;
+    overflow_cmd.state    = true;
+    memset(overflow_cmd.padding, 0, sizeof(overflow_cmd.padding));
+    assert(xQueueSend(test_act_queue, &overflow_cmd, 0) == pdFALSE);
+    assert(uxQueueMessagesWaiting(test_act_queue) == 8);
+
+    // Drain all items
+    ActuatorCommand drain_cmd;
+    for (int i = 0; i < 8; ++i)
+    {
+        assert(xQueueReceive(test_act_queue, &drain_cmd, 0) == pdTRUE);
+    }
+    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+
+    // 19.5 Send TelemetryData through telemetry queue
+    TelemetryData tel_data;
+    tel_data.temp_substrate = 22.5f;
+    tel_data.humidity_air   = 80.0f;
+    tel_data.co2_level      = 600.0f;
+
+    assert(xQueueSend(test_tel_queue, &tel_data, 0) == pdTRUE);
+    assert(uxQueueMessagesWaiting(test_tel_queue) == 1);
+
+    TelemetryData received_tel;
+    assert(xQueueReceive(test_tel_queue, &received_tel, 0) == pdTRUE);
+    assert(received_tel.temp_substrate == 22.5f);
+    assert(received_tel.humidity_air   == 80.0f);
+    assert(received_tel.co2_level      == 600.0f);
+    assert(uxQueueMessagesWaiting(test_tel_queue) == 0);
+
+    // 19.6 Test task_core1_control single iteration (UNIT_TEST path)
+    // Reset sensor state so init succeeds
+    sensors::init_sensors_placeholder();
+    mock_pin_modes.clear();
+    mock_pin_values.clear();
+    mock_pin_write_order.clear();
+    mock_operation_counter = 0;
+
+    // Call the task once — it will read sensors, toggle a relay, and return
+    task_core1_control(nullptr);
+
+    // Verify that at least one relay was toggled by the demo cycle
+    bool any_relay_toggled = false;
+    for (size_t i = 0; i < DEMO_RELAY_COUNT; ++i)
+    {
+        if (mock_pin_values.count(DEMO_RELAY_PINS[i]) > 0)
+        {
+            any_relay_toggled = true;
+            break;
+        }
+    }
+    assert(any_relay_toggled == true);
+
+    // Verify sensors were initialized (pin modes recorded)
+    assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) > 0);
+
+    // 19.7 Cleanup queues
+    vQueueDelete(test_act_queue);
+    vQueueDelete(test_tel_queue);
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

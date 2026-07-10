@@ -3,6 +3,22 @@
 #include "storage.h"
 #include "config.h"
 
+// Queue depth constants — sized for the expected inter-core message rate.
+// Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
+// Telemetry samples are produced every 5 s; depth of 4 is enough for Core 0 to
+// drain without blocking Core 1.
+static constexpr UBaseType_t ACTUATOR_QUEUE_DEPTH  = 8;
+static constexpr UBaseType_t TELEMETRY_QUEUE_DEPTH = 4;
+
+// Core 1 task has higher (or equal) priority than Core 0 so that sensor reads
+// and relay switching are never starved by network activity.
+static constexpr UBaseType_t CORE0_TASK_PRIORITY = 1;
+static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
+
+// Stack budgets (bytes).  Core 0 needs more room for TLS / JSON parsing.
+static constexpr uint32_t CORE0_STACK_BYTES = 4096;
+static constexpr uint32_t CORE1_STACK_BYTES = 4096;
+
 void setup()
 {
     // Initialize Serial interface
@@ -24,31 +40,81 @@ void setup()
     // 2. Load runtime configuration from NVS
     config::network::load_runtime_config();
 
-    // 3. Create and pin Task Core 0 Communication to Core 0
-    // Stack size: 4096 bytes
-    // Priority: 1
-    // Pinned to Core 0
-    #ifndef UNIT_TEST
-    BaseType_t result = xTaskCreatePinnedToCore(
-        task_core0_communication,    // Task function
-        "TaskCore0Comm",             // Name of task
-        4096,                        // Stack size in bytes (4096)
-        nullptr,                     // Parameter to pass
-        1,                           // Task priority
-        nullptr,                     // Task handle
-        0                            // Pin to Core 0
-    );
-
-    if (result == pdPASS)
+    // 3. Create FreeRTOS Queues for inter-core communication
+    //    Must be created BEFORE either task starts so both cores see valid handles.
+    xActuatorQueue = xQueueCreate(ACTUATOR_QUEUE_DEPTH, sizeof(ActuatorCommand));
+    if (xActuatorQueue == nullptr)
     {
-        Serial.println("[MAIN] Pinned task_core0_communication to Core 0 successfully.");
+        Serial.println("[MAIN] FATAL: Failed to create xActuatorQueue!");
     }
     else
     {
-        Serial.printf("[MAIN] ERROR: Failed to create task_core0_communication (code: %d)!\n", (int)result);
+        Serial.printf("[MAIN] xActuatorQueue created (depth=%u, item=%u bytes).\n",
+                      static_cast<unsigned>(ACTUATOR_QUEUE_DEPTH),
+                      static_cast<unsigned>(sizeof(ActuatorCommand)));
+    }
+
+    xTelemetryQueue = xQueueCreate(TELEMETRY_QUEUE_DEPTH, sizeof(TelemetryData));
+    if (xTelemetryQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xTelemetryQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xTelemetryQueue created (depth=%u, item=%u bytes).\n",
+                      static_cast<unsigned>(TELEMETRY_QUEUE_DEPTH),
+                      static_cast<unsigned>(sizeof(TelemetryData)));
+    }
+
+    #ifndef UNIT_TEST
+    // 4. Create and pin Task Core 0 Communication to Core 0
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            task_core0_communication, // Task function
+            "TaskCore0Comm",          // Name of task
+            CORE0_STACK_BYTES,        // Stack size in bytes
+            nullptr,                  // Parameter to pass
+            CORE0_TASK_PRIORITY,      // Task priority
+            nullptr,                  // Task handle
+            0                         // Pin to Core 0
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned task_core0_communication to Core 0 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create task_core0_communication (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
+
+    // 5. Create and pin Task Core 1 Control to Core 1
+    //    Higher priority than Core 0 ensures real-time sensor/actuator response.
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            task_core1_control,  // Task function
+            "TaskCore1Ctrl",     // Name of task
+            CORE1_STACK_BYTES,   // Stack size in bytes
+            nullptr,             // Parameter to pass
+            CORE1_TASK_PRIORITY, // Task priority (higher than Core 0)
+            nullptr,             // Task handle
+            1                    // Pin to Core 1
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned task_core1_control to Core 1 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create task_core1_control (code: %d)!\n",
+                          static_cast<int>(result));
+        }
     }
     #else
-    Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS task.");
+    Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
     #endif
 }
 
