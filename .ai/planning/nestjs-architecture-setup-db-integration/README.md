@@ -1,6 +1,6 @@
 # NestJS Architecture Setup & DB Integration (Refactored for Production)
 
-Dự án này thiết lập và hoàn thiện kiến trúc cho backend NestJS (`mushroom-backend`), tập trung vào việc tái cấu trúc kết nối cơ sở dữ liệu TimescaleDB (TypeORM), triển khai cơ chế an toàn sinh học (Bio-safety Closed-Loop Fail-Safe), lưu trữ đệm tối ưu hiệu năng mô phỏng (Hypertable Chunk Preservation), đồng bộ hóa múi giờ Việt Nam (Asia/Ho_Chi_Minh UTC+7), và quy hoạch hệ thống di cư cơ sở dữ liệu bằng migrations.
+Dự án này thiết lập và hoàn thiện kiến trúc cho backend NestJS (`mushroom-backend`), tập trung vào việc tái cấu trúc kết nối cơ sở dữ liệu TimescaleDB (TypeORM), triển khai cơ chế an toàn sinh học (Bio-safety Closed-Loop Fail-Safe), đồng bộ hóa múi giờ Việt Nam (Asia/Ho_Chi_Minh UTC+7), và quy hoạch hệ thống di cư cơ sở dữ liệu bằng migrations.
 
 ---
 
@@ -12,15 +12,11 @@ Dự án này thiết lập và hoàn thiện kiến trúc cho backend NestJS (`
    - Cung cấp phương thức `query()` dùng chung trên `DataSource` để chạy các câu lệnh SQL đặc thù của TimescaleDB (như `time_bucket`).
 
 2. **Cơ chế An toàn Sinh học Vòng lặp Khép kín (Bio-safety Closed-Loop Fail-Safe)**:
-   - Tránh hiện tượng phần cứng giữ nguyên trạng thái cũ (ví dụ: máy phun sương mở 100%, quạt đối lưu tắt) khi kết nối cơ sở dữ liệu bị sập hoặc gặp sự cố.
-   - Thiết lập quy trình xử lý `try/catch/finally` trong việc ingestion telemetry. Nếu ghi cơ sở dữ liệu thất bại, hệ thống tự động fallback sang cấu hình khẩn cấp an toàn (`mist_generator_pwm = 0`, `convection_fan_pwm = 10`, `heating_lamp_active = false`).
-   - Khối `finally` bắt buộc phải gửi MQTT lệnh setpoint phản hồi cho thiết bị.
+   - Tránh hiện tượng phần cứng giữ nguyên trạng thái cũ (ví dụ: máy phun sương mở, quạt đối lưu tắt) khi kết nối cơ sở dữ liệu bị sập hoặc gặp sự cố.
+   - Thiết lập quy trình xử lý `try/catch/finally` trong việc nhận dữ liệu cảm biến (telemetry ingestion). Nếu ghi cơ sở dữ liệu thất bại, hệ thống tự động fallback sang cấu hình khẩn cấp an toàn (`mist_generator_active = false`, `convection_fan_active = true`, `heating_lamp_active = false`).
+   - Khối `finally` bắt buộc phải gửi MQTT lệnh setpoint phản hồi trạng thái ON/OFF cho thiết bị.
 
-3. **Bảo tồn phân mảnh bảng (Hypertable Chunk Preservation trong Simulation)**:
-   - Khi chạy giả lập tua nhanh thời gian (> 1x), lượng dữ liệu telemetry đổ về liên tục làm kích hoạt TimescaleDB sinh chunk mới dồn dập, dẫn tới khóa bảng và nghẽn pool.
-   - Thiết kế cơ chế đệm dữ liệu (buffer queue). Chỉ khi đạt ngưỡng số lượng bản ghi (ví dụ: 100 bản ghi) hoặc đạt khoảng thời gian cấu hình, hệ thống sẽ thực hiện một truy vấn **BULK INSERT** duy nhất.
-
-4. **Đồng bộ hóa Múi giờ UTC+7 (Asia/Ho_Chi_Minh Timezone Safety)**:
+3. **Đồng bộ hóa Múi giờ UTC+7 (Asia/Ho_Chi_Minh Timezone Safety)**:
    - Đảm bảo các quy tắc sinh học vận hành đúng khung giờ (như giờ cấm phun sương buổi trưa 11:00 - 13:30) độc lập với múi giờ của máy chủ host (UTC+0 trên Docker).
    - Sử dụng thư viện `date-fns-tz` để chuẩn hóa mốc thời gian telemetry về múi giờ `Asia/Ho_Chi_Minh` trước khi đối chiếu khoảng thời gian.
 
@@ -57,11 +53,11 @@ Dự án này thiết lập và hoàn thiện kiến trúc cho backend NestJS (`
 - **Lớp (Class)**: PascalCase.
   - Ví dụ: `TelemetryService`, `MushroomHouseEntity`.
 - **Hàm & Biến**: camelCase.
-  - Ví dụ: `processTelemetry()`, `isSimulationActive`, `emergencyPayload`.
+  - Ví dụ: `processTelemetry()`, `isMqttConnected`, `emergencyPayload`.
 - **Thư mục**: kebab-case.
   - Ví dụ: `src/batch/entities/`.
 - **Bảng CSDL & Cột**: snake_case.
-  - Ví dụ: `mushroom_houses`, `mist_generator_pwm`.
+  - Ví dụ: `mushroom_houses`, `mist_generator_active`.
 
 ### 3.3. Quy Tắc Xử Lý Lỗi (Error Handling)
 - **Nghiêm cấm "silent catch"**: Tuyệt đối không để trống catch-block hoặc catch mà chỉ in console thô sơ không có log có cấu trúc.

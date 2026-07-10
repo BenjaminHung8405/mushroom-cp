@@ -1,66 +1,71 @@
-# Sprint 3: Telemetry Module & Closed-Loop Fail-Safe — ❌ CHƯA BẮT ĐẦU
+# Sprint 3: Telemetry, ON/OFF Control, System Integration & Cleanup — ❌ CHƯA BẮT ĐẦU
 
-> **Status**: `[ ] Pending` — Đây là sprint tiếp theo cần implement. Blocker: Sprint 2 cần QA pass trước khi test end-to-end.
-> Có thể bắt đầu implement song song trong khi Sprint 2 đang QA Review.
+> **Status**: `[ ] Pending` — Đây là sprint tiếp theo cần implement.
+> **Scope**: Tích hợp dữ liệu thời gian thực từ cảm biến SHT30 (nhiệt độ & độ ẩm) và SCD30 (CO2), chạy vòng điều khiển ON/OFF khép kín (ON/OFF Control Loop), bảo vệ thiết bị bằng cơ chế An toàn Sinh học (Bio-safety Fail-Safe), dọn dẹp code cũ và tích hợp toàn hệ thống vào AppModule.
 
 ---
 
 ## 1. MỤC TIÊU & PHẠM VI
 
-Triển khai lõi xử lý dữ liệu thời gian thực. Nhận telemetry từ ESP32 qua MQTT, chạy vòng lặp điều khiển khép kín (closed-loop): tính PWM cho cơ cấu chấp hành, lưu vào TimescaleDB, dispatch setpoints về phần cứng. Bảo vệ toàn bộ bằng Bio-safety Fail-Safe `try/catch/finally`.
+1. **SHT30 làm cảm biến chính**: Loại bỏ hoàn toàn cảm biến phụ DS18B20. SHT30 sẽ chịu trách nhiệm đo cả nhiệt độ không khí (`temperature_measured`) và độ ẩm không khí (`humidity_measured`).
+2. **Điều khiển ON/OFF (Không dùng PWM)**: Thay thế toàn bộ PWM bằng các trạng thái bật/tắt (boolean: `true`/`false`) cho máy phun sương siêu âm (`mist_generator_active`) và quạt đối lưu (`convection_fan_active`).
+3. **Cơ chế Idle Guard & Emergency Fallback**:
+   - **Idle Guard**: Khi nhà nấm trống (không có vụ nuôi `ACTIVE`), tắt toàn bộ thiết bị chấp hành để tiết kiệm năng lượng.
+   - **Emergency Fallback**: Khi xảy ra lỗi hệ thống/DB đột ngột trong lúc nuôi, tự động gán trạng thái an toàn khẩn cấp (`mist = false`, `fan = true`, `lamp = false`) để cứu nấm.
+4. **Hủy rò rỉ bộ nhớ**: Tránh rò rỉ bộ nhớ RxJS bằng cách triển khai `OnModuleDestroy` trong `TelemetryService`.
+5. **Dọn dẹp & Tích hợp**: Xóa bỏ `TelemetryQueryService` cũ, wire toàn bộ hệ thống vào `AppModule`.
 
-**Prerequisite**:
-- ✅ Sprint 1: `DatabaseService.query()` sẵn sàng
-- ⏳ Sprint 2: `BatchService.getBatchContext()` cần QA pass
-- ✅ EMQX ACL: `nestjs_backend` đã có quyền subscribe `mushroom/#`
+**Các file tạo/sửa:**
 
-**Files cần tạo/sửa:**
-
-| File | Action |
-|---|---|
-| [`src/mqtt/mqtt.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts) | Sửa đổi — thêm subscribe telemetry + `dispatchSetpoint()` |
-| `src/telemetry/entities/telemetry-log.entity.ts` | Tạo mới |
-| `src/telemetry/services/telemetry.service.ts` | Tạo mới |
-| `src/telemetry/telemetry.module.ts` | Tạo mới |
-| `src/telemetry/telemetry.controller.ts` | Tạo mới |
+| File | Action | Description |
+|---|---|---|
+| [`src/mqtt/mqtt.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts) | Sửa đổi | Subscribe topic telemetry SHT30, emit qua Subject và gửi lệnh setpoint ON/OFF |
+| `src/telemetry/entities/telemetry-log.entity.ts` | Tạo mới | Entity ánh xạ bảng `telemetry_logs` hypertable với các cột ON/OFF mới |
+| `src/telemetry/services/telemetry.service.ts` | Tạo mới | Closed-loop ON/OFF control, xử lý Midday Blackout, Idle Guard và Fail-safe |
+| `src/telemetry/telemetry.controller.ts` | Tạo mới | Controller cho endpoints REST API & SSE live stream |
+| `src/telemetry/telemetry.module.ts` | Tạo mới | Module wire các thành phần Telemetry |
+| `src/database/database.module.ts` | Sửa đổi | Loại bỏ legacy `TelemetryQueryService` |
+| `src/database/telemetry-query.service.ts` | Xóa | Xóa bỏ hoàn toàn code query cũ |
+| `src/app.module.ts` | Sửa đổi | Đăng ký `BatchModule` và `TelemetryModule` vào luồng ứng dụng chính |
 
 ---
 
 ## 2. KIẾN TRÚC & LUỒNG DỮ LIỆU
 
 ```
-[ESP32 cảm biến]
-     │
-     │ MQTT: mushroom/device/{houseId}/telemetry
-     │ Payload: { "temp_air": 28.5, "temp_substrate": 30.1, "humidity_air": 82.3, "co2_level": 950 }
-     ▼
-[mqtt.service.ts] ──subscribe──► handleIncomingMessage()
-     │
-     │ route telemetry topic
-     ▼
-[telemetry.service.ts: processTelemetry(houseId, measurements, timestamp)]
-     │
-     │ try block:
-     ├──► [1] batchService.getBatchContext(houseId, timestamp)  ──► BatchContext
-     ├──► [2] calculateControlOutputs(measurements, context, timestamp) ──► ControlActions
-     │         │
-     │         ├── Kiểm tra midday blackout (UTC+7 via date-fns-tz)
-     │         ├── Tính mist_generator_pwm (proportional humidity control)
-     │         ├── Tính convection_fan_pwm (CO2 + temp balance)
-     │         └── Tính heating_lamp_active (temp < optimal_min)
-     ├──► [3] saveTelemetryLog(houseId, measurements, context, controlActions, timestamp)
-     │         └── DatabaseService.query() → INSERT telemetry_logs (raw SQL)
-     │
-     │ catch(error):
-     ├──► Logger.error(message + stacktrace)
-     └──► controlActions = EMERGENCY_FALLBACK (mist=0, fan=10, lamp=false)
-     │
-     │ finally (BẮT BUỘC, luôn chạy):
-     └──► mqttService.dispatchSetpoint(houseId, controlActions)
-               │
-               │ MQTT: mushroom/device/{houseId}/setpoint
-               ▼
-         [ESP32 cơ cấu chấp hành] → Điều khiển Relay/PWM
+[SHT30 / SCD30 Cảm biến trên ESP32]
+      │
+      │ MQTT: mushroom/device/{houseId}/telemetry
+      │ Payload: { "temp_air": 28.5, "humidity_air": 82.3, "co2_level": 950 }
+      ▼
+[mqtt.service.ts] ──subscribe──► handleIncomingMessage() ──emit──► telemetry$ Subject
+      │
+      ▼
+[telemetry.service.ts: processTelemetry(houseId, event, timestamp)]
+      │
+      │ try block:
+      ├──► [1] batchService.getBatchContext(houseId, timestamp)  ──► BatchContext
+      │
+      ├──► [2] calculateControlOutputs(event, context, timestamp) ──► ControlActions
+      │         │
+      │         ├── Idle Guard: Nếu context.batchId === null (nhà trống) → tắt tất cả thiết bị (false)
+      │         ├── Kiểm tra midday blackout (UTC+7 qua date-fns-tz)
+      │         ├── Mist Active: !blackout && humidity_measured < target_humid
+      │         ├── Fan Active: temp_air > target_temp || co2_level > 1000
+      │         └── Heating Lamp Active: temp_air < temp_optimal_min
+      │
+      ├──► [3] saveTelemetryLog(houseId, event, context, controlActions, timestamp)
+      │         └── Raw SQL INSERT thô qua DatabaseService.query()
+      │
+      │ catch(error):
+      ├──► Logger.error(error.stack)
+      └──► controlActions = EMERGENCY_FALLBACK (mist=false, fan=true, lamp=false)
+      │
+      │ finally:
+      └──► mqttService.dispatchSetpoint(houseId, controlActions) (Bọc trong try/catch an toàn)
+                │
+                ▼ MQTT: mushroom/device/{houseId}/setpoint
+          [ESP32 điều khiển Relay Bật/Tắt]
 ```
 
 ---
@@ -70,311 +75,139 @@ Triển khai lõi xử lý dữ liệu thời gian thực. Nhận telemetry từ
 ### TRACK 1 — MQTT Integration (H1)
 
 #### Task 3.1 — Cập nhật `mqtt.service.ts`
-
-**File sửa đổi**: [`src/mqtt/mqtt.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts)
-
-**Hành động cụ thể**:
-
-1. **Rename + mở rộng `subscribeToStatusTopics()`** → `subscribeToTopics()`:
-   - Giữ nguyên subscribe `mushroom/device/+/status` (QoS 1)
-   - Thêm subscribe `mushroom/device/+/telemetry` (QoS 1):
-   ```typescript
-   this.client.subscribe('mushroom/device/+/telemetry', { qos: 1 }, (err) => { ... });
-   ```
-
-2. **Thêm `Subject<TelemetryEvent>` public stream**:
-   ```typescript
-   export interface TelemetryEvent {
-     deviceId: string;
-     temp_air: number | null;
-     temp_substrate: number | null;
-     humidity_air: number | null;
-     co2_level: number | null;
-     timestamp: string;  // ISO string
-   }
-   public readonly telemetry$ = new Subject<TelemetryEvent>();
-   private readonly telemetryCache = new Map<string, TelemetryEvent>();
-   ```
-
-3. **Cập nhật `handleIncomingMessage()`** — thêm routing cho telemetry:
-   ```typescript
-   // Phân loại topic theo segment thứ 4
-   const eventType = topicParts[3]; // 'status' hoặc 'telemetry'
-   if (eventType === 'status') { /* logic hiện tại */ }
-   if (eventType === 'telemetry') { this.handleTelemetryMessage(deviceId, payload); }
-   ```
-
-4. **Thêm method `handleTelemetryMessage(deviceId, payload)`** (private):
-   - Parse JSON payload
-   - Validate numeric fields (null-safe)
-   - Tạo `TelemetryEvent`, update `telemetryCache`, emit `telemetry$.next(event)`
-
-5. **Thêm method `dispatchSetpoint(houseId, controlPayload)`**:
-   ```typescript
-   dispatchSetpoint(houseId: string, controlPayload: object): void {
-     const topic = `mushroom/device/${houseId}/setpoint`;
-     this.client.publish(topic, JSON.stringify(controlPayload), { qos: 1 }, ...);
-   }
-   ```
-
-6. **Thêm `getAllTelemetry()`**: Trả về `telemetryCache` values — dùng để seed SSE client mới kết nối.
-
-> ⚠️ **Tránh Circular Dependency**: `MqttService` **KHÔNG** inject `TelemetryService` trực tiếp. Thay vào đó: `MqttService` emit `telemetry$` Subject. `TelemetryService` subscribe Subject này trong `onModuleInit()`. Pattern này đảm bảo dependency graph là một chiều.
+- **Topic Telemetry**: Subscribe `mushroom/device/+/telemetry` QoS 1.
+- **Subject Stream**: Khai báo `telemetry$` nhận `TelemetryEvent`:
+  ```typescript
+  export interface TelemetryEvent {
+    deviceId: string;
+    temp_air: number | null;     // Nhiệt độ không khí từ SHT30
+    humidity_air: number | null; // Độ ẩm không khí từ SHT30
+    co2_level: number | null;    // CO2 từ SCD30
+    timestamp: string;           // ISO string
+  }
+  public readonly telemetry$ = new Subject<TelemetryEvent>();
+  ```
+- **Error Handling**: Wrap logic JSON parsing của tin nhắn đến trong block `try/catch`. Nếu parse lỗi hoặc format sai, chỉ ghi log cảnh báo (`this.logger.warn`) thay vì ném exception gây crash MQTT client.
+- **`dispatchSetpoint(houseId, controlPayload)`**: Publish lệnh trạng thái ON/OFF:
+  ```typescript
+  dispatchSetpoint(houseId: string, payload: {
+    mist_generator_active: boolean;
+    convection_fan_active: boolean;
+    heating_lamp_active: boolean;
+    midday_blackout_active: boolean;
+  }): void {
+    const topic = `mushroom/device/${houseId}/setpoint`;
+    this.client.publish(topic, JSON.stringify(payload), { qos: 1 });
+  }
+  ```
 
 ---
 
-### TRACK 2 — DB Entity (F1)
+### TRACK 2 — DB Entity & Migrations (F1)
 
 #### Task 3.2 — Tạo `telemetry-log.entity.ts`
+- **File tạo mới**: `src/telemetry/entities/telemetry-log.entity.ts`
+- Định nghĩa schema trùng khớp với `schema.sql` (sử dụng kiểu `boolean` cho các actuator):
+  ```typescript
+  @Entity('telemetry_logs', { synchronize: false })
+  export class TelemetryLog {
+    @PrimaryColumn({ type: 'timestamptz', name: 'time' })
+    time: Date;
 
-**File tạo mới**: `src/telemetry/entities/telemetry-log.entity.ts`
+    @PrimaryColumn({ name: 'batch_id' })
+    batchId: string;
 
-**Hành động cụ thể**:
-```typescript
-@Entity('telemetry_logs', { synchronize: false })  // KHÔNG để TypeORM sync hypertable
-export class TelemetryLog {
-  @PrimaryColumn({ type: 'timestamptz', name: 'time' })
-  time: Date;
+    @Column({ name: 'house_id' })
+    houseId: string;
 
-  @PrimaryColumn({ name: 'batch_id' })
-  batchId: string;
+    @Column({ name: 'crop_day_int' })
+    cropDayInt: number;
 
-  @Column({ name: 'house_id' })
-  houseId: string;
+    @Column('numeric', { name: 'humidity_measured', nullable: true, transformer: numericTransformer })
+    humidityMeasured: number | null;
 
-  @Column({ name: 'crop_day_int' })
-  cropDayInt: number;
+    @Column('numeric', { name: 'temperature_measured', nullable: true, transformer: numericTransformer })
+    temperatureMeasured: number | null;
 
-  // Sensor measurements (nullable — có thể thiếu nếu sensor lỗi)
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  humidityMeasured: number | null;
+    @Column({ name: 'co2_measured', nullable: true })
+    co2Measured: number | null;
 
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  temperatureMeasured: number | null;
+    @Column('numeric', { name: 'humidity_setpoint', nullable: true, transformer: numericTransformer })
+    humiditySetpoint: number | null;
 
-  @Column({ nullable: true })
-  co2Measured: number | null;
+    @Column('numeric', { name: 'temperature_setpoint', nullable: true, transformer: numericTransformer })
+    temperatureSetpoint: number | null;
 
-  // Control setpoints
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  humiditySetpoint: number | null;
+    @Column('numeric', { name: 'humidity_error_delta', nullable: true, transformer: numericTransformer })
+    humidityErrorDelta: number | null;
 
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  temperatureSetpoint: number | null;
+    @Column('numeric', { name: 'temperature_error_delta', nullable: true, transformer: numericTransformer })
+    temperatureErrorDelta: number | null;
 
-  // Error deltas
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  humidityErrorDelta: number | null;
+    @Column({ name: 'mist_generator_active', default: false })
+    mistGeneratorActive: boolean;
 
-  @Column('numeric', { nullable: true, transformer: numericTransformer })
-  temperatureErrorDelta: number | null;
+    @Column({ name: 'convection_fan_active', default: false })
+    convectionFanActive: boolean;
 
-  // Actuator outputs
-  @Column({ nullable: true })
-  mistGeneratorPwm: number | null;
+    @Column({ name: 'heating_lamp_active', default: false })
+    heatingLampActive: boolean;
 
-  @Column({ nullable: true })
-  convectionFanPwm: number | null;
-
-  @Column({ default: false })
-  heatingLampActive: boolean;
-
-  @Column({ default: false })
-  middayBlackoutActive: boolean;
-}
-```
-
-> ⚠️ `synchronize: false` là bắt buộc — tránh TypeORM tạo bảng thường đè lên TimescaleDB hypertable.
-> Composite Primary Key (`time` + `batch_id`) tương thích cơ chế phân mảnh chunk của TimescaleDB.
+    @Column({ name: 'midday_blackout_active', default: false })
+    middayBlackoutActive: boolean;
+  }
+  ```
 
 ---
 
-### TRACK 3 — Business Logic (G1, G2, G3)
+### TRACK 3 — Business Control Loop (G1, G2, G3)
 
 #### Task 3.3 — Tạo `telemetry.service.ts`
-
-**File tạo mới**: `src/telemetry/services/telemetry.service.ts`
-
-**Constructor dependencies**:
-```typescript
-constructor(
-  private readonly mqttService: MqttService,
-  private readonly batchService: BatchService,
-  private readonly db: DatabaseService,
-) {}
-```
-
-**`onModuleInit()`** — Subscribe MQTT telemetry stream:
-```typescript
-onModuleInit(): void {
-  this.mqttService.telemetry$.subscribe(async (event) => {
-    await this.processTelemetry(event.deviceId, event, new Date(event.timestamp));
-  });
-}
-```
-
-**`processTelemetry(houseId, measurements, timestamp)`** — Lõi closed-loop:
-```typescript
-async processTelemetry(houseId: string, measurements: TelemetryEvent, timestamp: Date): Promise<void> {
-  // Khởi tạo fallback an toàn
-  let controlActions: ControlActions = {
-    mist_generator_pwm: 0,
-    convection_fan_pwm: 10,
-    heating_lamp_active: false,
-    midday_blackout_active: false,
-  };
-
-  try {
-    const context = await this.batchService.getBatchContext(houseId, timestamp);
-    controlActions = this.calculateControlOutputs(measurements, context, timestamp);
-    await this.saveTelemetryLog(houseId, measurements, context, controlActions, timestamp);
-    this.updateLatestCache(houseId, measurements, context, controlActions, timestamp);
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    this.logger.error(`Control loop failed for house '${houseId}'. Emergency fallback. Error: ${msg}`, (error as Error)?.stack);
-    // controlActions giữ nguyên giá trị fallback khẩn cấp
-  } finally {
-    // BẮT BUỘC: gửi setpoint bất kể DB thành công hay thất bại
-    this.mqttService.dispatchSetpoint(houseId, controlActions);
-  }
-}
-```
-
-**`calculateControlOutputs(measurements, context, timestamp)`** (private):
-- Lấy sensors: `temp = measurements.temp_air`, `humid = measurements.humidity_air`
-- **Midday Blackout** (UTC+7):
-  ```typescript
-  const zonedDate = toZonedTime(timestamp, 'Asia/Ho_Chi_Minh');
-  const minutesSinceMidnight = zonedDate.getHours() * 60 + zonedDate.getMinutes();
-  const startMin = parseTimeToMinutes(context.thermalShockStart); // e.g., "11:00:00" → 660
-  const endMin = parseTimeToMinutes(context.thermalShockEnd);     // e.g., "13:30:00" → 810
-  const isBlackout = context.thermalShockProtection && minutesSinceMidnight >= startMin && minutesSinceMidnight <= endMin;
-  ```
-- **Mist PWM**: Nếu blackout → `0`. Nếu thiếu ẩm (`humid < targetHumid`) → `Math.min(100, Math.round((targetHumid - humid) * 5))`. Nếu đủ → `0`
-- **Fan PWM**: Baseline `10`% + tăng nếu lệch nhiệt độ lớn (max `50`%)
-- **Heating Lamp**: `temp < context.tempOptimalMin` → `true`
-
-**`saveTelemetryLog(...)` (private)** — Raw SQL INSERT:
-- Sử dụng `DatabaseService.query()` với INSERT SQL thô (không qua ORM)
-- Tái sử dụng query string từ `TelemetryQueryService` hiện có (legacy reference)
-- Tính `humidityErrorDelta = targetHumid - humid`, `temperatureErrorDelta = targetTemp - temp`
-
-**`getLatestTelemetry(houseId)`** — public:
-- Đọc từ in-memory `latestCache` Map trước (sub-millisecond)
-- Fallback: `DatabaseService.query()` SELECT ORDER BY time DESC LIMIT 1
-
-**`getTelemetryHistory(houseId, from, to)`** — public:
-- Raw SQL với `time BETWEEN $2 AND $3`, ORDER BY time ASC
-- Dùng cho chart endpoint
-
-**`latestCache: Map<string, CombinedTelemetrySnapshot>`** — in-memory:
-- Update sau mỗi `processTelemetry()` thành công
-- Seed dữ liệu ban đầu khi SSE client mới kết nối
+- **RxJS Vòng đời**: Subscribe `mqttService.telemetry$` trong `onModuleInit()`. Bắt buộc implement `onModuleDestroy()` để `unsubscribe()` các luồng nhằm tránh rò rỉ bộ nhớ khi chạy thử nghiệm hoặc Hot Reload.
+- **`processTelemetry`**: Lõi try-catch-finally khép kín:
+  - **Idle Guard**: Kiểm tra nếu `context.batchId === null` (nhà trống) → lập tức set `controlActions` về trạng thái IDLE (tắt toàn bộ thiết bị) và lưu log, bỏ qua tính toán vòng lặp sinh học.
+  - **Emergency Fallback (catch)**: Nếu CSDL bị sập hoặc lỗi logic, bắt exception, log chi tiết kèm stacktrace, và tự động đặt `controlActions` về an toàn khẩn cấp (`mist = false`, `fan = true`, `lamp = false`).
+  - **Finally dispatch**: Luôn thực hiện `dispatchSetpoint()`. Bao bọc lời gọi này trong một khối `try/catch` con để ngăn cản việc lỗi gửi MQTT làm nuốt mất exception gốc của khối `try` chính.
+- **`calculateControlOutputs` (ON/OFF Logic)**:
+  - **Khóa sốc nhiệt giữa trưa (UTC+7)**: Kiểm tra nếu `thermalShockProtection === true` và thời gian thuộc `[11:00, 13:30]` → bật cờ `midday_blackout_active = true`.
+  - **Mist Generator**: Nếu blackout → `false`. Nếu thiếu ẩm (`humidityMeasured < targetHumid`) → `true`. Ngược lại → `false`.
+  - **Convection Fan**: Nếu `temperatureMeasured > targetTemp` hoặc `co2Measured > 1000` → `true`. Ngược lại → `false`.
+  - **Heating Lamp**: Nếu `temperatureMeasured < tempOptimalMin` → `true`. Ngược lại → `false`.
 
 ---
 
-### TRACK 4 — Controller & SSE (G3 mở rộng)
+### TRACK 4 — REST, SSE & History API (G4, G5)
 
-#### Task 3.4 — Tạo `telemetry.controller.ts`
-
-**File tạo mới**: `src/telemetry/telemetry.controller.ts`
-
-```typescript
-@Controller('devices')
-export class TelemetryController {
-  // GET /devices/:id/telemetry — last known snapshot
-  @Get(':id/telemetry')
-  getLatestTelemetry(@Param() params: DeviceParamsDto) { ... }
-
-  // SSE /devices/:id/telemetry/stream — real-time stream
-  @Sse(':id/telemetry/stream')
-  streamTelemetry(@Param() params: DeviceParamsDto): Observable<MessageEvent> {
-    const seed$ = of(this.telemetryService.getLatestTelemetry(params.id));
-    const live$ = this.mqttService.telemetry$.pipe(
-      filter(event => event.deviceId === params.id)
-    );
-    return merge(seed$, live$).pipe(
-      map(data => ({ type: 'telemetry', data }) satisfies MessageEvent)
-    );
-  }
-
-  // GET /devices/:id/telemetry/history?from=&to= — time-series for chart
-  @Get(':id/telemetry/history')
-  getTelemetryHistory(
-    @Param() params: DeviceParamsDto,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) { ... }
-}
-```
+#### Task 3.4 — Tạo `telemetry.controller.ts` & Module
+- **Endpoints**:
+  - `GET /devices/:id/telemetry`: Lấy dữ liệu snapshot mới nhất từ in-memory cache.
+  - `SSE /devices/:id/telemetry/stream`: Đẩy luồng dữ liệu thời gian thực. Sử dụng snapshot cache làm event đầu tiên (seed event) để giao diện UI hiển thị tức thì không bị trễ.
+  - `GET /devices/:id/telemetry/history?from=&to=`: Truy xuất dữ liệu lịch sử thô phục vụ vẽ biểu đồ (sử dụng query SQL thô qua `DatabaseService.query()`).
+- **Module**: Khởi tạo `TelemetryModule` đăng ký `TelemetryService` và `TelemetryController`. Export `TelemetryService`.
 
 ---
 
-### TRACK 5 — Module Setup
+### TRACK 5 — Dọn Dẹp & Đồng Bộ Hệ Thống (G6, G7)
 
-#### Task 3.5 — Tạo `telemetry.module.ts`
+#### Task 3.5 — Xóa `TelemetryQueryService` cũ (J1)
+- Xóa bỏ tệp tin legacy [`src/database/telemetry-query.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/telemetry-query.service.ts).
+- Clean `DatabaseModule`: gỡ bỏ các khai báo import/export và provider liên quan đến `TelemetryQueryService`.
 
-```typescript
-@Module({
-  imports: [MqttModule, BatchModule],  // BatchModule export BatchService
-  providers: [TelemetryService],
-  controllers: [TelemetryController],
-  exports: [TelemetryService],
-})
-export class TelemetryModule {}
-```
-
-> `BatchModule` export `BatchService` → `TelemetryService` inject được.
-> `MqttModule` export `MqttService` → `TelemetryService` subscribe `telemetry$`.
-> `DatabaseService` inject được qua `@Global() DatabaseModule`.
+#### Task 3.6 — Tích hợp hệ thống vào `AppModule` (J2)
+- Cập nhật [`src/app.module.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/app.module.ts):
+  - Import `BatchModule` (đã hoàn thành từ Sprint 2).
+  - Import `TelemetryModule`.
+- Chạy thử nghiệm toàn hệ thống để đảm bảo việc tiêm phụ thuộc (Dependency Injection) diễn ra suôn sẻ, không phát sinh lỗi Circular Dependency.
 
 ---
 
 ## 4. TIÊU CHUẨN RÀ SOÁT CỨNG
 
-| # | Tiêu chí | Mô tả |
+| # | Tiêu chí rà soát | Hướng dẫn kiểm tra |
 |---|---|---|
-| 1 | **`finally` luôn dispatch** | Dù DB fail hay tính toán throw, `dispatchSetpoint()` phải được gọi với emergency payload |
-| 2 | **Timezone độc lập server** | Kiểm tra logic blackout khi `TZ=UTC` trên server → kết quả midday (11:00–13:30 VN) phải đúng |
-| 3 | **`synchronize: false` trên entity** | Entity `TelemetryLog` không được có `synchronize: true` bất kể môi trường nào |
-| 4 | **Không circular dependency** | `MqttService` không import `TelemetryService`. Dùng Subject pattern |
-| 5 | **Log lỗi có stacktrace** | `Logger.error(message, stack)` — không để silent catch |
-| 6 | **Null-safe sensor fields** | Sensor có thể null (lỗi phần cứng) → không crash khi tính toán |
-| 7 | **SSE seed đúng** | Client mới connect vào `/telemetry/stream` phải nhận được snapshot hiện tại ngay lập tức |
-
----
-
-## 5. PHÂN CÔNG & DEPENDENCY MAP
-
-```
-Sprint 1 (Done) ──────────────────────────────────────────────┐
-                                                               │
-Sprint 2 (QA)   ──► BatchService.getBatchContext() ──────────►│
-                                                               │
-                                                         Sprint 3 (THIS)
-                                                               │
-                    ┌──────────────────────────────────────────┘
-                    │
-          ┌─────────┼──────────────┐
-          ▼         ▼              ▼
-  mqtt.service  telemetry      telemetry
-  (modified)    .service       .controller
-                    │
-                    ▼
-             Sprint 4 (Next)
-           SimulationService
-        (dùng TelemetryService)
-```
-
----
-
-## 6. CHECKLIST TRIỂN KHAI
-
-- [ ] **H1**: Cập nhật `mqtt.service.ts` — subscribe telemetry, `dispatchSetpoint()`, `telemetry$` Subject
-- [ ] **F1**: Tạo `telemetry-log.entity.ts` — `synchronize: false`, composite key
-- [ ] **G1**: Tạo `telemetry.service.ts` — `processTelemetry()` với try/catch/finally
-- [ ] **G2**: Implement `calculateControlOutputs()` — midday blackout + PWM logic
-- [ ] **G3**: Implement `saveTelemetryLog()` + `getLatestTelemetry()` + `getTelemetryHistory()`
-- [ ] **G4**: Tạo `telemetry.controller.ts` — GET, SSE, History endpoints
-- [ ] **G5**: Tạo `telemetry.module.ts` — wire dependencies
-- [ ] **G6**: Verify `pnpm lint && pnpm build && pnpm test`
+| 1 | **Không sử dụng DS18B20** | Kiểm tra toàn bộ mã nguồn không được chứa biến `temp_substrate`, chỉ dùng `temp_air` cho mọi tác vụ nhiệt độ. |
+| 2 | **Chỉ dùng ON/OFF (Boolean)** | Mọi trạng thái gửi setpoint và ghi DB phải là kiểu `boolean` (`true`/`false`), không còn xuất hiện các dải số PWM từ 0 đến 100. |
+| 3 | **Idle Guard hoạt động chuẩn** | Khi không có vụ nuôi ACTIVE, gửi tin MQTT lên → xem log setpoint gửi về ESP32 phải tắt hết toàn bộ (false). |
+| 4 | **Bảo vệ rò rỉ RxJS** | Tệp `telemetry.service.ts` phải gọi `unsubscribe()` trong hook `onModuleDestroy`. |
+| 5 | **Không nuốt lỗi trong Finally** | Lời gọi `mqttService.dispatchSetpoint()` trong khối `finally` phải được bọc trong try/catch con độc lập. |
+| 6 | **Build và Test chạy thông suốt** | Lệnh `pnpm lint && pnpm build && pnpm test` phải hoàn thành thành công mà không có cảnh báo nghiêm trọng nào. |

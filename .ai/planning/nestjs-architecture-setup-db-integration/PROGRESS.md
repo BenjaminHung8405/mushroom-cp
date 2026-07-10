@@ -67,46 +67,30 @@
 
 ---
 
-### SPRINT 3: TELEMETRY MODULE & CLOSED-LOOP FAIL-SAFE — ❌ NEXT TO DO
-> Prerequisite: Sprint 1 ✅ · Sprint 2 QA (có thể code song song, E2E cần Sprint 2 pass) · EMQX ACL `mushroom/#` ✅
+### SPRINT 3: TELEMETRY MODULE, CLOSED-LOOP ON/OFF CONTROL & SYSTEM INTEGRATION — ❌ NEXT TO DO
+> Prerequisite: Sprint 1 ✅ · Sprint 2 ✅ · EMQX ACL `mushroom/#` ✅
 
 #### Track F: Tầng Thực Thể Cơ Sở Dữ Liệu Telemetry (Telemetry DB Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| F1 | Tạo entity `TelemetryLog` ánh xạ hypertable | [ ] Pending | - **Không Auto-Sync Hypertable**: `@Entity('telemetry_logs', { synchronize: false })` — tuyệt đối cấm TypeORM tạo/sửa bảng này (TimescaleDB hypertable, quản lý bằng SQL migration thủ công).<br>- **Composite PK**: `@PrimaryColumn time: timestamptz` + `@PrimaryColumn batchId` — tương thích chunk partitioning TimescaleDB.<br>- **Numeric transformer**: Sensor/setpoint/error_delta columns dùng cùng transformer như CropBatch.<br>- **Nullable sensors**: Sensor fields nullable (lỗi phần cứng) — không crash khi null.<br>- **File**: `src/telemetry/entities/telemetry-log.entity.ts`. |
+| F1 | Tạo entity `TelemetryLog` ánh xạ hypertable | [ ] Pending | - **Không Auto-Sync Hypertable**: `@Entity('telemetry_logs', { synchronize: false })` — cấm TypeORM tự tạo/sửa đổi bảng.<br>- **Composite PK**: `@PrimaryColumn time: timestamptz` + `@PrimaryColumn batchId`.<br>- **SHT30 Only**: Lưu `humidityMeasured` và `temperatureMeasured` (đều lấy từ SHT30, loại bỏ DS18B20).<br>- **ON/OFF Boolean**: Lưu `mistGeneratorActive` (boolean) và `convectionFanActive` (boolean) thay thế cho các cột PWM cũ.<br>- **File**: `src/telemetry/entities/telemetry-log.entity.ts`. |
 
 #### Track G: Tầng Nghiệp Vụ & Điều Khiển Telemetry (Telemetry Control & Timezone Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| G1 | `processTelemetry()` + Bio-safety Fail-Safe closed-loop | [ ] Pending | - **try/catch/finally BẮT BUỘC**: (1) `try`: `getBatchContext` → `calculateControlOutputs` → `saveTelemetryLog` → `updateLatestCache`. (2) `catch`: `Logger.error(msg, stack)` + giữ emergency fallback (`mist=0`, `fan=10`, `lamp=false`). (3) `finally`: **luôn** gọi `mqttService.dispatchSetpoint(houseId, controlActions)` — hardware an toàn độc lập DB.<br>- **Subscribe một chiều**: `onModuleInit()` subscribe `mqttService.telemetry$` — **không** inject ngược MqttService → TelemetryService.<br>- **Null-safe**: Sensor null không được ném exception trong tính toán PWM.<br>- **File**: `src/telemetry/services/telemetry.service.ts`. |
-| G2 | `calculateControlOutputs()` + timezone UTC+7 midday blackout | [ ] Pending | - **Timezone độc lập server**: `toZonedTime(timestamp, 'Asia/Ho_Chi_Minh')` → `minutesSinceMidnight`. Blackout khi `thermalShockProtection && minutes ∈ [startMin, endMin]` (mặc định 11:00–13:30 = 660–810).<br>- **Mist PWM**: Blackout → 0; thiếu ẩm → `min(100, round((target-humid)*5))`; đủ → 0.<br>- **Fan PWM**: Baseline 10% + tăng theo lệch nhiệt (cap 50%).<br>- **Heating lamp**: `temp < tempOptimalMin` → true.<br>- **Verify**: Chạy với `TZ=UTC` vẫn ra đúng khung midday VN. |
-| G3 | `saveTelemetryLog` + `getLatestTelemetry` + `getTelemetryHistory` + `latestCache` | [ ] Pending | - **Raw SQL INSERT**: Dùng `DatabaseService.query()` parameterized — tránh ORM overhead tần suất cao. Tái sử dụng query shape từ legacy `TelemetryQueryService`.<br>- **Error deltas**: `humidityErrorDelta = target - measured`, tương tự temperature.<br>- **In-memory cache**: `latestCache: Map<string, Snapshot>` update sau process thành công — serve REST sub-ms; seed SSE client mới.<br>- **History**: `time BETWEEN $from AND $to` ORDER BY time ASC cho chart. |
-| G4 | Tạo `TelemetryController` (REST + SSE + history) | [ ] Pending | - **Endpoints**: `GET /devices/:id/telemetry`, `SSE /devices/:id/telemetry/stream`, `GET /devices/:id/telemetry/history?from=&to=`.<br>- **SSE seed**: `merge(of(latestSnapshot), live$)` — client mới phải nhận snapshot ngay, không chờ event kế tiếp.<br>- **Filter**: Live stream filter theo `deviceId === params.id`.<br>- **DTO**: `DeviceParamsDto` validate id.<br>- **File**: `src/telemetry/telemetry.controller.ts`. |
-| G5 | Tạo `TelemetryModule` wire dependencies | [ ] Pending | - **Imports**: `MqttModule`, `BatchModule` (export BatchService). `DatabaseService` qua `@Global() DatabaseModule`.<br>- **Providers/Controllers/Exports**: `TelemetryService`, `TelemetryController`, export service cho Sprint 4 Simulation.<br>- **Cấm circular**: Không import ngược gây cycle MQTT ↔ Telemetry. |
-| G6 | Verify lint / build / test Sprint 3 | [ ] Pending | - **Gate**: `pnpm lint && pnpm build && pnpm test` — 0 errors, 0 warnings.<br>- **QA checklist sprint_3 §4**: finally luôn dispatch · timezone · synchronize:false · no circular · stacktrace log · null-safe · SSE seed. |
+| G1 | `processTelemetry()` + Bio-safety Fail-Safe & Idle Guard | [ ] Pending | - **try/catch/finally BẮT BUỘC**: (1) `try`: lấy context → tính đầu ra ON/OFF → lưu DB → cập nhật in-memory cache. (2) `catch`: ghi log lỗi + đặt emergency fallback (`mist_active=false`, `fan_active=true`, `lamp_active=false`). (3) `finally`: **luôn** gọi `dispatchSetpoint` (bọc trong try-catch riêng để tránh nuốt exception).<br>- **Idle Guard**: Nếu `context.batchId === null` (nhà trống, không có vụ nuôi active), đặt tất cả actuator về `false` (tắt toàn bộ) thay vì chạy fallback khẩn cấp để tiết kiệm điện nước.<br>- **Unsubscribe**: Đảm bảo `TelemetryService` implement `OnModuleDestroy` để hủy subscribe `telemetry$` tránh rò rỉ bộ nhớ.<br>- **File**: `src/telemetry/services/telemetry.service.ts`. |
+| G2 | `calculateControlOutputs()` ON/OFF + Midday Blackout | [ ] Pending | - **Timezone độc lập**: Đưa timestamp về `Asia/Ho_Chi_Minh` để tính `minutesSinceMidnight`. Khóa sốc nhiệt (blackout) khi `thermalShockProtection` bật và thời gian nằm trong khung `[startMin, endMin]` (11:00-13:30).<br>- **Mist Active**: `!blackout` và `humidityMeasured < targetHumid`. Ngược lại tắt (`false`).<br>- **Fan Active**: Khi `temperatureMeasured > targetTemp` để hạ nhiệt hoặc `co2Measured > 1000`. Ngược lại tắt (`false`).<br>- **Heating Lamp**: Khi `temperatureMeasured < targetTemp` (hoặc < `tempOptimalMin`). Ngược lại tắt (`false`). |
+| G3 | `saveTelemetryLog` + REST queries + `latestCache` | [ ] Pending | - **Raw SQL INSERT**: Dùng `DatabaseService.query()` lưu dữ liệu. Các trạng thái actuator là boolean.<br>- **In-memory cache**: `latestCache: Map<string, Snapshot>` lưu cache thời gian thực sub-ms phục vụ REST/SSE.<br>- **History**: Query `time BETWEEN $from AND $to` ORDER BY time ASC vẽ biểu đồ lịch sử. |
+| G4 | Tạo `TelemetryController` (REST + SSE + history) | [ ] Pending | - **Endpoints**: `GET /devices/:id/telemetry` (snapshot cache), `SSE /devices/:id/telemetry/stream` (stream live + seed ban đầu), `GET /devices/:id/telemetry/history`. |
+| G5 | Tạo `TelemetryModule` wire dependencies | [ ] Pending | - **Imports**: `MqttModule`, `BatchModule`. `DatabaseService` dùng `@Global() DatabaseModule`. |
+| G6 | Xóa `TelemetryQueryService` legacy (Dọn dẹp) | [ ] Pending | - **Cleanup**: Xóa file `src/database/telemetry-query.service.ts` và loại bỏ hoàn toàn các re-export / provider khai báo trong `database.module.ts`. |
+| G7 | Wire `BatchModule` & `TelemetryModule` vào `AppModule` | [ ] Pending | - **Integration**: Import cả 2 module vào `AppModule`. Chạy thử `pnpm start:dev` để đảm bảo không lỗi DI hay circular dependencies. |
+| G8 | Verify lint / build / test | [ ] Pending | - **Gate**: `pnpm lint && pnpm build && pnpm test` đạt 0 errors, 0 warnings. |
 
 #### Track H: Tầng Tích Hợp MQTT (MQTT Integration Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| H1 | Cập nhật `MqttService`: subscribe telemetry + `dispatchSetpoint` + Subject stream | [ ] Pending | - **Subject Pattern (chống circular DI)**: `public readonly telemetry$ = new Subject<TelemetryEvent>()` + `telemetryCache: Map`. `MqttService` **KHÔNG** inject `TelemetryService`.<br>- **Subscribe**: Đổi `subscribeToStatusTopics` → `subscribeToTopics`; thêm `mushroom/device/+/telemetry` QoS 1 (giữ status QoS 1).<br>- **Routing SRP**: `handleIncomingMessage` phân loại segment[3] (`status` \| `telemetry`); telemetry → private `handleTelemetryMessage` (parse JSON, null-safe numbers, cache + emit).<br>- **`dispatchSetpoint(houseId, payload)`**: publish `mushroom/device/{houseId}/setpoint` QoS 1.<br>- **`getAllTelemetry()`**: seed SSE multi-device nếu cần.<br>- **File**: `src/mqtt/mqtt.service.ts`. |
-
----
-
-### SPRINT 4: SIMULATION MODULE, DATA BUFFERING & CLEANUP — ❌ LATER
-> Prerequisite: Sprint 3 QA pass · Có thể defer nếu cần ship MQTT production sớm · **Thứ tự bắt buộc: J1 trước J2**
-
-#### Track I: Tầng Giả Lập & Đệm Dữ Liệu (Simulation & Buffering Track)
-| Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
-| :--- | :--- | :--- | :--- |
-| I1 | Triển khai `SimulationService` + bulk insert buffer | [ ] Pending | - **Dual path**: `speedMultiplier === 1` → `TelemetryService.processTelemetry()` (full pipeline + MQTT). `speedMultiplier > 1` → push `bufferQueue`, **không** dispatch MQTT từng step (tránh nghẽn hypertable / MQTT).<br>- **Env model**: `simulateStep()` advance `simulatedTimestamp` +5 phút ảo; env phản ứng `lastControlActions` (mist↑ humid, lamp↑ temp, fan↓ temp/CO2, bay hơi tự nhiên).<br>- **Anti race-condition buffer**: **Swap đồng bộ trước await**: `const data = [...bufferQueue]; bufferQueue = []; await bulkInsert(data)`. Cấm clear sau await (mất data do interval push song song). Node single-thread → không cần Mutex nhưng swap là bắt buộc.<br>- **Flush triggers**: size ≥ 100 **hoặc** mỗi 5s (`flushTimerId`). Bulk = **1 SQL** multi-VALUES parameterized placeholders (`$1..$N`), không 100 query lẻ.<br>- **Lifecycle**: `onModuleDestroy` clearInterval cả 2 timer + `await flushBuffer()` — không mất data khi tắt app.<br>- **Timers**: `stepIntervalMs = (5*60*1000)/speed`. Stop simulation phải clear cả `timerId` + `flushTimerId` (chống memory leak).<br>- **File**: `src/simulation/services/simulation.service.ts`. |
-| I2 | Triển khai `SimulationController` + `StartSimulationDto` | [ ] Pending | - **Endpoints**: `POST /simulation/start` (202), `POST /simulation/stop` (202, await flush), `GET /simulation/state`.<br>- **DTO validation**: `houseId` non-empty string; `speedMultiplier` number `@Min(1) @Max(100)`.<br>- **Sandbox isolation**: Chỉ ghi house/batch chỉ định — không đụng house production khác.<br>- **File**: `src/simulation/controllers/simulation.controller.ts` + DTO. |
-| I3 | Thiết lập `SimulationModule` | [ ] Pending | - **Imports**: `TelemetryModule`, `BatchModule`.<br>- **Memory leak gate**: Mọi timer phải clear khi stop / destroy module — verify bằng Jest fake timers.<br>- **File**: `src/simulation/simulation.module.ts`. |
-
-#### Track J: Dọn Dẹp & Đồng Bộ Hệ Thống (Cleanup & System Integration Track)
-| Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
-| :--- | :--- | :--- | :--- |
-| J1 | Xóa `TelemetryQueryService` legacy + clean `DatabaseModule` | [ ] Pending | - **Thứ tự**: Làm **TRƯỚC J2**. Chỉ xóa sau khi `TelemetryService` (Sprint 3) thay thế 100% chức năng.<br>- **Actions**: Xóa `src/database/telemetry-query.service.ts`; gỡ import/providers/exports trong `database.module.ts`; grep sạch mọi reference.<br>- **Verify**: `grep -r "TelemetryQueryService" src/ --include="*.ts"` → rỗng.<br>- **Chống dead code**: Không để re-export stub hay comment "removed". |
-| J2 | Wire `BatchModule` + `TelemetryModule` + `SimulationModule` vào `AppModule` | [ ] Pending | - **Thứ tự**: Sau J1. Imports cuối: `DatabaseModule`, `MqttModule`, `DeviceModule`, `BatchModule`, `TelemetryModule`, `SimulationModule`.<br>- **DI safety**: `pnpm start:dev` không circular / missing provider. Dùng `forwardRef()` chỉ khi thật sự có cycle (ưu tiên Subject pattern đã áp ở H1/G1 để tránh).<br>- **Gate cuối**: `pnpm lint && pnpm build && pnpm test` + boot sạch không DI error.<br>- **File**: `src/app.module.ts`. |
+| H1 | Cập nhật `MqttService` nhận tin & dispatch setpoint | [ ] Pending | - **Subject Pattern**: `telemetry$` stream một chiều, tránh inject chéo.<br>- **Routing**: Lắng nghe `mushroom/device/+/telemetry`. Parse JSON an toàn (try-catch, không crash khi nhận tin sai định dạng). Đọc `temp_air` (nhiệt độ) và `humidity_air` (độ ẩm) từ SHT30.<br>- **`dispatchSetpoint`**: Gửi payload điều khiển dạng ON/OFF (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) tới topic `mushroom/device/{houseId}/setpoint` QoS 1. |
 
 ---
 
@@ -117,13 +101,9 @@ Sprint 1 [x] Done
     │
     ▼
 Sprint 2 [x] Done ──export BatchService──┐
-    │                                          │
-    │ (code song song OK)                      ▼
-    └──────────────────────────────► Sprint 3 [ ] Pending
-                                         │  H1 Subject$ → G1 closed-loop → F1/G3/G4/G5
-                                         ▼
-                                   Sprint 4 [ ] Pending
-                                      I1/I2/I3 → J1 cleanup → J2 AppModule wire
+    │                                     │
+    └─────────────────────────────────────┴─► Sprint 3 [ ] Pending
+                                                MQTT & Telemetry ON/OFF → Integration & Cleanup
 ```
 
 ## Status Legend

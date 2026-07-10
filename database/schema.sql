@@ -95,8 +95,8 @@ CREATE TABLE telemetry_logs (
     crop_day_int INT NOT NULL, -- Ngày hiện tại của vụ nuôi phục vụ vẽ biểu đồ nhanh
     
     -- Cảm biến thực tế thu thập (Measured Values - SM_đo)
-    humidity_measured NUMERIC(4,1),    -- Cảm biến SHT30
-    temperature_measured NUMERIC(4,1), -- Cảm biến DS18B20
+    humidity_measured NUMERIC(4,1),    -- Cảm biến SHT30 (Độ ẩm)
+    temperature_measured NUMERIC(4,1), -- Cảm biến SHT30 (Nhiệt độ)
     co2_measured INT,                  -- Cảm biến SCD30
     
     -- Mục tiêu nội suy từ Equalizer tại thời điểm găm máy ($SM_{set}$)
@@ -107,10 +107,10 @@ CREATE TABLE telemetry_logs (
     humidity_error_delta NUMERIC(4,1),
     temperature_error_delta NUMERIC(4,1),
     
-    -- Trạng thái thiết bị chấp hành trả về đầu ra giải mờ (Duty Cycle %)
-    mist_generator_pwm INT CHECK (mist_generator_pwm BETWEEN 0 AND 100), -- Máy siêu âm trung tâm
-    convection_fan_pwm INT CHECK (convection_fan_pwm BETWEEN 0 AND 100),  -- Quạt đối lưu
-    heating_lamp_active BOOLEAN DEFAULT FALSE,                            -- Trạng thái 2 đèn sưởi
+    -- Trạng thái bật/tắt thiết bị chấp hành (ON/OFF)
+    mist_generator_active BOOLEAN DEFAULT FALSE,  -- Máy phun sương siêu âm trung tâm
+    convection_fan_active BOOLEAN DEFAULT FALSE,  -- Quạt đối lưu
+    heating_lamp_active BOOLEAN DEFAULT FALSE,    -- Đèn sưởi
     
     -- Trạng thái kích hoạt cơ chế an toàn
     midday_blackout_active BOOLEAN DEFAULT FALSE -- Báo hiệu kích hoạt khóa sốc nhiệt
