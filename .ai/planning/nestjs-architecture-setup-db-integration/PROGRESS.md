@@ -2,94 +2,134 @@
 
 ## Started
 - **Thời gian bắt đầu**: 2026-07-09T21:25:38+07:00
+- **Cập nhật lần cuối**: 2026-07-10T13:07:48+07:00
 - **Agent thực thi**: Gemini
+- **Agent rà soát / khởi tạo PROGRESS**: Claude (Senior Solution Architect)
 
 ## Reference Plan
 - **Thư mục kế hoạch**: [nestjs-architecture-setup-db-integration](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/)
-- **Sprints tham chiếu**: 
-  1. [sprint_1.md (Database & Connection Pool)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_1.md)
-  2. [sprint_2.md (Batch Management & Interpolation)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
-  3. [sprint_3.md (Telemetry & Closed-loop Bio-safety)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_3.md)
-  4. [sprint_4.md (Simulation, Buffering & Cleanup)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_4.md)
+- **Sprints tham chiếu**:
+  1. [sprint_1.md (Database Module & Connection Pool) — ✅ HOÀN THÀNH](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_1.md)
+  2. [sprint_2.md (Batch Module & Nghiệp Vụ Vụ Nuôi) — ⏳ PENDING QA](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_2.md)
+  3. [sprint_3.md (Telemetry Module & Closed-Loop Fail-Safe) — ❌ NEXT TO DO](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_3.md)
+  4. [sprint_4.md (Simulation, Buffering & Cleanup) — ❌ LATER](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/sprint_4.md)
 
 ## Addition Plan
 - **Yêu cầu phát sinh**: Chưa có
+- **Ghi chú kiến trúc (từ cập nhật sprint 2026-07-10)**:
+  - `BatchContext` dual format (camelCase + snake_case) phục vụ Sprint 3
+  - Circular dependency MQTT ↔ Telemetry giải quyết bằng `Subject<TelemetryEvent>` (một chiều)
+  - `TelemetryQueryService` legacy giữ đến Sprint 4 Task J1
+  - `BatchModule` / `TelemetryModule` / `SimulationModule` wire vào `AppModule` chỉ ở J2
 
 ## Tracks Progress
 
 ---
 
-### SPRINT 1: DATABASE MODULE & CONNECTION POOL HỢP NHẤT
+### SPRINT 1: DATABASE MODULE & CONNECTION POOL HỢP NHẤT — ✅ HOÀN THÀNH
+> QA duyệt: 2026-07-09T22:15:00+07:00 · LGTM
 
 #### Track A: Cấu hình Dự án & CLI (Project Setup Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| A1 | Cập nhật dependency và scripts trong package.json | [x] Done | - **Quy tắc phiên bản**: Ghim cứng phiên bản các thư viện mới thêm (`@nestjs/typeorm`, `typeorm`, `date-fns-tz`) để đảm bảo tính nhất quán của build, tránh sử dụng kí tự đại diện rộng như `*` hoặc `^` quá cao nếu không tương thích với NestJS v10.<br>- **Quản lý script**: Đảm bảo các script chạy TypeORM CLI qua `typeorm-ts-node-commonjs` được viết đúng cú pháp và trỏ chính xác đến file cấu hình `typeorm.config.ts`. Chạy thử lệnh để tránh tech debt lỗi đường dẫn. |
+| A1 | Cập nhật dependency và scripts trong `package.json` | [x] Done | - **Quy tắc phiên bản**: Ghim cứng `@nestjs/typeorm: 11.0.3`, `typeorm: 1.0.0`, `date-fns-tz: 3.2.0`, `class-validator`, `class-transformer` — cấm `*` / `^` quá rộng.<br>- **CLI scripts**: `migration:run` / `migration:revert` phải chạy qua `typeorm-ts-node-commonjs` và trỏ đúng `typeorm.config.ts`.<br>- **Verify**: `pnpm build` + chạy thử migration script (dry) để tránh tech debt đường dẫn. |
 
 #### Track B: Tầng Truy Cập Dữ Liệu (Data Access Layer Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| B1 | Khởi tạo file cấu hình typeorm.config.ts | [x] Done | - **Quy tắc bảo mật**: Không hardcode bất kỳ chuỗi nhạy cảm nào (credentials/password). Bắt buộc đọc từ biến môi trường `DATABASE_URL` hoặc cấu hình `process.env`. Cần ném lỗi cụ thể khi thiếu biến môi trường cấu hình tại thời điểm startup.<br>- **Quy tắc thiết kế CSDL (No Auto-Sync)**: Bắt buộc cấu hình `synchronize: false` để bảo vệ schema của database TimescaleDB, chống ghi đè schema tự động gây hỏng hypertable chunks. Mọi cấu trúc DB phải được kiểm soát qua Migrations.<br>- **Tối ưu hóa kết nối**: Định cấu hình extra pool limits rõ ràng (`extra.max = 20`, `extra.idleTimeoutMillis = 30000`, `extra.connectionTimeoutMillis = 2000`) để ngăn chặn cạn kiệt tài nguyên (connection starvation) khi tải cao. |
-| B2 | Refactor DatabaseModule để tích hợp TypeOrmModule | [x] Done | - **Design Pattern**: Áp dụng Dependency Injection và Module encapsulation. Đăng ký thông qua `TypeOrmModule.forRootAsync` to ensure config is loaded during NestJS lifecycle.<br>- **Chống nợ kỹ thuật**: Export `TypeOrmModule` từ `DatabaseModule` để các module chức năng khác có thể tái sử dụng dễ dàng khi inject repository mà không phải import lại cấu hình cơ sở dữ liệu. |
-| B3 | Refactor DatabaseService để loại bỏ pg Pool | [x] Done | - **Design Pattern**: Sử dụng Adapter Pattern bằng cách bọc lại phương thức `query()` của TypeORM `DataSource` để giữ nguyên chữ ký hàm (interface) cũ, tránh làm hỏng các service đang gọi `DatabaseService`. Không expose đối tượng kết nối thô nếu không cần thiết.<br>- **Ngăn chặn SQL Injection**: Bắt buộc các câu lệnh thực thi qua `query(text, params)` phải truyền params dưới dạng tham số hóa (parameterized queries). Nghiêm cấm cộng chuỗi SQL thô.<br>- **Chống nợ kỹ thuật & Lifecycle**: Gỡ bỏ hoàn toàn thư viện `pg` thô khỏi imports. Trong `onModuleInit()`, phải thực hiện một câu lệnh query kiểm tra kết nối đơn giản (`SELECT NOW()`) và sử dụng NestJS built-in `Logger` có cấu trúc để ghi nhận trạng thái (success/warn/error), thay vì dùng `console.log`. |
+| B1 | Khởi tạo `src/database/typeorm.config.ts` | [x] Done | - **Bảo mật**: Không hardcode credentials. Ưu tiên `DATABASE_URL`, fallback `POSTGRES_*`. Throw rõ ràng khi thiếu env (trừ `NODE_ENV=test`).<br>- **No Auto-Sync**: `synchronize: false` bắt buộc — bảo vệ TimescaleDB hypertable chunks.<br>- **Pool limits**: `extra.max=20`, `idleTimeoutMillis=30000`, `connectionTimeoutMillis=2000` — chống connection starvation.<br>- **Parse `.env` thông minh**: Hỗ trợ quoted string; chỉ strip comment `#` khi đứng sau whitespace (tránh bẻ password chứa `#`). Không ghi đè biến env system (Docker/CI).<br>- **Test env**: `retryAttempts: 0` khi `NODE_ENV=test`. |
+| B2 | Refactor `DatabaseModule` tích hợp `TypeOrmModule` | [x] Done | - **DI + encapsulation**: `TypeOrmModule.forRootAsync({ useFactory: () => typeOrmConfig })`.<br>- **`@Global()`**: Tránh re-import ở module con.<br>- **Export**: Export `TypeOrmModule` + `DatabaseService` để feature module dùng `@InjectRepository()` / inject service.<br>- **Legacy**: Vẫn export `TelemetryQueryService` tạm thời — xóa ở Sprint 4 J1. |
+| B3 | Refactor `DatabaseService` loại bỏ raw `pg` Pool | [x] Done | - **Adapter Pattern**: Wrap `DataSource.query()` thành `query<T>(text, params)` trả `{ rows: T[] }` — tương thích ngược `TelemetryQueryService`.<br>- **SQL Injection**: Bắt buộc parameterized queries; cấm cộng chuỗi SQL.<br>- **Lifecycle**: `onModuleInit()` chạy `SELECT NOW()`, log structured qua NestJS `Logger` (không `console.log`).<br>- **Cleanup**: Gỡ hoàn toàn import `pg`. Xử lý `unknown` trong catch (TS strict).<br>- **Bổ sung `main.ts`**: Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`. |
 
 ---
 
-### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI (CROP BATCHES)
+### SPRINT 2: BATCH MODULE & NGHIỆP VỤ VỤ NUÔI — ⏳ PENDING QA REVIEW
+> Code implement xong ~2026-07-10T09:40 · Chờ QA duyệt · Unit tests 25/25 pass
 
 #### Track C: Tầng Thực Thể Cơ Sở Dữ Liệu Vụ Nuôi (Crop Batch Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| C1 | Tạo thực thể MushroomHouse | [ ] QA Review | - **Mapping Schema**: Lớp `MushroomHouse` phải ánh xạ chính xác bảng `mushroom_houses`. Đảm bảo `@PrimaryColumn() id: string` là dạng UUID hoặc string tùy theo schema DB hiện tại. Bắt buộc kiểm tra snake_case trên decorator `@Column({ name: '...' })` để khớp tuyệt đối với schema PostgreSQL hiện hữu. |
-| C2 | Tạo thực thể GrowthProfile | [ ] QA Review | - **Lifecycle timestamps**: Đảm bảo các trường ngày tháng sử dụng `@CreateDateColumn()` và `@UpdateDateColumn()`. Sử dụng timezone đồng bộ ở mức hệ thống NestJS để tránh sai lệch thời gian khởi tạo profile. |
-| C3 | Tạo thực thể CropBatch | [ ] QA Review | - **Xử lý số thực**: Định nghĩa kiểu dữ liệu `numeric` trong TypeORM: Sử dụng `@Column('numeric', { transformer: { to: (v) => v, from: (v) => parseFloat(v) } })` để tránh TypeORM trả về kiểu string cho kiểu numeric/decimal của PostgreSQL, gây lỗi tính toán học.<br>- **Mapping Quan hệ**: Thiết lập mối quan hệ `@ManyToOne` với `MushroomHouse` dùng `@JoinColumn({ name: 'house_id' })` để đảm bảo Foreign Key hoạt động tối ưu. |
-| C4 | Tạo thực thể CurveCheckpoint | [ ] QA Review | - **Tối ưu hóa Database Index**: Đảm bảo thiết lập index cho các khóa ngoại để tối ưu hiệu năng truy vấn. Sử dụng `@Index('idx_checkpoints_batch', ['batch'])` trên entity để đảm bảo cơ sở dữ liệu quét index khi lọc checkpoints theo vụ nuôi, tránh full table scan khi lượng checkpoints lớn. |
-| C5 | Tạo thực thể LightScheduleBlock | [ ] QA Review | - **Ràng buộc nghiệp vụ**: Cột thời gian của `light_schedule_blocks` phải map chính xác kiểu dữ liệu. Sử dụng Enum hoặc Union Types cho các trạng thái của block (ví dụ: `status: 'ON' | 'OFF'`). |
+| C1 | Tạo entity `MushroomHouse` | [ ] QA Review | - **Mapping**: `@Entity` → bảng `mushroom_houses`. `@PrimaryColumn() id: string` (VARCHAR 50).<br>- **Snake_case**: Mọi cột DB map qua `@Column({ name: '...' })` (`area_meters`, `pillar_count`).<br>- **File**: `src/batch/entities/mushroom-house.entity.ts` + unit test. |
+| C2 | Tạo entity `GrowthProfile` | [ ] QA Review | - **Timestamps**: `@CreateDateColumn({ type: 'timestamptz' })` + `@UpdateDateColumn({ type: 'timestamptz' })` — đồng bộ timezone hệ thống.<br>- **Fields**: `name`, `description` (nullable TEXT).<br>- **File**: `src/batch/entities/growth-profile.entity.ts` + unit test. |
+| C3 | Tạo entity `CropBatch` | [ ] QA Review | - **Numeric transformer**: Mọi cột `numeric` dùng `transformer: { to: v => v, from: v => parseFloat(v) }` — PostgreSQL trả string sẽ phá tính toán nếu bỏ qua.<br>- **Relation**: `@ManyToOne(MushroomHouse) @JoinColumn({ name: 'house_id' })`.<br>- **Business fields**: `status` default `'ACTIVE'`, `startDate`, `totalCropDays`, `spawnRunningEndDay`, `tempOptimalMin/Max`, `humidityOptimalMin/Max`, `thermalShockProtection`, `thermalShockStart/End` (TIME).<br>- **File**: `src/batch/entities/crop-batch.entity.ts` + unit test. |
+| C4 | Tạo entity `CurveCheckpoint` | [ ] QA Review | - **PK**: `@PrimaryGeneratedColumn({ type: 'bigint' })` tương thích BIGSERIAL.<br>- **Index**: `@Index('idx_checkpoints_batch', ['batch'])` — tránh full table scan khi filter theo vụ nuôi.<br>- **metricType**: `'TEMPERATURE' \| 'HUMIDITY'`. `targetValue` dùng numeric transformer.<br>- **Relations**: `@ManyToOne` với `GrowthProfile` + `CropBatch` (cascade delete).<br>- **File**: `src/batch/entities/curve-checkpoint.entity.ts` + unit test. |
+| C5 | Tạo entity `LightScheduleBlock` | [ ] QA Review | - **PK**: `@PrimaryGeneratedColumn({ type: 'bigint' })`.<br>- **Union type**: `status: 'ON' \| 'OFF'`; fields `startDay`, `endDay`.<br>- **Relations**: `@ManyToOne` `GrowthProfile` + `CropBatch` (cascade delete).<br>- **File**: `src/batch/entities/light-schedule-block.entity.ts` + unit test. |
 
 #### Track D: Tầng Nghiệp Vụ Vụ Nuôi (Crop Batch Business Logic Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| D1 | Triển khai các phương thức cốt lõi trong BatchService | [ ] QA Review | - **Thuật toán nội suy**: Thực hiện tuyến tính hóa chuẩn xác. Phải xử lý các trường hợp biên: 1) Nếu ngày tuổi nhỏ hơn điểm mốc nhỏ nhất: Trả về giá trị mốc nhỏ nhất. 2) Nếu ngày tuổi lớn hơn điểm mốc lớn nhất: Trả về giá trị mốc lớn nhất. 3) Nếu không có checkpoint nào: Fallback về giá trị mặc định của Batch (`temp_optimal_min`, `temp_optimal_max`...) hoặc hằng số hệ thống an toàn.<br>- **Độ lệch ngày tuổi**: Tính toán ngày tuổi `cropDay = floor((now - start_date) / (24 * 60 * 60 * 1000)) + 1` dựa trên múi giờ Việt Nam. Chuyển đổi cả hai mốc thời gian về cùng một múi giờ trước khi tính hiệu số.<br>- **Đảm bảo tính nhất quán (Single Source of Truth)**: Chỉ cho phép duy nhất một vụ nuôi ở trạng thái `ACTIVE` cho một nhà nấm (`house_id`) tại một thời điểm. |
+| D1 | Triển khai `BatchService` (core methods) | [ ] QA Review | - **Single Source of Truth**: Chỉ 1 batch `ACTIVE` / `house_id`. `createBatch()` dùng transaction + `pessimistic_write` lock; throw `ConflictException` nếu đã có ACTIVE.<br>- **Interpolation**: Linear `V1 + (cropDay-D1)/(D2-D1)*(V2-V1)`, làm tròn bội 0.5. Biên: cropDay ≤ first → first; ≥ last → last; rỗng → midpoint `[optimalMin, optimalMax]` hoặc fallback an toàn.<br>- **Timezone**: `cropDay = floor((now - start_date) / 86400000) + 1` qua `toZonedTime(..., 'Asia/Ho_Chi_Minh')` — kết quả phải giống nhau dù server TZ=UTC hay UTC+7. Clamp `[1, totalCropDays]`.<br>- **`BatchContext` dual format**: Export cả camelCase + snake_case — Sprint 3 `TelemetryService` consume.<br>- **Fallback bio-safety**: Không có active batch → `getFallbackContext()` (temp 28–35°C, humidity 70–90%, thermal shock ON 11:00–13:30).<br>- **Methods bắt buộc**: `getActiveBatchByHouseId`, `getBatchContext`, `interpolate` (private), `createBatch`, `endBatch`, `getFallbackContext` (private).<br>- **File**: `src/batch/services/batch.service.ts` · Tests: 25/25 pass. |
 
 #### Track E: Tầng Giao Tiếp API Vụ Nuôi (Crop Batch API Controller Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| E1 | Xây dựng BatchController và BatchModule | [ ] QA Review | - **Validation**: Sử dụng ValidationPipe và DTO (`CreateBatchDto`, `UpdateBatchDto`) để kiểm tra dữ liệu đầu vào.<br>- **Concurrency & Race Condition**: API tạo vụ nuôi phải thực hiện transaction hoặc kiểm tra sự tồn tại của vụ nuôi `ACTIVE` hiện tại trước khi tạo mới để tránh xung đột dữ liệu. |
+| E1 | Xây dựng `BatchController` + `BatchModule` + DTOs | [ ] QA Review | - **Validation**: `CreateBatchDto` / `UpdateBatchDto` + global ValidationPipe. Validate ID length, crop days 10–45, time `HH:MM:SS`, enum status.<br>- **Endpoints**: `POST /batches`, `PATCH /batches/:id/end`, `GET /batches/active/:houseId`.<br>- **Race condition**: Tạo batch phải qua transaction + lock (xem D1) — không chỉ check-then-insert.<br>- **Module**: `TypeOrmModule.forFeature([...5 entities])`; **export `BatchService`** cho Sprint 3 inject.<br>- **Chưa wire AppModule**: Import `BatchModule` vào `AppModule` chỉ ở Sprint 4 J2 — tránh nửa vời DI.<br>- **Files**: `batch.controller.ts`, `batch.module.ts`, `dto/create-batch.dto.ts`, `dto/update-batch.dto.ts`. |
 
 ---
 
-### SPRINT 3: TELEMETRY MODULE & CLOSED-LOOP FAIL-SAFE
+### SPRINT 3: TELEMETRY MODULE & CLOSED-LOOP FAIL-SAFE — ❌ NEXT TO DO
+> Prerequisite: Sprint 1 ✅ · Sprint 2 QA (có thể code song song, E2E cần Sprint 2 pass) · EMQX ACL `mushroom/#` ✅
 
 #### Track F: Tầng Thực Thể Cơ Sở Dữ Liệu Telemetry (Telemetry DB Entities Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| F1 | Tạo thực thể TelemetryLog ánh xạ bảng hypertable | [ ] Pending | - **Không Auto-Sync Hypertable**: Thiết lập `@Entity('telemetry_logs', { synchronize: false })`. Tuyệt đối không để TypeORM cố gắng tạo hoặc chỉnh sửa bảng này vì nó là TimescaleDB hypertable và được quản lý bởi SQL migration thủ công.<br>- **Composite Key**: Khai báo khóa chính là sự kết hợp của `time` và `batch_id`/`house_id` (composite key) để tương thích với cơ chế phân mảnh của TimescaleDB. |
+| F1 | Tạo entity `TelemetryLog` ánh xạ hypertable | [ ] Pending | - **Không Auto-Sync Hypertable**: `@Entity('telemetry_logs', { synchronize: false })` — tuyệt đối cấm TypeORM tạo/sửa bảng này (TimescaleDB hypertable, quản lý bằng SQL migration thủ công).<br>- **Composite PK**: `@PrimaryColumn time: timestamptz` + `@PrimaryColumn batchId` — tương thích chunk partitioning TimescaleDB.<br>- **Numeric transformer**: Sensor/setpoint/error_delta columns dùng cùng transformer như CropBatch.<br>- **Nullable sensors**: Sensor fields nullable (lỗi phần cứng) — không crash khi null.<br>- **File**: `src/telemetry/entities/telemetry-log.entity.ts`. |
 
 #### Track G: Tầng Nghiệp Vụ & Điều Khiển Telemetry (Telemetry Control & Timezone Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| G1 | Triển khai phương thức processTelemetry và xử lý Bio-safety | [ ] Pending | - **Bio-safety Closed-loop**: Bắt buộc cấu trúc `try/catch/finally` trong việc xử lý telemetry: 1) Block `try`: Lấy context vụ nuôi, tính toán PWM cho thiết bị, và lưu telemetry. 2) Block `catch`: Log lỗi chi tiết với stack trace bằng `Logger.error`. Thiết lập trạng thái thiết bị ngoại vi về chế độ fallback an toàn khẩn cấp (`mist_generator_pwm = 0`, `convection_fan_pwm = 10`, `heating_lamp_active = false`). 3) Block `finally`: Bắt buộc gọi `mqttService.dispatchSetpoint()` để gửi payload setpoint cho ESP32. Lệnh điều khiển phải được gửi đi bất chấp kết nối DB có thành công hay không. |
-| G2 | Triển khai logic tính toán điều khiển và múi giờ Việt Nam | [ ] Pending | - **Xử lý Múi giờ**: Sử dụng `date-fns-tz` để chuyển timestamp nhận từ telemetry sang múi giờ `Asia/Ho_Chi_Minh`. Tính toán số phút kể từ nửa đêm (`minutesSinceMidnight = hours * 60 + minutes`) để kiểm tra chính xác khung giờ cấm tưới (ví dụ: 11:00 - 13:30 tương đương 660 - 810 phút). |
-| G3 | Triển khai ghi log và truy vấn dữ liệu | [ ] Pending | - **Chống nợ hiệu năng**: Sử dụng SQL chèn dữ liệu thô (raw query) qua `DatabaseService.query()` hoặc QueryBuilder để tối ưu tốc độ chèn dữ liệu telemetry. Tránh overhead không cần thiết của ORM ở tầng ghi dữ liệu thời gian thực có tần suất lớn. |
+| G1 | `processTelemetry()` + Bio-safety Fail-Safe closed-loop | [ ] Pending | - **try/catch/finally BẮT BUỘC**: (1) `try`: `getBatchContext` → `calculateControlOutputs` → `saveTelemetryLog` → `updateLatestCache`. (2) `catch`: `Logger.error(msg, stack)` + giữ emergency fallback (`mist=0`, `fan=10`, `lamp=false`). (3) `finally`: **luôn** gọi `mqttService.dispatchSetpoint(houseId, controlActions)` — hardware an toàn độc lập DB.<br>- **Subscribe một chiều**: `onModuleInit()` subscribe `mqttService.telemetry$` — **không** inject ngược MqttService → TelemetryService.<br>- **Null-safe**: Sensor null không được ném exception trong tính toán PWM.<br>- **File**: `src/telemetry/services/telemetry.service.ts`. |
+| G2 | `calculateControlOutputs()` + timezone UTC+7 midday blackout | [ ] Pending | - **Timezone độc lập server**: `toZonedTime(timestamp, 'Asia/Ho_Chi_Minh')` → `minutesSinceMidnight`. Blackout khi `thermalShockProtection && minutes ∈ [startMin, endMin]` (mặc định 11:00–13:30 = 660–810).<br>- **Mist PWM**: Blackout → 0; thiếu ẩm → `min(100, round((target-humid)*5))`; đủ → 0.<br>- **Fan PWM**: Baseline 10% + tăng theo lệch nhiệt (cap 50%).<br>- **Heating lamp**: `temp < tempOptimalMin` → true.<br>- **Verify**: Chạy với `TZ=UTC` vẫn ra đúng khung midday VN. |
+| G3 | `saveTelemetryLog` + `getLatestTelemetry` + `getTelemetryHistory` + `latestCache` | [ ] Pending | - **Raw SQL INSERT**: Dùng `DatabaseService.query()` parameterized — tránh ORM overhead tần suất cao. Tái sử dụng query shape từ legacy `TelemetryQueryService`.<br>- **Error deltas**: `humidityErrorDelta = target - measured`, tương tự temperature.<br>- **In-memory cache**: `latestCache: Map<string, Snapshot>` update sau process thành công — serve REST sub-ms; seed SSE client mới.<br>- **History**: `time BETWEEN $from AND $to` ORDER BY time ASC cho chart. |
+| G4 | Tạo `TelemetryController` (REST + SSE + history) | [ ] Pending | - **Endpoints**: `GET /devices/:id/telemetry`, `SSE /devices/:id/telemetry/stream`, `GET /devices/:id/telemetry/history?from=&to=`.<br>- **SSE seed**: `merge(of(latestSnapshot), live$)` — client mới phải nhận snapshot ngay, không chờ event kế tiếp.<br>- **Filter**: Live stream filter theo `deviceId === params.id`.<br>- **DTO**: `DeviceParamsDto` validate id.<br>- **File**: `src/telemetry/telemetry.controller.ts`. |
+| G5 | Tạo `TelemetryModule` wire dependencies | [ ] Pending | - **Imports**: `MqttModule`, `BatchModule` (export BatchService). `DatabaseService` qua `@Global() DatabaseModule`.<br>- **Providers/Controllers/Exports**: `TelemetryService`, `TelemetryController`, export service cho Sprint 4 Simulation.<br>- **Cấm circular**: Không import ngược gây cycle MQTT ↔ Telemetry. |
+| G6 | Verify lint / build / test Sprint 3 | [ ] Pending | - **Gate**: `pnpm lint && pnpm build && pnpm test` — 0 errors, 0 warnings.<br>- **QA checklist sprint_3 §4**: finally luôn dispatch · timezone · synchronize:false · no circular · stacktrace log · null-safe · SSE seed. |
 
 #### Track H: Tầng Tích Hợp MQTT (MQTT Integration Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| H1 | Cập nhật MqttService để định tuyến telemetry và dispatch setpoints | [ ] Pending | - **Định tuyến MQTT**: Đăng ký topic `mushroom/device/+/telemetry` động bằng wildcard. Xử lý bất đồng bộ (async/await) đúng cách khi nhận được tin nhắn để tránh nghẽn luồng MQTT client.<br>- **Độ tin cậy giao thức**: Sử dụng QoS 1 cho cả telemetry và setpoints để đảm bảo độ tin cậy truyền tin trong môi trường mạng IoT không ổn định. |
+| H1 | Cập nhật `MqttService`: subscribe telemetry + `dispatchSetpoint` + Subject stream | [ ] Pending | - **Subject Pattern (chống circular DI)**: `public readonly telemetry$ = new Subject<TelemetryEvent>()` + `telemetryCache: Map`. `MqttService` **KHÔNG** inject `TelemetryService`.<br>- **Subscribe**: Đổi `subscribeToStatusTopics` → `subscribeToTopics`; thêm `mushroom/device/+/telemetry` QoS 1 (giữ status QoS 1).<br>- **Routing SRP**: `handleIncomingMessage` phân loại segment[3] (`status` \| `telemetry`); telemetry → private `handleTelemetryMessage` (parse JSON, null-safe numbers, cache + emit).<br>- **`dispatchSetpoint(houseId, payload)`**: publish `mushroom/device/{houseId}/setpoint` QoS 1.<br>- **`getAllTelemetry()`**: seed SSE multi-device nếu cần.<br>- **File**: `src/mqtt/mqtt.service.ts`. |
 
 ---
 
-### SPRINT 4: SIMULATION MODULE, DATA BUFFERING & CLEANUP
+### SPRINT 4: SIMULATION MODULE, DATA BUFFERING & CLEANUP — ❌ LATER
+> Prerequisite: Sprint 3 QA pass · Có thể defer nếu cần ship MQTT production sớm · **Thứ tự bắt buộc: J1 trước J2**
 
 #### Track I: Tầng Giả Lập & Đệm Dữ Liệu (Simulation & Buffering Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| I1 | Triển khai SimulationService và cơ chế ghi Bulk Insert | [ ] Pending | - **Cơ chế Buffering**: Khi `speedMultiplier > 1`, không gọi `TelemetryService.processTelemetry` vì nó sẽ thực hiện ghi DB đơn lẻ liên tục gây nghẽn hypertable chunk creation. Bắt buộc đẩy vào `bufferQueue` nằm trên RAM.<br>- **Bulk Insert**: Khi kích thước hàng đợi `>= 100` hoặc sau mỗi 5 giây, thực hiện Bulk Insert bằng một câu lệnh SQL duy nhất (chèn nhiều dòng VALUES) hoặc QueryBuilder bulk insert.<br>- **Chống race condition**: Sao chép hàng đợi sang biến tạm và gán `this.bufferQueue = []` đồng bộ trước khi gọi câu lệnh async insert để tránh mất mát dữ liệu do telemetry mới đẩy vào trong lúc ghi DB.<br>- **Lifecycle Cleanup**: Triển khai `OnModuleDestroy` để tự động flush sạch hàng đợi RAM xuống DB trước khi ứng dụng tắt để bảo toàn dữ liệu. |
-| I2 | Triển khai SimulationController để quản lý sandbox từ API | [ ] Pending | - **Quản lý Sandbox**: Cung cấp API khởi chạy và kiểm soát tốc độ mô phỏng (`speedMultiplier`). Validate tốc độ đầu vào bằng DTO. |
-| I3 | Thiết lập SimulationModule | [ ] Pending | - **Rò rỉ bộ nhớ (Memory Leak)**: Khai báo module độc lập, đảm bảo dọn dẹp các timer (`clearInterval`, `clearTimeout`) khi dừng mô phỏng hoặc hủy module. |
+| I1 | Triển khai `SimulationService` + bulk insert buffer | [ ] Pending | - **Dual path**: `speedMultiplier === 1` → `TelemetryService.processTelemetry()` (full pipeline + MQTT). `speedMultiplier > 1` → push `bufferQueue`, **không** dispatch MQTT từng step (tránh nghẽn hypertable / MQTT).<br>- **Env model**: `simulateStep()` advance `simulatedTimestamp` +5 phút ảo; env phản ứng `lastControlActions` (mist↑ humid, lamp↑ temp, fan↓ temp/CO2, bay hơi tự nhiên).<br>- **Anti race-condition buffer**: **Swap đồng bộ trước await**: `const data = [...bufferQueue]; bufferQueue = []; await bulkInsert(data)`. Cấm clear sau await (mất data do interval push song song). Node single-thread → không cần Mutex nhưng swap là bắt buộc.<br>- **Flush triggers**: size ≥ 100 **hoặc** mỗi 5s (`flushTimerId`). Bulk = **1 SQL** multi-VALUES parameterized placeholders (`$1..$N`), không 100 query lẻ.<br>- **Lifecycle**: `onModuleDestroy` clearInterval cả 2 timer + `await flushBuffer()` — không mất data khi tắt app.<br>- **Timers**: `stepIntervalMs = (5*60*1000)/speed`. Stop simulation phải clear cả `timerId` + `flushTimerId` (chống memory leak).<br>- **File**: `src/simulation/services/simulation.service.ts`. |
+| I2 | Triển khai `SimulationController` + `StartSimulationDto` | [ ] Pending | - **Endpoints**: `POST /simulation/start` (202), `POST /simulation/stop` (202, await flush), `GET /simulation/state`.<br>- **DTO validation**: `houseId` non-empty string; `speedMultiplier` number `@Min(1) @Max(100)`.<br>- **Sandbox isolation**: Chỉ ghi house/batch chỉ định — không đụng house production khác.<br>- **File**: `src/simulation/controllers/simulation.controller.ts` + DTO. |
+| I3 | Thiết lập `SimulationModule` | [ ] Pending | - **Imports**: `TelemetryModule`, `BatchModule`.<br>- **Memory leak gate**: Mọi timer phải clear khi stop / destroy module — verify bằng Jest fake timers.<br>- **File**: `src/simulation/simulation.module.ts`. |
 
 #### Track J: Dọn Dẹp & Đồng Bộ Hệ Thống (Cleanup & System Integration Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| J1 | Xóa bỏ TelemetryQueryService cũ | [ ] Pending | - **Dọn dẹp mã nguồn (Cleanup)**: Xóa bỏ hoàn toàn tệp `telemetry-query.service.ts` để tránh mã nguồn rác (dead code). Gỡ bỏ các tham chiếu cũ trong `DatabaseModule`. |
-| J2 | Khai báo các Module mới trong AppModule | [ ] Pending | - **System Integration**: Khai báo tất cả các Module mới (`DatabaseModule` đã refactor, `BatchModule`, `TelemetryModule`, `SimulationModule`) vào `AppModule`. Đảm bảo ứng dụng khởi động bình thường mà không gặp lỗi Dependency Injection (circular dependency). Sử dụng `forwardRef` nếu có tham chiếu vòng. |
+| J1 | Xóa `TelemetryQueryService` legacy + clean `DatabaseModule` | [ ] Pending | - **Thứ tự**: Làm **TRƯỚC J2**. Chỉ xóa sau khi `TelemetryService` (Sprint 3) thay thế 100% chức năng.<br>- **Actions**: Xóa `src/database/telemetry-query.service.ts`; gỡ import/providers/exports trong `database.module.ts`; grep sạch mọi reference.<br>- **Verify**: `grep -r "TelemetryQueryService" src/ --include="*.ts"` → rỗng.<br>- **Chống dead code**: Không để re-export stub hay comment "removed". |
+| J2 | Wire `BatchModule` + `TelemetryModule` + `SimulationModule` vào `AppModule` | [ ] Pending | - **Thứ tự**: Sau J1. Imports cuối: `DatabaseModule`, `MqttModule`, `DeviceModule`, `BatchModule`, `TelemetryModule`, `SimulationModule`.<br>- **DI safety**: `pnpm start:dev` không circular / missing provider. Dùng `forwardRef()` chỉ khi thật sự có cycle (ưu tiên Subject pattern đã áp ở H1/G1 để tránh).<br>- **Gate cuối**: `pnpm lint && pnpm build && pnpm test` + boot sạch không DI error.<br>- **File**: `src/app.module.ts`. |
+
+---
+
+## Dependency Map (tóm tắt)
+
+```
+Sprint 1 [x] Done
+    │
+    ▼
+Sprint 2 [ ] QA Review  ──export BatchService──┐
+    │                                          │
+    │ (code song song OK)                      ▼
+    └──────────────────────────────► Sprint 3 [ ] Pending
+                                         │  H1 Subject$ → G1 closed-loop → F1/G3/G4/G5
+                                         ▼
+                                   Sprint 4 [ ] Pending
+                                      I1/I2/I3 → J1 cleanup → J2 AppModule wire
+```
+
+## Status Legend
+| Ký hiệu | Ý nghĩa |
+| :--- | :--- |
+| `[ ] Pending` | Task chưa chạm vào |
+| `[ ] In Progress` | Execution Agent đang viết code |
+| `[ ] QA Review` | Code xong, chờ rà soát chất lượng |
+| `[x] Done` | Đã qua review nghiêm ngặt và được duyệt |
