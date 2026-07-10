@@ -27,7 +27,7 @@
 
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| **A1** | Tạo [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | `[ ] Pending` | **Chỉ thị kỹ thuật:**<br>- Không dùng `#define` bừa bãi cho hằng số chân. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`.<br>- Kiểm tra bảng phân bổ GPIO của ESP32-S3 để tránh strapping pins (GPIO 0, 3, 45, 46) hoặc các chân SPI flash nội bộ (GPIO 26-32 hoặc 33-37 tùy loại). Khuyến nghị: Rơ-le (10, 11, 12, 13), I2C (SDA=8, SCL=9), OneWire (14). |
+| **A1** | Tạo [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) và định nghĩa hằng số GPIO cho 4 Rơ-le, I2C, OneWire. | `[ ] QA Review` | **Chỉ thị kỹ thuật:**<br>- Không dùng `#define` bừa bãi cho hằng số chân. Ép dùng `constexpr uint8_t` để đảm bảo an toàn kiểu dữ liệu (Type-Safe). Bắt buộc có `#pragma once`.<br>- Kiểm tra bảng phân bổ GPIO của ESP32-S3 để tránh strapping pins (GPIO 0, 3, 45, 46) hoặc các chân SPI flash nội bộ (GPIO 26-32 hoặc 33-37 tùy loại). Khuyến nghị: Rơ-le (10, 11, 12, 13), I2C (SDA=8, SCL=9), OneWire (14). |
 | **A2** | Khai báo cấu hình mạng WiFi và cấu hình MQTT Broker. | `[ ] Pending` | **Chỉ thị kỹ thuật:**<br>- Định nghĩa thông tin nhạy cảm (WiFi, MQTT credentials) trong các khối `#ifndef` / `#define` để cho phép ghi đè bằng compiler flag `-D` khi build/CI, ngăn lộ thông tin bảo mật lên Git.<br>- Khuyến nghị chuẩn bị sẵn cơ chế fallback SSID hoặc cấu hình động qua SmartConfig (dự phòng tương lai). |
 
 ### Track B: Tầng Mạng (Sprint 1 - Network WiFi)
