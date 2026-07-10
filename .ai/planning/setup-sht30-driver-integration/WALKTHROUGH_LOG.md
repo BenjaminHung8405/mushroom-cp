@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T15:50:00+07:00] Task E1 - Chạy host unit tests section 16.x — zero regression
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - Không có (Chỉ thực hiện chạy kiểm thử host unit test)
+- **Giải trình giải pháp**:
+  - Biên dịch và thực thi toàn bộ host unit tests.
+  - Do `mqtt_client.h` sử dụng thư viện `ArduinoJson.h` chính thức từ PlatformIO libdeps, chúng ta đã thêm thư mục `.pio/libdeps/uart/ArduinoJson/src` vào include path. Đồng thời biên dịch bổ sung các file mã nguồn phụ thuộc gồm `src/main.cpp`, `src/core0_tasks.cpp`, `src/core1_tasks.cpp`, và `src/fuzzy_engine.cpp` để linker phân giải chính xác các hàm `setup()`, `loop()`, `task_core0_communication`, `task_core1_control`, cũng như biến `DEMO_RELAY_PINS` và `DEMO_RELAY_COUNT`.
+  - Lệnh đầy đủ đã chạy:
+    `g++ -std=c++11 -DUNIT_TEST -Iinclude -Itest -I.pio/libdeps/uart/ArduinoJson/src test/run_tests.cpp src/sensors.cpp src/actuators.cpp src/serial_mutex.cpp src/storage.cpp src/config.cpp src/wifi_manager.cpp src/mqtt_client.cpp src/main.cpp src/core0_tasks.cpp src/core1_tasks.cpp src/fuzzy_engine.cpp -o run_tests && ./run_tests`
+  - Kết quả: 100% test cases (bao gồm Section 16.x kiểm thử mock cảm biến và fault-injection) pass thành công hoàn hảo.
+- **Kết quả tự kiểm thử**:
+  - Toàn bộ unit tests pass thành công với đầu ra: `--- All Unit Tests Passed Successfully! ---`.
+
 ## [2026-07-10T15:49:00+07:00] Task D3 - Guard — không thay đổi `read_ds18b20` / `read_scd30` / `read_all_telemetry` / fault-injection API
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
