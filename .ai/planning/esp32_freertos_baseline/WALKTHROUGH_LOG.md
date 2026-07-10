@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:27:07+07:00] - Task C2: Cài đặt `init_mqtt()` và `mqtt_reconnect()`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - Sửa đổi: [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+- **Giải trình giải pháp**:
+  - **Triển khai logic kết nối lại không đồng bộ (Non-blocking reconnect)**: Cài đặt biến `last_reconnect_attempt` kết hợp với hằng số trễ 5 giây để kiểm soát tần suất kết nối lại MQTT, tránh spam socket gây block CPU luồng chính của Core 0 và nguy cơ sập WDT.
+  - **Ràng buộc an toàn mạng (Network State Safeguard)**: Tích hợp kiểm tra trạng thái WiFi trước khi reconnect. Nếu trạng thái WiFi không phải `STA_CONNECTED` (ví dụ đang ở chế độ cấu hình không dây SoftAP/Captive Portal hoặc đang trong quá trình scan/connecting), ngắt kết nối MQTT client ngay lập tức và chặn tuyệt đối việc gọi hàm `reconnect_mqtt()`.
+  - **Cơ chế khóa đa luồng (Mutex Locking)**: Khai báo và tích hợp FreeRTOS Mutex (`xSemaphoreCreateMutex()`) cho ESP32 trong môi trường thực tế khi gọi hàm `reconnect_mqtt()`, đảm bảo an toàn truy cập tài nguyên, chống race condition nếu luồng mạng/nhận lệnh từ Core khác gọi đồng thời. Sử dụng wrapper tiền xử lý `#ifndef UNIT_TEST` để đảm bảo tương thích biên dịch offline hoàn hảo.
+  - **Kết quả tự kiểm thử (Self-test)**: Chạy thành công bộ unit tests offline bằng trình biên dịch g++/clang++ cục bộ. Logic chuyển đổi trạng thái khi ngắt kết nối WiFi và tự động kết nối lại sau khoảng trễ 5s hoạt động hoàn hảo và vượt qua 100% các assertions hiện có.
+
 ## [2026-07-10T10:26:00+07:00] - Task C1: Tạo khung file `mqtt_client.h` và `mqtt_client.cpp`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

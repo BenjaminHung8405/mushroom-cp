@@ -2,6 +2,11 @@
 #include "config.h"
 #include "wifi_manager.h"
 
+#ifndef UNIT_TEST
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
+
 namespace mqtt
 {
     MqttClient& MqttClient::get_instance()
@@ -43,28 +48,52 @@ namespace mqtt
         mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
         mqtt_client.setCallback(MqttClient::mqtt_callback_static);
 
+#ifndef UNIT_TEST
+        if (mqtt_mutex == nullptr)
+        {
+            mqtt_mutex = xSemaphoreCreateMutex();
+        }
+#endif
+
         current_state = MqttState::IDLE;
         return true;
     }
 
     void MqttClient::loop()
     {
-        // Skeleton implementation of loop (to be expanded in C2)
-        // Check WiFi state first before running MQTT loop
+        constexpr unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000;
+        
+        // 1. Check WiFi state first before running MQTT loop
         wifi::WifiState wifi_state = wifi::get_wifi_state();
         
         if (wifi_state != wifi::WifiState::STA_CONNECTED)
         {
-            current_state = MqttState::ERROR_NO_WIFI;
+            if (current_state != MqttState::ERROR_NO_WIFI)
+            {
+                Serial.printf("[MQTT] WiFi is not connected (State: %d). Suspending MQTT connection.\n", (int)wifi_state);
+                current_state = MqttState::ERROR_NO_WIFI;
+                if (mqtt_client.connected())
+                {
+                    mqtt_client.disconnect();
+                }
+            }
             return;
         }
 
-        // If WiFi is connected and we are in error state, transition back to idle/disconnected
+        // If WiFi is connected and we are in error state, transition back to disconnected
         if (current_state == MqttState::ERROR_NO_WIFI)
         {
+            Serial.println("[MQTT] WiFi restored. MQTT client back to DISCONNECTED state.");
             current_state = MqttState::DISCONNECTED;
         }
 
+        // Avoid trying to connect if we don't have broker configuration
+        if (current_state == MqttState::ERROR_NO_CONFIG)
+        {
+            return;
+        }
+
+        // 2. Maintain connection
         if (mqtt_client.connected())
         {
             mqtt_client.loop();
@@ -72,7 +101,17 @@ namespace mqtt
         }
         else
         {
-            reconnect_mqtt();
+            if (current_state == MqttState::CONNECTED)
+            {
+                Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
+                current_state = MqttState::DISCONNECTED;
+            }
+
+            unsigned long now = millis();
+            if (now - last_reconnect_attempt >= MQTT_RECONNECT_INTERVAL_MS)
+            {
+                reconnect_mqtt();
+            }
         }
     }
 
@@ -134,9 +173,31 @@ namespace mqtt
 
     void MqttClient::reconnect_mqtt()
     {
+        // 1. Safeguard against calling reconnect when WiFi is not ready or SoftAP mode is active
+        wifi::WifiState wifi_state = wifi::get_wifi_state();
+        if (wifi_state != wifi::WifiState::STA_CONNECTED)
+        {
+            Serial.println("[MQTT] Reconnect aborted: WiFi is not STA_CONNECTED.");
+            current_state = MqttState::ERROR_NO_WIFI;
+            return;
+        }
+
         if (is_reconnecting) return;
+
+        // 2. Lock Mutex to prevent concurrent connection attempts across tasks
+#ifndef UNIT_TEST
+        if (mqtt_mutex != nullptr)
+        {
+            if (xSemaphoreTake((SemaphoreHandle_t)mqtt_mutex, 0) != pdTRUE)
+            {
+                Serial.println("[MQTT] Reconnect skipped: mutex locked by another process.");
+                return;
+            }
+        }
+#endif
         
         is_reconnecting = true;
+        last_reconnect_attempt = millis();
         Serial.println("[MQTT] Attempting connection to MQTT broker...");
         
         String client_id = config::network::MQTT_CLIENT_ID_VAL;
@@ -173,11 +234,18 @@ namespace mqtt
         }
         else
         {
-            Serial.println("[MQTT] Connection to broker failed.");
+            Serial.println("[MQTT] Connection to broker failed. Will retry later.");
             current_state = MqttState::DISCONNECTED;
         }
         
         is_reconnecting = false;
+
+#ifndef UNIT_TEST
+        if (mqtt_mutex != nullptr)
+        {
+            xSemaphoreGive((SemaphoreHandle_t)mqtt_mutex);
+        }
+#endif
     }
 
 } // namespace mqtt

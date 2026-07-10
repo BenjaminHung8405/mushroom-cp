@@ -127,6 +127,9 @@ namespace mqtt
         MqttTopics resolved_topics;
         unsigned long last_reconnect_attempt = 0;
         bool is_reconnecting = false;
+#ifndef UNIT_TEST
+        void* mqtt_mutex = nullptr;
+#endif
     };
 
 } // namespace mqtt
