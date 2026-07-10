@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:44:00+07:00] - Task H1: Cập nhật MqttService nhận tin & dispatch setpoint
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [mqtt.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts)
+  - Tạo mới: [mqtt.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Cải tiến hàm `MqttService.handleIncomingMessage` để kiểm tra an toàn dữ liệu JSON khi nhận telemetry (kiểm tra `parsedPayload` không null và là object trước khi trích xuất `temp_air`, `humidity_air`, `co2_level`).
+  - Viết bộ unit tests đầy đủ cho `MqttService` trong file `mqtt.service.spec.ts` bao gồm:
+    - Kiểm thử kết nối và đăng ký (subscribe) các topics.
+    - Kiểm thử xử lý dữ liệu tin nhắn bất đồng bộ của topic status (online, offline, payload không hợp lệ).
+    - Kiểm thử xử lý dữ liệu tin nhắn telemetry (đọc đúng giá trị nhiệt độ và độ ẩm từ SHT30, chấp nhận giá trị null, xử lý payload không hợp lệ).
+    - Kiểm thử các hàm gửi (publish) dữ liệu setpoint (kiểm tra topic, QoS 1, xử lý trường hợp lỗi khi không có kết nối).
+  - Tự kiểm tra:
+    - Chạy `pnpm lint` thành công 100% không phát sinh lỗi hay cảnh báo.
+    - Chạy `pnpm build` thành công biên dịch NestJS.
+    - Chạy `pnpm test` vượt qua toàn bộ 79/79 test cases thuộc 12 test suites.
+
 ## [2026-07-10T16:41:00+07:00] - Task G8: Verify lint / build / test
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

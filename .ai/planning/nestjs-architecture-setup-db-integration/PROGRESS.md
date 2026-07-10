@@ -90,7 +90,7 @@
 #### Track H: Tầng Tích Hợp MQTT (MQTT Integration Track)
 | Task ID | Mô tả Task | Status | Note / Chỉ thị kỹ thuật cấp cao |
 | :--- | :--- | :--- | :--- |
-| H1 | Cập nhật `MqttService` nhận tin & dispatch setpoint | [ ] In Progress | - **Subject Pattern**: `telemetry$` stream một chiều, tránh inject chéo.<br>- **Routing**: Lắng nghe `mushroom/device/+/telemetry`. Parse JSON an toàn (try-catch, không crash khi nhận tin sai định dạng). Đọc `temp_air` (nhiệt độ) và `humidity_air` (độ ẩm) từ SHT30.<br>- **`dispatchSetpoint`**: Gửi payload điều khiển dạng ON/OFF (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) tới topic `mushroom/device/{houseId}/setpoint` QoS 1. |
+| H1 | Cập nhật `MqttService` nhận tin & dispatch setpoint | [ ] QA Review | - **Subject Pattern**: `telemetry$` stream một chiều, tránh inject chéo.<br>- **Routing**: Lắng nghe `mushroom/device/+/telemetry`. Parse JSON an toàn (try-catch, không crash khi nhận tin sai định dạng). Đọc `temp_air` (nhiệt độ) và `humidity_air` (độ ẩm) từ SHT30.<br>- **`dispatchSetpoint`**: Gửi payload điều khiển dạng ON/OFF (`mist_generator_active`, `convection_fan_active`, `heating_lamp_active`) tới topic `mushroom/device/{houseId}/setpoint` QoS 1. |
 
 ---
 
