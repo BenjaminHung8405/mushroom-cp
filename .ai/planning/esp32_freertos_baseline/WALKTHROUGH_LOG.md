@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:59:00+07:00] - Task E2: Khởi tạo struct `TelemetryData` và `ActuatorCommand`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Kiểm chứng các mô hình dữ liệu (Models)**:
+    - Rà soát cấu trúc `TelemetryData` (chứa `temp_substrate`, `humidity_air`, `co2_level`) và `ActuatorCommand` (chứa `relay_id`, `state`, kèm theo 2 bytes padding) trong [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h).
+    - Cả hai đều được thiết kế là Plain Old Data (POD) và áp dụng cấu trúc alignment 4 bytes (`__attribute__((aligned(4)))`) để tối ưu việc copy dữ liệu qua FreeRTOS Queue giữa Core 0 và Core 1 trên ESP32 mà không bị phân mảnh hoặc lỗi offset alignment.
+  - **Cập nhật Unit Test & Thử nghiệm**:
+    - Sửa đổi log thông báo trong bộ kiểm thử `test/run_tests.cpp` để phản ánh đúng việc kiểm thử cho cả Task E1 và Task E2.
+    - Thực hiện build lại chương trình kiểm thử offline trên máy host và chạy thành công vượt qua 100% assertions, xác nhận kích thước của `TelemetryData` là 12 bytes và `ActuatorCommand` là 4 bytes.
+
 ## [2026-07-10T10:57:00+07:00] - Task E1: Tạo file `include/models.h` định nghĩa các Data Structures
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

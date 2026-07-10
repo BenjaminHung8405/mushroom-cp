@@ -331,7 +331,7 @@ int main() {
     loop();
 
     // 15. Test Task E1/E2 - Models and Data Structures POD and Alignment properties
-    Serial.println("[TEST] Starting Task E1 - Models and Data Structures Unit Tests...");
+    Serial.println("[TEST] Starting Task E1/E2 - Models and Data Structures Unit Tests...");
     assert(std::is_pod<TelemetryData>::value == true);
     assert(std::is_pod<ActuatorCommand>::value == true);
     assert(sizeof(TelemetryData) == 12);
