@@ -389,5 +389,17 @@ describe('BatchService', () => {
       expect(result.status).toBe('COMPLETED');
       expect(cropBatchRepo.save).toHaveBeenCalledWith(mockBatch);
     });
+
+    it('should throw ConflictException if the batch is not ACTIVE', async () => {
+      const mockBatch = { id: 'batch-1', status: 'COMPLETED' } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      await expect(service.endBatch('batch-1', 'ABORTED')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(cropBatchRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'batch-1' },
+      });
+    });
   });
 });

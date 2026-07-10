@@ -55,7 +55,7 @@ describe('BatchController', () => {
       const mockResult = { id: 'batch-1', status: 'COMPLETED' } as CropBatch;
       service.endBatch.mockResolvedValue(mockResult);
 
-      const result = await controller.end('batch-1', { status: 'COMPLETED' });
+      const result = await controller.end({ id: 'batch-1' }, { status: 'COMPLETED' });
       expect(result).toEqual(mockResult);
       expect(service.endBatch).toHaveBeenCalledWith('batch-1', 'COMPLETED');
     });
@@ -70,7 +70,7 @@ describe('BatchController', () => {
       } as CropBatch;
       service.getActiveBatchByHouseId.mockResolvedValue(mockResult);
 
-      const result = await controller.getActive('house-1');
+      const result = await controller.getActive({ houseId: 'house-1' });
       expect(result).toEqual(mockResult);
       expect(service.getActiveBatchByHouseId).toHaveBeenCalledWith('house-1');
     });
@@ -78,7 +78,7 @@ describe('BatchController', () => {
     it('should return null if no active batch is found', async () => {
       service.getActiveBatchByHouseId.mockResolvedValue(null);
 
-      const result = await controller.getActive('house-2');
+      const result = await controller.getActive({ houseId: 'house-2' });
       expect(result).toBeNull();
       expect(service.getActiveBatchByHouseId).toHaveBeenCalledWith('house-2');
     });

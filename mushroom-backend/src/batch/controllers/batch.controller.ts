@@ -4,6 +4,8 @@ import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateBatchDto } from '../dto/update-batch.dto';
 import { CropBatch } from '../entities/crop-batch.entity';
 
+import { BatchIdParamsDto, HouseIdParamsDto } from '../dto/batch.params.dto';
+
 @Controller('batches')
 export class BatchController {
   constructor(private readonly batchService: BatchService) {}
@@ -15,16 +17,16 @@ export class BatchController {
 
   @Patch(':id/end')
   async end(
-    @Param('id') id: string,
+    @Param() params: BatchIdParamsDto,
     @Body() updateBatchDto: UpdateBatchDto,
   ): Promise<CropBatch> {
-    return await this.batchService.endBatch(id, updateBatchDto.status);
+    return await this.batchService.endBatch(params.id, updateBatchDto.status);
   }
 
   @Get('active/:houseId')
   async getActive(
-    @Param('houseId') houseId: string,
+    @Param() params: HouseIdParamsDto,
   ): Promise<CropBatch | null> {
-    return await this.batchService.getActiveBatchByHouseId(houseId);
+    return await this.batchService.getActiveBatchByHouseId(params.houseId);
   }
 }

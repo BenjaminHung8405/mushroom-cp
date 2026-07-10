@@ -345,6 +345,12 @@ export class BatchService {
       throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
     }
 
+    if (batch.status !== 'ACTIVE') {
+      throw new ConflictException(
+        `Cannot end batch '${id}' — current status is '${batch.status}'. Only ACTIVE batches can be ended.`,
+      );
+    }
+
     batch.status = status;
     return await this.cropBatchRepository.save(batch);
   }

@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T14:50:00+07:00] - QA Fix Round 2: Tasks D1 + E1 (Findings Finding 1 - Finding 2)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Task ID**: D1, E1
+- **Danh sách file đã sửa**:
+  - Tạo mới: [batch.params.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/batch.params.dto.ts)
+  - Sửa đổi: [batch.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.ts)
+  - Sửa đổi: [batch.controller.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.spec.ts)
+  - Sửa đổi: [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts)
+  - Sửa đổi: [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình sửa lỗi theo feedback QA**:
+  - **Finding 1 (Route params không validate)**: Tạo mới file `batch.params.dto.ts` để định nghĩa DTO validate cho route parameters `id` (`BatchIdParamsDto`) và `houseId` (`HouseIdParamsDto`) bằng cách dùng các validator `@IsString()`, `@Matches()`, `@MaxLength(50)`. Cập nhật `BatchController` và test case tương ứng để dùng các DTO này.
+  - **Finding 2 (endBatch không enforce state machine)**: Thêm logic guard kiểm tra trạng thái trước khi cho phép cập nhật trạng thái trong `endBatch` tại `batch.service.ts`. Ném `ConflictException` nếu trạng thái hiện tại khác `ACTIVE`. Bổ sung unit test để kiểm định trường hợp này.
+
 ## [2026-07-10T14:15:00+07:00] - QA Fix Round 2: Tasks D1 + E1 (Findings F1–F5)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Task ID**: D1, E1
