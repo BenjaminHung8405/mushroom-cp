@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:23:00+07:00] - Task B2: Cài đặt logic `init_wifi()` và `check_wifi_connection()`
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Triển khai máy trạng thái WiFi Manager**: Cài đặt logic xử lý trạng thái WiFi non-blocking hoạt động qua 5 trạng thái (`IDLE`, `STA_CONNECTING`, `STA_CONNECTED`, `STA_DISCONNECTED`, `SOFTAP_ACTIVE`).
+  - **Hàm `init_wifi()`**: Tuân thủ tuyệt đối quy định thiết kế, bắt buộc gọi nạp cấu hình dynamic từ NVS trước. Nếu NVS chưa được cấu hình, hệ thống sẽ rơi về `SOFTAP_ACTIVE` mà không thực hiện bất kỳ hardcode kết nối WiFi nào. Nếu có cấu hình, khởi chạy `WiFi.begin()` và chuyển sang `STA_CONNECTING`.
+  - **Hàm `check_wifi_connection()` & `reconnect_wifi()`**:
+    - Khi ở `STA_CONNECTING`: Theo dõi trạng thái kết nối. Nếu thành công (`WL_CONNECTED`), chuyển sang `STA_CONNECTED` và ghi nhận IP. Nếu quá thời gian chờ (15 giây), ngắt kết nối, chuyển sang `STA_DISCONNECTED` và đặt mốc thời gian chờ kết nối lại.
+    - Khi ở `STA_CONNECTED`: Nếu mất kết nối, chuyển trạng thái sang `STA_DISCONNECTED`.
+    - Khi ở `STA_DISCONNECTED`: Thực hiện kiểm tra định kỳ (mỗi 10 giây) một cách non-blocking và tự động kết nối lại qua hàm `reconnect_wifi()`.
+  - **Tự kiểm duyệt (Self-test)**:
+    - Bổ sung mock cho lớp `WiFiClass`, `wl_status_t`, `wifi_mode_t`, `IPAddress` và cơ chế cộng dồn thời gian ảo `mock_millis_offset` vào `test/Arduino.h` và `test/run_tests.cpp` để giả lập quá trình trôi đi của thời gian.
+    - Phát triển bộ 8 testcase kiểm nghiệm toàn diện luồng chuyển trạng thái: Từ khởi tạo rỗng (SoftAP), kết nối thành công (STA_CONNECTED), mất kết nối (STA_DISCONNECTED), tự kết nối lại thành công, và timeout kết nối (quá 15s tự ngắt và chuyển về DISCONNECTED).
+    - Biên dịch và vượt qua 100% các bài kiểm tra offline thành công trên macOS.
+
 ## [2026-07-10T10:21:00+07:00] - Task B1: Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

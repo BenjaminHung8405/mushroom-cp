@@ -19,7 +19,7 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | B1 | Tạo khung file `wifi_manager.h` và `wifi_manager.cpp`. | [ ] QA Review | Áp dụng cấu trúc phân tách rõ ràng. Khai báo sẵn các hằng số `AP_SSID` và `AP_PASS` cho mạng SoftAP dự phòng. |
-| B2 | Cài đặt logic `init_wifi()` và `check_wifi_connection()`. | [ ] Pending | **Chỉ thị cốt lõi:** Hàm `init_wifi()` bắt buộc phải ưu tiên gọi lệnh đọc SSID/PASS lưu trong NVS Flash trước. Nếu NVS trống, lập tức bỏ qua và trả về mã trạng thái kích hoạt SoftAP (sẽ làm ở Sprint sau), tuyệt đối không hardcode cứng WiFi ra Internet tại đây. |
+| B2 | Cài đặt logic `init_wifi()` và `check_wifi_connection()`. | [ ] QA Review | **Chỉ thị cốt lõi:** Hàm `init_wifi()` bắt buộc phải ưu tiên gọi lệnh đọc SSID/PASS lưu trong NVS Flash trước. Nếu NVS trống, lập tức bỏ qua và trả về mã trạng thái kích hoạt SoftAP (sẽ làm ở Sprint sau), tuyệt đối không hardcode cứng WiFi ra Internet tại đây. |
 
 ### Track C: Tầng Mạng (Sprint 1 - Network MQTT)
 

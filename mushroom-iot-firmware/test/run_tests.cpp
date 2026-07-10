@@ -8,6 +8,14 @@
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
 
+wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
+wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
+std::string WiFiClass::mock_ssid = "";
+std::string WiFiClass::mock_pass = "";
+bool WiFiClass::disconnect_called = false;
+WiFiClass WiFi;
+unsigned long mock_millis_offset = 0;
+
 int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
@@ -85,12 +93,20 @@ int main() {
     // Clean up
     assert(storage.factory_reset() == true);
 
-    // 11. Test WiFi Manager Skeleton
+    // 11. Test WiFi Manager Connection Logic
     Serial.println("[TEST] Starting WiFi Manager Unit Tests...");
     
     // Ensure NVS is empty
     assert(storage.has_wifi_credentials() == false);
     
+    // Reset mock states
+    WiFi.mock_status = WL_IDLE_STATUS;
+    WiFi.mock_mode = WIFI_OFF;
+    WiFi.mock_ssid = "";
+    WiFi.mock_pass = "";
+    WiFi.disconnect_called = false;
+    mock_millis_offset = 0;
+
     // Test init_wifi when NVS is empty (should result in SOFTAP_ACTIVE)
     assert(wifi::init_wifi() == wifi::WifiState::SOFTAP_ACTIVE);
     assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
@@ -101,10 +117,50 @@ int main() {
     // Test init_wifi when NVS has credentials (should result in STA_CONNECTING)
     assert(wifi::init_wifi() == wifi::WifiState::STA_CONNECTING);
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
-    
-    // Call other skeleton functions to ensure no crash/errors
+    assert(WiFi.mock_mode == WIFI_STA);
+    assert(WiFi.mock_ssid == "WiFi_STA_Test");
+    assert(WiFi.mock_pass == "sta_password");
+
+    // 11.1 Check connection in progress (no change)
+    WiFi.mock_status = WL_DISCONNECTED;
     wifi::check_wifi_connection();
-    wifi::reconnect_wifi();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // 11.2 Simulate successful connection
+    WiFi.mock_status = WL_CONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
+
+    // 11.3 Simulate connection lost
+    WiFi.mock_status = WL_DISCONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
+
+    // 11.4 Check reconnection delay (before 10s reconnect interval)
+    mock_millis_offset = 5000; // 5 seconds have passed
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
+
+    // 11.5 Check reconnection trigger (after 10s reconnect interval)
+    mock_millis_offset = 11000; // 11 seconds have passed
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // 11.6 Simulate connection timeout (15s connection timeout)
+    // Currently mock_millis_offset = 11000, and state is STA_CONNECTING (re-connection started)
+    // Connection start time is around 11000.
+    // Progress time by 5s (total 16s) -> connection time elapsed = 5s. No timeout yet.
+    mock_millis_offset = 16000;
+    WiFi.mock_status = WL_DISCONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    // Progress time by another 11s (total 27s) -> connection time elapsed = 16s. Timeout!
+    WiFi.disconnect_called = false;
+    mock_millis_offset = 27000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
+    assert(WiFi.disconnect_called == true);
 
     // Clean up
     assert(storage.factory_reset() == true);
