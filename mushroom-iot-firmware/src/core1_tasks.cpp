@@ -68,7 +68,15 @@ static void process_actuator_commands()
                 cmd.state ? "ON" : "OFF"
             );
         }
-        actuators::set_Relay_State(cmd.relay_id, cmd.state);
+        bool applied = actuators::set_relay_state(cmd.relay_id, cmd.state);
+        if (!applied)
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf(
+                "[CORE1_TASK] WARNING: ActuatorCommand with invalid pin=%u was rejected.\n",
+                static_cast<unsigned>(cmd.relay_id)
+            );
+        }
     }
 }
 
@@ -85,7 +93,8 @@ static void sample_and_enqueue_telemetry()
     {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf(
-            "[CORE1_TASK] Telemetry: temp_sub=%.2f°C  humidity=%.2f%%  co2=%.1fppm  ok=%d\n",
+            "[CORE1_TASK] Telemetry: temp_air=%.2f°C  temp_sub=%.2f°C  humidity=%.2f%%  co2=%.1fppm  ok=%d\n",
+            data.temp_air,
             data.temp_substrate,
             data.humidity_air,
             data.co2_level,
@@ -148,24 +157,22 @@ void task_core1_control(void* /*pvParameters*/)
             // command.  This block will be replaced by fuzzy-logic control later.
             demo_state = !demo_state;
             uint8_t pin = DEMO_RELAY_PINS[demo_relay_idx];
-            actuators::set_Relay_State(pin, demo_state);
+            actuators::set_relay_state(pin, demo_state);
             demo_relay_idx = (demo_relay_idx + 1) % DEMO_RELAY_COUNT;
         }
 
         // --- Stack High Water Mark (every ~5 s, same cadence as Core 0) ----
+        #ifndef UNIT_TEST
         static unsigned long last_stack_log = 0;
         if (now - last_stack_log >= 5000UL)
         {
             last_stack_log = now;
             ScopedSerialLock guard(SerialLock::get_instance());
-            #ifndef UNIT_TEST
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(nullptr);
             Serial.printf("[CORE1_TASK] Stack High Water Mark: %u words\n",
                           static_cast<unsigned>(hwm));
-            #else
-            Serial.println("[CORE1_TASK] Stack High Water Mark: 4096 words");
-            #endif
         }
+        #endif
 
         // Feed the Watchdog and yield to other Core-1 tasks
         #ifndef UNIT_TEST

@@ -18,5 +18,5 @@ namespace actuators
      * @return true nếu chân hợp lệ và đã ghi trạng thái thành công, false nếu chân ngoài ranh giới an toàn.
      * @details Kiểm tra ranh giới an toàn trước khi gọi digitalWrite. Log rõ ràng ra Serial để trace bug.
      */
-    bool set_Relay_State(uint8_t relay_pin, bool state);
+    bool set_relay_state(uint8_t relay_pin, bool state);
 }

@@ -1,6 +1,11 @@
 #include "sensors.h"
+#ifndef UNIT_TEST
 #include <Arduino.h>
 #include <cmath>
+#else
+#include "Arduino.h"  // Mock header from test/Arduino.h
+#include <cmath>
+#endif
 
 namespace sensors
 {
@@ -153,10 +158,12 @@ namespace sensors
         float sht_hum = NAN;
         if (read_sht30(sht_temp, sht_hum))
         {
+            data.temp_air     = sht_temp;
             data.humidity_air = sht_hum;
         }
         else
         {
+            data.temp_air     = NAN;
             data.humidity_air = NAN;
             success = false;
         }

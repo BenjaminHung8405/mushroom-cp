@@ -71,7 +71,7 @@ namespace actuators
         Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state.");
     }
 
-    bool set_Relay_State(uint8_t relay_pin, bool state)
+    bool set_relay_state(uint8_t relay_pin, bool state)
     {
         // Ranh giới an toàn: từ chối mọi chân GPIO không thuộc whitelist rơ-le
         if (!is_valid_relay_pin(relay_pin))

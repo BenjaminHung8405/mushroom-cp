@@ -348,7 +348,7 @@ int main() {
     Serial.println("[TEST] Starting Task E1/E2 - Models and Data Structures Unit Tests...");
     assert(std::is_pod<TelemetryData>::value == true);
     assert(std::is_pod<ActuatorCommand>::value == true);
-    assert(sizeof(TelemetryData) == 12);
+    assert(sizeof(TelemetryData) == 16);  // 4 floats × 4 bytes
     assert(sizeof(ActuatorCommand) == 4);
     assert(alignof(TelemetryData) == 4);
     assert(alignof(ActuatorCommand) == 4);
@@ -373,34 +373,37 @@ int main() {
     assert(sensors::get_last_error_scd30() == sensors::SensorError::ERR_NOT_INITIALIZED);
     
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
+    assert(std::isnan(telemetry_mock.temp_air));
     assert(std::isnan(telemetry_mock.temp_substrate));
     assert(std::isnan(telemetry_mock.humidity_air));
     assert(std::isnan(telemetry_mock.co2_level));
 
     // 16.2 Initialize sensors
     assert(sensors::init_sensors_placeholder() == true);
-    
+
     // 16.3 Read again, should succeed and produce reasonable default mock values (millis is mock-controlled)
     assert(sensors::read_sht30(t_sht, h_sht) == true);
     assert(!std::isnan(t_sht) && !std::isnan(h_sht));
     assert(t_sht >= 23.0f && t_sht <= 27.0f);
     assert(h_sht >= 75.0f && h_sht <= 85.0f);
     assert(sensors::get_last_error_sht30() == sensors::SensorError::SUCCESS);
-    
+
     assert(sensors::read_ds18b20(t_ds) == true);
     assert(!std::isnan(t_ds));
     assert(t_ds >= 20.5f && t_ds <= 23.5f);
     assert(sensors::get_last_error_ds18b20() == sensors::SensorError::SUCCESS);
-    
+
     assert(sensors::read_scd30(co2_scd) == true);
     assert(!std::isnan(co2_scd));
     assert(co2_scd >= 450.0f && co2_scd <= 750.0f);
     assert(sensors::get_last_error_scd30() == sensors::SensorError::SUCCESS);
-    
+
     assert(sensors::read_all_telemetry(telemetry_mock) == true);
+    assert(!std::isnan(telemetry_mock.temp_air));
     assert(!std::isnan(telemetry_mock.temp_substrate));
     assert(!std::isnan(telemetry_mock.humidity_air));
     assert(!std::isnan(telemetry_mock.co2_level));
+    assert(telemetry_mock.temp_air == t_sht);
     assert(telemetry_mock.humidity_air == h_sht);
     assert(telemetry_mock.temp_substrate == t_ds);
     assert(telemetry_mock.co2_level == co2_scd);
@@ -418,23 +421,26 @@ int main() {
     assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_DISCONNECTED);
     
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
-    assert(std::isnan(telemetry_mock.humidity_air)); // Failed SHT30
+    assert(std::isnan(telemetry_mock.temp_air));       // Failed SHT30
+    assert(std::isnan(telemetry_mock.humidity_air));   // Failed SHT30
     assert(!std::isnan(telemetry_mock.temp_substrate)); // DS18B20 still works!
-    assert(!std::isnan(telemetry_mock.co2_level)); // SCD30 still works!
+    assert(!std::isnan(telemetry_mock.co2_level));     // SCD30 still works!
 
     sensors::set_simulated_health_ds18b20(false);
     assert(sensors::read_ds18b20(t_ds) == false);
     assert(std::isnan(t_ds));
     assert(sensors::get_last_error_ds18b20() == sensors::SensorError::ERR_DISCONNECTED);
-    
+
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
-    assert(std::isnan(telemetry_mock.humidity_air)); // Failed SHT30
+    assert(std::isnan(telemetry_mock.temp_air));       // Failed SHT30
+    assert(std::isnan(telemetry_mock.humidity_air));   // Failed SHT30
     assert(std::isnan(telemetry_mock.temp_substrate)); // Failed DS18B20
-    assert(!std::isnan(telemetry_mock.co2_level)); // SCD30 still works!
+    assert(!std::isnan(telemetry_mock.co2_level));     // SCD30 still works!
 
     sensors::set_simulated_health_sht30(true);
     sensors::set_simulated_health_ds18b20(true);
     assert(sensors::read_all_telemetry(telemetry_mock) == true);
+    assert(!std::isnan(telemetry_mock.temp_air));
     assert(!std::isnan(telemetry_mock.humidity_air));
     assert(!std::isnan(telemetry_mock.temp_substrate));
     assert(!std::isnan(telemetry_mock.co2_level));
@@ -473,34 +479,34 @@ int main() {
         assert(mock_pin_write_order[pin] > 0);
     }
 
-    // 18. Test Task G2 - set_Relay_State boundary checks and logging
-    Serial.println("[TEST] Starting Task G2 - set_Relay_State Unit Tests...");
+    // 18. Test Task G2 - set_relay_state boundary checks and logging
+    Serial.println("[TEST] Starting Task G2 - set_relay_state Unit Tests...");
 
     mock_pin_values.clear();
     mock_pin_write_order.clear();
 
     // 18.1 Toggle MIST relay ON then OFF — verify return true and correct levels
-    assert(actuators::set_Relay_State(config::pins::PIN_RELAY_MIST, true) == true);
+    assert(actuators::set_relay_state(config::pins::PIN_RELAY_MIST, true) == true);
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
-    assert(actuators::set_Relay_State(config::pins::PIN_RELAY_MIST, false) == true);
+    assert(actuators::set_relay_state(config::pins::PIN_RELAY_MIST, false) == true);
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
     // 18.2 Toggle all four relays individually — each must succeed
     for (uint8_t pin : relay_pins) {
-        assert(actuators::set_Relay_State(pin, true) == true);
+        assert(actuators::set_relay_state(pin, true) == true);
         assert(mock_pin_values[pin] == HIGH);
-        assert(actuators::set_Relay_State(pin, false) == true);
+        assert(actuators::set_relay_state(pin, false) == true);
         assert(mock_pin_values[pin] == LOW);
     }
 
     // 18.3 Reject invalid pins — must return false and NOT call digitalWrite
     int write_count_before = mock_operation_counter;
-    assert(actuators::set_Relay_State(0x00, true) == false);
-    assert(actuators::set_Relay_State(0xFF, true) == false);
-    assert(actuators::set_Relay_State(99, false) == false);
-    assert(actuators::set_Relay_State(config::pins::PIN_I2C_SDA, true) == false);
-    assert(actuators::set_Relay_State(config::pins::PIN_ONE_WIRE, true) == false);
+    assert(actuators::set_relay_state(0x00, true) == false);
+    assert(actuators::set_relay_state(0xFF, true) == false);
+    assert(actuators::set_relay_state(99, false) == false);
+    assert(actuators::set_relay_state(config::pins::PIN_I2C_SDA, true) == false);
+    assert(actuators::set_relay_state(config::pins::PIN_ONE_WIRE, true) == false);
     // Verify no extra digitalWrite calls were made for rejected pins
     assert(mock_operation_counter == write_count_before);
 
@@ -568,6 +574,7 @@ int main() {
 
     // 19.5 Send TelemetryData through telemetry queue
     TelemetryData tel_data;
+    tel_data.temp_air       = 25.0f;
     tel_data.temp_substrate = 22.5f;
     tel_data.humidity_air   = 80.0f;
     tel_data.co2_level      = 600.0f;
@@ -577,6 +584,7 @@ int main() {
 
     TelemetryData received_tel;
     assert(xQueueReceive(test_tel_queue, &received_tel, 0) == pdTRUE);
+    assert(received_tel.temp_air       == 25.0f);
     assert(received_tel.temp_substrate == 22.5f);
     assert(received_tel.humidity_air   == 80.0f);
     assert(received_tel.co2_level      == 600.0f);

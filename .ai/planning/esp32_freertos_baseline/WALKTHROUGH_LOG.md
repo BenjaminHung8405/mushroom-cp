@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T12:05:00+07:00] - QA Fix Round 2: Sửa 5 lỗi F-01/F-02/F-03/H-01/H-02 (Tasks F1, F2, G2, H1)
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Task ID**: F1, F2, G2, H1 (re-submit sau QA từ chối)
+- **Danh sách file đã sửa**:
+  - [models.h](mushroom-iot-firmware/include/models.h) — thêm `temp_air` (TelemetryData 16 bytes)
+  - [sensors.cpp](mushroom-iot-firmware/src/sensors.cpp) — F-01 UNIT_TEST guard + F-02 gán `temp_air`
+  - [actuators.h](mushroom-iot-firmware/include/actuators.h) — F-03 rename `set_relay_state`
+  - [actuators.cpp](mushroom-iot-firmware/src/actuators.cpp) — F-03 rename `set_relay_state`
+  - [core1_tasks.cpp](mushroom-iot-firmware/src/core1_tasks.cpp) — F-03 rename + H-01 rejection log + H-02 guard static local
+  - [run_tests.cpp](mushroom-iot-firmware/test/run_tests.cpp) — cập nhật sizeof=16, assert `temp_air`, rename call sites
+- **Giải trình sửa lỗi dựa trên feedback QA**:
+  - **F-01 (Nghiêm trọng — HAL)**: Bọc `#include <Arduino.h>` trong `#ifndef UNIT_TEST` / `#else #include "Arduino.h"` — sensors layer giờ biên dịch offline độc lập như các task khác, không phụ thuộc Arduino framework vô điều kiện.
+  - **F-02 (Trung bình — Data Model)**: Thêm `float temp_air` vào `TelemetryData` (4 fields, 16 bytes). `read_all_telemetry()` gán cả `sht_temp` → `data.temp_air` và `sht_hum` → `data.humidity_air` (trước đó bỏ sót nhiệt độ không khí từ SHT30).
+  - **F-03 (Nhẹ — Convention)**: Rename `set_Relay_State` → `set_relay_state` đồng bộ toàn bộ call sites (`actuators.h/.cpp`, `core1_tasks.cpp`, `run_tests.cpp`) theo quy ước `snake_case`.
+  - **H-01 (Trung bình — Defense-in-Depth)**: `process_actuator_commands()` kiểm tra return value của `set_relay_state()`; nếu reject thì log `[CORE1_TASK] WARNING: ActuatorCommand with invalid pin=...` để trace nguồn gốc lệnh bất thường từ queue.
+  - **H-02 (Nhẹ — Test Isolation)**: Bọc toàn bộ block `static unsigned long last_stack_log` trong `#ifndef UNIT_TEST` — loại bỏ state pollution giữa các unit test invocation; HWM log chỉ chạy trên firmware thật.
+  - **Self-test**: Biên dịch offline bằng `clang++ -DUNIT_TEST`, 100% assertions pass — output `"--- All Unit Tests Passed Successfully! ---"`.
+
 ## [2026-07-10T11:45:00+07:00] - Task H2: Cập nhật hàm `setup()` ghim Task vào Core 1 + Serial Mutex
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

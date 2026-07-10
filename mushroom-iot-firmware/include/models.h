@@ -5,9 +5,10 @@
 /**
  * @brief Plain Old Data (POD) structure for sensor telemetry.
  * Optimized for 32-bit MCU memory alignment.
- * Size: 12 bytes (aligned on 4-byte boundaries).
+ * Size: 16 bytes (aligned on 4-byte boundaries).
  */
 struct TelemetryData {
+    float temp_air;        ///< Air temperature in °C (from SHT30)
     float temp_substrate;  ///< Substrate temperature in °C (from DS18B20)
     float humidity_air;    ///< Air humidity in % (from SHT30)
     float co2_level;       ///< CO2 level in ppm (from SCD30)
