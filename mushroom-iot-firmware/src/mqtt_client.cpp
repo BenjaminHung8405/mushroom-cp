@@ -223,8 +223,6 @@ namespace mqtt
 
     void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)
     {
-        bool has_valid_setpoint = false;
-
         // Bổ sung ngưỡng validate vật lý (Physical Safety Boundaries Check)
         constexpr float MIN_SAFE_TEMP = 10.0f;
         constexpr float MAX_SAFE_TEMP = 45.0f;
@@ -239,16 +237,6 @@ namespace mqtt
             temp_sp = doc["temperature"].as<float>();
         }
 
-        if (temp_sp != -999.0f) {
-            if (temp_sp >= MIN_SAFE_TEMP && temp_sp <= MAX_SAFE_TEMP && !isnan(temp_sp)) {
-                Serial.printf("[MQTT] Parse & Validate Setpoint: temperature = %.2f (SAFE)\n", temp_sp);
-                has_valid_setpoint = true;
-            } else {
-                Serial.printf("[MQTT] Error: temperature setpoint %.2f out of safe range [%.1f, %.1f]\n", 
-                              temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
-            }
-        }
-
         // Kiểm tra và validate setpoint độ ẩm
         float humi_sp = -999.0f;
         if (doc.containsKey("humiditySetpoint")) {
@@ -257,20 +245,27 @@ namespace mqtt
             humi_sp = doc["humidity"].as<float>();
         }
 
-        if (humi_sp != -999.0f) {
-            if (humi_sp >= MIN_SAFE_HUMI && humi_sp <= MAX_SAFE_HUMI && !isnan(humi_sp)) {
-                Serial.printf("[MQTT] Parse & Validate Setpoint: humidity = %.2f (SAFE)\n", humi_sp);
-                has_valid_setpoint = true;
-            } else {
-                Serial.printf("[MQTT] Error: humidity setpoint %.2f out of safe range [%.1f, %.1f]\n", 
-                              humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
-            }
-        }
+        bool valid_temp = validate_single_setpoint("temperature", temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
+        bool valid_humi = validate_single_setpoint("humidity", humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
 
-        if (!has_valid_setpoint)
+        if (!valid_temp && !valid_humi)
         {
             Serial.println("[MQTT] Warning: JSON payload does not contain any valid/safe setpoint values.");
         }
+    }
+
+    bool MqttClient::validate_single_setpoint(const char* name, float val, float min_val, float max_val)
+    {
+        if (val != -999.0f) {
+            if (val >= min_val && val <= max_val && !isnan(val)) {
+                Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
+                return true;
+            } else {
+                Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n", 
+                              name, val, min_val, max_val);
+            }
+        }
+        return false;
     }
 
     void MqttClient::reconnect_mqtt()

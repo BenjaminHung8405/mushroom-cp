@@ -116,6 +116,11 @@ namespace mqtt
         void process_setpoints(const StaticJsonDocument<768>& doc);
 
         /**
+         * @brief Internal helper to validate a single setpoint value.
+         */
+        bool validate_single_setpoint(const char* name, float val, float min_val, float max_val);
+
+        /**
          * @brief Non-blocking reconnect strategy method.
          */
         void reconnect_mqtt();

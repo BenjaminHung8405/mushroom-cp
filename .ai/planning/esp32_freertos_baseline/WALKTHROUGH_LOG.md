@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:50:50+07:00] - Task A2, B1, C3: Sửa lỗi DRY và tái cấu trúc MqttClient theo feedback của QA
+- **Trạng thái**: Đang chờ QA Review (Lần 2)
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [wifi_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/wifi_manager.h)
+  - Sửa đổi: [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - Sửa đổi: [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+- **Giải trình giải pháp**:
+  - **Khắc phục vi phạm DRY**: Xóa bỏ hoàn toàn định nghĩa các hằng số SoftAP cứu hộ `AP_SSID` và `AP_PASS` trong `wifi_manager.h`. Mọi module khác cần sử dụng SoftAP cứu hộ sẽ tham chiếu đến `config::network::AP_SSID` và `config::network::AP_PASS` tập trung ở `config.h`.
+  - **Khắc phục lỗi độ dài hàm**: Tách logic kiểm tra ranh giới và xác thực giá trị float trong `MqttClient::process_setpoints` thành hàm private helper `validate_single_setpoint` trong lớp `MqttClient`. Hàm `process_setpoints` được rút gọn đáng kể (dưới 25 dòng), đảm bảo tuân thủ giới hạn 50 dòng theo quy tắc kiến trúc.
+  - **Kiểm thử**: Biên dịch và chạy bộ kiểm thử offline `run_tests` thành công 100%.
+
 ## [2026-07-10T10:45:00+07:00] - Sprint 1 Fixes: Sửa lỗi bảo mật, logic, và tái cấu trúc mã nguồn theo yêu cầu của Chuyên gia Kiểm toán (Round 2)
 - **Trạng thái**: Đang chờ QA Review (Lần 2)
 - **Danh sách file thay đổi**:

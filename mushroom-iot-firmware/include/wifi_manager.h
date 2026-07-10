@@ -4,9 +4,6 @@
 
 namespace wifi
 {
-    // Hằng số cho mạng SoftAP cứu hộ cấu hình dự phòng
-    constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
-    constexpr const char *AP_PASS = "1234567890";
 
     /**
      * @brief Các trạng thái hoạt động của WiFi Manager
