@@ -1,96 +1,101 @@
-# Sprint 1: Thiết lập Database Module & Hợp nhất Connection Pool (TypeORM)
+# Sprint 1: Database Module & Connection Pool — ✅ HOÀN THÀNH
 
-Sprint này tập trung vào cấu hình cơ sở hạ tầng cơ sở dữ liệu: cài đặt các thư viện cần thiết, thiết lập cấu hình TypeORM DataSource và cập nhật Database Service để chuyển từ pool `pg` thô sang pool hợp nhất của TypeORM.
-
----
-
-## 1. PHẠM VI & MỤC TIÊU
-
-- **Module tác động trực tiếp**:
-  - Cấu hình dự án: `package.json`
-  - Database Module: `src/database/typeorm.config.ts` (Tạo mới), `src/database/database.module.ts` (Sửa đổi), `src/database/database.service.ts` (Sửa đổi).
-- **Mục tiêu**:
-  - Cài đặt `@nestjs/typeorm`, `typeorm`, `date-fns-tz`.
-  - Thiết lập cấu hình TypeORM hỗ trợ chạy Migrations từ CLI và chạy truy vấn SQL thô.
-  - Loại bỏ hoàn toàn raw `pg` pool, chuyển hướng toàn bộ truy vấn qua TypeORM `DataSource.query()`.
+> **Status**: `[x] Done` — Đã được QA Review và duyệt lúc 22:15 ngày 09/07/2026.
 
 ---
 
-## 2. KIẾN TRÚC & LUỒNG DỮ LIỆU
+## 1. MỤC TIÊU & PHẠM VI
+
+Thiết lập hạ tầng cơ sở dữ liệu: cài đặt TypeORM, cấu hình DataSource kết nối TimescaleDB, loại bỏ raw `pg` Pool, đảm bảo toàn bộ truy vấn đi qua một connection pool duy nhất do TypeORM quản lý.
+
+**Các file tác động:**
+- [`package.json`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/package.json) — ghim phiên bản thư viện
+- [`src/database/typeorm.config.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts) — Tạo mới
+- [`src/database/database.module.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.module.ts) — Sửa đổi
+- [`src/database/database.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.service.ts) — Sửa đổi
+- [`src/main.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/main.ts) — Bổ sung global ValidationPipe
+
+---
+
+## 2. KIẾN TRÚC ĐÃ TRIỂN KHAI
 
 ```
-[Môi trường (.env)]
+[.env / process.env]
        │
        ▼
-[src/database/typeorm.config.ts] ──(Nạp cấu hình)──► [DataSource (TypeORM)]
-       │                                                    │
-       ▼ (Đăng ký)                                          ▼ (Thực thi)
-[DatabaseModule / App] ──(Inject)──► [DatabaseService.query()] ──► [TimescaleDB]
+[typeorm.config.ts] ──(parse .env + build DataSourceOptions)──► [DataSource (TypeORM)]
+       │                                                               │
+       ▼ (forRootAsync)                                                ▼ (Connection Pool)
+[DatabaseModule / @Global()] ──(inject)──► [DatabaseService.query()] ──► [TimescaleDB]
+                                                    │
+                                                    ▼ (Adapter Pattern)
+                                        [TelemetryQueryService] (còn giữ tạm, xóa ở Sprint 4)
 ```
 
-Luồng dữ liệu diễn ra như sau:
-1. Lúc ứng dụng khởi động, `TypeOrmModule` sẽ đọc cấu hình từ `typeorm.config.ts` để khởi tạo `DataSource`.
-2. `DataSource` tự động quản lý một hồ chứa kết nối (Connection Pool) duy nhất đến TimescaleDB.
-3. `DatabaseService` nhận dependency `DataSource` qua cơ chế Inject.
-4. Mọi Service khác trong hệ thống khi cần truy vấn cơ sở dữ liệu thô sẽ gọi `DatabaseService.query(sql, params)`. Phương thức này thực thi lệnh SQL thông qua `DataSource.query()`.
+---
+
+## 3. CHI TIẾT ĐÃ IMPLEMENT
+
+### Task A1 — package.json ✅
+- Ghim cứng phiên bản: `@nestjs/typeorm: 11.0.3`, `typeorm: 1.0.0`, `date-fns-tz: 3.2.0`
+- Thêm scripts: `migration:run`, `migration:revert` qua `typeorm-ts-node-commonjs`
+- Ghim thêm: `class-validator`, `class-transformer` cho DTO validation
+
+### Task B1 — typeorm.config.ts ✅
+Cơ chế đọc cấu hình 2 tầng:
+1. **Parse `.env` thông minh**: Xử lý quoted string, inline comment (`# ...`), không ghi đè biến env đã tồn tại trong system (hỗ trợ Docker/CI)
+2. **Ưu tiên `DATABASE_URL`**: Nếu có → dùng ngay. Nếu không → dùng `POSTGRES_*` riêng lẻ
+3. **Bảo vệ test environment**: `retryAttempts: 0` khi `NODE_ENV=test`, không throw error khi thiếu biến trong môi trường test
+4. Pool limits: `max=20`, `idleTimeoutMillis=30000`, `connectionTimeoutMillis=2000`
+5. `synchronize: false` — bắt buộc để bảo vệ hypertable chunks
+
+### Task B2 — database.module.ts ✅
+- `@Global()` decorator để tránh re-import ở các module con
+- `TypeOrmModule.forRootAsync({ useFactory: () => typeOrmConfig })`
+- Export `TypeOrmModule` để các feature module dùng `@InjectRepository()`
+- Export `DatabaseService`, `TelemetryQueryService` (legacy, sẽ xóa ở Sprint 4)
+
+### Task B3 — database.service.ts ✅
+- Xóa hoàn toàn `pg.Pool` thô, thay bằng inject `DataSource` từ TypeORM
+- `onModuleInit()`: chạy `SELECT NOW()` để kiểm tra kết nối, log structured qua NestJS Logger
+- `query<T>(text, params)`: Adapter Pattern — wrap `DataSource.query()`, trả về `{ rows: T[] }` để tương thích ngược với `TelemetryQueryService`
+- Parameterized queries — chống SQL injection
+- Xử lý kiểu `unknown` trong catch block (TypeScript strict)
+
+### Bổ sung — main.ts ✅
+- Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })` — apply cho toàn bộ API
+- Sửa E2E test: `retryAttempts: 0` trong test env, thêm null-check cho `app` trong cleanup
+
+### Bổ sung — TelemetryQueryService ✅ (legacy, kept for Sprint 3 reference)
+File [`src/database/telemetry-query.service.ts`](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/telemetry-query.service.ts) — được giữ lại từ lần trước refactor, export đầy đủ interface `TelemetryLogInput`, `TelemetryLog`, các method:
+- `insertTelemetry(input)` — INSERT vào hypertable `telemetry_logs`
+- `getLatestTelemetryForHouse(houseId)` — lấy bản ghi mới nhất
+- `getBatchHistory(batchId, start, end)` — query theo khoảng thời gian
+- `getCurveCheckpointsForBatch(batchId, metricType?)` — lấy checkpoints
+> ⚠️ Service này sẽ bị **xóa ở Sprint 4** khi `TelemetryService` chính thức thay thế.
 
 ---
 
-## 3. PHÂN RÃ CHI TIẾT TÁC VỤ
+## 4. QA REVIEW — KẾT QUẢ ✅ LGTM
 
-### TRACK 1: Cấu hình Dự án & CLI (Project Setup Track)
+**Ngày duyệt**: 2026-07-09T22:15:00+07:00
 
-#### Task 1.1: Cập nhật dependency và scripts trong package.json
-- **Tên file sửa đổi**: [package.json](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/package.json)
-- **Hành động cụ thể**:
-  - Thêm các dependency vào `dependencies`:
-    - `"@nestjs/typeorm": "^10.0.2"` (hoặc phiên bản tương thích mới nhất)
-    - `"typeorm": "^0.3.20"`
-    - `"date-fns-tz": "^3.1.3"`
-  - Thêm các CLI script vào `scripts`:
-    - `"migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/typeorm.config.ts"`
-    - `"migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/typeorm.config.ts"`
-
----
-
-### TRACK 2: Tầng Truy Cập Dữ Liệu (Data Access Layer Track)
-
-#### Task 2.1: Khởi tạo file cấu hình typeorm.config.ts
-- **Tên tệp tạo mới**: [typeorm.config.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/typeorm.config.ts)
-- **Hành động cụ thể**:
-  - Export cấu hình `DataSource` kết nối đến TimescaleDB bằng cách đọc trực tiếp biến môi trường `DATABASE_URL` (hoặc phân rã host, port, username, password, database).
-  - Cấu hình pool limits: `extra.max = 20`, `extra.idleTimeoutMillis = 30000`, `extra.connectionTimeoutMillis = 2000`.
-  - Cấu hình tự động đồng bộ hóa: `synchronize: false` (Bắt buộc).
-  - Định nghĩa đường dẫn chứa entities: `entities: [__dirname + '/../**/*.entity{.ts,.js}']`.
-  - Định nghĩa đường dẫn chứa migrations: `migrations: [__dirname + '/migrations/*{.ts,.js}']`.
-
-#### Task 2.2: Refactor DatabaseModule để tích hợp TypeOrmModule
-- **Tên file sửa đổi**: [database.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.module.ts)
-- **Hành động cụ thể**:
-  - Import `TypeOrmModule` từ `@nestjs/typeorm`.
-  - Đăng ký `TypeOrmModule.forRootAsync` bằng cách import `DataSource` cấu hình từ `typeorm.config.ts`.
-  - Khai báo export `TypeOrmModule` để các module khác có thể sử dụng `@InjectRepository()` nếu cần thiết.
-
-#### Task 2.3: Refactor DatabaseService để loại bỏ pg Pool
-- **Tên file sửa đổi**: [database.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/database.service.ts)
-- **Hành động cụ thể**:
-  - Xóa import `Pool` từ thư viện `pg`.
-  - Inject `DataSource` (từ `typeorm`) thông qua constructor:
-    ```typescript
-    constructor(private readonly dataSource: DataSource) {}
-    ```
-  - Thay đổi logic `onModuleInit()`:
-    - Loại bỏ việc khởi tạo `new Pool(...)` cũ.
-    - Thực hiện kiểm tra kết nối bằng cách chạy thử một truy vấn đơn giản thông qua `this.dataSource.query('SELECT NOW()')`.
-  - Thay đổi logic `onModuleDestroy()` hoặc để NestJS tự quản lý việc đóng kết nối.
-  - Sửa đổi phương thức `query(text: string, params?: any[])`:
-    - Gọi trực tiếp `this.dataSource.query(text, params)` để thay thế cho `this.pool.query`.
-  - Xóa bỏ phương thức `getPool()`.
+| Tiêu chí | Kết quả |
+|---|---|
+| Không hardcode credentials | ✅ Pass |
+| `synchronize: false` bảo vệ hypertable | ✅ Pass |
+| Connection pool không trùng lặp | ✅ Pass |
+| Validation DTO toàn cục | ✅ Pass |
+| E2E test không bị treo | ✅ Pass |
+| ESLint không lỗi/warning | ✅ Pass |
+| `pnpm build` thành công | ✅ Pass |
 
 ---
 
-## 4. TIÊU CHUẨN RÀ SOÁT CỨNG
+## 5. CÁC VẤN ĐỀ ĐÃ GIẢI QUYẾT TRONG QUÁ TRÌNH REVIEW
 
-1. **Không trùng lặp Pool**: Đảm bảo sau khi refactor, ứng dụng không còn tạo bất kỳ instance nào của `pg.Pool` thủ công. Chỉ có duy nhất một connection pool do `DataSource` của TypeORM quản lý.
-2. **An toàn Schema (No Auto-Sync)**: Thuộc tính `synchronize` trong cấu hình TypeORM phải được thiết lập cứng thành `false` ở mọi môi trường. Mọi thay đổi cấu trúc bảng bắt buộc phải đi qua tệp di cư (migrations).
-3. **Quản lý biến môi trường**: Tệp `typeorm.config.ts` phải đọc cấu hình cơ sở dữ liệu từ biến môi trường `DATABASE_URL` hoặc thông qua các biến cấu hình chuẩn (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`). Không được chứa chuỗi nhạy cảm hardcode.
+1. **E2E test bị treo**: Thêm `retryAttempts: 0` trong test env, null-check cho `app` trong `afterEach`
+2. **TypeORM crash trong test do import-time throw**: Skip error throw khi `NODE_ENV=test`
+3. **ESLint lỗi async/await**: Chuyển `onModuleInit`, `onModuleDestroy`, `connect` về sync khi không có `await`
+4. **MQTT fallback env**: Thêm fallback đọc `MQTT_BACKEND_USER`/`MQTT_BACKEND_PASS` khi chạy local (không có `MQTT_USERNAME`/`MQTT_PASSWORD`)
+5. **Parser `.env` bẻ gãy password chứa `#`**: Chỉ strip comment nếu `#` đứng sau whitespace, giữ nguyên `#` trong quoted strings
