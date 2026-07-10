@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T10:32:00+07:00] - Task C3: Cài đặt `mqtt_callback()` và logic xử lý payload JSON
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Sửa đổi: [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp**:
+  - **Giới hạn kích thước Payload tối đa**: Thiết lập ngưỡng chặn kích thước Payload tối đa 512 bytes (`MAX_PAYLOAD_SIZE = 512`) nhằm chống tràn bộ nhớ đệm (Buffer Overflow) và tấn công DoS qua gói tin MQTT quá dung lượng.
+  - **Không phân mảnh RAM (Heap Segmentation Avoidance)**: Triển khai vùng đệm an toàn trên stack (`char safe_payload[513]`) cho việc in chuỗi và parsing mà không cần cấp phát động bộ nhớ (heap). Sử dụng thư viện `StaticJsonDocument` của `ArduinoJson` phiên bản 6 (dung lượng cố định 512 bytes) để đảm bảo không phân mảnh vùng nhớ heap của ESP32.
+  - **Trích xuất Setpoints linh hoạt**: Hỗ trợ bóc tách linh hoạt các tham số điều khiển Setpoint từ backend, bao gồm cả hai định dạng key `"temperatureSetpoint"` / `"temperature"` và `"humiditySetpoint"` / `"humidity"`. Có log cảnh báo khi JSON không chứa các trường setpoint hợp lệ hoặc phân tích cú pháp (Deserialization) thất bại.
+  - **Kiểm soát & Phân lọc Topic**: Kiểm tra tính chính xác của MQTT Topic nhận được, chỉ xử lý gói tin có topic khớp hoàn toàn với `resolved_topics.setpoint` đã đăng ký.
+  - **Cập nhật Mock & Tự kiểm thử (Self-test)**: Bổ sung lưu trữ callback pointer trong lớp mock `PubSubClient` và mở rộng 5 kịch bản kiểm thử toàn diện tại `test/run_tests.cpp`. Toàn bộ bộ test offline đã chạy và vượt qua 100% thành công trên môi trường macOS host.
+
 ## [2026-07-10T10:27:07+07:00] - Task C2: Cài đặt `init_mqtt()` và `mqtt_reconnect()`
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:

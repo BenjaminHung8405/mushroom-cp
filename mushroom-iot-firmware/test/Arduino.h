@@ -116,9 +116,10 @@ public:
     PubSubClient(WiFiClient& client) {}
     
     typedef void (*MQTT_CALLBACK_SIGNATURE)(char*, uint8_t*, unsigned int);
+    static MQTT_CALLBACK_SIGNATURE mock_callback;
     
     PubSubClient& setServer(const char* ip, uint16_t port) { return *this; }
-    PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { return *this; }
+    PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { mock_callback = cb; return *this; }
     
     bool connect(const char* id) { mock_connected = true; return true; }
     bool connect(const char* id, const char* user, const char* pass) { mock_connected = true; return true; }

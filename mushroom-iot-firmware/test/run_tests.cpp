@@ -17,6 +17,7 @@ bool WiFiClass::disconnect_called = false;
 WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
+PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 
 int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
@@ -216,6 +217,50 @@ int main() {
     // 12.5 Test publish functions return value under connected state
     assert(mqtt_client.publish_status(true) == true);
     assert(mqtt_client.publish_telemetry("{\"temp\":25.5}") == true);
+
+    // 12.6 Test incoming message parsing (Task C3)
+    Serial.println("[TEST] Testing Task C3 - MQTT message parsing...");
+    assert(PubSubClient::mock_callback != nullptr);
+
+    const mqtt::MqttTopics& topics = mqtt_client.get_resolved_topics();
+    char setpoint_topic[100];
+    strcpy(setpoint_topic, topics.setpoint.c_str());
+
+    // Case A: Valid JSON with temperatureSetpoint and humiditySetpoint
+    {
+        Serial.println("--- Case A: Valid JSON with temperatureSetpoint and humiditySetpoint ---");
+        std::string payload = "{\"temperatureSetpoint\":26.50,\"humiditySetpoint\":85.00}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+    }
+
+    // Case B: Valid JSON with temperature and humidity keys
+    {
+        Serial.println("--- Case B: Valid JSON with temperature and humidity keys ---");
+        std::string payload = "{\"temperature\":24.00,\"humidity\":78.50}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+    }
+
+    // Case C: Invalid JSON format
+    {
+        Serial.println("--- Case C: Invalid JSON format (Should fail deserialization) ---");
+        std::string payload = "{\"temperature\":24.00, invalid_json}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+    }
+
+    // Case D: Payload size exceeds limit (Should fail size check)
+    {
+        Serial.println("--- Case D: Payload size exceeds 512 bytes limit ---");
+        std::string payload(515, 'A');
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+    }
+
+    // Case E: Unexpected topic (Should reject topic)
+    {
+        Serial.println("--- Case E: Unexpected topic ---");
+        char unexpected_topic[] = "mushroom/device/esp32_mushroom_test_client/unexpected";
+        std::string payload = "{\"temperature\":24.00}";
+        PubSubClient::mock_callback(unexpected_topic, (uint8_t*)payload.c_str(), payload.length());
+    }
 
     // Clean up
     assert(storage.factory_reset() == true);

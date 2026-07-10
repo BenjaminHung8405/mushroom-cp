@@ -1,6 +1,7 @@
 #include "mqtt_client.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
 #include <freertos/FreeRTOS.h>
@@ -168,7 +169,73 @@ namespace mqtt
     void MqttClient::handle_message(char* topic, uint8_t* payload, unsigned int length)
     {
         Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
-        // Skeleton parsing/handler (to be fully implemented in C3)
+
+        // 1. Validate topic
+        if (resolved_topics.setpoint != topic)
+        {
+            Serial.println("[MQTT] Warning: Received message on unexpected topic.");
+            return;
+        }
+
+        // 2. Validate payload size
+        constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
+        if (length > MAX_PAYLOAD_SIZE)
+        {
+            Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
+            return;
+        }
+
+        // 3. Construct a safe null-terminated stack-allocated buffer to print and parse
+        char safe_payload[MAX_PAYLOAD_SIZE + 1];
+        memcpy(safe_payload, payload, length);
+        safe_payload[length] = '\0';
+        Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
+
+        // 4. Parse JSON using StaticJsonDocument (ArduinoJson 6)
+        StaticJsonDocument<MAX_PAYLOAD_SIZE> doc;
+        DeserializationError error = deserializeJson(doc, safe_payload);
+
+        if (error)
+        {
+            Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
+            return;
+        }
+
+        // 5. Extract setpoint values and log
+        bool has_valid_setpoint = false;
+
+        // Support both temperatureSetpoint and temperature
+        if (doc.containsKey("temperatureSetpoint"))
+        {
+            float temp_sp = doc["temperatureSetpoint"].as<float>();
+            Serial.printf("[MQTT] Parse Setpoint: temperatureSetpoint = %.2f\n", temp_sp);
+            has_valid_setpoint = true;
+        }
+        else if (doc.containsKey("temperature"))
+        {
+            float temp_sp = doc["temperature"].as<float>();
+            Serial.printf("[MQTT] Parse Setpoint: temperature = %.2f\n", temp_sp);
+            has_valid_setpoint = true;
+        }
+
+        // Support both humiditySetpoint and humidity
+        if (doc.containsKey("humiditySetpoint"))
+        {
+            float humi_sp = doc["humiditySetpoint"].as<float>();
+            Serial.printf("[MQTT] Parse Setpoint: humiditySetpoint = %.2f\n", humi_sp);
+            has_valid_setpoint = true;
+        }
+        else if (doc.containsKey("humidity"))
+        {
+            float humi_sp = doc["humidity"].as<float>();
+            Serial.printf("[MQTT] Parse Setpoint: humidity = %.2f\n", humi_sp);
+            has_valid_setpoint = true;
+        }
+
+        if (!has_valid_setpoint)
+        {
+            Serial.println("[MQTT] Warning: JSON payload does not contain recognized setpoint fields.");
+        }
     }
 
     void MqttClient::reconnect_mqtt()
