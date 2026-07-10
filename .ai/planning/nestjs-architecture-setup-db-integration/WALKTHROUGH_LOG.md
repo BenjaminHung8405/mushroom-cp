@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-10T16:35:00+07:00] - Task G4: Tạo TelemetryController (REST + SSE + history)
+- **Trạng thái**: Đang chờ QA Review
+- **Danh sách file thay đổi**:
+  - Tạo mới: [telemetry.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/controllers/telemetry.controller.ts)
+  - Tạo mới: [telemetry.controller.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/controllers/telemetry.controller.spec.ts)
+  - Tạo mới: [telemetry.params.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/dto/telemetry.params.dto.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/nestjs-architecture-setup-db-integration/PROGRESS.md)
+- **Giải trình giải pháp**:
+  - Triển khai `TelemetryController` cung cấp 3 endpoint đáp ứng yêu cầu nghiệp vụ:
+    - `GET /devices/:id/telemetry`: Lấy dữ liệu snapshot mới nhất từ cache in-memory (`latestCache`) của `TelemetryService`. Trả về `NotFoundException` (404) nếu không có snapshot nào trong cache.
+    - `SSE /devices/:id/telemetry/stream`: Phát stream cập nhật telemetry live thời gian thực cho thiết bị bằng NestJS `@Sse`. Bắt đầu (seed) với snapshot mới nhất trong cache nếu có, sau đó lọc (`filter`) các event trong `telemetryUpdates$` theo đúng `houseId` (trùng khớp `:id` của route parameter).
+    - `GET /devices/:id/telemetry/history`: Lấy lịch sử log đo đạc qua `TelemetryService.getTelemetryHistory` bằng cách nhận các query parameter `from` và `to` dạng chuỗi ISO 8601, parse sang đối tượng `Date` và truyền vào service.
+  - Tạo mới `DeviceIdParamsDto` và `TelemetryHistoryQueryDto` trong `telemetry.params.dto.ts` để thực hiện validation dữ liệu chặt chẽ ở tầng endpoint (sử dụng `class-validator` như `@IsString`, `@Matches`, `@MaxLength(50)` và `@IsISO8601`).
+  - Viết bộ unit tests đầy đủ kiểm định REST endpoint (trả về snapshot, throw NotFoundException khi trống), SSE stream (có emit seed snapshot, filter đúng theo houseId), và history endpoint.
+  - Tự kiểm tra: Chạy `pnpm lint`, `pnpm build` và `pnpm test` thành công vượt qua toàn bộ 64 tests của dự án với 0 errors, 0 warnings.
+
 ## [2026-07-10T16:32:00+07:00] - Task G3: saveTelemetryLog + REST queries + latestCache
 - **Trạng thái**: Đang chờ QA Review
 - **Danh sách file thay đổi**:
