@@ -37,8 +37,9 @@ export class TelemetryController {
   ): Observable<MessageEvent> {
     const initial = this.telemetryService.getLatestTelemetry(params.id);
 
+    // Route :id is MQTT deviceId — filter by deviceId, not houseId.
     const updates$ = this.telemetryService.telemetryUpdates$.pipe(
-      filter((snapshot) => snapshot.houseId === params.id),
+      filter((snapshot) => snapshot.deviceId === params.id),
       map((snapshot) => ({ data: snapshot })),
     );
 
@@ -59,6 +60,7 @@ export class TelemetryController {
       params.id,
       fromDate,
       toDate,
+      query.bucket,
     );
   }
 }

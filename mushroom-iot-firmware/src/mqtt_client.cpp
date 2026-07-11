@@ -2,6 +2,7 @@
 #include "config.h"
 #include "wifi_manager.h"
 #include "definitions.h"
+#include "local_control.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -124,6 +125,7 @@ namespace mqtt
             if (current_state == MqttState::CONNECTED)
             {
                 Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
+                local_control::on_backend_link_lost();
                 current_state = MqttState::DISCONNECTED;
             }
 
@@ -235,86 +237,77 @@ namespace mqtt
         process_setpoints(doc);
     }
 
-    static void enqueue_actuator_command(uint8_t relay_pin, bool state)
-    {
-        if (xActuatorQueue == nullptr)
-        {
-            Serial.println("[MQTT] Warning: xActuatorQueue is null, cannot enqueue command.");
-            return;
-        }
-
-        ActuatorCommand cmd;
-        cmd.relay_id = relay_pin;
-        cmd.state = state;
-        memset(cmd.padding, 0, sizeof(cmd.padding));
-
-        if (xQueueSend(xActuatorQueue, &cmd, 0) == pdTRUE)
-        {
-            Serial.printf("[MQTT] Enqueued command: pin=%u state=%s\n",
-                          static_cast<unsigned>(relay_pin), state ? "ON" : "OFF");
-        }
-        else
-        {
-            Serial.printf("[MQTT] Warning: xActuatorQueue full, dropped command for pin %u\n",
-                          static_cast<unsigned>(relay_pin));
-        }
-    }
-
     void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)
     {
-        // Bổ sung ngưỡng validate vật lý (Physical Safety Boundaries Check)
+        // Backend provides advisory targets. Core 1 computes every relay state locally
+        // so a missed MQTT OFF packet cannot leave mist/heater latched indefinitely.
         constexpr float MIN_SAFE_TEMP = 10.0f;
         constexpr float MAX_SAFE_TEMP = 45.0f;
         constexpr float MIN_SAFE_HUMI = 30.0f;
         constexpr float MAX_SAFE_HUMI = 95.0f;
+        constexpr float MIN_SAFE_CO2 = 400.0f;
+        constexpr float MAX_SAFE_CO2 = 10000.0f;
 
-        // Kiểm tra và validate setpoint nhiệt độ
-        bool has_temp = false;
-        float temp_sp = 0.0f;
-        if (doc.containsKey("temperatureSetpoint")) {
-            temp_sp = doc["temperatureSetpoint"].as<float>();
-            has_temp = true;
-        } else if (doc.containsKey("temperature")) {
-            temp_sp = doc["temperature"].as<float>();
-            has_temp = true;
-        }
+        local_control::LocalSetpoints setpoints = local_control::get_active_setpoints();
+        bool changed = false;
 
-        // Kiểm tra và validate setpoint độ ẩm
-        bool has_humi = false;
-        float humi_sp = 0.0f;
-        if (doc.containsKey("humiditySetpoint")) {
-            humi_sp = doc["humiditySetpoint"].as<float>();
-            has_humi = true;
-        } else if (doc.containsKey("humidity")) {
-            humi_sp = doc["humidity"].as<float>();
-            has_humi = true;
-        }
-
-        bool valid_temp = has_temp && validate_single_setpoint("temperature", temp_sp, MIN_SAFE_TEMP, MAX_SAFE_TEMP);
-        bool valid_humi = has_humi && validate_single_setpoint("humidity", humi_sp, MIN_SAFE_HUMI, MAX_SAFE_HUMI);
-
-        // Kiểm tra và xử lý các lệnh bật/tắt thiết bị (actuators)
-        bool has_actuator = false;
-        if (doc.containsKey("mist_generator_active")) {
-            bool state = doc["mist_generator_active"].as<bool>();
-            enqueue_actuator_command(config::pins::PIN_RELAY_MIST, state);
-            has_actuator = true;
-        }
-        if (doc.containsKey("convection_fan_active")) {
-            bool state = doc["convection_fan_active"].as<bool>();
-            enqueue_actuator_command(config::pins::PIN_RELAY_FAN, state);
-            has_actuator = true;
-        }
-        if (doc.containsKey("heating_lamp_active")) {
-            bool state = doc["heating_lamp_active"].as<bool>();
-            enqueue_actuator_command(config::pins::PIN_RELAY_HEATER_1, state);
-            enqueue_actuator_command(config::pins::PIN_RELAY_HEATER_2, state);
-            has_actuator = true;
-        }
-
-        if (!valid_temp && !valid_humi && !has_actuator)
+        if (doc.containsKey("temperatureSetpoint"))
         {
-            Serial.println("[MQTT] Warning: JSON payload does not contain any valid/safe setpoint values or actuator commands.");
+            float value = doc["temperatureSetpoint"].as<float>();
+            if (validate_single_setpoint("temperature", value, MIN_SAFE_TEMP, MAX_SAFE_TEMP))
+            {
+                setpoints.temperature_setpoint = value;
+                changed = true;
+            }
+        }
+        if (doc.containsKey("humiditySetpoint"))
+        {
+            float value = doc["humiditySetpoint"].as<float>();
+            if (validate_single_setpoint("humidity", value, MIN_SAFE_HUMI, MAX_SAFE_HUMI))
+            {
+                setpoints.humidity_setpoint = value;
+                changed = true;
+            }
+        }
+        if (doc.containsKey("co2Setpoint"))
+        {
+            float value = doc["co2Setpoint"].as<float>();
+            if (validate_single_setpoint("co2", value, MIN_SAFE_CO2, MAX_SAFE_CO2))
+            {
+                setpoints.co2_setpoint = value;
+                changed = true;
+            }
+        }
+        if (doc.containsKey("thermal_shock_protection"))
+        {
+            setpoints.thermal_shock_protection = doc["thermal_shock_protection"].as<bool>();
+            changed = true;
+        }
+        if (doc.containsKey("setpoint_ttl_sec"))
+        {
+            uint32_t ttl_sec = doc["setpoint_ttl_sec"].as<uint32_t>();
+            if (ttl_sec >= 30 && ttl_sec <= 3600)
+            {
+                setpoints.setpoint_ttl_ms = ttl_sec * 1000UL;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            setpoints.received_at_ms = millis();
+            setpoints.valid = true;
+            local_control::update_setpoints(setpoints);
+        }
+        else if (doc.containsKey("mist_generator_active") ||
+                 doc.containsKey("convection_fan_active") ||
+                 doc.containsKey("heating_lamp_active"))
+        {
+            Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+        }
+        else
+        {
+            Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
         }
     }
 
@@ -374,14 +367,20 @@ namespace mqtt
     {
         Serial.println("[MQTT] Attempting connection to MQTT broker...");
 
-        if (config::network::AUTH_JWT_TOKEN.length() == 0)
+        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
         {
-            Serial.println("[MQTT] Missing JWT token. MQTT connection aborted.");
+            Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
             current_state = MqttState::DISCONNECTED;
             return false;
         }
 
         String client_id = get_effective_client_id();
+        if (config::network::MQTT_USER_VAL != client_id)
+        {
+            Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
+            current_state = MqttState::ERROR_NO_CONFIG;
+            return false;
+        }
 
         // Define Last Will and Testament (LWT) status offline payload
         String lwt_topic = resolved_topics.status;
@@ -398,7 +397,7 @@ namespace mqtt
         bool connected = mqtt_client.connect(
             client_id.c_str(),
             config::network::MQTT_USER_VAL.c_str(),
-            config::network::AUTH_JWT_TOKEN.c_str(),
+            config::network::MQTT_PASSWORD_VAL.c_str(),
             lwt_topic.c_str(),
             1, // QoS
             true, // Retain

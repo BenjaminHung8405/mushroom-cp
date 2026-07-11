@@ -1,13 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MqttService } from './mqtt.service';
+import { DeviceModule } from '../device/device.module';
 
-/**
- * MqttModule — Provides the MqttService globally to the application.
- *
- * The MqttService is exported so that other modules (DeviceModule, etc.)
- * can inject it without re-importing this module.
- */
 @Module({
+  imports: [forwardRef(() => DeviceModule)],
   providers: [MqttService],
   exports: [MqttService],
 })

@@ -132,24 +132,47 @@ export class DeviceController {
   }
 
   /**
-   * REST: Publish a setpoint command to a device via MQTT.
+   * REST: Publish advisory setpoints to a device via MQTT.
+   * Edge firmware remains the safety authority for relays.
+   * Manual production control is intentionally not exposed here.
    */
   @Post(':id/setpoint')
   @HttpCode(202)
-  publishSetpoint(
+  async publishSetpoint(
     @Param() params: DeviceParamsDto,
     @Body() body: DeviceSetpointDto,
   ) {
     const { id } = params;
     this.logger.log(
-      `Publishing setpoint to device '${id}': ${JSON.stringify(body)}`,
+      `Publishing advisory setpoint to device '${id}': ${JSON.stringify(body)}`,
     );
-    // Convert to Record<string, unknown> to match MqttService signature
-    const payload = body as unknown as Record<string, unknown>;
-    this.mqttService.publish(id, payload);
+
+    const temperatureSetpoint = body.temperatureSetpoint ?? body.temperature;
+    const humiditySetpoint = body.humiditySetpoint ?? body.humidity;
+    if (
+      typeof temperatureSetpoint !== 'number' ||
+      typeof humiditySetpoint !== 'number'
+    ) {
+      return {
+        message: `Rejected: temperatureSetpoint and humiditySetpoint are required advisory fields.`,
+        payload: body,
+      };
+    }
+
+    await this.mqttService.dispatchSetpoint(id, {
+      temperatureSetpoint,
+      humiditySetpoint,
+      control_mode: 'edge_hysteresis',
+      setpoint_ttl_sec: 120,
+    });
     return {
-      message: `Setpoint command dispatched to device '${id}'.`,
-      payload: body,
+      message: `Advisory setpoint dispatched to device '${id}'.`,
+      payload: {
+        temperatureSetpoint,
+        humiditySetpoint,
+        control_mode: 'edge_hysteresis',
+        setpoint_ttl_sec: 120,
+      },
     };
   }
 }

@@ -24,3 +24,13 @@ struct ActuatorCommand {
     bool state;            ///< Target state: true (ON/HIGH) or false (OFF/LOW)
     uint8_t padding[2];    ///< Explicit padding to align to 32-bit boundary (4 bytes total)
 } __attribute__((aligned(4)));
+
+/**
+ * @brief Edge safety controller outputs (boolean relays, no PWM).
+ */
+struct RelayOutputsPod {
+    bool mist_active;
+    bool fan_active;
+    bool heater_active;
+    bool midday_blackout_active;
+} __attribute__((aligned(4)));

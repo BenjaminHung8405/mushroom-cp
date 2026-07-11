@@ -1,71 +1,46 @@
 import {
+  Inject,
   Injectable,
   Logger,
-  OnModuleInit,
   OnModuleDestroy,
+  OnModuleInit,
+  forwardRef,
 } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import * as mqtt from 'mqtt';
+import { DeviceRegistryService } from '../device/device-registry.service';
 
-/**
- * Represents the parsed status payload from the MQTT status topic.
- * Published by:
- *   - ESP32-S3 on connect:    { status: 'online' }
- *   - EMQX LWT on disconnect: { status: 'offline' }
- */
 export interface DeviceStatusEvent {
   deviceId: string;
+  houseId: string;
   status: 'online' | 'offline';
   timestamp: string;
 }
 
 export interface TelemetryEvent {
   deviceId: string;
-  temp_air: number | null; // Air temperature from SHT30
-  humidity_air: number | null; // Air humidity from SHT30
-  co2_level: number | null; // CO2 from SCD30
-  timestamp: string; // ISO string
+  houseId: string;
+  temp_air: number | null;
+  humidity_air: number | null;
+  co2_level: number | null;
+  receivedAt: Date;
+  timestamp: string;
 }
 
-/**
- * MqttService — Core infrastructure service for MQTT connectivity.
- *
- * Responsibilities:
- *   1. Connects to the EMQX broker using credentials from env (nestjs_backend account).
- *   2. Subscribes to mushroom/device/+/status to receive LWT and online broadcasts.
- *   3. Exposes an Observable stream (deviceStatus$) for other services/controllers to consume.
- *   4. Provides a publish() method for sending setpoint commands to devices.
- *
- * Security:
- *   - Uses a dedicated MQTT account (nestjs_backend) with restricted permissions.
- *   - All credentials come from environment variables — never hardcoded.
- *
- * LWT Flow:
- *   ESP32 connects → publishes {"status":"online"} (retained) → goes offline →
- *   EMQX fires LWT → publishes {"status":"offline"} → this service emits event →
- *   SSE controller pushes update to Next.js UI (UI turns Crimson).
- */
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttService.name);
   private client: mqtt.MqttClient | null = null;
 
-  /**
-   * Observable stream of device status events.
-   * Controllers subscribe to this to push updates via SSE.
-   */
   public readonly deviceStatus$ = new Subject<DeviceStatusEvent>();
-
-  /**
-   * Observable stream of telemetry events.
-   */
   public readonly telemetry$ = new Subject<TelemetryEvent>();
-
-  /**
-   * In-memory store of the last known status for each device.
-   * Used to return current state when a new SSE client connects.
-   */
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
+  private readonly unknownRefreshes = new Set<string>();
+
+  constructor(
+    @Inject(forwardRef(() => DeviceRegistryService))
+    private readonly registry: DeviceRegistryService,
+  ) {}
 
   onModuleInit(): void {
     this.connect();
@@ -84,16 +59,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     if (!username || !password) {
       this.logger.error(
-        'MQTT_USERNAME and MQTT_PASSWORD must be set. ' +
-          'Check your .env file and docker-compose.yml environment section.',
+        'MQTT_USERNAME and MQTT_PASSWORD must be set. Check your .env file and docker-compose.yml environment section.',
       );
       return;
     }
 
     const brokerUrl = `mqtt://${host}:${port}`;
-    this.logger.log(
-      `Connecting to EMQX at ${brokerUrl} as user '${username}'...`,
-    );
+    this.logger.log(`Connecting to EMQX at ${brokerUrl} as user '${username}'...`);
 
     this.client = mqtt.connect(brokerUrl, {
       username,
@@ -105,195 +77,153 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('connect', () => {
-      this.logger.log('✅ Connected to EMQX MQTT Broker.');
-      this.subscribeToStatusTopics();
+      this.logger.log('Connected to EMQX MQTT Broker.');
+      this.subscribeToDeviceTopics();
     });
-
     this.client.on('message', (topic: string, payload: Buffer) => {
       this.handleIncomingMessage(topic, payload);
     });
-
     this.client.on('error', (error: Error) => {
       this.logger.error(`MQTT connection error: ${error.message}`);
     });
-
-    this.client.on('reconnect', () => {
-      this.logger.warn('MQTT reconnecting...');
-    });
-
-    this.client.on('offline', () => {
-      this.logger.warn('MQTT client is offline.');
-    });
+    this.client.on('reconnect', () => this.logger.warn('MQTT reconnecting...'));
+    this.client.on('offline', () => this.logger.warn('MQTT client is offline.'));
   }
 
-  private subscribeToStatusTopics(): void {
+  private subscribeToDeviceTopics(): void {
     if (!this.client) return;
-
-    // Subscribe to all device status topics (LWT + online broadcasts)
-    // '+' is a single-level wildcard — matches any single segment
-    // Example: mushroom/device/esp32_mushroom_s3_01/status
     this.client.subscribe('mushroom/device/+/status', { qos: 1 }, (err) => {
-      if (err) {
-        this.logger.error(
-          `Failed to subscribe to status topics: ${err.message}`,
-        );
-      } else {
-        this.logger.log("📡 Subscribed to 'mushroom/device/+/status'");
-      }
+      if (err) this.logger.error(`Failed to subscribe to status topics: ${err.message}`);
+      else this.logger.log("Subscribed to 'mushroom/device/+/status'");
     });
-
-    // Subscribe to all device telemetry topics
     this.client.subscribe('mushroom/device/+/telemetry', { qos: 1 }, (err) => {
-      if (err) {
-        this.logger.error(
-          `Failed to subscribe to telemetry topics: ${err.message}`,
-        );
-      } else {
-        this.logger.log("📡 Subscribed to 'mushroom/device/+/telemetry'");
-      }
+      if (err) this.logger.error(`Failed to subscribe to telemetry topics: ${err.message}`);
+      else this.logger.log("Subscribed to 'mushroom/device/+/telemetry'");
     });
   }
 
   private handleIncomingMessage(topic: string, payload: Buffer): void {
+    const parsedTopic = this.parseDeviceTopic(topic);
+    if (!parsedTopic) return;
+
+    const record = this.registry.getEnabled(parsedTopic.deviceId);
+    if (!record) {
+      this.refreshUnknownDevice(parsedTopic.deviceId);
+      this.logger.warn(`Dropped ${parsedTopic.action} from unknown or disabled device '${parsedTopic.deviceId}'.`);
+      return;
+    }
+
+    if (Buffer.byteLength(payload) > 1024) {
+      this.logger.warn(`Dropped oversized MQTT payload from '${record.deviceId}'.`);
+      return;
+    }
+
     try {
-      const topicParts = topic.split('/');
-      if (topicParts.length !== 4 || topicParts[0] !== 'mushroom') {
+      const data = JSON.parse(payload.toString()) as unknown;
+      if (!data || typeof data !== 'object') {
+        this.logger.warn(`Dropped non-object payload from '${record.deviceId}'.`);
         return;
       }
-      const deviceId = topicParts[2];
-      const action = topicParts[3];
 
-      if (action === 'status') {
-        const parsedPayload = JSON.parse(payload.toString()) as unknown;
-        if (
-          !parsedPayload ||
-          typeof parsedPayload !== 'object' ||
-          !('status' in parsedPayload)
-        ) {
-          this.logger.warn(`Received invalid JSON payload from ${deviceId}`);
-          return;
-        }
-
-        const status = parsedPayload.status;
+      const receivedAt = new Date();
+      if (parsedTopic.action === 'status') {
+        const status = (data as { status?: unknown }).status;
         if (status !== 'online' && status !== 'offline') {
-          this.logger.warn(
-            `Received unknown status '${status as string}' from ${deviceId}`,
-          );
+          this.logger.warn(`Received unknown status '${String(status)}' from ${record.deviceId}`);
           return;
         }
-
         const event: DeviceStatusEvent = {
-          deviceId,
+          deviceId: record.deviceId,
+          houseId: record.houseId,
           status,
-          timestamp: new Date().toISOString(),
+          timestamp: receivedAt.toISOString(),
         };
-
-        // Update cache and broadcast to all SSE subscribers
-        this.deviceStateCache.set(deviceId, event);
+        this.deviceStateCache.set(record.deviceId, event);
         this.deviceStatus$.next(event);
-
-        this.logger.log(
-          `📨 Device '${deviceId}' → ${event.status.toUpperCase()}`,
-        );
-      } else if (action === 'telemetry') {
-        const parsedPayload = JSON.parse(payload.toString()) as unknown;
-        if (!parsedPayload || typeof parsedPayload !== 'object') {
-          this.logger.warn(
-            `Received invalid telemetry payload (not an object) from ${deviceId}`,
-          );
-          return;
-        }
-
-        const payloadObj = parsedPayload as Record<string, unknown>;
-        const event: TelemetryEvent = {
-          deviceId,
-          temp_air:
-            typeof payloadObj.temp_air === 'number'
-              ? payloadObj.temp_air
-              : null,
-          humidity_air:
-            typeof payloadObj.humidity_air === 'number'
-              ? payloadObj.humidity_air
-              : null,
-          co2_level:
-            typeof payloadObj.co2_level === 'number'
-              ? payloadObj.co2_level
-              : null,
-          timestamp: new Date().toISOString(),
-        };
-
-        this.telemetry$.next(event);
-        this.logger.debug(
-          `📨 Telemetry from '${deviceId}': ${JSON.stringify(event)}`,
-        );
+        void this.registry.touchLastSeen(record.deviceId, receivedAt);
+        return;
       }
+
+      const payloadObj = data as Record<string, unknown>;
+      const tempAir = this.finiteMetric(payloadObj.temp_air);
+      const humidityAir = this.finiteMetric(payloadObj.humidity_air);
+      const co2Level = this.finiteMetric(payloadObj.co2_level);
+      if (tempAir === null && humidityAir === null && co2Level === null) {
+        this.logger.warn(`Dropped telemetry without canonical finite metrics from '${record.deviceId}'.`);
+        return;
+      }
+
+      const event: TelemetryEvent = {
+        deviceId: record.deviceId,
+        houseId: record.houseId,
+        temp_air: tempAir,
+        humidity_air: humidityAir,
+        co2_level: co2Level,
+        receivedAt,
+        timestamp: receivedAt.toISOString(),
+      };
+      this.telemetry$.next(event);
+      void this.registry.touchLastSeen(record.deviceId, receivedAt);
     } catch (err) {
-      this.logger.warn(
-        `Failed to parse MQTT message on topic '${topic}': ${err}`,
-      );
+      this.logger.warn(`Failed to parse MQTT message on topic '${topic}': ${String(err)}`);
     }
   }
 
-  /**
-   * Publish a control command (setpoint) to a specific device.
-   * Topic: mushroom/device/{deviceId}/setpoint
-   *
-   * @param deviceId - The target device's MQTT username
-   * @param payload  - Command payload (will be JSON.stringified)
-   */
-  publish(deviceId: string, payload: Record<string, unknown>): void {
-    if (!this.client?.connected) {
-      this.logger.error('Cannot publish: MQTT client is not connected.');
-      return;
+  private parseDeviceTopic(topic: string): { deviceId: string; action: 'status' | 'telemetry' } | null {
+    const parts = topic.split('/');
+    if (
+      parts.length !== 4 ||
+      parts[0] !== 'mushroom' ||
+      parts[1] !== 'device' ||
+      !/^[a-zA-Z0-9_-]{1,50}$/.test(parts[2]) ||
+      (parts[3] !== 'status' && parts[3] !== 'telemetry')
+    ) {
+      return null;
     }
-
-    const topic = `mushroom/device/${deviceId}/setpoint`;
-    const message = JSON.stringify(payload);
-
-    this.client.publish(topic, message, { qos: 1 }, (err) => {
-      if (err) {
-        this.logger.error(`Failed to publish to '${topic}': ${err.message}`);
-      } else {
-        this.logger.log(`📤 Published to '${topic}': ${message}`);
-      }
-    });
+    return { deviceId: parts[2], action: parts[3] };
   }
 
-  /**
-   * Publish a setpoint to a specific device using preset schema.
-   */
-  dispatchSetpoint(
-    houseId: string,
+  private finiteMetric(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private refreshUnknownDevice(deviceId: string): void {
+    if (this.unknownRefreshes.has(deviceId)) return;
+    this.unknownRefreshes.add(deviceId);
+    void this.registry
+      .refreshOne(deviceId)
+      .catch((err: unknown) => {
+        this.logger.warn(`Registry refresh failed for '${deviceId}': ${String(err)}`);
+      })
+      .finally(() => this.unknownRefreshes.delete(deviceId));
+  }
+
+  async dispatchSetpoint(
+    deviceId: string,
     payload: {
-      mist_generator_active: boolean;
-      convection_fan_active: boolean;
-      heating_lamp_active: boolean;
-      midday_blackout_active: boolean;
+      temperatureSetpoint: number;
+      humiditySetpoint: number;
+      co2Setpoint?: number;
+      thermal_shock_protection?: boolean;
+      thermal_shock_start?: string;
+      thermal_shock_end?: string;
+      control_mode: 'edge_hysteresis';
+      setpoint_ttl_sec: number;
     },
-  ): void {
-    const topic = `mushroom/device/${houseId}/setpoint`;
-    const message = JSON.stringify(payload);
+  ): Promise<void> {
     if (!this.client?.connected) {
-      this.logger.error(
-        `Cannot publish setpoint: MQTT client is not connected.`,
-      );
-      return;
+      throw new Error('MQTT client is not connected.');
     }
-    this.client.publish(topic, message, { qos: 1 }, (err) => {
-      if (err) {
-        this.logger.error(
-          `Failed to publish setpoint to '${topic}': ${err.message}`,
-        );
-      } else {
-        this.logger.log(`📤 Published setpoint to '${topic}': ${message}`);
-      }
+    await new Promise<void>((resolve, reject) => {
+      this.client?.publish(
+        `mushroom/device/${deviceId}/setpoint`,
+        JSON.stringify(payload),
+        { qos: 1 },
+        (err) => (err ? reject(err) : resolve()),
+      );
     });
   }
 
-  /**
-   * Returns the current cached status for all known devices.
-   * Used to seed the initial state for a newly connected SSE client.
-   */
   getAllDeviceStatuses(): DeviceStatusEvent[] {
     return Array.from(this.deviceStateCache.values());
   }

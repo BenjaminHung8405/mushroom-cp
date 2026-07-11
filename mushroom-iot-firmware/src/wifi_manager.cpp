@@ -744,11 +744,13 @@ setInterval(function(){
             parsed_port = config::network::DEFAULT_MQTT_PORT;
         }
         uint16_t port = static_cast<uint16_t>(parsed_port);
+        // Leave mqtt_user blank — resolve_device_identity() forces username=deviceId.
+        // The portal field is kept for display only; the actual MQTT connection uses deviceId.
         if (user.length() == 0)
         {
             user = config::network::MQTT_USER_VAL.length()
                        ? config::network::MQTT_USER_VAL
-                       : String(config::network::DEFAULT_MQTT_USER);
+                       : String("");
         }
         if (mpass.length() == 0)
         {
@@ -906,8 +908,6 @@ setInterval(function(){
                 }
                 config::network::STA_SSID = "";
                 config::network::STA_PASS = "";
-                config::network::AUTH_JWT_TOKEN = "";
-                last_auth_attempt = 0;
                 reconnect_attempts = 0;
                 xEventGroupClearBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
 
@@ -926,26 +926,12 @@ setInterval(function(){
         {
             if (WiFi.status() == WL_CONNECTED)
             {
-                // WiFi association and DHCP are already OK. Auth/backend problems must
-                // not force a WiFi disconnect/reconnect loop, otherwise ESP32 leaves
-                // the BSS by itself (disconnect reason 8) while the router is healthy.
-                if (last_auth_attempt == 0 || now - last_auth_attempt >= AUTH_RETRY_INTERVAL_MS)
-                {
-                    Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
-                    last_auth_attempt = now;
-
-                    // Fetch JWT before advertising STA_CONNECTED so MQTT never races with empty password.
-                    if (fetch_auth_token())
-                    {
-                        reconnect_attempts = 0; // Reset counter on success
-                        set_state(WifiState::STA_CONNECTED);
-                    }
-                    else
-                    {
-                        Serial.println("[WIFI] Auth token fetch failed. Keeping WiFi connected and retrying auth later.");
-                        config::network::AUTH_JWT_TOKEN = "";
-                    }
-                }
+                // MQTT uses the provisioned NVS pre-shared key directly. Do not gate
+                // station connectivity on a NestJS HTTP token: a regional power/network
+                // recovery must not cause all devices to stampede /auth/token.
+                Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
+                reconnect_attempts = 0;
+                set_state(WifiState::STA_CONNECTED);
             }
             else if (now - connection_start_time >= WIFI_CONNECTION_TIMEOUT_MS)
             {
@@ -972,9 +958,6 @@ setInterval(function(){
             if (WiFi.status() != WL_CONNECTED)
             {
                 Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
-                // Clear JWT so it is re-fetched after reconnection
-                config::network::AUTH_JWT_TOKEN = "";
-                last_auth_attempt = 0;
                 set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
             }

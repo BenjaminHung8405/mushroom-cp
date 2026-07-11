@@ -3,6 +3,7 @@
 #include "actuators.h"
 #include "config.h"
 #include "models.h"
+#include "local_control.h"
 #include "serial_mutex.h"
 
 #ifndef UNIT_TEST
@@ -10,6 +11,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <esp_task_wdt.h>
 #else
 #include "Arduino.h"
 #endif
@@ -147,59 +149,43 @@ const size_t DEMO_RELAY_COUNT =
     sizeof(DEMO_RELAY_PINS) / sizeof(DEMO_RELAY_PINS[0]);
 
 // ---------------------------------------------------------------------------
-// Helper: drain all pending ActuatorCommand items from the queue
+// Helper: apply local hysteresis outputs to GPIO relays
 // ---------------------------------------------------------------------------
-static void process_actuator_commands()
+static void apply_relay_outputs(const local_control::RelayOutputs &out)
 {
-    if (xActuatorQueue == nullptr)
-    {
-        return;
-    }
-
-    ActuatorCommand cmd;
-    // Drain every pending command without blocking
-    while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
-    {
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf(
-                "[CORE1_TASK] ActuatorCommand received: pin=%u state=%s\n",
-                static_cast<unsigned>(cmd.relay_id),
-                cmd.state ? "ON" : "OFF"
-            );
-        }
-        bool applied = actuators::set_relay_state(cmd.relay_id, cmd.state);
-        if (!applied)
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf(
-                "[CORE1_TASK] WARNING: ActuatorCommand with invalid pin=%u was rejected.\n",
-                static_cast<unsigned>(cmd.relay_id)
-            );
-        }
-    }
+    actuators::set_relay_state(config::pins::PIN_RELAY_MIST, out.mist_active);
+    actuators::set_relay_state(config::pins::PIN_RELAY_FAN, out.fan_active);
+    actuators::set_relay_state(config::pins::PIN_RELAY_HEATER_1, out.heater_active);
+    actuators::set_relay_state(config::pins::PIN_RELAY_HEATER_2, out.heater_active);
 }
 
 // ---------------------------------------------------------------------------
-// Helper: read all sensors and optionally push TelemetryData into the queue
+// Helper: sample sensors, run edge safety control, enqueue telemetry
 // ---------------------------------------------------------------------------
-static void sample_and_enqueue_telemetry()
+static void sample_control_and_enqueue_telemetry()
 {
-    // Stack-allocated POD — no malloc/new inside the loop
     TelemetryData data = {};
-
     bool ok = sensors::read_all_telemetry(data);
+    const bool defogging = sensors::is_sht30_defogging();
+    const unsigned long now = millis();
+
+    local_control::RelayOutputs out = local_control::compute(data, now, defogging);
+    apply_relay_outputs(out);
 
     {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf(
-            "[CORE1_TASK] Telemetry: temp_air=%.2f°C  temp_sub=%.2f°C  humidity=%.2f%%  co2=%.1fppm  ok=%d\n",
+            "[CORE1_TASK] Telemetry: temp_air=%.2f°C humidity=%.2f%% co2=%.1fppm ok=%d defog=%d | "
+            "mist=%d fan=%d heater=%d blackout=%d\n",
             data.temp_air,
-            data.temp_substrate,
             data.humidity_air,
             data.co2_level,
-            static_cast<int>(ok)
-        );
+            static_cast<int>(ok),
+            static_cast<int>(defogging),
+            static_cast<int>(out.mist_active),
+            static_cast<int>(out.fan_active),
+            static_cast<int>(out.heater_active),
+            static_cast<int>(out.midday_blackout_active));
     }
 
     if (xTelemetryQueue != nullptr)
@@ -211,6 +197,19 @@ static void sample_and_enqueue_telemetry()
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.println("[CORE1_TASK] WARNING: Telemetry queue full — sample dropped.");
+        }
+    }
+
+    // Drain legacy actuator queue (no longer used for MQTT authority).
+    if (xActuatorQueue != nullptr)
+    {
+        ActuatorCommand cmd;
+        while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf(
+                "[CORE1_TASK] Dropped legacy ActuatorCommand pin=%u (edge owns relays).\n",
+                static_cast<unsigned>(cmd.relay_id));
         }
     }
 }
@@ -228,10 +227,18 @@ void task_core1_control(void* /*pvParameters*/)
     // 1. Initialise HAL layers (safe to call once; idempotent for mock)
     sensors::init_sensors_placeholder();
     actuators::init_actuators_gpio();
+    local_control::init();
 
-    // Demo toggle state (stack-local, no heap)
-    size_t demo_relay_idx = 0;
-    bool   demo_state     = false;
+#ifndef UNIT_TEST
+    // Explicitly register this task. IDLE-task monitoring alone cannot catch a
+    // stalled control task that still yields elsewhere; every completed control
+    // iteration must kick the WDT below.
+    if (esp_task_wdt_add(nullptr) != ESP_OK)
+    {
+        Serial.println("[CORE1_TASK] WARNING: Failed to register Core 1 task with Task WDT.");
+    }
+#endif
+
     unsigned long last_sensor_ms = 0;
 
     #ifndef UNIT_TEST
@@ -241,29 +248,16 @@ void task_core1_control(void* /*pvParameters*/)
     for (int _iter = 0; _iter < 1; ++_iter)
     #endif
     {
-        // --- Priority path: drain actuator commands from Core 0 -------------
-        // Commands must be applied immediately for real-time responsiveness.
-        process_actuator_commands();
-
-        // --- Periodic path: sample sensors every SENSOR_READ_INTERVAL_MS ----
+        // Edge safety loop: sample sensors, recompute hysteresis, apply relays.
         unsigned long now = millis();
         if ((now - last_sensor_ms) >= SENSOR_READ_INTERVAL_MS || last_sensor_ms == 0)
         {
             last_sensor_ms = now;
-            sample_and_enqueue_telemetry();
-
-            // Sprint-2 mock exercise: cycle one relay ON/OFF so Serial output
-            // proves the actuator path is live without needing a real Core-0
-            // command.  This block will be replaced by fuzzy-logic control later.
-            #ifdef UNIT_TEST
-            demo_state = !demo_state;
-            uint8_t pin = DEMO_RELAY_PINS[demo_relay_idx];
-            actuators::set_relay_state(pin, demo_state);
-            demo_relay_idx = (demo_relay_idx + 1) % DEMO_RELAY_COUNT;
-            #endif
+            sample_control_and_enqueue_telemetry();
         }
 
-        // --- Monitor Wifi Event Group for Fail-Safe Edge Autonomy -----------
+        // SoftAP / WiFi-down is no longer a special "enter fuzzy" path — local
+        // hysteresis already owns relays regardless of MQTT connectivity.
         if (xWifiEventGroup != nullptr)
         {
             EventBits_t bits = xEventGroupGetBits(xWifiEventGroup);
@@ -274,13 +268,12 @@ void task_core1_control(void* /*pvParameters*/)
                 {
                     last_autonomy_log = now;
                     ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[CORE1_TASK] WARNING: WiFi lost completely. Entering Edge Autonomy Mode (Fuzzy Control running).");
+                    Serial.println("[CORE1_TASK] SoftAP active — edge hysteresis still owns relays.");
                 }
             }
         }
 
-        // --- Stack High Water Mark (every ~5 s, same cadence as Core 0) ----
-        #ifndef UNIT_TEST
+#ifndef UNIT_TEST
         static unsigned long last_stack_log = 0;
         if (now - last_stack_log >= 5000UL)
         {
@@ -290,11 +283,11 @@ void task_core1_control(void* /*pvParameters*/)
             Serial.printf("[CORE1_TASK] Stack High Water Mark: %u words\n",
                           static_cast<unsigned>(hwm));
         }
-        #endif
 
-        // Feed the Watchdog and yield to other Core-1 tasks
-        #ifndef UNIT_TEST
-        vTaskDelay(pdMS_TO_TICKS(50)); // 50 ms — higher cadence than Core 0
-        #endif
+        // Kick Task WDT after a completed loop. vTaskDelay alone is not enough —
+        // an infinite wait inside I2C can still yield while this task is stuck.
+        esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(50));
+#endif
     }
 }

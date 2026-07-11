@@ -281,6 +281,72 @@ namespace storage
         return result;
     }
 
+    bool StorageManager::save_device_id(const String &device_id)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing device_id.");
+            return false;
+        }
+        size_t bytes = prefs.putString(config::network::KEY_DEVICE_ID, device_id);
+        prefs.end();
+        if (bytes > 0)
+        {
+            Serial.printf("[STORAGE] Saved device_id: %s\n", device_id.c_str());
+            return true;
+        }
+        Serial.println("[STORAGE] Error: Failed to save device_id.");
+        return false;
+    }
+
+    bool StorageManager::load_device_id(String &device_id)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading device_id.");
+            return false;
+        }
+        device_id = prefs.isKey(config::network::KEY_DEVICE_ID)
+                        ? prefs.getString(config::network::KEY_DEVICE_ID, "")
+                        : "";
+        prefs.end();
+        if (device_id.length() > 0)
+        {
+            Serial.println("[STORAGE] Loaded device_id from NVS.");
+            return true;
+        }
+        Serial.println("[STORAGE] device_id empty or not found in NVS.");
+        return false;
+    }
+
+    bool StorageManager::has_device_id()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        bool exists = prefs.isKey(config::network::KEY_DEVICE_ID) &&
+                      (prefs.getString(config::network::KEY_DEVICE_ID, "").length() > 0);
+        prefs.end();
+        return exists;
+    }
+
+    bool StorageManager::clear_device_id()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.remove(config::network::KEY_DEVICE_ID);
+        prefs.end();
+        Serial.println("[STORAGE] Cleared device_id from NVS.");
+        return result;
+    }
+
     bool StorageManager::factory_reset()
     {
         Preferences prefs;

@@ -1,14 +1,20 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { DeviceController } from './device.controller';
 import { MqttModule } from '../mqtt/mqtt.module';
+import { Device } from './entities/device.entity';
+import { DeviceRegistryService } from './device-registry.service';
 
 /**
- * DeviceModule — Handles device management HTTP endpoints.
- *
- * Imports MqttModule to inject MqttService into DeviceController.
+ * DeviceModule — registry + HTTP endpoints for device status/control.
  */
 @Module({
-  imports: [MqttModule],
+  imports: [
+    TypeOrmModule.forFeature([Device]),
+    forwardRef(() => MqttModule),
+  ],
   controllers: [DeviceController],
+  providers: [DeviceRegistryService],
+  exports: [DeviceRegistryService, TypeOrmModule],
 })
 export class DeviceModule {}

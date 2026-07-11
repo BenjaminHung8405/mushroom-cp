@@ -14,6 +14,20 @@ CREATE TABLE mushroom_houses (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 1b. Device registry: MQTT identity → physical house
+-- device_id MUST equal EMQX username and MQTT clientId (ACL uses ${username}).
+CREATE TABLE devices (
+    device_id VARCHAR(50) PRIMARY KEY,
+    house_id VARCHAR(50) NOT NULL REFERENCES mushroom_houses(id) ON DELETE RESTRICT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    display_name VARCHAR(100),
+    mqtt_username VARCHAR(50) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_devices_house ON devices(house_id);
+
 -- 2. Thư viện lưu trữ các Profile cấu hình mẫu (Presets)
 CREATE TABLE growth_profiles (
     id VARCHAR(50) PRIMARY KEY,

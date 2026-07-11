@@ -42,8 +42,7 @@ namespace config
         constexpr const char *DEFAULT_BACKEND_URL = "http://192.168.1.164:3001";
         constexpr const char *DEFAULT_MQTT_BROKER = "192.168.1.164";
         constexpr uint16_t DEFAULT_MQTT_PORT = 18883;
-        constexpr const char *DEFAULT_MQTT_USER = "esp32";
-        constexpr const char *DEFAULT_MQTT_PASS = "esp32@123";
+        constexpr const char *DEFAULT_MQTT_PASS = "";
 
         // NVS Storage namespace and keys (Preference keys must be <= 15 chars)
         constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
@@ -53,6 +52,7 @@ namespace config
         constexpr const char *KEY_MQTT_PORT = "mqtt_port";
         constexpr const char *KEY_MQTT_USER = "mqtt_user";
         constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
+        constexpr const char *KEY_DEVICE_ID = "device_id";
         constexpr const char *KEY_BACKEND_URL = "backend_url";
 
         // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
@@ -65,6 +65,8 @@ namespace config
         extern String MQTT_CLIENT_ID_VAL;
         extern String MQTT_USER_VAL;
         extern String MQTT_PASSWORD_VAL;
+
+        String resolve_device_identity();
 
         // Backend API URL (persisted in NVS) and runtime JWT token (RAM only)
         extern String BACKEND_API_URL;

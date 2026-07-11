@@ -22,6 +22,25 @@ describe('TelemetryController', () => {
     };
   };
 
+  const baseSnapshot = (): TelemetrySnapshot => ({
+    deviceId: 'device-1',
+    houseId: 'house-1',
+    time: new Date(),
+    batchId: 'batch-1',
+    cropDayInt: 5,
+    humidityMeasured: 80,
+    temperatureMeasured: 25,
+    co2Measured: 600,
+    humiditySetpoint: 85,
+    temperatureSetpoint: 24,
+    humidityErrorDelta: 5,
+    temperatureErrorDelta: -1,
+    mistGeneratorActive: true,
+    convectionFanActive: false,
+    heatingLampActive: false,
+    middayBlackoutActive: false,
+  });
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TelemetryController],
@@ -43,35 +62,18 @@ describe('TelemetryController', () => {
 
   describe('getLatest', () => {
     it('should return snapshot from service if it exists', () => {
-      const mockSnapshot: TelemetrySnapshot = {
-        time: new Date(),
-        batchId: 'batch-1',
-        houseId: 'house-1',
-        cropDayInt: 5,
-        humidityMeasured: 80,
-        temperatureMeasured: 25,
-        co2Measured: 600,
-        humiditySetpoint: 85,
-        temperatureSetpoint: 24,
-        humidityErrorDelta: 5,
-        temperatureErrorDelta: -1,
-        mistGeneratorActive: true,
-        convectionFanActive: false,
-        heatingLampActive: false,
-        middayBlackoutActive: false,
-      };
-
+      const mockSnapshot = baseSnapshot();
       service.getLatestTelemetry.mockReturnValue(mockSnapshot);
 
-      const result = controller.getLatest({ id: 'house-1' });
+      const result = controller.getLatest({ id: 'device-1' });
       expect(result).toBe(mockSnapshot);
-      expect(service.getLatestTelemetry).toHaveBeenCalledWith('house-1');
+      expect(service.getLatestTelemetry).toHaveBeenCalledWith('device-1');
     });
 
     it('should throw NotFoundException if snapshot is null', () => {
       service.getLatestTelemetry.mockReturnValue(null);
 
-      expect(() => controller.getLatest({ id: 'house-1' })).toThrow(
+      expect(() => controller.getLatest({ id: 'device-1' })).toThrow(
         NotFoundException,
       );
     });
@@ -79,24 +81,7 @@ describe('TelemetryController', () => {
 
   describe('streamTelemetry', () => {
     it('should return observable with initial seed if it exists', async () => {
-      const mockSnapshot1: TelemetrySnapshot = {
-        time: new Date(),
-        batchId: 'batch-1',
-        houseId: 'house-1',
-        cropDayInt: 5,
-        humidityMeasured: 80,
-        temperatureMeasured: 25,
-        co2Measured: 600,
-        humiditySetpoint: 85,
-        temperatureSetpoint: 24,
-        humidityErrorDelta: 5,
-        temperatureErrorDelta: -1,
-        mistGeneratorActive: true,
-        convectionFanActive: false,
-        heatingLampActive: false,
-        middayBlackoutActive: false,
-      };
-
+      const mockSnapshot1 = baseSnapshot();
       const mockSnapshot2: TelemetrySnapshot = {
         ...mockSnapshot1,
         time: new Date(mockSnapshot1.time.getTime() + 1000),
@@ -105,9 +90,8 @@ describe('TelemetryController', () => {
 
       service.getLatestTelemetry.mockReturnValue(mockSnapshot1);
 
-      const stream$ = controller.streamTelemetry({ id: 'house-1' });
+      const stream$ = controller.streamTelemetry({ id: 'device-1' });
 
-      // Subscribe and collect first two events
       const eventsPromise = new Promise<any[]>((resolve) => {
         const events: any[] = [];
         const sub = stream$.subscribe({
@@ -120,7 +104,6 @@ describe('TelemetryController', () => {
           },
         });
 
-        // Trigger update
         service.telemetryUpdates$.next(mockSnapshot2);
       });
 
@@ -131,46 +114,18 @@ describe('TelemetryController', () => {
       ]);
     });
 
-    it('should filter events by houseId', async () => {
+    it('should filter events by deviceId', async () => {
       const mockSnapshotOther: TelemetrySnapshot = {
-        time: new Date(),
-        batchId: 'batch-2',
+        ...baseSnapshot(),
+        deviceId: 'device-2',
         houseId: 'house-2',
-        cropDayInt: 5,
-        humidityMeasured: 80,
-        temperatureMeasured: 25,
-        co2Measured: 600,
-        humiditySetpoint: 85,
-        temperatureSetpoint: 24,
-        humidityErrorDelta: 5,
-        temperatureErrorDelta: -1,
-        mistGeneratorActive: true,
-        convectionFanActive: false,
-        heatingLampActive: false,
-        middayBlackoutActive: false,
       };
 
-      const mockSnapshotMatch: TelemetrySnapshot = {
-        time: new Date(),
-        batchId: 'batch-1',
-        houseId: 'house-1',
-        cropDayInt: 5,
-        humidityMeasured: 80,
-        temperatureMeasured: 25,
-        co2Measured: 600,
-        humiditySetpoint: 85,
-        temperatureSetpoint: 24,
-        humidityErrorDelta: 5,
-        temperatureErrorDelta: -1,
-        mistGeneratorActive: true,
-        convectionFanActive: false,
-        heatingLampActive: false,
-        middayBlackoutActive: false,
-      };
+      const mockSnapshotMatch = baseSnapshot();
 
       service.getLatestTelemetry.mockReturnValue(null);
 
-      const stream$ = controller.streamTelemetry({ id: 'house-1' });
+      const stream$ = controller.streamTelemetry({ id: 'device-1' });
 
       const eventsPromise = new Promise<any[]>((resolve) => {
         const events: any[] = [];
@@ -184,7 +139,6 @@ describe('TelemetryController', () => {
           },
         });
 
-        // Trigger updates
         service.telemetryUpdates$.next(mockSnapshotOther);
         service.telemetryUpdates$.next(mockSnapshotMatch);
       });
@@ -198,37 +152,20 @@ describe('TelemetryController', () => {
     it('should query service history and return the results', async () => {
       const from = '2026-07-10T00:00:00Z';
       const to = '2026-07-10T23:59:59Z';
-      const mockHistory: TelemetrySnapshot[] = [
-        {
-          time: new Date(from),
-          batchId: 'batch-1',
-          houseId: 'house-1',
-          cropDayInt: 5,
-          humidityMeasured: 80,
-          temperatureMeasured: 25,
-          co2Measured: 600,
-          humiditySetpoint: 85,
-          temperatureSetpoint: 24,
-          humidityErrorDelta: 5,
-          temperatureErrorDelta: -1,
-          mistGeneratorActive: true,
-          convectionFanActive: false,
-          heatingLampActive: false,
-          middayBlackoutActive: false,
-        },
-      ];
+      const mockHistory: TelemetrySnapshot[] = [baseSnapshot()];
 
       service.getTelemetryHistory.mockResolvedValue(mockHistory);
 
       const result = await controller.getHistory(
-        { id: 'house-1' },
+        { id: 'device-1' },
         { from, to },
       );
       expect(result).toBe(mockHistory);
       expect(service.getTelemetryHistory).toHaveBeenCalledWith(
-        'house-1',
+        'device-1',
         new Date(from),
         new Date(to),
+        undefined,
       );
     });
   });

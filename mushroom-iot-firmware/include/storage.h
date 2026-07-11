@@ -112,6 +112,28 @@ namespace storage
         bool clear_backend_config();
 
         /**
+         * @brief Saves provisioned device identity override to NVS.
+         * @param device_id Canonical device ID (also used as MQTT username/clientId).
+         */
+        bool save_device_id(const String &device_id);
+
+        /**
+         * @brief Loads provisioned device identity from NVS.
+         * @return true if a non-empty device_id exists.
+         */
+        bool load_device_id(String &device_id);
+
+        /**
+         * @brief Checks whether a provisioned device identity exists in NVS.
+         */
+        bool has_device_id();
+
+        /**
+         * @brief Clears provisioned device identity from NVS.
+         */
+        bool clear_device_id();
+
+        /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.
          * @return true if reset successfully, false otherwise.
          */

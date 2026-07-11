@@ -25,6 +25,12 @@ namespace sensors
     static SensorError ds18b20_last_error = SensorError::SUCCESS;
     static SensorError scd30_last_error = SensorError::SUCCESS;
 
+    // SHT30 defog heater state — heater biases temp UP / RH DOWN (finite, not NAN).
+    // Control loops must hold last outputs for heater ON + cool-down.
+    static bool sht30_heater_active = false;
+    static unsigned long sht30_defog_hold_until = 0;
+    constexpr unsigned long SHT30_DEFOG_COOLDOWN_MS = 30000UL;
+
 #ifndef UNIT_TEST
     static Adafruit_SHT31 sht30 = Adafruit_SHT31();
 #endif
@@ -118,13 +124,15 @@ namespace sensors
         }
 
         // --- Heater State Machine (Task D2) ---
+        // NOTE: SHT30 heater does NOT return NAN. It returns biased finite values
+        // (temp +1..3°C, RH drops). We mark defogging and blank temp for telemetry
+        // consumers that still check isnan; local_control uses is_sht30_defogging().
         static unsigned long humidity_saturated_start = 0;
         static unsigned long heat_start_time = 0;
-        static bool is_heating = false;
 
         unsigned long now = millis();
 
-        if (!is_heating)
+        if (!sht30_heater_active)
         {
             if (hum >= 99.0f)
             {
@@ -136,8 +144,9 @@ namespace sensors
                 {
                     Serial.println("[SENSORS] WARNING: Humidity saturated (>= 99%) for 10 minutes. Enabling SHT30 heater!");
                     sht30.heater(true);
-                    is_heating = true;
+                    sht30_heater_active = true;
                     heat_start_time = now;
+                    sht30_defog_hold_until = now + SHT30_DEFOG_COOLDOWN_MS;
                 }
             }
             else
@@ -147,15 +156,17 @@ namespace sensors
         }
         else
         {
-            // Always set temperature output to NAN while heating
+            // Blank temperature while heating so naive consumers don't chase bias.
             temp = NAN;
+            sht30_defog_hold_until = now + SHT30_DEFOG_COOLDOWN_MS;
 
             if ((now - heat_start_time > 300000UL) || (hum < 90.0f)) // 5 minutes OR humidity < 90%
             {
-                Serial.println("[SENSORS] INFO: Disabling SHT30 heater, returning to normal operation.");
+                Serial.println("[SENSORS] INFO: Disabling SHT30 heater, entering cool-down.");
                 sht30.heater(false);
-                is_heating = false;
-                humidity_saturated_start = 0; // reset saturation timer for cooldown
+                sht30_heater_active = false;
+                humidity_saturated_start = 0;
+                sht30_defog_hold_until = now + SHT30_DEFOG_COOLDOWN_MS;
             }
         }
 #else
@@ -165,6 +176,7 @@ namespace sensors
         temp = 25.0f + 2.0f * std::sin(m / 10000.0f);
         // Độ ẩm không khí dao động trong khoảng [75.0, 85.0] %
         hum = 80.0f + 5.0f * std::cos(m / 15000.0f);
+        // Host tests may force defogging via set_simulated_health + hold timer.
 #endif
 
         // Kiểm tra xem dữ liệu có nằm trong dải đo an toàn vật lý hợp lệ không
@@ -323,6 +335,11 @@ namespace sensors
     void set_simulated_health_scd30(bool healthy)
     {
         scd30_healthy = healthy;
+    }
+
+    bool is_sht30_defogging()
+    {
+        return sht30_heater_active || (millis() < sht30_defog_hold_until);
     }
 
 } // namespace sensors

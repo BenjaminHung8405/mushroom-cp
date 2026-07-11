@@ -89,4 +89,10 @@ namespace sensors
      */
     void set_simulated_health_scd30(bool healthy);
 
+    /**
+     * @brief True while SHT30 internal heater is ON or within post-heater cool-down.
+     * Control loops must hold last outputs — heater biases temp up / RH down.
+     */
+    bool is_sht30_defogging();
+
 } // namespace sensors
