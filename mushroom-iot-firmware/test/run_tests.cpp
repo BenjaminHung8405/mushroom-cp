@@ -13,6 +13,7 @@
 #include "Trajectory.h"
 #include "AdaptiveTuner.h"
 #include "FuzzyController.h"
+#include "TPC_Task.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -1220,6 +1221,82 @@ int main() {
         assert(std::is_pod<ArbitratedOutputsPod>::value == true);
         assert(sizeof(ArbitratedOutputsPod) == 16);
         assert(alignof(ArbitratedOutputsPod) == 4);
+    }
+
+    // 28. Test Task B4 - RTC protection and non-blocking SSR TPC scheduling
+    Serial.println("[TEST] Starting Task B4 - TPC Task Unit Tests...");
+    {
+        using FuzzyController::ArbitratedOutputsPod;
+        using TPC_Task::RtcTimePod;
+        using TPC_Task::TpcChannelConfig;
+        using TPC_Task::TpcChannelState;
+
+        // 28.1 The biosafety blackout covers both endpoints and cannot be
+        // bypassed by a full fuzzy/arbitrated demand. Invalid RTC is fail-safe.
+        ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
+        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
+        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        protectedOut.HWat = 1.0f;
+        protectedOut.Mist = 1.0f;
+        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        protectedOut.HWat = 1.0f;
+        protectedOut.Mist = 1.0f;
+        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        protectedOut.HWat = 1.0f;
+        protectedOut.Mist = 1.0f;
+        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 24U, 0U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        assert(std::abs(protectedOut.HAir - 0.4f) < 1e-6f);
+        assert(std::abs(protectedOut.Exh - 0.6f) < 1e-6f);
+
+        // 28.2 A 100 ms TPC window converts 50% duty into a phase. Minimum
+        // ON/OFF times defer normal phase changes, while explicit zero demand
+        // remains an immediate fail-safe OFF command.
+        const TpcChannelConfig channel = {42U, 100U, 80U, 60U};
+        TpcChannelState state = {};
+        mock_millis_offset = 300000UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.5f);
+        assert(state.output_high == true);
+        assert(mock_pin_values[42U] == HIGH);
+
+        mock_millis_offset = 300050UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.5f);
+        assert(state.output_high == true); // minimum ON defers phase-off
+        mock_millis_offset = 300080UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.5f);
+        assert(state.output_high == false);
+        assert(mock_pin_values[42U] == LOW);
+
+        // At the next window, the OFF phase has lasted only 20 ms, so the
+        // 60 ms minimum OFF time delays the next HIGH transition until 140 ms.
+        mock_millis_offset = 300100UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.5f);
+        assert(state.output_high == false);
+        mock_millis_offset = 300140UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.5f);
+        assert(state.output_high == true);
+
+        // A duty forced to zero (including from a protection interlock) turns
+        // the SSR OFF immediately and is never held by minimum-ON timing.
+        mock_millis_offset = 300150UL;
+        TPC_Task::updateTpcChannel(channel, state, 0.0f);
+        assert(state.output_high == false);
+
+        // 28.3 Invalid scheduler configuration fails safe LOW. All scheduler
+        // state remains POD/caller-owned, avoiding hidden state or heap use.
+        TpcChannelState invalidState = {};
+        const TpcChannelConfig invalid = {43U, 0U, 10U, 10U};
+        TPC_Task::updateTpcChannel(invalid, invalidState, 1.0f);
+        assert(invalidState.output_high == false);
+        assert(mock_pin_values[43U] == LOW);
+        assert(std::is_pod<TPC_Task::RtcTimePod>::value == true);
+        assert(std::is_pod<TPC_Task::TpcChannelConfig>::value == true);
+        assert(std::is_pod<TPC_Task::TpcChannelState>::value == true);
+        assert(std::is_pod<TPC_Task::TpcSchedulerState>::value == true);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

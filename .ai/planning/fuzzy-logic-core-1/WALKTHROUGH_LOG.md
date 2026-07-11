@@ -1,5 +1,33 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T17:04:48+07:00]
+- **Task ID**: B4
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [TPC_Task.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h)
+  - [NEW] [TPC_Task.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Tạo module `TPC_Task` với `hardwareProtectionOverride()`: ép duty HWat/Mist về `0.0` trong khung 11:00–13:30 (inclusive) và fail-safe OFF khi RTC invalid/malformed; các kênh HAir/Exh không bị ảnh hưởng.
+  - Triển khai TPC scheduler non-blocking (`millis()`): `updateTpcChannel()` chuyển duty `[0.0, 1.0]` thành pha HIGH/LOW trong cửa sổ TPC, tôn trọng min ON/OFF configurable theo thiết bị; chỉ dùng `digitalWrite`, không PWM/`analogWrite`/`ledcWrite`.
+  - Duty = 0.0 (kể cả sau protection interlock) ép SSR OFF ngay lập tức, không bị giữ bởi minimum-ON; min ON/OFF chỉ áp dụng cho các chuyển pha theo duty bình thường.
+  - State caller-owned (`TpcSchedulerState` POD), không hidden static; window=0 fail-safe LOW; khởi tạo kênh bắt đầu OFF nhưng cho phép ON ngay chu kỳ đầu.
+  - Bổ sung unit tests B4 (blackout endpoints, RTC fail-safe, 50% duty phase, min ON/OFF, zero-demand immediate OFF, zero-window, POD layout) trong `run_tests.cpp`.
+  - Tự kiểm tra: standalone host test B4 với `clang++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` PASS; `git diff --check` sạch.
+
+## [2026-07-11T16:59:20+07:00]
+- **Task ID**: B3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Rà soát `arbitrateOutputs()` theo TPC semantics: HAir/HWat/Mist được nhân adaptive gain, còn `ExhTH` và `ExhCO2` được hợp nhất độc lập bằng `std::max`; toàn bộ demand hậu arbitration được clamp liên tục trong `[0.0, 1.0]`, không threshold/map sang relay boolean.
+  - Xác nhận cơ chế fail-safe: raw demand NaN/Inf thành `0.0`; gain NaN/Inf ép kênh tương ứng OFF, gain hữu hạn ngoài dải được giới hạn trong `[0.5, 2.5]` trước phép nhân.
+  - Tự kiểm tra: focused host test B3 dùng `clang++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` PASS; static check xác nhận `FuzzyController.cpp` không gọi `digitalWrite`/`analogWrite`/`ledcWrite`; `git diff --check` sạch.
+
 ## [2026-07-11T16:54:54+07:00]
 - **Task ID**: B2
 - **Trạng thái hiện tại**: Đang chờ QA Review
