@@ -52,7 +52,7 @@ const SimulationContext = createContext<SimulationContextType | undefined>(undef
  * Must match the MQTT username configured in EMQX and .env:
  *   MQTT_ESP32_USER=esp32_mushroom_s3_01
  */
-const MONITORED_DEVICE_ID = 'esp32_mushroom_s3_01'
+const MONITORED_DEVICE_ID = process.env.NEXT_PUBLIC_DEVICE_ID ?? 'esp32_mushroom_s3_01'
 
 /**
  * NestJS Backend API URL.
