@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:30:08+07:00]
+- **Task ID**: B2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [FuzzyController.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/FuzzyController.h)
+  - [MODIFY] [FuzzyController.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/FuzzyController.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai `executeCO2Rules(CO2RuleState&, errorCO2)` trong `FuzzyController`, trả về công suất thô `ExhCO2` thuộc `[0.0, 1.0]`.
+  - Áp dụng hysteresis/deadband quanh setpoint CO2: bật khi excess > 50 ppm, giữ latch trong dải chết, tắt khi excess < 20 ppm để chống đóng ngắt quạt xả liên tục.
+  - Khi latch ON, trả `ExhCO2 = 1.0` (relay ON); khi OFF trả `0.0`. Không dùng PWM/duty cycle tỉ lệ vì phần cứng hiện tại chỉ ON/OFF.
+  - NaN/Inf fail-safe về 0 và xóa latch. State hysteresis là POD caller-owned (`CO2RuleState`), không dùng static ẩn, phù hợp Core 1.
+  - Bổ sung unit tests Task B2 (deadband, engage, hold, release, full-scale, fail-safe, clamp, POD layout).
+  - Kết quả tự kiểm tra: focused host test cho `FuzzyController` với `-Wall -Wextra -Werror -fsanitize=address,undefined` PASS. `git diff --check` sạch.
+
 ## [2026-07-11T16:24:28+07:00]
 - **Task ID**: B1
 - **Trạng thái hiện tại**: Đang chờ QA Review

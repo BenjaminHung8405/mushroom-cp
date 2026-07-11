@@ -1,10 +1,17 @@
 # SPRINT 1: LÕI THUẬT TOÁN MỜ, ĐỘNG HỌC & ĐIỀU KHIỂN TPC (CORE 1)
 
+> **⚠️ LƯU Ý QUAN TRỌNG — PHẦN CỨNG HIỆN TẠI:**
+> Hệ thống hiện chỉ điều khiển relay **ON/OFF** (SSR Relays). **Không dùng PWM**, không băm xung thời gian thực (TPC), không duty cycle tỉ lệ.
+> Các khái niệm "Raw Duty Cycles (0-1.0)", "Defuzzified Outputs", "TPC Window Generator" trong sơ đồ kiến trúc là thiết kế API chuẩn hóa cho tương lai — hiện tại mọi giá trị `[0.0, 1.0]` đều được ánh xạ nhị phân: `≤ 0.5 → OFF (0.0)`, `> 0.5 → ON (1.0)` qua `digitalWrite()`.
+> Tất cả logic điều khiển phải tuân thủ quy tắc này.
+
 ## 1. PHẠM VI & MỤC TIÊU
 Xây dựng toàn bộ não bộ nội tại của hệ thống điều khiển mờ (Fuzzy Logic Controller). Phạm vi bao gồm: Các hàm thuộc tính toán học, Thuật toán nội suy lộ trình (Trajectory), Cơ chế Tự thích nghi (Adaptive AI Tuning), Phân rã luật mờ Kép (Dual-Heater & CO2), và Động cơ băm xung thời gian thực (TPC Engine). Toàn bộ khối này bị cô lập vật lý trên Core 1 của ESP32.
 
 ## 2. KIẾN TRÚC & LUỒNG DỮ LIỆU
-[Core 0 Shared Variables] -> (Thread-safe Read) -> [Trajectory Interpolator] -> Xác định Target_Setpoints -> [Error Calculator: eT, eH, eCO2] -> [Adaptive AI Tuner] -> Cập nhật Gains -> [Fuzzy Math Engine (TH + CO2)] -> Raw Duty Cycles (0-1.0) -> [Arbitrator (Max Function)] -> Defuzzified Outputs -> [TPC Window Generator] -> Băm xung thời gian -> [Luật Cứng Bảo Vệ: Check Time 11h-13h30] -> [GPIO Registers (SSR Relays)]
+[Core 0 Shared Variables] -> (Thread-safe Read) -> [Trajectory Interpolator] -> Xác định Target_Setpoints -> [Error Calculator: eT, eH, eCO2] -> [Adaptive AI Tuner] -> Cập nhật Gains -> [Fuzzy Math Engine (TH + CO2)] -> Binary Relay Commands (0.0=OFF / 1.0=ON) -> [Arbitrator (Max Function)] -> Hardware Protection Override -> [GPIO Registers (SSR Relays)]
+
+> ⚠️ Không có TPC Window Generator hay Băm xung thời gian — phần cứng chỉ ON/OFF.
 
 ## 3. PHÂN RÃ CHI TIẾT TÁC VỤ
 

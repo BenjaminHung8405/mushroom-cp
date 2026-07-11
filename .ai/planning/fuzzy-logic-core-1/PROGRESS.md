@@ -14,6 +14,13 @@
 ## Addition Plan
 - **Yêu cầu phát sinh**: Chưa có
 
+## ⚠️ Lưu ý Phần cứng Quan trọng
+> **Hệ thống hiện chỉ điều khiển relay ON/OFF, không dùng PWM.**
+> - Tất cả output fuzzy (`HAir`, `HWat`, `Mist`, `ExhTH`, `ExhCO2`) là lệnh nhị phân: `0.0` = OFF, `1.0` = ON.
+> - Không có TPC (Time Pulse Control), không băm xung, không duty cycle tỉ lệ.
+> - Các hàm `arbitrateOutputs()` (B3) và `hardwareProtectionOverride()` (B4) chỉ thao tác trên giá trị boolean, không tạo PWM.
+> - `Core1_ControlTask()` (B5) gọi `digitalWrite(pin, HIGH/LOW)`, không `analogWrite()`.
+
 ## Tracks Progress
 
 ---
@@ -32,10 +39,10 @@
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | B1 | Tạo file `FuzzyController.h` / `FuzzyController.cpp` và triển khai hàm `executeDualHeaterRules()` nạp `errorTemp`, `errorHumid`, trả về công suất thô cho HAir, HWat, Mist, ExhTH. | [ ] QA Review | - **Fuzzy Rules Invariants**: Phân nhánh logic "Lạnh & Khô" vs "Lạnh & Ẩm ướt" phải được kiểm thử độc lập. Đảm bảo luật mờ không gây ra tình trạng bật đồng thời hai thiết bị triệt tiêu nhau (vd: sấy nhiệt và phun sương đồng thời quá mức) trừ khi được cấu hình đặc biệt.<br>- **Ràng buộc Output**: Giá trị trả về cho mỗi kênh điều khiển phải là trị số thô trong khoảng `[0.0, 1.0]`. |
-| B2 | Triển khai hàm `executeCO2Rules()` trong `FuzzyController` nạp `errorCO2` và trả về công suất xả khí ExhCO2. | [ ] Pending | - **Hysteresis Control**: Áp dụng cơ chế trễ (Hysteresis) hoặc khoảng chết (Deadband) xung quanh setpoint CO2 để ngăn chặn hiện tượng quạt xả đóng ngắt liên tục (Chống mòn thiết bị vật lý). |
-| B3 | Triển khai hàm `arbitrateOutputs()` trong `FuzzyController` trộn `ExhTH` và `ExhCO2` bằng hàm `std::max`, nhân với tập hệ số Gains từ `AdaptiveTuner`. | [ ] Pending | - **Decoupled Arbitrator Pattern**: Trộn đầu ra xả gió giữa bài toán nhiệt-ẩm và bài toán CO2 bằng hàm toán học phi tuyến `std::max`. Đảm bảo hệ thống ưu tiên xả khi CO2 tích tụ cao.<br>- **Post-arbitration Clamp**: Kết quả sau khi nhân với Gains bắt buộc phải được clamp về `[0.0, 1.0]` một lần nữa trước khi gửi đến TPC. |
+| B2 | Triển khai hàm `executeCO2Rules()` trong `FuzzyController` nạp `errorCO2` và trả về công suất xả khí ExhCO2. | [ ] QA Review | - **Hysteresis Control**: Áp dụng cơ chế trễ (Hysteresis) hoặc khoảng chết (Deadband) xung quanh setpoint CO2 để ngăn chặn hiện tượng quạt xả đóng ngắt liên tục (Chống mòn thiết bị vật lý). |
+| B3 | Triển khai hàm `arbitrateOutputs()` trong `FuzzyController` trộn `ExhTH` và `ExhCO2` bằng hàm `std::max`, nhân với tập hệ số Gains từ `AdaptiveTuner`. | [ ] Pending | - **Decoupled Arbitrator Pattern**: Trộn đầu ra xả gió giữa bài toán nhiệt-ẩm và bài toán CO2 bằng hàm toán học phi tuyến `std::max`. Đảm bảo hệ thống ưu tiên xả khi CO2 tích tụ cao.<br>- **Post-arbitration Clamp**: Kết quả sau khi nhân với Gains bắt buộc phải được clamp về `[0.0, 1.0]` — hiện tại là lệnh relay nhị phân (ON/OFF), không PWM. |
 | B4 | Tạo file `TPC_Task.h` / `TPC_Task.cpp` và triển khai hàm `hardwareProtectionOverride()` ép `out_HWat = 0` và `out_Mist = 0` nếu nằm trong khoảng 11:00 AM - 13:30 PM. | [ ] Pending | - **Biosafety / Hardware Hard-rule**: Hàm này là tuyến phòng thủ tối cao, chạy ở cuối chu trình điều khiển, không được phép bị bỏ qua bởi bất kỳ logic mờ hay thuật toán thích nghi nào.<br>- **Lỗi RTC Fallback**: Nếu không thể đọc được thời gian thực từ RTC (hoặc RTC trả về dữ liệu lỗi), bắt buộc phải fallback về trạng thái an toàn: ngắt hoàn toàn bộ sấy nước (`out_HWat = 0`) và phun sương (`out_Mist = 0`). |
-| B5 | Triển khai hàm `Core1_ControlTask()` — Task loop vô tận cho FreeRTOS ghim vào Core 1, quản lý cửa sổ TPC 60,000ms, điều khiển GPIO bằng `digitalWrite()`, gọi `vTaskDelay(50)`. | [ ] Pending | - **Chống treo Watchdog (TWDT)**: Bắt buộc gọi `vTaskDelay(pdMS_TO_TICKS(50))` ở mỗi chu kỳ để nhường CPU cho IDLE task chạy trên Core 1. Cấm dùng `delay()` làm đóng băng core.<br>- **Bộ nhớ Heap**: Tuyệt đối không sử dụng cấp phát động (`malloc`, `new`, `String`) bên trong vòng lặp vô tận này để phòng ngừa rò rỉ RAM gây sập hệ thống sau nhiều ngày hoạt động.<br>- **Thứ tự thực thi**: Hàm `hardwareProtectionOverride()` bắt buộc phải được gọi ở dòng cuối cùng ngay trước khi xuất tín hiệu điều khiển ra các GPIO Registers (SSR Relays). |
+| B5 | Triển khai hàm `Core1_ControlTask()` — Task loop vô tận cho FreeRTOS ghim vào Core 1, điều khiển GPIO bằng `digitalWrite()` (relay ON/OFF), gọi `vTaskDelay(50)`. | [ ] Pending | - **Chống treo Watchdog (TWDT)**: Bắt buộc gọi `vTaskDelay(pdMS_TO_TICKS(50))` ở mỗi chu kỳ để nhường CPU cho IDLE task chạy trên Core 1. Cấm dùng `delay()` làm đóng băng core.<br>- **Bộ nhớ Heap**: Tuyệt đối không sử dụng cấp phát động (`malloc`, `new`, `String`) bên trong vòng lặp vô tận này để phòng ngừa rò rỉ RAM gây sập hệ thống sau nhiều ngày hoạt động.<br>- **Thứ tự thực thi**: Hàm `hardwareProtectionOverride()` bắt buộc phải được gọi ở dòng cuối cùng ngay trước khi xuất tín hiệu điều khiển ra các GPIO Registers (SSR Relays).<br>- **⚠️ Relay ON/OFF**: Không dùng PWM/analogWrite — tất cả output là digitalWrite(pin, HIGH/LOW). |
 
 ---
 

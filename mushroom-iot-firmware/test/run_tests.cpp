@@ -1075,6 +1075,65 @@ int main() {
         assert(alignof(DualHeaterOutputsPod) == 4);
     }
 
+    // 26. Test Task B2 - FuzzyController CO2 hysteresis exhaust rules
+    Serial.println("[TEST] Starting Task B2 - FuzzyController CO2 Unit Tests...");
+    {
+        using FuzzyController::CO2RuleState;
+
+        // 26.1 Cold-start state is inactive and POD-friendly for Core 1 stack use.
+        CO2RuleState state = FuzzyController::makeInitialCO2State();
+        assert(state.exhaust_active == false);
+        assert(std::is_pod<CO2RuleState>::value == true);
+        assert(sizeof(CO2RuleState) == 4);
+        assert(alignof(CO2RuleState) == 4);
+
+        // 26.2 Deadband: small excess CO2 must not start exhaust chatter.
+        // errorCO2 = target - measured. -30 ppm means measured is 30 ppm high.
+        float out = FuzzyController::executeCO2Rules(state, -30.0f);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+
+        // 26.3 Cross the ON threshold to engage the exhaust latch.
+        out = FuzzyController::executeCO2Rules(state, -51.0f);
+        assert(out == 1.0f);
+        assert(state.exhaust_active == true);
+
+        // 26.4 While latched, remaining inside the deadband keeps the binary
+        // relay command ON even though the excess is below the ON threshold.
+        out = FuzzyController::executeCO2Rules(state, -30.0f);
+        assert(out == 1.0f);
+        assert(state.exhaust_active == true);
+
+        // 26.5 Fall below the OFF threshold to release the latch.
+        out = FuzzyController::executeCO2Rules(state, -10.0f);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+
+        // 26.6 Large excess remains the binary ON command once engaged.
+        out = FuzzyController::executeCO2Rules(state, -450.0f);
+        assert(out == 1.0f);
+        assert(state.exhaust_active == true);
+
+        // 26.7 Negative excess (measured below target) keeps exhaust OFF.
+        out = FuzzyController::executeCO2Rules(state, 100.0f);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+
+        // 26.8 Invalid sensor data fails safe and clears the latch.
+        state.exhaust_active = true;
+        out = FuzzyController::executeCO2Rules(state, NAN);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+        out = FuzzyController::executeCO2Rules(state, INFINITY);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+
+        // 26.9 Output remains binary and normalized for extreme excess values.
+        out = FuzzyController::executeCO2Rules(state, -10000.0f);
+        assert(out == 1.0f);
+        assert(state.exhaust_active == true);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

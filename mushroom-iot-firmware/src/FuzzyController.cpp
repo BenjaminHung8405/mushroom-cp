@@ -12,6 +12,13 @@ constexpr float TEMP_HOT_FULL = 4.0f;    // °C
 constexpr float HUMID_DRY_FULL = 20.0f;  // %RH
 constexpr float HUMID_WET_FULL = 20.0f;  // %RH
 
+// CO2 hysteresis band around the setpoint (ppm of excess CO2).
+// Engage when measured exceeds target by more than ON, hold until the excess
+// falls back below OFF. The deadband between OFF and ON is what prevents
+// continuous exhaust relay chatter.
+constexpr float CO2_ON_THRESHOLD_PPM = 50.0f;
+constexpr float CO2_OFF_THRESHOLD_PPM = 20.0f;
+
 inline float clampUnit(float value) {
     if (value <= 0.0f) {
         return 0.0f;
@@ -66,6 +73,42 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
     outputs.Mist = clampUnit(outputs.Mist);
     outputs.ExhTH = clampUnit(outputs.ExhTH);
     return outputs;
+}
+
+CO2RuleState makeInitialCO2State() {
+    return CO2RuleState{false};
+}
+
+float executeCO2Rules(CO2RuleState& state, float errorCO2) {
+    // Sensor loss / corrupted sample: fail-safe OFF and clear the latch so a
+    // later recovery starts from a known inactive state.
+    if (!isFinite(errorCO2)) {
+        state.exhaust_active = false;
+        return 0.0f;
+    }
+
+    // errorCO2 = target - measured. Excess CO2 above the setpoint is therefore
+    // the positive quantity (-errorCO2).
+    const float excessCO2 = -errorCO2;
+
+    if (!state.exhaust_active) {
+        if (excessCO2 > CO2_ON_THRESHOLD_PPM) {
+            state.exhaust_active = true;
+        }
+    } else {
+        if (excessCO2 < CO2_OFF_THRESHOLD_PPM) {
+            state.exhaust_active = false;
+        }
+    }
+
+    if (!state.exhaust_active) {
+        return 0.0f;
+    }
+
+    // Current hardware uses only ON/OFF relay control, not PWM. Hysteresis
+    // determines a stable binary command; any future TPC layer can consume the
+    // same normalized convention without changing this hardware behavior.
+    return 1.0f;
 }
 
 } // namespace FuzzyController
