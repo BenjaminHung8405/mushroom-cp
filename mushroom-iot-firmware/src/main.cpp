@@ -16,8 +16,8 @@ static constexpr UBaseType_t TELEMETRY_QUEUE_DEPTH = 4;
 static constexpr UBaseType_t CORE0_TASK_PRIORITY = 1;
 static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
 
-// Stack budgets (bytes).  Core 0 needs more room for TLS / JSON parsing.
-static constexpr uint32_t CORE0_STACK_BYTES = 4096;
+// Stack budgets (bytes). Core 0 runs HTTP and MQTT networking.
+static constexpr uint32_t CORE0_STACK_BYTES = 12288;
 static constexpr uint32_t CORE1_STACK_BYTES = 4096;
 
 void setup()

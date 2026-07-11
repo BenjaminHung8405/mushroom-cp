@@ -41,9 +41,22 @@ namespace mqtt
         Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
         Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
 
-        // 3. Configure PubSubClient server and callback (to be fully integrated in C2/C3)
+        // 3. Configure PubSubClient server, buffer, keepalive, and callback.
+        // Buffer must exceed JWT/password + LWT + telemetry JSON size (default 128 is too small).
+        if (!mqtt_client.setBufferSize(1024))
+        {
+            Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
+            current_state = MqttState::DISCONNECTED;
+            return false;
+        }
+        mqtt_client.setKeepAlive(60);
         mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
         mqtt_client.setCallback(MqttClient::mqtt_callback_static);
+
+        Serial.printf("[MQTT] Broker: %s:%u | Client ID: %s | Buffer: 1024 | KeepAlive: 60s\n",
+                      config::network::MQTT_BROKER_VAL.c_str(),
+                      static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                      client_id.c_str());
 
 #ifndef UNIT_TEST
         if (mqtt_mutex == nullptr)
@@ -374,6 +387,14 @@ namespace mqtt
         String lwt_topic = resolved_topics.status;
         String lwt_payload = "{\"status\":\"offline\"}";
 
+        // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
+        Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
+                      config::network::MQTT_BROKER_VAL.c_str(),
+                      static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                      config::network::MQTT_USER_VAL.c_str(),
+                      client_id.c_str(),
+                      lwt_topic.c_str());
+
         bool connected = mqtt_client.connect(
             client_id.c_str(),
             config::network::MQTT_USER_VAL.c_str(),
@@ -398,7 +419,12 @@ namespace mqtt
         }
         else
         {
-            Serial.println("[MQTT] Connection to broker failed. Will retry later.");
+            const int mqtt_state = mqtt_client.state();
+            Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
+            if (mqtt_state == 4)
+            {
+                Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
+            }
             current_state = MqttState::DISCONNECTED;
         }
         return connected;

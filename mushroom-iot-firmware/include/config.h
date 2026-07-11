@@ -41,7 +41,7 @@ namespace config
         // Default Fallback Configurations for Backend and MQTT (used on first boot / missing NVS config)
         constexpr const char *DEFAULT_BACKEND_URL = "http://192.168.1.164:3001";
         constexpr const char *DEFAULT_MQTT_BROKER = "192.168.1.164";
-        constexpr uint16_t DEFAULT_MQTT_PORT = 1883;
+        constexpr uint16_t DEFAULT_MQTT_PORT = 18883;
         constexpr const char *DEFAULT_MQTT_USER = "esp32";
         constexpr const char *DEFAULT_MQTT_PASS = "esp32@123";
 

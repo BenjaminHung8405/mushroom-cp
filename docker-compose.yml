@@ -31,7 +31,7 @@ services:
     container_name: mushroom_mqtt
     restart: always
     ports:
-      - "${MQTT_TCP_PORT:-1883}:1883"           # MQTT for ESP32-S3 devices
+      - "${MQTT_TCP_PORT:-18883}:1883"         # MQTT for ESP32-S3 devices (host-exposed)
       - "${EMQX_DASHBOARD_PORT:-18083}:18083"   # EMQX Web Dashboard (restrict in production)
     environment:
       # Node configuration (required for EMQX 5.x) - use double underscores

@@ -155,20 +155,36 @@ public:
 class PubSubClient {
 public:
     static bool mock_connected;
+    static uint16_t mock_buffer_size;
+    static uint16_t mock_keep_alive;
+    static int mock_state;
+    static std::string mock_server_host;
+    static uint16_t mock_server_port;
+    static bool mock_connect_result;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
 
     typedef void (*MQTT_CALLBACK_SIGNATURE)(char*, uint8_t*, unsigned int);
     static MQTT_CALLBACK_SIGNATURE mock_callback;
 
-    PubSubClient& setServer(const char* ip, uint16_t port) { return *this; }
+    PubSubClient& setServer(const char* ip, uint16_t port) {
+        mock_server_host = ip ? ip : "";
+        mock_server_port = port;
+        return *this;
+    }
     PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { mock_callback = cb; return *this; }
+    bool setBufferSize(uint16_t size) { mock_buffer_size = size; return true; }
+    PubSubClient& setKeepAlive(uint16_t keepAlive) { mock_keep_alive = keepAlive; return *this; }
 
-    bool connect(const char* id) { mock_connected = true; return true; }
-    bool connect(const char* id, const char* user, const char* pass) { mock_connected = true; return true; }
-    bool connect(const char* id, const char* user, const char* pass, const char* willTopic, uint8_t willQos, bool willRetain, const char* willMessage) { mock_connected = true; return true; }
+    bool connect(const char* id) { mock_connected = mock_connect_result; if (mock_connect_result) mock_state = 0; return mock_connect_result; }
+    bool connect(const char* id, const char* user, const char* pass) { mock_connected = mock_connect_result; if (mock_connect_result) mock_state = 0; return mock_connect_result; }
+    bool connect(const char* id, const char* user, const char* pass, const char* willTopic, uint8_t willQos, bool willRetain, const char* willMessage) {
+        mock_connected = mock_connect_result;
+        if (mock_connect_result) mock_state = 0;
+        return mock_connect_result;
+    }
 
-    void disconnect() { mock_connected = false; }
+    void disconnect() { mock_connected = false; mock_state = -1; }
 
     bool loop() { return true; }
 
@@ -180,7 +196,7 @@ public:
 
     bool connected() { return mock_connected; }
 
-    int state() { return 0; }
+    int state() { return mock_state; }
 };
 
 // ---------------------------------------------------------------------------

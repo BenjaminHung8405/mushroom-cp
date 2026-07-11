@@ -426,7 +426,7 @@ function saveConfig(){
     $('ssid').focus();
     return;
   }
-  var port = parseInt(($('mqtt_port').value || '1883'), 10);
+  var port = parseInt(($('mqtt_port').value || '18883'), 10);
   if(isNaN(port) || port < 1 || port > 65535){
     showMsg('err', 'MQTT Port khong hop le.');
     return;
@@ -738,11 +738,12 @@ setInterval(function(){
                          ? config::network::MQTT_BROKER_VAL
                          : String(config::network::DEFAULT_MQTT_BROKER);
         }
-        uint16_t port = port_raw.length() ? static_cast<uint16_t>(port_raw.toInt()) : config::network::MQTT_PORT_VAL;
-        if (port == 0)
+        long parsed_port = port_raw.length() ? port_raw.toInt() : config::network::MQTT_PORT_VAL;
+        if (parsed_port < 1 || parsed_port > 65535)
         {
-            port = config::network::DEFAULT_MQTT_PORT;
+            parsed_port = config::network::DEFAULT_MQTT_PORT;
         }
+        uint16_t port = static_cast<uint16_t>(parsed_port);
         if (user.length() == 0)
         {
             user = config::network::MQTT_USER_VAL.length()

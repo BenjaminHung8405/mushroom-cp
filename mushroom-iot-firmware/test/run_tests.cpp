@@ -24,6 +24,12 @@ bool WiFiClass::disconnect_called = false;
 WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
+uint16_t PubSubClient::mock_buffer_size = 0;
+uint16_t PubSubClient::mock_keep_alive = 0;
+int PubSubClient::mock_state = 0;
+std::string PubSubClient::mock_server_host = "";
+uint16_t PubSubClient::mock_server_port = 0;
+bool PubSubClient::mock_connect_result = true;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 EventBits_t mock_event_group_bits = 0;
 
@@ -131,6 +137,25 @@ int main() {
 
     // Clean up
     assert(storage.factory_reset() == true);
+
+    // 11b. Verify compiled MQTT default host port and init diagnostics settings
+    assert(config::network::DEFAULT_MQTT_PORT == 18883);
+    config::network::MQTT_BROKER_VAL = "192.168.1.164";
+    config::network::MQTT_PORT_VAL = config::network::DEFAULT_MQTT_PORT;
+    config::network::MQTT_CLIENT_ID_VAL = "esp32";
+    PubSubClient::mock_buffer_size = 0;
+    PubSubClient::mock_keep_alive = 0;
+    PubSubClient::mock_server_host = "";
+    PubSubClient::mock_server_port = 0;
+    {
+        mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
+        assert(mqtt_client.init() == true);
+        assert(PubSubClient::mock_buffer_size == 1024);
+        assert(PubSubClient::mock_keep_alive == 60);
+        assert(PubSubClient::mock_server_host == "192.168.1.164");
+        assert(PubSubClient::mock_server_port == 18883);
+        assert(mqtt_client.get_state() == mqtt::MqttState::IDLE);
+    }
 
     // 12. Test WiFi Manager Connection Logic
     Serial.println("[TEST] Starting WiFi Manager Unit Tests...");
@@ -295,6 +320,23 @@ int main() {
     
     // Call loop, it should transition state when reconnect_mqtt is called in UNIT_TEST mock
     mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.is_connected() == true);
+
+    // 12.4b Test connection failure path and state diagnostics
+    PubSubClient::mock_connected = false;
+    PubSubClient::mock_connect_result = false;
+    PubSubClient::mock_state = 4;  // MQTT_CONNECT_UNAUTHORIZED
+    config::network::AUTH_JWT_TOKEN = "test_jwt_token";
+    mock_millis_offset += 5000;
+    mqtt_client.loop();  // detects connection loss -> DISCONNECTED
+    mock_millis_offset += 5000;
+    mqtt_client.loop();  // attempts reconnect, fails with state=4
+    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    assert(PubSubClient::mock_state == 4);
+    PubSubClient::mock_connect_result = true;
+    mock_millis_offset += 5000;
+    mqtt_client.loop();  // reconnect succeeds
     assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
     assert(mqtt_client.is_connected() == true);
 
