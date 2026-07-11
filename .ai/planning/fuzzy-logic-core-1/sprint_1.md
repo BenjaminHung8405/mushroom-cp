@@ -13,6 +13,12 @@ Xây dựng toàn bộ não bộ nội tại của hệ thống điều khiển 
 
 > ⚠️ TPC tạo đóng/cắt SSR theo cửa sổ thời gian dài bằng `digitalWrite()`, không phải PWM tần số cao.
 
+### 2.1 QUYẾT ĐỊNH PHASE 1 ĐÃ CHỐT
+- Giữ TPC; không rewrite sang Macro Interval Control. SSR AC phải là loại zero-crossing.
+- Cấu hình khởi điểm cần triển khai/QA: HAir/HWat `300000/10000/10000 ms`; Mist `300000/5000/10000 ms`; Exhaust `120000/3000/3000 ms` (`window/min_on/min_off`).
+- Scheduler phải hỗ trợ startup offset trong mỗi cửa sổ để tránh inrush cộng dồn: HAir `0 ms`, HWat `3000 ms`, Mist `8000 ms`, Exhaust `0 ms`. Duty ON phải nằm trong cửa sổ sau khi áp offset; không được wrap qua cửa sổ kế tiếp.
+- NTP/RTC hợp lệ là điều kiện để `RtcTimePod.valid=true`; không đồng bộ được giờ là fail-safe, ép HWat/Mist OFF.
+
 ## 3. PHÂN RÃ CHI TIẾT TÁC VỤ
 
 ### TRACK NGHIỆP VỤ LÕI (CORE BUSINESS LOGIC)
@@ -31,8 +37,8 @@ Xây dựng toàn bộ não bộ nội tại của hệ thống điều khiển 
   - *Hàm `arbitrateOutputs()`*: Trộn `ExhTH` và `ExhCO2` bằng `std::max`, nhân HAir/HWat/Mist với Gains từ `AdaptiveTuner`, và trả demand TPC liên tục `[0.0, 1.0]` (không threshold thành boolean).
 - **Tạo file:** `TPC_Task.h` / `TPC_Task.cpp`
   - *Hàm `hardwareProtectionOverride()`*: Đọc thời gian RTC hiện tại. Ép duty `out_HWat = 0.0` và `out_Mist = 0.0` nếu nằm trong khoảng 11:00 AM - 13:30 PM; RTC lỗi cũng phải fail-safe về hai duty bằng 0.
-  - *TPC scheduler*: Chuyển mỗi duty demand thành HIGH/LOW SSR trong cửa sổ TPC non-blocking (`millis()`), có thời gian ON/OFF tối thiểu configurable theo thiết bị.
-  - *Hàm `Core1_ControlTask()`*: Task loop FreeRTOS: fuzzy → arbitration → protection → TPC → `digitalWrite()`, gọi `vTaskDelay(50)` để chống Watchdog; không dùng PWM/`analogWrite()`.
+  - *TPC scheduler*: Chuyển mỗi duty demand thành HIGH/LOW SSR trong cửa sổ TPC non-blocking (`millis()`), có thời gian ON/OFF tối thiểu và startup offset configurable theo thiết bị. Cấu hình khởi điểm Phase 1: HAir/HWat `300/10/10 s`, Mist `300/5/10 s`, Exhaust `120/3/3 s`; offsets HAir/HWat/Mist/Exhaust = `0/3/8/0 s`.
+  - *Hàm `Core1_ControlTask()`*: Scheduler/TPC tick mỗi 50 ms; fuzzy → adaptive gain → arbitration → protection chỉ chạy mỗi 5 s. `updateGains()` nhận `dtSeconds` đo từ `millis()`, không dùng hằng số mô phỏng. Sau khi có demand mới, TPC vẫn chạy ở mọi tick và chỉ dùng `digitalWrite()`; không PWM/`analogWrite()`.
 
 ## 4. TIÊU CHUẨN RÀ SOÁT CỨNG
 1. **Hiệu năng:** Tốc độ thực thi một vòng lặp toàn bộ giải thuật toán mờ trong `Core1_ControlTask` không được vượt quá 10ms.

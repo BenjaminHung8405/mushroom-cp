@@ -13,6 +13,7 @@
 
 ## Addition Plan
 - **Yêu cầu phát sinh (2026-07-11)**: Áp dụng **TPC (Time-Proportional Control)** cho SSR: chuyển demand mờ chuẩn hóa `[0.0, 1.0]` thành tỷ lệ thời gian ON/OFF trong cửa sổ TPC để điều khiển máy siêu âm, sấy khí và quạt hút.
+- **Chốt kiến trúc Phase 1 (2026-07-11)**: Giữ TPC (không Macro Interval / PWM). Tune window/min ON-OFF, staggered startup, fuzzy sample 5 s, và bắt buộc NTP cho blackout 11:00–13:30.
 
 ## ⚠️ Lưu ý Phần cứng Quan trọng — SSR + TPC
 > **Hệ thống dùng SSR và áp dụng TPC, không dùng PWM tần số cao.**
@@ -21,6 +22,14 @@
 > - Mỗi thiết bị SSR phải có cửa sổ TPC và thời gian ON/OFF tối thiểu cấu hình được; không được đóng cắt nhanh hoặc đảo trạng thái liên tục theo từng tick 50 ms.
 > - `arbitrateOutputs()` (B3) trả demand liên tục đã clamp `[0.0, 1.0]`; `hardwareProtectionOverride()` (B4) ép duty của HWat/Mist về `0.0` trước khi TPC quyết định mức GPIO.
 > - `Core1_ControlTask()` (B5) phải gọi `hardwareProtectionOverride()` ở bước cuối trước TPC/GPIO và chỉ xuất mức HIGH/LOW do TPC quyết định.
+
+
+## Architecture Decisions — Phase 1 (2026-07-11T18:00+07:00)
+> **Decision**: Giữ kiến trúc TPC, không rewrite sang PWM hoặc Macro Interval; SSR dùng loại AC Zero-crossing.
+> - **Tune TPC**: Window nâng lên 300 s (HAir/HWat/Mist), Exhaust 120 s. Min ON/OFF nâng lên 3–10 s theo tải.
+> - **Staggered Startup**: Các SSR tải nặng (HAir, HWat, Mist) được khởi động lệch pha trong cửa sổ TPC (+0s, +3s, +8s) để tránh sụt áp lưới cục bộ do inrush cộng dồn.
+> - **NTP Blackout**: Tích hợp `configTime` trên Core 0 khi có WiFi; Core 1 chỉ thi hành blackout 11:00–13:30 nếu NTP đánh dấu valid, nếu không sẽ fail-safe ép OFF (Dead code hiện tại phải được xử lý).
+> - **Tick Scheduler**: TPC vẫn chạy 50 ms tick, nhưng chu kỳ nội suy và thích nghi (`dtSeconds`) chạy ở 5 s để giảm tải, tránh cập nhật gain và fuzzy vô ích khi cảm biến chưa phản ứng.
 
 ## Tracks Progress
 
@@ -42,8 +51,8 @@
 | B1 | Rà soát/điều chỉnh `executeDualHeaterRules()` trong `FuzzyController` để trả demand TPC thô cho HAir, HWat, Mist, ExhTH từ `errorTemp`, `errorHumid`. | [ ] QA Review | - **Fuzzy Rules Invariants**: Phân nhánh "Lạnh & Khô" vs "Lạnh & Ẩm ướt" phải được kiểm thử độc lập; không tạo demand cao đồng thời cho thiết bị triệt tiêu nhau trừ cấu hình đặc biệt.<br>- **TPC Semantics**: Mỗi output là duty demand `[0.0, 1.0]` cho TPC, **chưa** được threshold/map thành relay boolean trong FuzzyController. |
 | B2 | Rà soát/điều chỉnh `executeCO2Rules()` trong `FuzzyController` để tạo demand xả `ExhCO2` tương thích TPC từ `errorCO2`. | [ ] QA Review | - **Hysteresis Control**: Áp dụng hysteresis/deadband quanh setpoint để chống chattering; state latch phải tường minh/caller-owned.<br>- **TPC Semantics**: Latch có thể yêu cầu duty `1.0`, nhưng không được gọi GPIO hay tự tạo xung; TPC Task là nơi duy nhất quyết định pha ON/OFF SSR. |
 | B3 | Rà soát/điều chỉnh `arbitrateOutputs()` trong `FuzzyController`: trộn `ExhTH`/`ExhCO2` bằng `std::max`, nhân HAir/HWat/Mist với Gains từ `AdaptiveTuner`, trả duty demand TPC. | [ ] QA Review | - **Decoupled Arbitrator Pattern**: Dùng `std::max` cho demand exhaust để CO2 cao được ưu tiên độc lập.<br>- **Post-arbitration Clamp**: Kết quả sau gain/arbitration phải clamp `[0.0, 1.0]`; **cấm** threshold/map sang `0.0/1.0` relay tại B3. |
-| B4 | Tạo file `TPC_Task.h` / `TPC_Task.cpp`; triển khai `hardwareProtectionOverride()` và lõi chuyển duty TPC sang trạng thái SSR. | [ ] QA Review | - **Biosafety / Hardware Hard-rule**: Trước pha TPC/GPIO, ép duty `out_HWat = 0.0` và `out_Mist = 0.0` trong 11:00–13:30; không logic mờ/tuning nào được bypass.<br>- **RTC Fail-safe**: RTC không đọc được hoặc dữ liệu lỗi phải ép duty HWat/Mist về `0.0`.<br>- **TPC Scheduler**: Dùng `millis()` non-blocking, cửa sổ/ON-OFF minimum configurable theo thiết bị; output luôn là `digitalWrite(HIGH/LOW)`, không PWM. |
-| B5 | Triển khai `Core1_ControlTask()` — FreeRTOS loop ghim Core 1, chạy fuzzy → arbitration → protection → TPC → GPIO SSR và gọi `vTaskDelay(50)`. | [ ] QA Review | - **Chống treo Watchdog (TWDT)**: Gọi `vTaskDelay(pdMS_TO_TICKS(50))` mỗi chu kỳ; cấm `delay()`.<br>- **Bộ nhớ Heap**: Cấm `malloc`, `new`, `String` trong loop vô tận.<br>- **Thứ tự bắt buộc**: `hardwareProtectionOverride()` phải chạy sau fuzzy/arbitration và ngay trước khi TPC quyết định HIGH/LOW xuất GPIO.<br>- **TPC/SSR**: Không PWM/analogWrite; chỉ `digitalWrite`, nhưng trạng thái HIGH/LOW được tính theo duty và cửa sổ TPC, với bảo vệ minimum ON/OFF. |
+| B4 | Tạo file `TPC_Task.h` / `TPC_Task.cpp`; triển khai `hardwareProtectionOverride()` và lõi chuyển duty TPC sang trạng thái SSR. | [ ] QA Review | - **Biosafety / Hardware Hard-rule**: Trước pha TPC/GPIO, ép duty `out_HWat = 0.0` và `out_Mist = 0.0` trong 11:00–13:30; không logic mờ/tuning nào được bypass.<br>- **RTC Fail-safe**: RTC/NTP không hợp lệ hoặc dữ liệu lỗi phải ép duty HWat/Mist về `0.0`.<br>- **TPC Scheduler**: Dùng `millis()` non-blocking; cấu hình Phase 1: HAir/HWat `300/10/10 s`, Mist `300/5/10 s`, Exhaust `120/3/3 s`; hỗ trợ startup offset `0/3/8/0 s`; output luôn `digitalWrite(HIGH/LOW)`, không PWM. |
+| B5 | Triển khai `Core1_ControlTask()` — FreeRTOS loop ghim Core 1, chạy fuzzy → arbitration → protection → TPC → GPIO SSR và gọi `vTaskDelay(50)`. | [ ] QA Review | - **Chống treo Watchdog (TWDT)**: Gọi `vTaskDelay(pdMS_TO_TICKS(50))` mỗi chu kỳ; cấm `delay()`.<br>- **Bộ nhớ Heap**: Cấm `malloc`, `new`, `String` trong loop vô tận.<br>- **Thứ tự bắt buộc**: `hardwareProtectionOverride()` phải chạy sau fuzzy/arbitration và ngay trước khi TPC quyết định HIGH/LOW xuất GPIO.<br>- **TPC/SSR**: Không PWM/analogWrite; chỉ `digitalWrite`. TPC tick 50 ms; fuzzy/gain/arbitration sample 5 s với `dtSeconds` đo thực tế; staggered startup theo config Phase 1. |
 
 ---
 
@@ -68,5 +77,5 @@
 #### Track E: Hệ thống chính (Sprint 2 - System Main)
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| E1 | Sửa file `main.cpp` — triển khai hàm `setup()` khởi tạo I2C, kích hoạt WiFi, tạo task chạy trên Core 1. | [ ] Pending | - **Quy trình khởi tạo Fail-Safe**: Bắt buộc khởi tạo GPIO cho các Relay ở mức an toàn (`LOW` hoặc `OFF`) đầu tiên, sau đó mới đến các thiết bị ngoại vi I2C/Mạng. Việc này đảm bảo thiết bị không tự kích hoạt relay khi ESP32 reboot.<br>- **FreeRTOS Task Allocation**: Phân bổ stack size hợp lý cho từng Task (Core 1 Task: 4096 bytes; Core 0 Task: 8192 bytes do gánh tác vụ mạng/JSON). |
+| E1 | Sửa file `main.cpp` — triển khai hàm `setup()` khởi tạo I2C, kích hoạt WiFi, tạo task chạy trên Core 1. | [ ] Pending | - **Quy trình khởi tạo Fail-Safe**: Bắt buộc khởi tạo GPIO cho các Relay ở mức an toàn (`LOW` hoặc `OFF`) đầu tiên, sau đó mới đến các thiết bị ngoại vi I2C/Mạng. Việc này đảm bảo thiết bị không tự kích hoạt relay khi ESP32 reboot.<br>- **FreeRTOS Task Allocation**: Phân bổ stack size hợp lý cho từng Task (Core 1 Task: 4096 bytes; Core 0 Task: 8192 bytes do gánh tác vụ mạng/JSON).<br>- **NTP Provider**: Sau khi WiFi Station kết nối, gọi `configTime(7*3600, 0, ...)` và chỉ công bố giờ hợp lệ cho Core 1 khi NTP đã sync; chưa sync => `RtcTimePod.valid=false`. |
 | E2 | Cập nhật hàm `loop()` trong `main.cpp` — duy trì HTTP client Webserver, duy trì kết nối MQTT và chu kỳ quét delta mỗi 5000ms. | [ ] Pending | - **Non-blocking Loop**: Hàm `loop()` trên Core 0 chỉ đóng vai trò bộ điều phối không chặn. Mọi chu kỳ quét định kỳ (ví dụ: 5000ms để kiểm tra delta) phải sử dụng bộ định thời dựa trên so sánh `millis()`, tuyệt đối cấm dùng `delay()`. |

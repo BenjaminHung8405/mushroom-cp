@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T18:00:00+07:00]
+- **Task ID**: Kiến trúc TPC & Fail-safe (Phase 1)
+- **Trạng thái hiện tại**: Đã chốt phương án
+- **Danh sách file**:
+  - [MODIFY] [README.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/README.md)
+  - [MODIFY] [sprint_1.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/sprint_1.md)
+  - [MODIFY] [sprint_2.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/sprint_2.md)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+- **Giải trình ngắn gọn**:
+  - Ghi nhận Quyết định Kiến trúc TPC: Không đập bỏ TPC window, mà tiến hành tune tham số để giảm hao mòn SSR/thiết bị. SSR ấn định dùng AC Zero-crossing.
+  - Cập nhật thông số kỹ thuật `window` = 300 s, `min_on` = 5–10 s, `min_off` = 3–10 s theo thiết bị tải nhằm ngăn chặn chattering.
+  - Áp dụng cấu hình *Staggered Startup*: Trễ pha kích hoạt giữa HAir, HWat, Mist (0, 3, 8 giây) để chống cộng dồn dòng điện inrush dội ngược.
+  - Giải quyết "nhánh code chết" bằng yêu cầu NTP: Core 0 phải dùng `configTime()` ngay khi có mạng; Core 1 chỉ thi hành blackout chống sốc nhiệt giữa trưa nếu cờ giờ hợp lệ; chưa đồng bộ thì fallback an toàn OFF thiết bị sưởi/siêu âm.
+  - Tích hợp chu kỳ tính toán Fuzzy = 5 s, scheduler TPC = 50 ms.
+
+
 ## [2026-07-11T17:20:52+07:00]
 - **Task ID**: B5
 - **Trạng thái hiện tại**: Đang chờ QA Review
