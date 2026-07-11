@@ -1,5 +1,32 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:19:56+07:00]
+- **Task ID**: A1, A2, A3, A4 (Full Track A Audit)
+- **Trạng thái hiện tại**: QA Approved — All LGTM / Done
+- **Agent rà soát**: Security Auditor & Senior Code Reviewer
+- **Kết quả tổng hợp**:
+  - **A1** `calculateFuzzyArea()`: PASS — pure functions, NaN/Inf sanitize, divide-by-zero guard, TB clamp, Pascal equations verified.
+  - **A2** `computeMembership(trimf/trapmf)`: PASS — early-exit optimization, degenerate case handling (a==b, b==c, c==d), NaN/Inf validate all params, output clamp [0,1].
+  - **A3** `interpolateSetpoints()`: PASS — static constexpr Flash storage, boundary clamp [0,20], NaN→0, linear interpolation correct, POD pass-by-value.
+  - **A4** `updateGains()`: PASS — anti-windup ±I_MAX, sensor-loss freeze, dt guard, gain clamp [0.5,2.5], explicit state (no hidden statics).
+  - **Kiến trúc**: Toàn bộ Track A tuân thủ Clean Architecture — layer toán học tách biệt hoàn toàn với GPIO/I2C/delay.
+  - **Bảo mật**: Không hardcode secret; validate NaN/Inf tại mọi entry point; clamp mọi output range; không raw pointer/heap.
+  - **Tối ưu**: O(1) cho A1/A2/A4; O(n=20) cho A3 (acceptable); không vòng lồng; không N+1; không cấp phát động.
+- **Xác minh độc lập**: `g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` focused host tests → PASS.
+- **Quyết định**: **All Track A LGTM**. Chuyển A1, A2, A3 sang `[x] Done`.
+
+## [2026-07-11T16:14:06+07:00]
+- **Task ID**: A4
+- **Trạng thái hiện tại**: QA Approved — LGTM / Done
+- **Agent rà soát**: Security Auditor & Senior Code Reviewer
+- **Kết quả checklist**:
+  1. **Kiến trúc & Conventions**: PASS — module thuần toán học, tách khỏi GPIO/I2C/delay, namespace `AdaptiveTuner`, POD `GainsPod`/`IntegralState`, state tường minh (không static ẩn), hàm ngắn gọn, không DRY-break.
+  2. **Bảo mật**: PASS — không hardcode secret/.env; validate NaN/Inf cho error/state/dt; clamp anti-windup + gain; chặn dt quá lớn; không raw pointer/heap.
+  3. **Logic & Edge-cases**: PASS — anti-windup `±I_MAX`, freeze khi sensor loss/`dt<=0`, repair state hỏng, clamp gain `[0.5, 2.5]`, mapping HAir/HWat/Mist hợp lý; unit tests 24.x phủ cold-start/T/H/windup/NaN/reset/POD.
+  4. **Tối ưu**: PASS — O(1), không vòng lồng, không N+1, không cấp phát động.
+- **Xác minh độc lập**: `g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` focused host tests cho `AdaptiveTuner` → PASS.
+- **Quyết định**: **LGTM**. Chuyển Task A4 sang `[x] Done`.
+
 ## [2026-07-11T16:10:21+07:00]
 - **Task ID**: A4
 - **Trạng thái hiện tại**: Đang chờ QA Review
