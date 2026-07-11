@@ -10,6 +10,7 @@
 #include "actuators.h"
 #include "serial_mutex.h"
 #include "MathEngine.h"
+#include "Trajectory.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -854,6 +855,63 @@ int main() {
         assert(MathEngine::computeMembership(NAN, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);
         assert(MathEngine::computeMembership(2.5f, 1.0f, 2.0f, NAN, 4.0f) == 0.0f);
         assert(MathEngine::computeMembership(2.5f, 1.0f, -INFINITY, 3.0f, 4.0f) == 0.0f);
+    }
+
+    // 23. Test Task A3 - Trajectory interpolateSetpoints
+    Serial.println("[TEST] Starting Task A3 - Trajectory Unit Tests...");
+    {
+        // 23.1 Boundary checks
+        // Below lower bound
+        Trajectory::SetpointPod low = Trajectory::interpolateSetpoints(-5.0f);
+        assert(low.temp_target == 24.0f);
+        assert(low.humidity_target == 90.0f);
+        assert(low.co2_target == 1000.0f);
+
+        // NaN input
+        Trajectory::SetpointPod nan_in = Trajectory::interpolateSetpoints(NAN);
+        assert(nan_in.temp_target == 24.0f);
+        assert(nan_in.humidity_target == 90.0f);
+        assert(nan_in.co2_target == 1000.0f);
+
+        // Above upper bound
+        Trajectory::SetpointPod high = Trajectory::interpolateSetpoints(25.0f);
+        assert(high.temp_target == 28.0f);
+        assert(high.humidity_target == 80.0f);
+        assert(high.co2_target == 600.0f);
+
+        // Exactly at bounds
+        Trajectory::SetpointPod bound_0 = Trajectory::interpolateSetpoints(0.0f);
+        assert(bound_0.temp_target == 24.0f);
+        assert(bound_0.humidity_target == 90.0f);
+        assert(bound_0.co2_target == 1000.0f);
+
+        Trajectory::SetpointPod bound_20 = Trajectory::interpolateSetpoints(20.0f);
+        assert(bound_20.temp_target == 28.0f);
+        assert(bound_20.humidity_target == 80.0f);
+        assert(bound_20.co2_target == 600.0f);
+
+        // 23.2 Exact day checkpoint
+        Trajectory::SetpointPod day_10 = Trajectory::interpolateSetpoints(10.0f);
+        assert(day_10.temp_target == 26.0f);
+        assert(day_10.humidity_target == 85.0f);
+        assert(day_10.co2_target == 800.0f);
+
+        // 23.3 Interpolation between checkpoints (e.g., day 5.5)
+        // Day 5: { 5.0f,  25.0f, 87.5f,  920.0f }
+        // Day 6: { 6.0f,  25.2f, 87.0f,  900.0f }
+        // For Day 5.5:
+        // temp: 25.0 + 0.5 * (25.2 - 25.0) = 25.1
+        // humidity: 87.5 + 0.5 * (87.0 - 87.5) = 87.25
+        // co2: 920 + 0.5 * (900 - 920) = 910
+        Trajectory::SetpointPod mid = Trajectory::interpolateSetpoints(5.5f);
+        assert(std::abs(mid.temp_target - 25.1f) < 1e-4f);
+        assert(std::abs(mid.humidity_target - 87.25f) < 1e-4f);
+        assert(std::abs(mid.co2_target - 910.0f) < 1e-4f);
+        
+        // Check POD type properties
+        assert(std::is_pod<Trajectory::SetpointPod>::value == true);
+        assert(sizeof(Trajectory::SetpointPod) == 12); // 3 floats * 4 bytes
+        assert(alignof(Trajectory::SetpointPod) == 4);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

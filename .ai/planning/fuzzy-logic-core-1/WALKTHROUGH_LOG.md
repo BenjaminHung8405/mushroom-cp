@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:05:00+07:00]
+- **Task ID**: A3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [Trajectory.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/Trajectory.h)
+  - [NEW] [Trajectory.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/Trajectory.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - Triển khai thành công hàm `interpolateSetpoints()` nhận đầu vào là `currentDay` (float), thực hiện nội suy tuyến tính từ mảng Waypoints 20 ngày.
+  - Tối ưu hóa bộ nhớ: Mảng Waypoints 20 ngày được khai báo dưới dạng mảng `static constexpr` trong file `Trajectory.cpp`, lưu trữ trực tiếp trên bộ nhớ Flash tĩnh (RODATA), hoàn toàn không chiếm dụng dung lượng Heap/RAM khi thực thi.
+  - Bảo vệ biên: Thực hiện kiểm tra biên đầu vào nghiêm ngặt, tự động clamp `currentDay` về khoảng `[0.0, 20.0]` trước khi tính toán. Hỗ trợ xử lý an toàn cho trường hợp đầu vào là `NaN` hoặc `Inf`.
+  - Interface thiết kế dạng POD (`SetpointPod`) được pass-by-value, loại bỏ việc dùng con trỏ thô để triệt tiêu nguy cơ rò rỉ bộ nhớ.
+  - Bổ sung Test Case 23 vào file kiểm thử `test/run_tests.cpp` bao phủ các kịch bản: kiểm tra biên ngoài dải, kiểm tra NaN, kiểm tra các điểm checkpoint chính xác và kiểm tra nội suy giữa hai checkpoint.
+  - Kết quả kiểm tra nội bộ: Biên dịch offline bằng `g++` thành công và vượt qua 100% các xác nhận (assertions) trong test suite mà không làm ảnh hưởng đến các tính năng cũ.
+
 ## [2026-07-11T16:03:00+07:00]
 - **Task ID**: A2
 - **Trạng thái hiện tại**: Đang chờ QA Review
