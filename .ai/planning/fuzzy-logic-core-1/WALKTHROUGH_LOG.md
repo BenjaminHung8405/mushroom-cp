@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:50:57+07:00]
+- **Task ID**: B1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [FuzzyController.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/FuzzyController.h)
+  - [MODIFY] [FuzzyController.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/FuzzyController.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Rà soát `executeDualHeaterRules()` theo semantics SSR + TPC: các kênh HAir/HWat/Mist/ExhTH giữ là duty demand liên tục `[0.0, 1.0]`; không threshold thành relay boolean và không gọi GPIO/PWM trong FuzzyController.
+  - Xác nhận độc lập hai nhánh bắt buộc: Lạnh & Khô ưu tiên HAir và phân bổ ngân sách dư cho Mist; Lạnh & Ẩm ướt ưu tiên HWat, không kích hoạt Mist/ExhTH ở mức full-scale. Toàn bộ output được clamp và dữ liệu NaN/Inf fail-safe về 0.
+  - Bổ sung test cho duty trung gian (HAir `0.25`, Mist `0.375`, ExhTH `0.5`) để bảo vệ chống hồi quy map ngưỡng 0/1 trước TPC.
+  - Tự kiểm tra: focused host test B1 với `g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` PASS; static check xác nhận không có `digitalWrite`/`analogWrite`/`ledcWrite`; `git diff --check` sạch. Full host suite không thể biên dịch với `-Werror` vì mock Arduino có sẵn unused parameters, không liên quan B1.
+
 ## [2026-07-11T16:47:45+07:00]
 - **Task ID**: Kế hoạch Sprint 1 — điều chỉnh kiến trúc SSR + TPC
 - **Trạng thái hiện tại**: Đã cập nhật kế hoạch; B1, B2, B3, B4, B5 ở Pending

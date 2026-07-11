@@ -73,12 +73,14 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
         return outputs;
     }
 
+    // Continuous ramp memberships feed continuous TPC duty demands.
     const float cold = risingDemand(errorTemp, TEMP_COLD_FULL);
     const float hot = risingDemand(-errorTemp, TEMP_HOT_FULL);
     const float dry = risingDemand(errorHumid, HUMID_DRY_FULL);
     const float wet = risingDemand(-errorHumid, HUMID_WET_FULL);
 
     // Cold & dry: air heat has priority; mist only receives residual budget.
+    // This keeps mutually cancelling actuators from both sitting at high duty.
     outputs.HAir = cold * (1.0f - wet);
     outputs.Mist = dry * (1.0f - cold);
 
@@ -87,6 +89,7 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
 
     // When not cold, excess humidity is vented. Over-temperature also
     // independently requests exhaust. CO2 exhaust is merged later (B3).
+    // Values remain continuous duties for TPC; no boolean thresholding here.
     const float humidityExhaust = wet * (1.0f - cold);
     outputs.ExhTH = (hot > humidityExhaust) ? hot : humidityExhaust;
 

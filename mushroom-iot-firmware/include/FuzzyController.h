@@ -14,10 +14,11 @@
 namespace FuzzyController {
 
 /**
- * @brief Raw normalized demands from the temperature/humidity fuzzy rules.
+ * @brief Raw TPC duty demands from the temperature/humidity fuzzy rules.
  *
- * Every field is guaranteed to be within [0.0, 1.0]. The fields remain raw so
- * the output arbitration and TPC tasks can apply their own safety policies.
+ * Every field is a continuous duty demand in [0.0, 1.0] for the later TPC
+ * scheduler (0.0 = always OFF, 1.0 = always ON within the TPC window). This
+ * stage must not threshold or map demands to relay boolean HIGH/LOW.
  */
 struct DualHeaterOutputsPod {
     float HAir;
@@ -62,9 +63,14 @@ struct ArbitratedOutputsPod {
  * - Heating and mist share a normalized demand budget, preventing both from
  *   being driven at high power during the same cycle.
  *
+ * TPC semantics:
+ * - Each returned channel is a continuous duty demand in [0.0, 1.0].
+ * - This function never thresholds to boolean relay commands and never touches
+ *   GPIO; TPC is the only stage that converts duty into HIGH/LOW phases.
+ *
  * @param errorTemp Temperature error in degrees Celsius (target - measured).
  * @param errorHumid Humidity error in %RH (target - measured).
- * @return Normalized raw demands for air heat, water heat, mist, and exhaust.
+ * @return Continuous TPC duty demands for air heat, water heat, mist, and exhaust.
  */
 DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid);
 

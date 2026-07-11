@@ -1050,15 +1050,31 @@ int main() {
         assert(std::abs(mixed.Mist - 0.5f) < 1e-6f);
         assert((mixed.HAir + mixed.Mist) <= 1.0f + 1e-6f);
 
-        // 25.4 Warm or humid conditions invoke the independent exhaust rules.
+        // 25.4 Continuous intermediate TPC duties (not boolean thresholds).
+        // eT=1°C => cold=0.25; eH=10% => dry=0.5 => Mist residual budget.
+        const DualHeaterOutputsPod partial =
+            FuzzyController::executeDualHeaterRules(1.0f, 10.0f);
+        assert(std::abs(partial.HAir - 0.25f) < 1e-6f);
+        assert(std::abs(partial.Mist - 0.375f) < 1e-6f);  // 0.5 * (1-0.25)
+        assert(partial.HWat == 0.0f);
+        assert(partial.ExhTH == 0.0f);
+        assert(partial.HAir > 0.0f && partial.HAir < 1.0f);
+        assert(partial.Mist > 0.0f && partial.Mist < 1.0f);
+
+        // 25.5 Warm or humid conditions invoke the independent exhaust rules.
         const DualHeaterOutputsPod hot =
             FuzzyController::executeDualHeaterRules(-4.0f, 0.0f);
         assert(hot.ExhTH == 1.0f);
         const DualHeaterOutputsPod humid =
             FuzzyController::executeDualHeaterRules(0.0f, -20.0f);
         assert(humid.ExhTH == 1.0f);
+        // Partial over-temperature still yields proportional ExhTH duty.
+        const DualHeaterOutputsPod warmish =
+            FuzzyController::executeDualHeaterRules(-2.0f, 0.0f);
+        assert(std::abs(warmish.ExhTH - 0.5f) < 1e-6f);
+        assert(warmish.HAir == 0.0f && warmish.HWat == 0.0f && warmish.Mist == 0.0f);
 
-        // 25.5 Outputs remain normalized, including extreme and invalid input.
+        // 25.6 Outputs remain normalized, including extreme and invalid input.
         const DualHeaterOutputsPod extreme =
             FuzzyController::executeDualHeaterRules(100.0f, -100.0f);
         const float values[] = {extreme.HAir, extreme.HWat, extreme.Mist, extreme.ExhTH};
