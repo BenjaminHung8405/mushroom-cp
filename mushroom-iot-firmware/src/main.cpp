@@ -132,6 +132,28 @@ void setup()
                           static_cast<int>(result));
         }
     }
+    // 6. Create Hardware Button Task (Core 1) — Track I
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            task_hardware_button,  // Task function
+            "TaskHWButton",        // Name of task
+            2048,                  // Stack size in bytes
+            nullptr,               // Parameter to pass
+            CORE1_TASK_PRIORITY,   // Priority (same as Core 1 control)
+            nullptr,               // Task handle
+            1                      // Pin to Core 1
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned task_hardware_button to Core 1 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create task_hardware_button (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
     #else
     Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
     #endif

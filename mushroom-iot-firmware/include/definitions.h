@@ -15,8 +15,11 @@ typedef void* QueueHandle_t;
 #endif
 
 // Wifi Event Bits for multi-core synchronization
-#define WIFI_CONNECTED_BIT  (1 << 0)
-#define WIFI_SOFTAP_BIT     (1 << 1)
+#define WIFI_CONNECTED_BIT          (1 << 0)
+#define WIFI_SOFTAP_BIT             (1 << 1)
+// Hardware button (BOOT/GPIO0) requests handled by Core 0 WiFi manager.
+#define WIFI_FORCE_PROVISION_BIT    (1 << 2)
+#define WIFI_FACTORY_RESET_BIT      (1 << 3)
 
 extern EventGroupHandle_t xWifiEventGroup;
 
@@ -33,6 +36,13 @@ void task_core0_communication(void* pvParameters);
  * @param pvParameters Parameter pointer passed to the task (not used, can be nullptr).
  */
 void task_core1_control(void* pvParameters);
+
+/**
+ * @brief FreeRTOS task running on Core 1 to poll the hardware WiFi-reset button.
+ * @param pvParameters Parameter pointer passed to the task (not used, can be nullptr).
+ * @details Active-LOW BOOT/GPIO0. 5s hold forces SoftAP provisioning; 10s hold factory-resets NVS.
+ */
+void task_hardware_button(void* pvParameters);
 
 /**
  * @brief Handle for the FreeRTOS queue carrying ActuatorCommand from Core 0 to Core 1.

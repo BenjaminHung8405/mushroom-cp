@@ -63,3 +63,12 @@
 | :--- | :--- | :--- | :--- |
 | H1 | Cài đặt `task_core1_control()` đọc cảm biến và ghi rơ-le định kỳ. | [x] Done | Setup FreeRTOS Queue để nhận `ActuatorCommand` từ Core 0. Thiết kế luồng xử lý ưu tiên (Priority) cao để đảm bảo đáp ứng thời gian thực (Real-time). |
 | H2 | Cập nhật hàm `setup()` ghim Task vào Core 1. | [x] Done | Tránh tranh chấp tài nguyên (Race Condition) nếu có in ra chung cổng Serial (khuyên dùng Mutex cho lệnh `Serial.print` nếu gọi từ cả 2 Core). |
+
+### Track I: Khối Xử lý Sự kiện Phần cứng (Hardware Button Event)
+
+| Task ID | Mô tả Task | Status | Note (Technical Directives) |
+| :--- | :--- | :--- | :--- |
+| I1 | Cấu hình GPIO 0 làm `INPUT_PULLUP` trong `init_actuators_gpio()`. | [x] Done | Gọi `actuators::init_wifi_config_button_gpio()`; tuyệt đối không cấu hình BOOT thành OUTPUT để tránh chập mạch khi nhấn nút. |
+| I2 | Lập trình Task `task_hardware_button()` trên **Core 1**. | [x] Done | Poll 50 ms bằng `vTaskDelay(pdMS_TO_TICKS(50))` để debounce phần mềm. Tuyệt đối không dùng `delay()`. |
+| I3 | Liên kết giữ nút 5s với xóa cấu hình mạng NVS và ép SoftAP. | [x] Done | Core 1 set `WIFI_FORCE_PROVISION_BIT`; Core 0 clear WiFi NVS, `WiFi.disconnect`/stop portal cũ rồi `start_softap()`. Giữ 10s set `WIFI_FACTORY_RESET_BIT` → `factory_reset()` + `ESP.restart()`. |
+

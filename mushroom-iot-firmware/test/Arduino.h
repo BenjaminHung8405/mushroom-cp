@@ -27,6 +27,11 @@ inline void digitalWrite(uint8_t pin, uint8_t val) {
     mock_pin_write_order[pin] = ++mock_operation_counter;
 }
 
+inline int digitalRead(uint8_t pin) {
+    auto value = mock_pin_values.find(pin);
+    return value == mock_pin_values.end() ? HIGH : value->second;
+}
+
 
 class String : public std::string {
 public:
@@ -34,7 +39,7 @@ public:
     String(const char* str) : std::string(str ? str : "") {}
     String(const std::string& str) : std::string(str) {}
     String(int val) : std::string(std::to_string(val)) {}
-    
+
     const char* c_str() const { return std::string::c_str(); }
     size_t length() const { return std::string::length(); }
 };
@@ -45,16 +50,16 @@ public:
     void print(const String& s) { std::cout << s; }
     void print(const char* s) { std::cout << s; }
     void print(int n) { std::cout << n; }
-    
+
     void println(const String& s) { std::cout << s << std::endl; }
     void println(const char* s) { std::cout << s << std::endl; }
     void println(int n) { std::cout << n << std::endl; }
-    
+
     template<typename... Args>
     void printf(const char* format, Args... args) {
         std::printf(format, args...);
     }
-    
+
     operator bool() const { return true; }
 };
 
@@ -152,27 +157,27 @@ public:
     static bool mock_connected;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
-    
+
     typedef void (*MQTT_CALLBACK_SIGNATURE)(char*, uint8_t*, unsigned int);
     static MQTT_CALLBACK_SIGNATURE mock_callback;
-    
+
     PubSubClient& setServer(const char* ip, uint16_t port) { return *this; }
     PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { mock_callback = cb; return *this; }
-    
+
     bool connect(const char* id) { mock_connected = true; return true; }
     bool connect(const char* id, const char* user, const char* pass) { mock_connected = true; return true; }
     bool connect(const char* id, const char* user, const char* pass, const char* willTopic, uint8_t willQos, bool willRetain, const char* willMessage) { mock_connected = true; return true; }
-    
+
     void disconnect() { mock_connected = false; }
-    
+
     bool loop() { return true; }
-    
+
     bool publish(const char* topic, const char* payload) { return true; }
     bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return true; }
-    
+
     bool subscribe(const char* topic) { return true; }
     bool subscribe(const char* topic, uint8_t qos) { return true; }
-    
+
     bool connected() { return mock_connected; }
 
     int state() { return 0; }

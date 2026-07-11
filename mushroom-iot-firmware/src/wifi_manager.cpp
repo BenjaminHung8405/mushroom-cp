@@ -30,18 +30,18 @@ namespace wifi
     static int reconnect_attempts = 0;
     static unsigned long softap_start_time = 0;
     static unsigned long softap_last_activity_ms = 0;
-    static unsigned long config_button_hold_start_ms = 0;
-    static bool config_button_force_latched = false;
+    // Once the user forces the captive portal, never auto-return to STA
+    // until the portal idle-timeout expires or config is saved/rebooted.
+    static bool softap_forced = false;
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
     constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
-    constexpr unsigned long AUTH_RETRY_INTERVAL_MS = 30000;      // 30 giây, retry backend token without dropping WiFi
+    constexpr unsigned long AUTH_RETRY_INTERVAL_MS = 30000;     // 30 giây, retry backend token without dropping WiFi
     constexpr unsigned long AUTH_HTTP_TIMEOUT_MS = 10000;       // 10 giây
     constexpr int MAX_RECONNECT_ATTEMPTS = 3;
     // Idle timeout for SoftAP. Reset whenever user opens / interacts with portal.
     constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 900000; // 15 phút idle
-    constexpr unsigned long CONFIG_BUTTON_HOLD_MS = 5000;    // giữ BOOT 5 giây để vào SoftAP
 
     static void mark_softap_activity()
     {
@@ -54,54 +54,14 @@ namespace wifi
         return WiFi.softAPgetStationNum() > 0;
     }
 
-    static void reset_config_button_tracking()
-    {
-        config_button_hold_start_ms = 0;
-        config_button_force_latched = false;
-    }
-
-    static void check_config_button(unsigned long now)
-    {
-        // Active LOW with internal pull-up. BOOT/GPIO0 is safe to read at runtime;
-        // only avoid holding it while powering/resetting if you don't want download mode.
-        bool pressed = (digitalRead(config::pins::PIN_WIFI_CONFIG_BUTTON) == LOW);
-
-        if (!pressed)
-        {
-            reset_config_button_tracking();
-            return;
-        }
-
-        if (config_button_hold_start_ms == 0)
-        {
-            config_button_hold_start_ms = now;
-            return;
-        }
-
-        if (!config_button_force_latched && (now - config_button_hold_start_ms >= CONFIG_BUTTON_HOLD_MS))
-        {
-            config_button_force_latched = true;
-            Serial.println("[WIFI] Config button held for 5s. Forcing SoftAP provisioning portal...");
-
-            // Do not erase NVS credentials. Portal will be pre-filled, allowing user
-            // to update WiFi safely. MQTT loop will disconnect once state becomes SoftAP.
-            config::network::AUTH_JWT_TOKEN = "";
-            last_auth_attempt = 0;
-            reconnect_attempts = 0;
-#ifndef UNIT_TEST
-            dnsServer.stop();
-            webServer.stop();
-#endif
-            start_softap();
-        }
-    }
+    // Note: check_config_button removed; handled by Core 1 Task HWButton and EventGroup.
 #else
     static bool has_softap_clients()
     {
         return false;
     }
 
-    static void check_config_button(unsigned long /*now*/) {}
+
 #endif
 
     static void set_state(WifiState new_state)
@@ -141,14 +101,22 @@ namespace wifi
         // Stop any previous STA attempt so the radio is fully dedicated to AP.
         // WIFI_AP_STA + background STA reconnect is a common cause of phones
         // dropping the captive-portal association while the user is typing.
+        //
+        // Important for ESP32 Arduino:
+        // - Do NOT call WiFi.mode(WIFI_AP) then softAPConfig()/softAP().
+        //   mode(WIFI_AP) already starts the AP with defaults; reconfig restarts it.
+        // - softAPConfig() is unnecessary for the classic 192.168.4.1 defaults and
+        //   itself calls enableAP(), which can bounce AP_START/AP_STOP and leave
+        //   residual STA events. One softAP() call is enough.
         WiFi.persistent(false);
-        WiFi.disconnect(true, true);
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect(true /* wifioff */, false /* keep SDK creds; app uses NVS */);
+        delay(50);
         WiFi.mode(WIFI_OFF);
-        delay(100);
-        WiFi.mode(WIFI_AP);
-        WiFi.setSleep(false);
+        delay(150);
 
         // channel=1, hidden=false, max_connection=4, ftm_responder=false
+        // softAP() enables AP mode internally via enableAP(true).
         bool ap_started = WiFi.softAP(
             config::network::AP_SSID,
             config::network::AP_PASS,
@@ -156,16 +124,19 @@ namespace wifi
             0,
             4);
 
+        // Belt-and-suspenders: ensure STA interface cannot come back while portal is up.
+        WiFi.enableSTA(false);
+        WiFi.setSleep(false);
+        WiFi.setAutoReconnect(false);
+
         if (ap_started)
         {
-            // Keep classic 192.168.4.1 captive portal address.
-            IPAddress ap_ip(192, 168, 4, 1);
-            IPAddress gateway(192, 168, 4, 1);
-            IPAddress subnet(255, 255, 255, 0);
-            WiFi.softAPConfig(ap_ip, gateway, subnet);
-
+            softap_forced = true;
             Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
             Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
+            Serial.printf("[WIFI] SoftAP mode bits: 0x%X (expect WIFI_AP=0x%X)\n",
+                          static_cast<unsigned>(WiFi.getMode()),
+                          static_cast<unsigned>(WIFI_AP));
             set_state(WifiState::SOFTAP_ACTIVE);
 
 #ifndef UNIT_TEST
@@ -649,12 +620,11 @@ setInterval(function(){
         send_json(200, json);
     }
 
-
     // Test WiFi credentials synchronously without losing AP
     static bool test_wifi_connection(const String &ssid, const String &pass)
     {
         Serial.printf("[WIFI] Testing STA connection to '%s'...\n", ssid.c_str());
-        
+
         // Switch to AP_STA so AP doesn't drop while testing
         if (WiFi.getMode() != WIFI_AP_STA)
         {
@@ -671,27 +641,30 @@ setInterval(function(){
         {
             delay(500);
             attempt++;
-            
-            // Keep serving AP requests so captive portal doesn't timeout on the phone
-            #ifndef UNIT_TEST
+
+// Keep serving AP requests so captive portal doesn't timeout on the phone
+#ifndef UNIT_TEST
             dnsServer.processNextRequest();
             webServer.handleClient();
-            #endif
+#endif
         }
 
         bool success = (WiFi.status() == WL_CONNECTED);
-        
+
         // Disconnect STA to return radio fully to AP until reboot
         WiFi.disconnect(false, false);
         WiFi.mode(WIFI_AP);
         WiFi.setSleep(false);
 
-        if (success) {
+        if (success)
+        {
             Serial.println("[WIFI] Test success! Credentials are valid.");
-        } else {
+        }
+        else
+        {
             Serial.printf("[WIFI] Test failed! Status: %d\n", WiFi.status());
         }
-        
+
         return success;
     }
     static void handle_save()
@@ -744,7 +717,7 @@ setInterval(function(){
             send_json(400, "{\"ok\":false,\"error\":\"WiFi password toi thieu 8 ky tu (hoac de trong neu mang mo)\"}");
             return;
         }
-        
+
         // 1. Test WiFi connection live
         if (!test_wifi_connection(ssid, pass))
         {
@@ -872,11 +845,6 @@ setInterval(function(){
         Serial.println("[WIFI] Initializing WiFi Manager...");
 
 #ifndef UNIT_TEST
-        pinMode(config::pins::PIN_WIFI_CONFIG_BUTTON, INPUT_PULLUP);
-        reset_config_button_tracking();
-        Serial.printf("[WIFI] Config button initialized on GPIO%d (hold 5s to force SoftAP).\n",
-                      config::pins::PIN_WIFI_CONFIG_BUTTON);
-
         // Disable Arduino SDK auto-reconnect so it cannot keep retrying a stale
         // SSID cached outside our application NVS keys.
         WiFi.setAutoReconnect(false);
@@ -911,7 +879,45 @@ setInterval(function(){
     void check_wifi_connection()
     {
         unsigned long now = millis();
-        check_config_button(now);
+
+        // 1. Process hardware button event requests from Core 1 Task
+        if (xWifiEventGroup != nullptr)
+        {
+            EventBits_t bits = xEventGroupGetBits(xWifiEventGroup);
+
+            if (bits & WIFI_FACTORY_RESET_BIT)
+            {
+                Serial.println("[WIFI] Handling WIFI_FACTORY_RESET_BIT...");
+                storage::StorageManager::get_instance().factory_reset();
+                xEventGroupClearBits(xWifiEventGroup, WIFI_FACTORY_RESET_BIT);
+                delay(100);
+#ifndef UNIT_TEST
+                ESP.restart();
+#endif
+            }
+            else if (bits & WIFI_FORCE_PROVISION_BIT)
+            {
+                Serial.println("[WIFI] Handling WIFI_FORCE_PROVISION_BIT -> Forcing SoftAP...");
+                storage::StorageManager &storage_manager = storage::StorageManager::get_instance();
+                if (!storage_manager.clear_wifi_credentials())
+                {
+                    Serial.println("[WIFI] WiFi credentials were already absent or could not be cleared.");
+                }
+                config::network::STA_SSID = "";
+                config::network::STA_PASS = "";
+                config::network::AUTH_JWT_TOKEN = "";
+                last_auth_attempt = 0;
+                reconnect_attempts = 0;
+                xEventGroupClearBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
+
+#ifndef UNIT_TEST
+                dnsServer.stop();
+                webServer.stop();
+#endif
+                start_softap();
+                return; // SoftAP started, exit check early
+            }
+        }
 
         switch (current_state)
         {
@@ -993,6 +999,20 @@ setInterval(function(){
                 webServer.handleClient();
             }
 #endif
+            // If the radio silently left pure AP mode (common after AP/STA bounce),
+            // re-assert SoftAP instead of letting STA auto-reclaim the link.
+            if (softap_forced && (WiFi.getMode() & WIFI_AP) == 0)
+            {
+                Serial.println("[WIFI] SoftAP mode lost unexpectedly. Re-asserting captive portal...");
+                start_softap();
+                break;
+            }
+            if (softap_forced)
+            {
+                WiFi.enableSTA(false);
+                WiFi.setAutoReconnect(false);
+            }
+
             // Idle timeout: only shut AP when there are NO clients.
             // If a phone/laptop is still associated, keep portal alive indefinitely.
             if (has_softap_clients())
@@ -1006,6 +1026,7 @@ setInterval(function(){
                 dnsServer.stop();
                 webServer.stop();
 #endif
+                softap_forced = false;
                 WiFi.softAPdisconnect(true);
                 WiFi.mode(WIFI_STA);
                 reconnect_attempts = 0; // Reset attempts to try connecting again
@@ -1022,6 +1043,11 @@ setInterval(function(){
 
     void reconnect_wifi()
     {
+        if (softap_forced || current_state == WifiState::SOFTAP_ACTIVE)
+        {
+            Serial.println("[WIFI] Abort reconnect: SoftAP provisioning portal is active.");
+            return;
+        }
         if (config::network::STA_SSID.length() == 0)
         {
             Serial.println("[WIFI] Abort reconnect: No SSID config available.");

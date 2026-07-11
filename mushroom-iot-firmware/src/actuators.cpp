@@ -73,6 +73,18 @@ namespace actuators
         Serial.printf("[ACTUATORS] Relay HEATER 2 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HEATER_2);
 
         Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state.");
+
+        // BOOT / RESET WIFI button (active LOW). Keep INPUT only — never OUTPUT.
+        init_wifi_config_button_gpio();
+    }
+
+    void init_wifi_config_button_gpio()
+    {
+        pinMode(config::pins::PIN_WIFI_CONFIG_BUTTON, INPUT_PULLUP);
+        Serial.printf(
+            "[ACTUATORS] WiFi config button (GPIO%d) configured as INPUT_PULLUP (active LOW).\n",
+            static_cast<int>(config::pins::PIN_WIFI_CONFIG_BUTTON)
+        );
     }
 
     bool set_relay_state(uint8_t relay_pin, bool state)

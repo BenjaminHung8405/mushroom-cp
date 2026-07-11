@@ -389,3 +389,11 @@
     - I2C Bus (SDA, SCL): chân 8, 9
     - OneWire: chân 14
   - Tự kiểm duyệt (Self-test): Kiểm tra kỹ cú pháp C++ của file header hoàn toàn hợp lệ, không chứa lỗi logic hay cú pháp, và tuân thủ tuyệt đối các ràng buộc trong note kỹ thuật.
+
+## Track I: Hardware Button Event (BOOT/GPIO0)
+
+- Added `task_hardware_button()` on Core 1 with 50 ms software debounce.
+- Hold 5s: set `WIFI_FORCE_PROVISION_BIT` → Core 0 clears WiFi NVS credentials and forces SoftAP captive portal.
+- Hold 10s: set `WIFI_FACTORY_RESET_BIT` → factory reset all NVS + `ESP.restart()`.
+- GPIO0 configured only as `INPUT_PULLUP` via `actuators::init_wifi_config_button_gpio()`.
+

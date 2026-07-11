@@ -12,6 +12,13 @@ namespace actuators
     void init_actuators_gpio();
 
     /**
+     * @brief Cấu hình chân nút RESET WIFI (BOOT/GPIO0) làm INPUT_PULLUP.
+     * @details Chỉ cấu hình INPUT — tuyệt đối không để OUTPUT để tránh chập mạch khi nhấn nút.
+     * Có thể gọi an toàn nhiều lần; pinMode là idempotent.
+     */
+    void init_wifi_config_button_gpio();
+
+    /**
      * @brief Đặt trạng thái ON/OFF cho một rơ-le theo chân GPIO.
      * @param relay_pin Chân GPIO của rơ-le (phải nằm trong danh sách 4 rơ-le đã khai báo).
      * @param state true = ON (HIGH), false = OFF (LOW).

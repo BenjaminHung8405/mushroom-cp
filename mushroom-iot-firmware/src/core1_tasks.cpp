@@ -33,6 +33,105 @@ static constexpr unsigned long SENSOR_READ_INTERVAL_MS = 5000UL;
 // Non-blocking (0) so the task never stalls waiting for Core 0.
 static constexpr TickType_t ACTUATOR_QUEUE_WAIT_TICKS = 0;
 
+// ===========================================================================
+// Track I: Hardware Button Task (BOOT/GPIO0) — runs on Core 1
+// ===========================================================================
+// Poll interval for debounced button sampling (ms).
+static constexpr unsigned long BUTTON_POLL_INTERVAL_MS = 50UL;
+// Time to hold BOOT to enter SoftAP provisioning portal (ms).
+static constexpr unsigned long BUTTON_HOLD_SOFTAP_MS   = 5000UL;
+// Time to hold BOOT to perform full factory reset (ms).
+static constexpr unsigned long BUTTON_HOLD_FACTORY_MS  = 10000UL;
+
+/**
+ * @brief FreeRTOS task polling BOOT/GPIO0 for hardware WiFi reset.
+ * @details Active-LOW with internal pull-up.
+ *   • Hold ≥ 5 s → set WIFI_FORCE_PROVISION_BIT (forces SoftAP provisioning portal).
+ *   • Hold ≥ 10 s → set WIFI_FACTORY_RESET_BIT (clears all NVS + restart).
+ *   • Release before thresholds → cancel, no action taken.
+ */
+void task_hardware_button(void* /*pvParameters*/)
+{
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[BUTTON_TASK] Starting on Core 1...");
+    }
+
+    // Pre-read to confirm initial state (avoid false trigger at startup).
+    bool prev_pressed = (digitalRead(config::pins::PIN_WIFI_CONFIG_BUTTON) == LOW);
+
+#ifndef UNIT_TEST
+    while (1)
+#else
+    for (int _iter = 0; _iter < 1; ++_iter)
+#endif
+    {
+        bool now_pressed = (digitalRead(config::pins::PIN_WIFI_CONFIG_BUTTON) == LOW);
+
+        static unsigned long press_start_ms = 0;
+        static bool softap_triggered = false;
+        static bool factory_triggered = false;
+
+        if (!prev_pressed && now_pressed)
+        {
+            // Rising edge — button just pressed. Start timer.
+            press_start_ms = millis();
+            softap_triggered = false;
+            factory_triggered = false;
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[BUTTON_TASK] BOOT button pressed. Hold 5s for SoftAP, 10s for Factory Reset.");
+            }
+        }
+        else if (prev_pressed && !now_pressed)
+        {
+            // Falling edge — button released. Cancel pending actions.
+            press_start_ms = 0;
+            if (!softap_triggered && !factory_triggered) {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[BUTTON_TASK] BOOT button released — cancelled.");
+            }
+            softap_triggered = false;
+            factory_triggered = false;
+        }
+        else if (prev_pressed && now_pressed && press_start_ms != 0)
+        {
+            // Button is being held — check durations.
+            unsigned long held_ms = millis() - press_start_ms;
+
+            if (!factory_triggered && held_ms >= BUTTON_HOLD_FACTORY_MS)
+            {
+                factory_triggered = true;
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[BUTTON_TASK] >>> HOLD 10s REACHED — FACTORY RESET <<<");
+                }
+                if (xWifiEventGroup)
+                {
+                    xEventGroupSetBits(xWifiEventGroup, WIFI_FACTORY_RESET_BIT);
+                }
+            }
+            else if (!softap_triggered && !factory_triggered && held_ms >= BUTTON_HOLD_SOFTAP_MS)
+            {
+                softap_triggered = true;
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[BUTTON_TASK] >>> HOLD 5s REACHED — FORCING SOFTAP <<<");
+                }
+                if (xWifiEventGroup)
+                {
+                    xEventGroupSetBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
+                }
+            }
+        }
+
+        prev_pressed = now_pressed;
+
+        vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_INTERVAL_MS));
+    }
+}
+
+
 // Relay pin table used for the periodic demo toggle (mock exercise only).
 // Exposed via extern for unit-test visibility.
 extern const uint8_t DEMO_RELAY_PINS[];
