@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:10:21+07:00]
+- **Task ID**: A4
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [AdaptiveTuner.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/AdaptiveTuner.h)
+  - [NEW] [AdaptiveTuner.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/AdaptiveTuner.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - Triển khai module `AdaptiveTuner` với hàm `updateGains()` tính toán sai số bề mặt tích phân của nhiệt độ và độ ẩm, sau đó điều chỉnh `gain_HAir`, `gain_HWat`, `gain_Mist`.
+  - Anti-windup: tích phân bị kẹp cứng ở `I_MAX_TEMP = ±15 °C·s` và `I_MAX_HUMID = ±30 %·s`; khi cảm biến NaN/Inf hoặc `dt <= 0` thì đóng băng tích phân tương ứng để tránh windup do mất tín hiệu / scheduler trễ.
+  - Ràng buộc gain: mọi kênh gain được clamp cứng về dải an toàn phần cứng `[0.5, 2.5]`.
+  - Thiết kế state tường minh qua `IntegralState` (không dùng static toàn cục), trả `GainsPod` dạng POD pass-by-value, phù hợp FreeRTOS Core 1.
+  - Ánh xạ điều khiển: `gain_HAir` theo I_T, `gain_Mist` theo I_H, `gain_HWat` theo I_T + 0.25·I_H để ưu tiên sấy nước khi lạnh & ẩm.
+  - Bổ sung unit tests Task A4 trong `test/run_tests.cpp` (cold-start, tăng gain theo T/H, bão hòa anti-windup, freeze khi NaN/dt invalid, reset, kiểm tra layout POD).
+  - Kết quả tự kiểm tra: biên dịch host `g++ -Wall -Wextra -Werror -fsanitize=address,undefined` cho `AdaptiveTuner.cpp` + test focused và chạy PASS 100%.
+
 ## [2026-07-11T16:05:00+07:00]
 - **Task ID**: A3
 - **Trạng thái hiện tại**: Đang chờ QA Review

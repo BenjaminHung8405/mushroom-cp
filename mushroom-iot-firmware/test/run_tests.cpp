@@ -11,6 +11,7 @@
 #include "serial_mutex.h"
 #include "MathEngine.h"
 #include "Trajectory.h"
+#include "AdaptiveTuner.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -912,6 +913,111 @@ int main() {
         assert(std::is_pod<Trajectory::SetpointPod>::value == true);
         assert(sizeof(Trajectory::SetpointPod) == 12); // 3 floats * 4 bytes
         assert(alignof(Trajectory::SetpointPod) == 4);
+    }
+
+    // 24. Test Task A4 - AdaptiveTuner updateGains
+    Serial.println("[TEST] Starting Task A4 - AdaptiveTuner Unit Tests...");
+    {
+        // 24.1 Default / cold-start behaviour
+        AdaptiveTuner::IntegralState state = AdaptiveTuner::makeInitialState();
+        assert(state.integral_temp == 0.0f);
+        assert(state.integral_humid == 0.0f);
+
+        AdaptiveTuner::GainsPod g0 = AdaptiveTuner::defaultGains();
+        assert(g0.gain_HAir == 1.0f);
+        assert(g0.gain_HWat == 1.0f);
+        assert(g0.gain_Mist == 1.0f);
+
+        // Zero errors keep gains at nominal
+        AdaptiveTuner::GainsPod g_zero = AdaptiveTuner::updateGains(state, 0.0f, 0.0f, 1.0f);
+        assert(std::abs(g_zero.gain_HAir - 1.0f) < 1e-6f);
+        assert(std::abs(g_zero.gain_HWat - 1.0f) < 1e-6f);
+        assert(std::abs(g_zero.gain_Mist - 1.0f) < 1e-6f);
+        assert(state.integral_temp == 0.0f);
+        assert(state.integral_humid == 0.0f);
+
+        // 24.2 Positive temperature error increases heater gains
+        AdaptiveTuner::IntegralState cold = AdaptiveTuner::makeInitialState();
+        AdaptiveTuner::GainsPod g_cold = AdaptiveTuner::updateGains(cold, 2.0f, 0.0f, 1.0f);
+        // I_T = 2.0, gain_HAir = 1.0 + 0.10*2.0 = 1.2
+        assert(std::abs(cold.integral_temp - 2.0f) < 1e-6f);
+        assert(std::abs(g_cold.gain_HAir - 1.2f) < 1e-5f);
+        assert(std::abs(g_cold.gain_HWat - 1.2f) < 1e-5f);
+        assert(std::abs(g_cold.gain_Mist - 1.0f) < 1e-5f);
+
+        // 24.3 Positive humidity error increases mist gain
+        AdaptiveTuner::IntegralState dry = AdaptiveTuner::makeInitialState();
+        AdaptiveTuner::GainsPod g_dry = AdaptiveTuner::updateGains(dry, 0.0f, 4.0f, 1.0f);
+        // I_H = 4.0, gain_Mist = 1.0 + 0.05*4.0 = 1.2
+        // gain_HWat = 1.0 + 0.25*0.05*4.0 = 1.05
+        assert(std::abs(dry.integral_humid - 4.0f) < 1e-6f);
+        assert(std::abs(g_dry.gain_Mist - 1.2f) < 1e-5f);
+        assert(std::abs(g_dry.gain_HWat - 1.05f) < 1e-5f);
+        assert(std::abs(g_dry.gain_HAir - 1.0f) < 1e-5f);
+
+        // 24.4 Anti-windup: integral saturates and gains clamp to [0.5, 2.5]
+        AdaptiveTuner::IntegralState windup = AdaptiveTuner::makeInitialState();
+        AdaptiveTuner::GainsPod g_hi = AdaptiveTuner::defaultGains();
+        for (int i = 0; i < 200; ++i) {
+            g_hi = AdaptiveTuner::updateGains(windup, 10.0f, 20.0f, 1.0f);
+        }
+        assert(std::abs(windup.integral_temp - 15.0f) < 1e-5f);   // I_MAX_TEMP
+        assert(std::abs(windup.integral_humid - 30.0f) < 1e-5f);  // I_MAX_HUMID
+        assert(g_hi.gain_HAir <= 2.5f + 1e-6f);
+        assert(g_hi.gain_HWat <= 2.5f + 1e-6f);
+        assert(g_hi.gain_Mist <= 2.5f + 1e-6f);
+        assert(g_hi.gain_HAir >= 0.5f - 1e-6f);
+        assert(g_hi.gain_HWat >= 0.5f - 1e-6f);
+        assert(g_hi.gain_Mist >= 0.5f - 1e-6f);
+        // Expected: HAir = clamp(1 + 0.1*15, ...) = 2.5
+        //           Mist = clamp(1 + 0.05*30, ...) = 2.5
+        assert(std::abs(g_hi.gain_HAir - 2.5f) < 1e-5f);
+        assert(std::abs(g_hi.gain_Mist - 2.5f) < 1e-5f);
+
+        AdaptiveTuner::IntegralState windup_lo = AdaptiveTuner::makeInitialState();
+        AdaptiveTuner::GainsPod g_lo = AdaptiveTuner::defaultGains();
+        for (int i = 0; i < 200; ++i) {
+            g_lo = AdaptiveTuner::updateGains(windup_lo, -10.0f, -20.0f, 1.0f);
+        }
+        assert(std::abs(windup_lo.integral_temp + 15.0f) < 1e-5f);
+        assert(std::abs(windup_lo.integral_humid + 30.0f) < 1e-5f);
+        assert(std::abs(g_lo.gain_HAir - 0.5f) < 1e-5f);
+        assert(std::abs(g_lo.gain_Mist - 0.5f) < 1e-5f);
+        assert(g_lo.gain_HWat >= 0.5f - 1e-6f);
+        assert(g_lo.gain_HWat <= 2.5f + 1e-6f);
+
+        // 24.5 Sensor loss / invalid dt freezes integral (no windup on NaN)
+        AdaptiveTuner::IntegralState freeze = AdaptiveTuner::makeInitialState();
+        AdaptiveTuner::updateGains(freeze, 1.0f, 2.0f, 1.0f);
+        const float iT_before = freeze.integral_temp;
+        const float iH_before = freeze.integral_humid;
+        AdaptiveTuner::GainsPod g_nan = AdaptiveTuner::updateGains(freeze, NAN, INFINITY, 1.0f);
+        assert(std::abs(freeze.integral_temp - iT_before) < 1e-6f);
+        assert(std::abs(freeze.integral_humid - iH_before) < 1e-6f);
+        assert(g_nan.gain_HAir >= 0.5f && g_nan.gain_HAir <= 2.5f);
+        assert(g_nan.gain_HWat >= 0.5f && g_nan.gain_HWat <= 2.5f);
+        assert(g_nan.gain_Mist >= 0.5f && g_nan.gain_Mist <= 2.5f);
+
+        AdaptiveTuner::updateGains(freeze, 5.0f, 5.0f, 0.0f); // invalid dt
+        assert(std::abs(freeze.integral_temp - iT_before) < 1e-6f);
+        assert(std::abs(freeze.integral_humid - iH_before) < 1e-6f);
+
+        AdaptiveTuner::updateGains(freeze, 5.0f, 5.0f, -1.0f); // negative dt
+        assert(std::abs(freeze.integral_temp - iT_before) < 1e-6f);
+        assert(std::abs(freeze.integral_humid - iH_before) < 1e-6f);
+
+        // 24.6 reset() clears accumulators
+        AdaptiveTuner::reset(freeze);
+        assert(freeze.integral_temp == 0.0f);
+        assert(freeze.integral_humid == 0.0f);
+
+        // 24.7 POD layout checks
+        assert(std::is_pod<AdaptiveTuner::GainsPod>::value == true);
+        assert(std::is_pod<AdaptiveTuner::IntegralState>::value == true);
+        assert(sizeof(AdaptiveTuner::GainsPod) == 12);
+        assert(sizeof(AdaptiveTuner::IntegralState) == 8);
+        assert(alignof(AdaptiveTuner::GainsPod) == 4);
+        assert(alignof(AdaptiveTuner::IntegralState) == 4);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
