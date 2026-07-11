@@ -134,7 +134,8 @@ services:
     environment:
       - NODE_ENV=development
       - CI=true
-      - NEXT_PUBLIC_API_URL=http://mushroom-backend:3001
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      - NEXT_PUBLIC_DEVICE_ID=${NEXT_PUBLIC_DEVICE_ID:-}
     depends_on:
       - mushroom-backend
     networks:

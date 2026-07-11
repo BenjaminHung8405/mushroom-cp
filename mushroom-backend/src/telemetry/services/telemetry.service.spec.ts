@@ -270,7 +270,7 @@ describe('TelemetryService', () => {
   });
 
   describe('getLatestTelemetry', () => {
-    it('should return snapshot keyed by deviceId', () => {
+    it('should return snapshot keyed by deviceId from cache if present', async () => {
       const snapshot: TelemetrySnapshot = {
         deviceId: 'device-1',
         houseId: 'house-1',
@@ -290,8 +290,74 @@ describe('TelemetryService', () => {
         middayBlackoutActive: false,
       };
       (service as any).latestCache.set('device-1', snapshot);
-      expect(service.getLatestTelemetry('device-1')).toBe(snapshot);
-      expect(service.getLatestTelemetry('other-device')).toBeNull();
+      const res = await service.getLatestTelemetry('device-1');
+      expect(res).toBe(snapshot);
+    });
+
+    it('should query database and return mapped snapshot on cache miss', async () => {
+      registry.get.mockReturnValue({
+        deviceId: 'device-1',
+        houseId: 'house-1',
+        enabled: true,
+        displayName: null,
+        mqttUsername: 'device-1',
+        lastSeenAt: null,
+      });
+
+      const dbRow = {
+        time: new Date().toISOString(),
+        batchId: 'batch-1',
+        houseId: 'house-1',
+        cropDayInt: 5,
+        humidityMeasured: 80,
+        temperatureMeasured: 25,
+        co2Measured: 600,
+        humiditySetpoint: 85,
+        temperatureSetpoint: 24,
+        humidityErrorDelta: 5,
+        temperatureErrorDelta: -1,
+        mistGeneratorActive: true,
+        convectionFanActive: false,
+        heatingLampActive: false,
+        middayBlackoutActive: false,
+      };
+
+      dbService.query.mockResolvedValue({ rows: [dbRow] });
+
+      const res = await service.getLatestTelemetry('device-1');
+      expect(res).toBeDefined();
+      expect(res?.deviceId).toBe('device-1');
+      expect(res?.humidityMeasured).toBe(80);
+      expect(dbService.query).toHaveBeenCalled();
+    });
+
+    it('should return null if cache miss and database has no logs', async () => {
+      registry.get.mockReturnValue({
+        deviceId: 'device-1',
+        houseId: 'house-1',
+        enabled: true,
+        displayName: null,
+        mqttUsername: 'device-1',
+        lastSeenAt: null,
+      });
+      dbService.query.mockResolvedValue({ rows: [] });
+
+      const res = await service.getLatestTelemetry('device-1');
+      expect(res).toBeNull();
+    });
+
+    it('should return null if device is disabled', async () => {
+      registry.get.mockReturnValue({
+        deviceId: 'device-1',
+        houseId: 'house-1',
+        enabled: false,
+        displayName: null,
+        mqttUsername: 'device-1',
+        lastSeenAt: null,
+      });
+
+      const res = await service.getLatestTelemetry('device-1');
+      expect(res).toBeNull();
     });
   });
 

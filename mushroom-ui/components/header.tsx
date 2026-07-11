@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { cn } from '@/lib/utils'
-import { Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, WifiOff, X } from 'lucide-react'
+import { AlertTriangle, Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, WifiOff, X } from 'lucide-react'
 import { useState } from 'react'
 
 export function Header() {
@@ -22,6 +22,7 @@ export function Header() {
   } = useRealTelemetry()
 
   const showDeviceOfflineAlert = deviceStatus === 'offline' && !deviceAlertDismissed
+  const showDeviceStaleAlert = deviceStatus === 'stale' && !deviceAlertDismissed
 
   const alerts: Array<{
     id: string
@@ -160,6 +161,33 @@ export function Header() {
         </div>
       )}
 
+      {showDeviceStaleAlert && (
+        <div
+          className="sticky top-0 z-40 border-b border-amber-500/50"
+          style={{ background: 'linear-gradient(90deg, #1a1505 0%, #2d2008 50%, #1a1505 100%)' }}
+        >
+          <div className="flex items-center gap-3 px-4 py-2.5">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <AlertTriangle className="w-5 h-5" style={{ color: '#F59E0B' }} />
+              <span className="text-xs font-bold uppercase tracking-widest" style={{ color: '#F59E0B' }}>
+                ⚠ Telemetry không cập nhật
+              </span>
+            </div>
+            <div className="flex-1 text-xs text-amber-200/80">
+              ESP32-S3 tại nhà nấm (<code className="bg-amber-900/40 px-1 rounded text-amber-300">{monitoredDeviceId}</code>) vẫn online nhưng dữ liệu cảm biến không được nhận sau 20 giây. Kiểm tra thiết bị hoặc cảm biến.
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeviceAlertDismissed(true)}
+              className="flex-shrink-0 w-7 h-7 p-0 text-amber-400 hover:text-white hover:bg-amber-900/40"
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {alertsVisible && alerts.length > 0 && (
         <div className="sticky top-0 z-30 bg-slate-950/60 border-b border-border backdrop-blur-md">
           <div className="flex items-center gap-4 px-4 py-2.5 max-w-full overflow-x-auto">
@@ -209,6 +237,10 @@ export function Header() {
                   }}
                 >
                   Mất kết nối
+                </span>
+              ) : deviceStatus === 'stale' ? (
+                <span className="text-[10px] font-semibold bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase">
+                  Telemetry stale
                 </span>
               ) : deviceStatus === 'online' ? (
                 <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">

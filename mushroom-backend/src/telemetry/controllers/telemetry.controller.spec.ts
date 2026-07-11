@@ -61,19 +61,19 @@ describe('TelemetryController', () => {
   });
 
   describe('getLatest', () => {
-    it('should return snapshot from service if it exists', () => {
+    it('should return snapshot from service if it exists', async () => {
       const mockSnapshot = baseSnapshot();
-      service.getLatestTelemetry.mockReturnValue(mockSnapshot);
+      service.getLatestTelemetry.mockResolvedValue(mockSnapshot);
 
-      const result = controller.getLatest({ id: 'device-1' });
+      const result = await controller.getLatest({ id: 'device-1' });
       expect(result).toBe(mockSnapshot);
       expect(service.getLatestTelemetry).toHaveBeenCalledWith('device-1');
     });
 
-    it('should throw NotFoundException if snapshot is null', () => {
-      service.getLatestTelemetry.mockReturnValue(null);
+    it('should throw NotFoundException if snapshot is null', async () => {
+      service.getLatestTelemetry.mockResolvedValue(null);
 
-      expect(() => controller.getLatest({ id: 'device-1' })).toThrow(
+      await expect(controller.getLatest({ id: 'device-1' })).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -88,9 +88,9 @@ describe('TelemetryController', () => {
         humidityMeasured: 82,
       };
 
-      service.getLatestTelemetry.mockReturnValue(mockSnapshot1);
+      service.getLatestTelemetry.mockResolvedValue(mockSnapshot1);
 
-      const stream$ = controller.streamTelemetry({ id: 'device-1' });
+      const stream$ = await controller.streamTelemetry({ id: 'device-1' });
 
       const eventsPromise = new Promise<any[]>((resolve) => {
         const events: any[] = [];
@@ -123,9 +123,9 @@ describe('TelemetryController', () => {
 
       const mockSnapshotMatch = baseSnapshot();
 
-      service.getLatestTelemetry.mockReturnValue(null);
+      service.getLatestTelemetry.mockResolvedValue(null);
 
-      const stream$ = controller.streamTelemetry({ id: 'device-1' });
+      const stream$ = await controller.streamTelemetry({ id: 'device-1' });
 
       const eventsPromise = new Promise<any[]>((resolve) => {
         const events: any[] = [];

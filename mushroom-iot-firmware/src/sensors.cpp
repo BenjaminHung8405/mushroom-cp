@@ -15,15 +15,11 @@ namespace sensors
     // Cờ kiểm tra trạng thái khởi tạo hệ thống cảm biến
     static bool sensors_initialized = false;
 
-    // Cờ giả lập trạng thái hoạt động của cảm biến (Fault Injection)
+    // Cờ giả lập trạng thái hoạt động của cảm biến SHT30 (Fault Injection)
     static bool sht30_healthy = true;
-    static bool ds18b20_healthy = true;
-    static bool scd30_healthy = true;
 
-    // Lưu mã lỗi cuối cùng của từng cảm biến
+    // Lưu mã lỗi cuối cùng của SHT30
     static SensorError sht30_last_error = SensorError::SUCCESS;
-    static SensorError ds18b20_last_error = SensorError::SUCCESS;
-    static SensorError scd30_last_error = SensorError::SUCCESS;
 
     // SHT30 defog heater state — heater biases temp UP / RH DOWN (finite, not NAN).
     // Control loops must hold last outputs for heater ON + cool-down.
@@ -40,17 +36,9 @@ namespace sensors
 #ifndef UNIT_TEST
         Serial.println("[SENSORS] Initializing Real I2C Bus and SHT30...");
         
-        if (!Wire.begin(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL, 50000))
-        {
-            Serial.println("[SENSORS] ERROR: Failed to initialize I2C bus!");
-            sht30_healthy = false;
-            return false;
-        }
-        
 #if defined(ESP32)
-        Wire.setTimeOut(3); // 3ms timeout corresponding to 3000us
-#else
-        Wire.setWireTimeout(3000, true);
+        // Thiết lập chân I2C tùy chỉnh trước khi gọi begin của thư viện ngoài
+        Wire.setPins(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL);
 #endif
         
         if (!sht30.begin(0x44))
@@ -60,31 +48,32 @@ namespace sensors
             return false;
         }
         
+        // Thiết lập tần số I2C bus ở mức 50kHz sau khi khởi tạo thành công
+        Wire.setClock(50000);
+        
+#if defined(ESP32)
+        Wire.setTimeOut(3); // 3ms timeout corresponding to 3000us
+#else
+        Wire.setWireTimeout(3000, true);
+#endif
+        
         sht30.heater(false);
         
         sensors_initialized = true;
         sht30_healthy = true;
-        ds18b20_healthy = true;
-        scd30_healthy = true;
 
         sht30_last_error = SensorError::SUCCESS;
-        ds18b20_last_error = SensorError::SUCCESS;
-        scd30_last_error = SensorError::SUCCESS;
         
         Serial.println("[SENSORS] Real I2C Bus and SHT30 initialized successfully.");
         return true;
 #else
         Serial.println("[SENSORS] Initializing HAL Sensor Placeholders...");
         
-        // Giả lập quá trình bắt tay với các cảm biến I2C/OneWire
+        // Giả lập quá trình bắt tay với cảm biến I2C (SHT30)
         sensors_initialized = true;
         sht30_healthy = true;
-        ds18b20_healthy = true;
-        scd30_healthy = true;
 
         sht30_last_error = SensorError::SUCCESS;
-        ds18b20_last_error = SensorError::SUCCESS;
-        scd30_last_error = SensorError::SUCCESS;
         
         Serial.println("[SENSORS] HAL Sensor Placeholders initialized successfully.");
         return true;
@@ -192,74 +181,14 @@ namespace sensors
         return true;
     }
 
-    bool read_ds18b20(float &temp)
-    {
-        if (!sensors_initialized)
-        {
-            ds18b20_last_error = SensorError::ERR_NOT_INITIALIZED;
-            temp = NAN;
-            Serial.println("[SENSORS] ERROR: DS18B20 read attempted before initialization!");
-            return false;
-        }
 
-        if (!ds18b20_healthy)
-        {
-            ds18b20_last_error = SensorError::ERR_DISCONNECTED;
-            temp = NAN;
-            Serial.println("[SENSORS] ERROR: DS18B20 sensor disconnected or faulty!");
-            return false;
-        }
-
-        // Tạo dữ liệu giả lập động chạy theo thời gian
-        unsigned long m = millis();
-        // Nhiệt độ cơ chất dao động trong khoảng [20.5, 23.5] °C
-        temp = 22.0f + 1.5f * std::sin(m / 20000.0f);
-
-        // Kiểm tra dải đo vật lý DS18B20 [-55.0, 125.0]
-        if (temp < -55.0f || temp > 125.0f)
-        {
-            ds18b20_last_error = SensorError::ERR_OUT_OF_RANGE;
-            temp = NAN;
-            return false;
-        }
-
-        ds18b20_last_error = SensorError::SUCCESS;
-        return true;
-    }
 
     bool read_scd30(float &co2)
     {
-        if (!sensors_initialized)
-        {
-            scd30_last_error = SensorError::ERR_NOT_INITIALIZED;
-            co2 = NAN;
-            Serial.println("[SENSORS] ERROR: SCD30 read attempted before initialization!");
-            return false;
-        }
-
-        if (!scd30_healthy)
-        {
-            scd30_last_error = SensorError::ERR_DISCONNECTED;
-            co2 = NAN;
-            Serial.println("[SENSORS] ERROR: SCD30 sensor disconnected or faulty!");
-            return false;
-        }
-
-        // Tạo dữ liệu giả lập động chạy theo thời gian
-        unsigned long m = millis();
-        // Nồng độ CO2 dao động trong khoảng [450, 750] ppm
-        co2 = 600.0f + 150.0f * std::sin(m / 30000.0f);
-
-        // Kiểm tra dải đo vật lý SCD30 [0, 40000]
-        if (co2 < 0.0f || co2 > 40000.0f)
-        {
-            scd30_last_error = SensorError::ERR_OUT_OF_RANGE;
-            co2 = NAN;
-            return false;
-        }
-
-        scd30_last_error = SensorError::SUCCESS;
-        return true;
+        // SCD30 chưa được tích hợp phần cứng — trả về NAN (N/A).
+        // Khi SCD30 có mặt, thay thế block này bằng driver thật.
+        co2 = NAN;
+        return false;
     }
 
     bool read_all_telemetry(TelemetryData &data)
@@ -280,61 +209,25 @@ namespace sensors
             success = false;
         }
 
-        float ds_temp = NAN;
-        if (read_ds18b20(ds_temp))
-        {
-            data.temp_substrate = ds_temp;
-        }
-        else
-        {
-            data.temp_substrate = NAN;
-            success = false;
-        }
-
+        // DS18B20 không được sử dụng — SHT30 đã đủ cho nhiệt độ và độ ẩm.
+        // SCD30 chưa tích hợp — co2_level luôn là NAN.
         float scd_co2 = NAN;
-        if (read_scd30(scd_co2))
-        {
-            data.co2_level = scd_co2;
-        }
-        else
-        {
-            data.co2_level = NAN;
-            success = false;
-        }
+        read_scd30(scd_co2);
+        data.co2_level = scd_co2; // NAN — omitted from MQTT publish by isnan() guard
 
         return success;
     }
 
-    // --- Các API bổ sung cho việc giả lập lỗi và kiểm toán độc lập ---
+    // --- API bổ sung cho fault injection và kiểm toán SHT30 ---
     
     SensorError get_last_error_sht30()
     {
         return sht30_last_error;
     }
 
-    SensorError get_last_error_ds18b20()
-    {
-        return ds18b20_last_error;
-    }
-
-    SensorError get_last_error_scd30()
-    {
-        return scd30_last_error;
-    }
-
     void set_simulated_health_sht30(bool healthy)
     {
         sht30_healthy = healthy;
-    }
-
-    void set_simulated_health_ds18b20(bool healthy)
-    {
-        ds18b20_healthy = healthy;
-    }
-
-    void set_simulated_health_scd30(bool healthy)
-    {
-        scd30_healthy = healthy;
     }
 
     bool is_sht30_defogging()

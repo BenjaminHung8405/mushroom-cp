@@ -23,6 +23,19 @@ function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
     )
   }
 
+  if (status === 'stale') {
+    return (
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 rounded bg-amber-950/30 border border-amber-500/40"
+        title="Thiết bị vẫn online nhưng telemetry không cập nhật sau 20 giây"
+      >
+        <Wifi className="w-4 h-4 text-amber-400" />
+        <span className="text-xs font-semibold text-amber-400">Telemetry stale</span>
+        <AlertTriangle className="w-3 h-3 text-amber-400" />
+      </div>
+    )
+  }
+
   if (status === 'online') {
     return (
       <div
@@ -55,8 +68,8 @@ export function HardwareTelemetryWidget({
   sdLoggingActive = true,
   cloudSynced = true,
 }: HardwareTelemetryWidgetProps) {
-  const { deviceStatus, snapshot } = useRealTelemetry()
-  const lastUpdated = snapshot?.time
+  const { deviceStatus, lastTelemetryAt } = useRealTelemetry()
+  const lastUpdated = lastTelemetryAt
 
   return (
     <div className="flex items-center gap-3 px-4 py-2">
@@ -83,7 +96,11 @@ export function HardwareTelemetryWidget({
       <DeviceStatusIndicator status={deviceStatus} />
 
       {lastUpdated && (
-        <span className="text-[10px] text-slate-500 hidden lg:inline">
+        <span
+          className={`text-[10px] hidden lg:inline ${
+            deviceStatus === 'stale' ? 'text-amber-400 font-semibold' : 'text-slate-500'
+          }`}
+        >
           RX {new Date(lastUpdated).toLocaleTimeString('vi-VN')}
         </span>
       )}

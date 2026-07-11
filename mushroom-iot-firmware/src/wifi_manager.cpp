@@ -858,6 +858,7 @@ setInterval(function(){
 
         if (has_config)
         {
+            softap_forced = false;
             Serial.printf("[WIFI] Found WiFi credentials in NVS (SSID: %s). Transitioning to STA_CONNECTING.\n",
                           config::network::STA_SSID.c_str());
             WiFi.persistent(false);

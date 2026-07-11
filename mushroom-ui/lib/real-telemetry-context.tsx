@@ -1,6 +1,13 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { DeviceStatus } from './simulation-context'
 import {
   DEFAULT_DEVICE_ID,
@@ -12,19 +19,38 @@ import {
 } from './telemetry-api'
 
 /**
- * RealTelemetryProvider — replaces SimulationProvider with live data.
+ * RealTelemetryProvider — live telemetry from NestJS.
  *
- * Reads from NestJS backend endpoints:
- *   - GET /devices/:id/telemetry          (initial snapshot)
- *   - SSE /devices/:id/telemetry/stream   (live updates)
- *   - SSE /devices/status/stream          (LWT online/offline)
+ * Reads:
+ *   - GET /devices/:id/telemetry
+ *   - SSE /devices/:id/telemetry/stream
+ *   - SSE /devices/status/stream (LWT online/offline)
  *
- * Exposes the same shape as SimulationContext so dashboard components
- * work without modification.
+ * Display status is composed:
+ *   offline > stale (LWT online + telemetry age > 20s) > online > unknown
  */
 
+/** LWT-only status from backend SSE (never includes 'stale'). */
+type LwtStatus = 'online' | 'offline' | 'unknown'
+
+const STALE_MS = 20_000
+const STALE_TICK_MS = 5_000
+
+function deriveDeviceStatus(
+  lwt: LwtStatus,
+  lastTelemetryMs: number | null,
+  onlineSinceMs: number | null,
+  nowMs: number,
+): DeviceStatus {
+  if (lwt === 'offline') return 'offline'
+  if (lwt === 'unknown') return 'unknown'
+
+  const freshnessBaseline = lastTelemetryMs ?? onlineSinceMs
+  if (freshnessBaseline === null) return 'online'
+  return nowMs - freshnessBaseline > STALE_MS ? 'stale' : 'online'
+}
+
 interface RealTelemetryContextType {
-  // ── Telemetry (from real snapshot) ────────────────────────────────
   humidityCurrent: number | null
   humidityTrend: number | null
   temperatureCurrent: number | null
@@ -32,64 +58,94 @@ interface RealTelemetryContextType {
   co2Current: number | null
   co2Trend: number | null
 
-  // ── Setpoints reported by backend batch context ───────────────────
   temperatureSetpoint: number | null
   humiditySetpoint: number | null
   snapshot: TelemetrySnapshot | null
   isLoading: boolean
 
-  // ── Actuator booleans (read-only from real snapshot) ──────────────
   fanActive: boolean
   lampActive: boolean
   mistActive: boolean
 
-  // ── Device status (from LWT SSE) ──────────────────────────────────
   deviceStatus: DeviceStatus
+  lastTelemetryAt: string | null
   monitoredDeviceId: string
 }
 
-const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>(undefined)
+const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>(
+  undefined,
+)
 
 export function RealTelemetryProvider({ children }: { children: React.ReactNode }) {
-  // ── Telemetry state ───────────────────────────────────────────────
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const prevSnapshotRef = useRef<TelemetrySnapshot | null>(null)
 
-  // ── Device status ─────────────────────────────────────────────────
-  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('unknown')
+  // LWT truth is never written by the stale path.
+  const [lwtStatus, setLwtStatus] = useState<LwtStatus>('unknown')
+  const [onlineSinceMs, setOnlineSinceMs] = useState<number | null>(null)
 
-  // ── Initial snapshot fetch ────────────────────────────────────────
+  const lastTelemetryMs = useMemo(() => {
+    if (!snapshot?.time) return null
+    const ms = new Date(snapshot.time).getTime()
+    return Number.isFinite(ms) ? ms : null
+  }, [snapshot?.time])
+
+  // Lightweight clock tick that forces freshness re-evaluation without
+  // recreating the interval or capturing the snapshot in its callback.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  // Initial snapshot
   useEffect(() => {
     let cancelled = false
     fetchTelemetrySnapshot(DEFAULT_DEVICE_ID).then((snap) => {
       if (!cancelled && snap) setSnapshot(snap)
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  // ── Live SSE stream ───────────────────────────────────────────────
+  // Live telemetry SSE
   useEffect(() => {
     return subscribeTelemetryStream(DEFAULT_DEVICE_ID, (snap) => {
       setSnapshot(snap)
     })
   }, [])
 
-  // ── Device status SSE ─────────────────────────────────────────────
+  // LWT status SSE — writes only to lwtStatus; also records when online began.
   useEffect(() => {
     return subscribeDeviceStatusStream((ev: DeviceStatusEvent) => {
       if (ev.deviceId === DEFAULT_DEVICE_ID) {
-        setDeviceStatus(ev.status)
+        setLwtStatus(ev.status)
+        if (ev.status === 'online') {
+          const timestamp = new Date(ev.timestamp).getTime()
+          setOnlineSinceMs(Number.isFinite(timestamp) ? timestamp : Date.now())
+        } else {
+          setOnlineSinceMs(null)
+        }
       }
     })
   }, [])
 
-  // ── Derived telemetry values ──────────────────────────────────────
+  // Stale evaluation tick — only advances the clock; derivation is pure.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now())
+    }, STALE_TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
+
+  const deviceStatus = useMemo(
+    () => deriveDeviceStatus(lwtStatus, lastTelemetryMs, onlineSinceMs, nowMs),
+    [lwtStatus, lastTelemetryMs, onlineSinceMs, nowMs],
+  )
+
   const humidityCurrent = snapshot?.humidityMeasured ?? null
   const temperatureCurrent = snapshot?.temperatureMeasured ?? null
   const co2Current = snapshot?.co2Measured ?? null
-  const isLoading = snapshot === null && deviceStatus === 'unknown'
+  const isLoading = snapshot === null && lwtStatus === 'unknown'
+  const lastTelemetryAt = snapshot?.time ?? null
 
-  // Compute trend as delta from previous snapshot
   const humidityTrend = useMemo(() => {
     if (!prevSnapshotRef.current || !snapshot) return null
     const a = prevSnapshotRef.current.humidityMeasured
@@ -114,16 +170,13 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     return Number((b - a).toFixed(1))
   }, [snapshot])
 
-  // Update previous snapshot ref after computing trends
   useEffect(() => {
     prevSnapshotRef.current = snapshot
   }, [snapshot])
 
-  // ── Setpoints reported by backend batch context ───────────────────
   const temperatureSetpoint = snapshot?.temperatureSetpoint ?? null
   const humiditySetpoint = snapshot?.humiditySetpoint ?? null
 
-  // ── Actuator booleans (read-only) ─────────────────────────────────
   const fanActive = snapshot?.convectionFanActive ?? false
   const lampActive = snapshot?.heatingLampActive ?? false
   const mistActive = snapshot?.mistGeneratorActive ?? false
@@ -145,6 +198,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         lampActive,
         mistActive,
         deviceStatus,
+        lastTelemetryAt,
         monitoredDeviceId: DEFAULT_DEVICE_ID,
       }}
     >

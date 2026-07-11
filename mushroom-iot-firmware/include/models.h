@@ -5,13 +5,18 @@
 /**
  * @brief Plain Old Data (POD) structure for sensor telemetry.
  * Optimized for 32-bit MCU memory alignment.
- * Size: 16 bytes (aligned on 4-byte boundaries).
+ *
+ * Active sensors:
+ *   - SHT30  → temp_air, humidity_air  (real I2C reads)
+ *
+ * Not integrated / removed:
+ *   - DS18B20 (substrate temp) — not used; SHT30 covers thermal needs.
+ *   - SCD30   (CO2)            — hardware not present; co2_level stays NAN.
  */
 struct TelemetryData {
     float temp_air;        ///< Air temperature in °C (from SHT30)
-    float temp_substrate;  ///< Substrate temperature in °C (from DS18B20)
     float humidity_air;    ///< Air humidity in % (from SHT30)
-    float co2_level;       ///< CO2 level in ppm (from SCD30)
+    float co2_level;       ///< CO2 level in ppm — NAN until SCD30 is integrated
 } __attribute__((aligned(4)));
 
 /**

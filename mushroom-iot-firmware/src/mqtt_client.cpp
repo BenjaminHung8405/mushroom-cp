@@ -3,6 +3,7 @@
 #include "wifi_manager.h"
 #include "definitions.h"
 #include "local_control.h"
+#include "serial_mutex.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -20,12 +21,18 @@ namespace mqtt
 
     bool MqttClient::init()
     {
-        Serial.println("[MQTT] Initializing MQTT client skeleton...");
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Initializing MQTT client skeleton...");
+        }
 
         // 1. Validate MQTT Configuration
         if (config::network::MQTT_BROKER_VAL.length() == 0)
         {
-            Serial.println("[MQTT] Error: MQTT broker address is empty.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: MQTT broker address is empty.");
+            }
             current_state = MqttState::ERROR_NO_CONFIG;
             return false;
         }
@@ -37,27 +44,42 @@ namespace mqtt
         resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
         resolved_topics.setpoint = "mushroom/device/" + client_id + "/setpoint";
 
-        Serial.printf("[MQTT] Resolved Topics:\n");
-        Serial.printf("  - Status (LWT): %s\n", resolved_topics.status.c_str());
-        Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
-        Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Resolved Topics:\n");
+            Serial.printf("  - Status (LWT): %s\n", resolved_topics.status.c_str());
+            Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
+            Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
+        }
 
         // 3. Configure PubSubClient server, buffer, keepalive, and callback.
         // Buffer must exceed JWT/password + LWT + telemetry JSON size (default 128 is too small).
         if (!mqtt_client.setBufferSize(1024))
         {
-            Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
+            }
             current_state = MqttState::DISCONNECTED;
             return false;
         }
+        
+        // Cấu hình TCP timeout 2s tránh bị treo WiFiClient lâu hơn TWDT (5s)
+#ifndef UNIT_TEST
+        wifi_client.setTimeout(2);
+#endif
+        
         mqtt_client.setKeepAlive(60);
         mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
         mqtt_client.setCallback(MqttClient::mqtt_callback_static);
 
-        Serial.printf("[MQTT] Broker: %s:%u | Client ID: %s | Buffer: 1024 | KeepAlive: 60s\n",
-                      config::network::MQTT_BROKER_VAL.c_str(),
-                      static_cast<unsigned>(config::network::MQTT_PORT_VAL),
-                      client_id.c_str());
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Broker: %s:%u | Client ID: %s | Buffer: 1024 | KeepAlive: 60s\n",
+                          config::network::MQTT_BROKER_VAL.c_str(),
+                          static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                          client_id.c_str());
+        }
 
 #ifndef UNIT_TEST
         if (mqtt_mutex == nullptr)
@@ -93,7 +115,10 @@ namespace mqtt
         {
             if (current_state != MqttState::ERROR_NO_WIFI)
             {
-                Serial.printf("[MQTT] WiFi is not connected (State: %d). Suspending MQTT connection.\n", (int)wifi_state);
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.printf("[MQTT] WiFi is not connected (State: %d). Suspending MQTT connection.\n", (int)wifi_state);
+                }
                 current_state = MqttState::ERROR_NO_WIFI;
                 if (mqtt_client.connected())
                 {
@@ -105,7 +130,10 @@ namespace mqtt
 
         if (current_state == MqttState::ERROR_NO_WIFI)
         {
-            Serial.println("[MQTT] WiFi restored. MQTT client back to DISCONNECTED state.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] WiFi restored. MQTT client back to DISCONNECTED state.");
+            }
             current_state = MqttState::DISCONNECTED;
         }
         return true;
@@ -124,7 +152,10 @@ namespace mqtt
         {
             if (current_state == MqttState::CONNECTED)
             {
-                Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
+                }
                 local_control::on_backend_link_lost();
                 current_state = MqttState::DISCONNECTED;
             }
@@ -141,12 +172,18 @@ namespace mqtt
     {
         if (!is_connected())
         {
-            Serial.println("[MQTT] Cannot publish telemetry: Client not connected.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Cannot publish telemetry: Client not connected.");
+            }
             return false;
         }
 
-        Serial.printf("[MQTT] Telemetry publish placeholder (Topic: %s, Payload: %s)\n",
-                      resolved_topics.telemetry.c_str(), payload.c_str());
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Telemetry publish placeholder (Topic: %s, Payload: %s)\n",
+                          resolved_topics.telemetry.c_str(), payload.c_str());
+        }
                       
         return mqtt_client.publish(resolved_topics.telemetry.c_str(), payload.c_str());
     }
@@ -155,13 +192,19 @@ namespace mqtt
     {
         if (!is_connected())
         {
-            Serial.println("[MQTT] Cannot publish status: Client not connected.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Cannot publish status: Client not connected.");
+            }
             return false;
         }
 
         String payload = is_online ? "{\"status\":\"online\"}" : "{\"status\":\"offline\"}";
-        Serial.printf("[MQTT] Status publish placeholder (Topic: %s, Payload: %s)\n",
-                      resolved_topics.status.c_str(), payload.c_str());
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Status publish placeholder (Topic: %s, Payload: %s)\n",
+                          resolved_topics.status.c_str(), payload.c_str());
+        }
 
         return mqtt_client.publish(resolved_topics.status.c_str(), (const uint8_t*)payload.c_str(), payload.length(), true);
     }
@@ -192,27 +235,42 @@ namespace mqtt
         // 1. Sanity Check / Null Pointer Safeguards
         if (topic == nullptr)
         {
-            Serial.println("[MQTT] Error: Received message with null topic pointer.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: Received message with null topic pointer.");
+            }
             return;
         }
         if (payload == nullptr && length > 0)
         {
-            Serial.println("[MQTT] Error: Received message with null payload pointer but non-zero length.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: Received message with null payload pointer but non-zero length.");
+            }
             return;
         }
 
-        Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
+        }
 
         if (resolved_topics.setpoint != topic)
         {
-            Serial.println("[MQTT] Warning: Received message on unexpected topic.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Warning: Received message on unexpected topic.");
+            }
             return;
         }
 
         constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
         if (length > MAX_PAYLOAD_SIZE)
         {
-            Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
+            }
             return;
         }
 
@@ -222,7 +280,10 @@ namespace mqtt
             memcpy(safe_payload, payload, length);
         }
         safe_payload[length] = '\0';
-        Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
+        }
 
         // Tăng dung lượng StaticJsonDocument lên 768 bytes để tránh tràn RAM overhead khi parse
         StaticJsonDocument<768> doc;
@@ -230,7 +291,10 @@ namespace mqtt
 
         if (error)
         {
-            Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
+            }
             return;
         }
 
@@ -303,11 +367,17 @@ namespace mqtt
                  doc.containsKey("convection_fan_active") ||
                  doc.containsKey("heating_lamp_active"))
         {
-            Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+            }
         }
         else
         {
-            Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
+            }
         }
     }
 
@@ -315,11 +385,17 @@ namespace mqtt
     bool MqttClient::validate_single_setpoint(const char* name, float val, float min_val, float max_val)
     {
         if (!isnan(val) && val >= min_val && val <= max_val) {
-            Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
+            }
             return true;
         }
-        Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n",
-                      name, val, min_val, max_val);
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n",
+                          name, val, min_val, max_val);
+        }
         return false;
     }
 
@@ -329,7 +405,10 @@ namespace mqtt
         wifi::WifiState wifi_state = wifi::get_wifi_state();
         if (wifi_state != wifi::WifiState::STA_CONNECTED)
         {
-            Serial.println("[MQTT] Reconnect aborted: WiFi is not STA_CONNECTED.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Reconnect aborted: WiFi is not STA_CONNECTED.");
+            }
             current_state = MqttState::ERROR_NO_WIFI;
             return;
         }
@@ -342,7 +421,10 @@ namespace mqtt
         {
             if (xSemaphoreTake((SemaphoreHandle_t)mqtt_mutex, 0) != pdTRUE)
             {
-                Serial.println("[MQTT] Reconnect skipped: mutex locked by another process.");
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] Reconnect skipped: mutex locked by another process.");
+                }
                 return;
             }
         }
@@ -365,11 +447,17 @@ namespace mqtt
 
     bool MqttClient::perform_mqtt_connection()
     {
-        Serial.println("[MQTT] Attempting connection to MQTT broker...");
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Attempting connection to MQTT broker...");
+        }
 
         if (config::network::MQTT_PASSWORD_VAL.length() == 0)
         {
-            Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
+            }
             current_state = MqttState::DISCONNECTED;
             return false;
         }
@@ -377,7 +465,10 @@ namespace mqtt
         String client_id = get_effective_client_id();
         if (config::network::MQTT_USER_VAL != client_id)
         {
-            Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
+            }
             current_state = MqttState::ERROR_NO_CONFIG;
             return false;
         }
@@ -387,12 +478,15 @@ namespace mqtt
         String lwt_payload = "{\"status\":\"offline\"}";
 
         // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
-        Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
-                      config::network::MQTT_BROKER_VAL.c_str(),
-                      static_cast<unsigned>(config::network::MQTT_PORT_VAL),
-                      config::network::MQTT_USER_VAL.c_str(),
-                      client_id.c_str(),
-                      lwt_topic.c_str());
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
+                          config::network::MQTT_BROKER_VAL.c_str(),
+                          static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                          config::network::MQTT_USER_VAL.c_str(),
+                          client_id.c_str(),
+                          lwt_topic.c_str());
+        }
 
         bool connected = mqtt_client.connect(
             client_id.c_str(),
@@ -406,12 +500,18 @@ namespace mqtt
         
         if (connected)
         {
-            Serial.println("[MQTT] Connected to broker successfully.");
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Connected to broker successfully.");
+            }
             current_state = MqttState::CONNECTED;
             
             // Subscribe to the incoming control setpoint commands
             mqtt_client.subscribe(resolved_topics.setpoint.c_str(), 1);
-            Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
+            }
             
             // Publish online status
             publish_status(true);
@@ -419,10 +519,16 @@ namespace mqtt
         else
         {
             const int mqtt_state = mqtt_client.state();
-            Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
+            }
             if (mqtt_state == 4)
             {
-                Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
+                }
             }
             current_state = MqttState::DISCONNECTED;
         }

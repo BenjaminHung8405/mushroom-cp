@@ -130,19 +130,29 @@ public:
         return IPAddress();
     }
 
-    bool disconnect(bool wifioff = false) {
+    bool disconnect(bool wifioff = false, bool eraseap = false) {
         disconnect_called = true;
-        mock_status = WL_DISCONNECTED;
+        if (wifioff) {
+            mock_status = WL_DISCONNECTED;
+        }
         return true;
     }
 
-    bool softAP(const char* ssid, const char* pass = nullptr) {
+    bool softAP(const char* ssid, const char* pass = nullptr, int channel = 1, int ssid_hidden = 0, int max_connection = 4) {
+        mock_mode = WIFI_AP;
         return true;
     }
 
     IPAddress softAPIP() {
         return IPAddress();
     }
+
+    void persistent(bool val) {}
+    void setAutoReconnect(bool val) {}
+    void enableSTA(bool val) {}
+    void setSleep(bool val) {}
+    wifi_mode_t getMode() { return mock_mode; }
+    bool softAPdisconnect(bool val) { return true; }
 };
 
 extern WiFiClass WiFi;

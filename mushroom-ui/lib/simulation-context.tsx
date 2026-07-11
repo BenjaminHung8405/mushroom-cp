@@ -4,13 +4,14 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useRef 
 import { useBatch } from './batch-context'
 
 /**
- * Device connection status derived from MQTT LWT events.
+ * Device connection status composed from MQTT LWT + telemetry freshness.
  *
- * 'online'  - ESP32-S3 is connected and actively reporting
+ * 'online'  - LWT online and telemetry received within the last 20s
  * 'offline' - EMQX fired the LWT because device lost connection
+ * 'stale'   - LWT online but no valid telemetry for >20s
  * 'unknown' - Not yet received any status from backend (initial state)
  */
-export type DeviceStatus = 'online' | 'offline' | 'unknown'
+export type DeviceStatus = 'online' | 'offline' | 'stale' | 'unknown'
 
 interface SimulationContextType {
   isSimulationActive: boolean

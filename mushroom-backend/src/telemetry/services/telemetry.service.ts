@@ -192,8 +192,93 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getLatestTelemetry(deviceId: string): TelemetrySnapshot | null {
-    return this.latestCache.get(deviceId) ?? null;
+  async getLatestTelemetry(deviceId: string): Promise<TelemetrySnapshot | null> {
+    const cached = this.latestCache.get(deviceId);
+    if (cached) {
+      return cached;
+    }
+
+    let record = this.registry.get(deviceId);
+    if (!record) {
+      record = (await this.registry.refreshOne(deviceId)) ?? undefined;
+    }
+    if (!record || !record.enabled) {
+      return null;
+    }
+
+    try {
+      const queryText = `
+        SELECT
+          time,
+          batch_id AS "batchId",
+          house_id AS "houseId",
+          crop_day_int AS "cropDayInt",
+          humidity_measured AS "humidityMeasured",
+          temperature_measured AS "temperatureMeasured",
+          co2_measured AS "co2Measured",
+          humidity_setpoint AS "humiditySetpoint",
+          temperature_setpoint AS "temperatureSetpoint",
+          humidity_error_delta AS "humidityErrorDelta",
+          temperature_error_delta AS "temperatureErrorDelta",
+          mist_generator_active AS "mistGeneratorActive",
+          convection_fan_active AS "convectionFanActive",
+          heating_lamp_active AS "heatingLampActive",
+          midday_blackout_active AS "middayBlackoutActive"
+        FROM telemetry_logs
+        WHERE house_id = $1
+        ORDER BY time DESC
+        LIMIT 1;
+      `;
+      const res = await this.db.query<TelemetryLogDbRow>(queryText, [
+        record.houseId,
+      ]);
+      const row = res.rows[0];
+      if (!row) {
+        return null;
+      }
+
+      const snapshot: TelemetrySnapshot = {
+        deviceId,
+        houseId: record.houseId,
+        time: new Date(row.time),
+        batchId: row.batchId === 'idle' ? null : row.batchId,
+        cropDayInt: row.cropDayInt,
+        humidityMeasured:
+          row.humidityMeasured != null ? Number(row.humidityMeasured) : null,
+        temperatureMeasured:
+          row.temperatureMeasured != null
+            ? Number(row.temperatureMeasured)
+            : null,
+        co2Measured: row.co2Measured != null ? Number(row.co2Measured) : null,
+        humiditySetpoint:
+          row.humiditySetpoint != null ? Number(row.humiditySetpoint) : null,
+        temperatureSetpoint:
+          row.temperatureSetpoint != null
+            ? Number(row.temperatureSetpoint)
+            : null,
+        humidityErrorDelta:
+          row.humidityErrorDelta != null
+            ? Number(row.humidityErrorDelta)
+            : null,
+        temperatureErrorDelta:
+          row.temperatureErrorDelta != null
+            ? Number(row.temperatureErrorDelta)
+            : null,
+        mistGeneratorActive: Boolean(row.mistGeneratorActive),
+        convectionFanActive: Boolean(row.convectionFanActive),
+        heatingLampActive: Boolean(row.heatingLampActive),
+        middayBlackoutActive: Boolean(row.middayBlackoutActive),
+      };
+
+      this.latestCache.set(deviceId, snapshot);
+      return snapshot;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Failed to load latest telemetry from DB for device ${deviceId}: ${msg}`,
+      );
+      return null;
+    }
   }
 
   calculateControlOutputs(

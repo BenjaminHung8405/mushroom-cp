@@ -21,8 +21,8 @@ export class TelemetryController {
   constructor(private readonly telemetryService: TelemetryService) {}
 
   @Get(':id/telemetry')
-  getLatest(@Param() params: DeviceIdParamsDto): TelemetrySnapshot {
-    const snapshot = this.telemetryService.getLatestTelemetry(params.id);
+  async getLatest(@Param() params: DeviceIdParamsDto): Promise<TelemetrySnapshot> {
+    const snapshot = await this.telemetryService.getLatestTelemetry(params.id);
     if (!snapshot) {
       throw new NotFoundException(
         `No telemetry snapshot found for device ${params.id}`,
@@ -32,10 +32,10 @@ export class TelemetryController {
   }
 
   @Sse(':id/telemetry/stream')
-  streamTelemetry(
+  async streamTelemetry(
     @Param() params: DeviceIdParamsDto,
-  ): Observable<MessageEvent> {
-    const initial = this.telemetryService.getLatestTelemetry(params.id);
+  ): Promise<Observable<MessageEvent>> {
+    const initial = await this.telemetryService.getLatestTelemetry(params.id);
 
     // Route :id is MQTT deviceId — filter by deviceId, not houseId.
     const updates$ = this.telemetryService.telemetryUpdates$.pipe(

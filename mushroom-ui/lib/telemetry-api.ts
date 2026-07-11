@@ -37,7 +37,8 @@ export interface DeviceStatusEvent {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 /** Default monitored device ID — must match EMQX MQTT username. */
-export const DEFAULT_DEVICE_ID = 'esp32_mushroom_s3_01'
+export const DEFAULT_DEVICE_ID =
+  process.env.NEXT_PUBLIC_DEVICE_ID ?? 'esp32_mushroom_s3_01'
 
 // ── Snapshot ────────────────────────────────────────────────────────
 

@@ -12,6 +12,10 @@
 #define QUEUEHANDLE_T_DEFINED
 typedef void* QueueHandle_t;
 #endif
+#ifndef EVENTGROUPHANDLE_T_DEFINED
+#define EVENTGROUPHANDLE_T_DEFINED
+typedef void* EventGroupHandle_t;
+#endif
 #endif
 
 // Wifi Event Bits for multi-core synchronization

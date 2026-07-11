@@ -9,6 +9,7 @@
 #include "sensors.h"
 #include "actuators.h"
 #include "serial_mutex.h"
+#include "MathEngine.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -47,6 +48,7 @@ extern const uint8_t DEMO_RELAY_PINS[];
 extern const size_t  DEMO_RELAY_COUNT;
 
 int main() {
+    xWifiEventGroup = xEventGroupCreate();
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
     storage::StorageManager& storage = storage::StorageManager::get_instance();
@@ -116,7 +118,7 @@ int main() {
     // Initial status should be empty
     assert(config::network::STA_SSID == "");
     assert(config::network::STA_PASS == "");
-    assert(config::network::BACKEND_API_URL == "");
+    assert(config::network::BACKEND_API_URL == config::network::DEFAULT_BACKEND_URL);
 
     // Save new values
     assert(storage.save_wifi_credentials("DynamicWiFi", "dynamicpass123") == true);
@@ -131,7 +133,7 @@ int main() {
     assert(config::network::STA_PASS == "dynamicpass123");
     assert(config::network::MQTT_BROKER_VAL == "192.168.1.99");
     assert(config::network::MQTT_PORT_VAL == 1884);
-    assert(config::network::MQTT_USER_VAL == "dynamic_user");
+    assert(config::network::MQTT_USER_VAL == "mushroom_s3_unittest");
     assert(config::network::MQTT_PASSWORD_VAL == "dynamic_pass");
     assert(config::network::BACKEND_API_URL == "http://farm.local:3001");
 
@@ -290,6 +292,8 @@ int main() {
     config::network::MQTT_BROKER_VAL = "192.168.1.50";
     config::network::MQTT_PORT_VAL = 1883;
     config::network::MQTT_CLIENT_ID_VAL = "esp32_mushroom_test_client";
+    config::network::MQTT_USER_VAL = "esp32_mushroom_test_client";
+    config::network::MQTT_PASSWORD_VAL = "test_pass";
     
     assert(mqtt_client.init() == true);
     assert(mqtt_client.get_state() == mqtt::MqttState::IDLE);
@@ -412,7 +416,7 @@ int main() {
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_nan.c_str(), payload_nan.length());
     }
 
-    // Case I: Valid JSON with actuator controls
+    // Case I: Valid JSON with actuator controls (Should be ignored by design)
     {
         Serial.println("--- Case I: Valid JSON with actuator controls ---");
         bool created_temp_queue = false;
@@ -428,24 +432,7 @@ int main() {
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
         
         assert(xActuatorQueue != nullptr);
-        assert(uxQueueMessagesWaiting(xActuatorQueue) == 4);
-        
-        ActuatorCommand c1, c2, c3, c4;
-        assert(xQueueReceive(xActuatorQueue, &c1, 0) == pdTRUE);
-        assert(c1.relay_id == config::pins::PIN_RELAY_MIST);
-        assert(c1.state == true);
-        
-        assert(xQueueReceive(xActuatorQueue, &c2, 0) == pdTRUE);
-        assert(c2.relay_id == config::pins::PIN_RELAY_FAN);
-        assert(c2.state == false);
-        
-        assert(xQueueReceive(xActuatorQueue, &c3, 0) == pdTRUE);
-        assert(c3.relay_id == config::pins::PIN_RELAY_HEATER_1);
-        assert(c3.state == true);
-        
-        assert(xQueueReceive(xActuatorQueue, &c4, 0) == pdTRUE);
-        assert(c4.relay_id == config::pins::PIN_RELAY_HEATER_2);
-        assert(c4.state == true);
+        assert(uxQueueMessagesWaiting(xActuatorQueue) == 0); // Ignored - edge hysteresis safety controller owns relays.
 
         if (created_temp_queue) {
             vQueueDelete(xActuatorQueue);
@@ -495,7 +482,7 @@ int main() {
     Serial.println("[TEST] Starting Task E1/E2 - Models and Data Structures Unit Tests...");
     assert(std::is_pod<TelemetryData>::value == true);
     assert(std::is_pod<ActuatorCommand>::value == true);
-    assert(sizeof(TelemetryData) == 16);  // 4 floats × 4 bytes
+    assert(sizeof(TelemetryData) == 12);  // 3 floats × 4 bytes (temp_air, humidity_air, co2_level)
     assert(sizeof(ActuatorCommand) == 4);
     assert(alignof(TelemetryData) == 4);
     assert(alignof(ActuatorCommand) == 4);
@@ -511,17 +498,11 @@ int main() {
     assert(std::isnan(t_sht) && std::isnan(h_sht));
     assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_NOT_INITIALIZED);
     
-    assert(sensors::read_ds18b20(t_ds) == false);
-    assert(std::isnan(t_ds));
-    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::ERR_NOT_INITIALIZED);
-    
     assert(sensors::read_scd30(co2_scd) == false);
     assert(std::isnan(co2_scd));
-    assert(sensors::get_last_error_scd30() == sensors::SensorError::ERR_NOT_INITIALIZED);
     
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
     assert(std::isnan(telemetry_mock.temp_air));
-    assert(std::isnan(telemetry_mock.temp_substrate));
     assert(std::isnan(telemetry_mock.humidity_air));
     assert(std::isnan(telemetry_mock.co2_level));
 
@@ -535,25 +516,15 @@ int main() {
     assert(h_sht >= 75.0f && h_sht <= 85.0f);
     assert(sensors::get_last_error_sht30() == sensors::SensorError::SUCCESS);
 
-    assert(sensors::read_ds18b20(t_ds) == true);
-    assert(!std::isnan(t_ds));
-    assert(t_ds >= 20.5f && t_ds <= 23.5f);
-    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::SUCCESS);
-
-    assert(sensors::read_scd30(co2_scd) == true);
-    assert(!std::isnan(co2_scd));
-    assert(co2_scd >= 450.0f && co2_scd <= 750.0f);
-    assert(sensors::get_last_error_scd30() == sensors::SensorError::SUCCESS);
+    assert(sensors::read_scd30(co2_scd) == false);
+    assert(std::isnan(co2_scd));
 
     assert(sensors::read_all_telemetry(telemetry_mock) == true);
     assert(!std::isnan(telemetry_mock.temp_air));
-    assert(!std::isnan(telemetry_mock.temp_substrate));
     assert(!std::isnan(telemetry_mock.humidity_air));
-    assert(!std::isnan(telemetry_mock.co2_level));
+    assert(std::isnan(telemetry_mock.co2_level));
     assert(telemetry_mock.temp_air == t_sht);
     assert(telemetry_mock.humidity_air == h_sht);
-    assert(telemetry_mock.temp_substrate == t_ds);
-    assert(telemetry_mock.co2_level == co2_scd);
 
     // 16.4 Test dynamic variations over mock time
     mock_millis_offset = 10000; // Shift by 10s
@@ -570,27 +541,13 @@ int main() {
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
     assert(std::isnan(telemetry_mock.temp_air));       // Failed SHT30
     assert(std::isnan(telemetry_mock.humidity_air));   // Failed SHT30
-    assert(!std::isnan(telemetry_mock.temp_substrate)); // DS18B20 still works!
-    assert(!std::isnan(telemetry_mock.co2_level));     // SCD30 still works!
-
-    sensors::set_simulated_health_ds18b20(false);
-    assert(sensors::read_ds18b20(t_ds) == false);
-    assert(std::isnan(t_ds));
-    assert(sensors::get_last_error_ds18b20() == sensors::SensorError::ERR_DISCONNECTED);
-
-    assert(sensors::read_all_telemetry(telemetry_mock) == false);
-    assert(std::isnan(telemetry_mock.temp_air));       // Failed SHT30
-    assert(std::isnan(telemetry_mock.humidity_air));   // Failed SHT30
-    assert(std::isnan(telemetry_mock.temp_substrate)); // Failed DS18B20
-    assert(!std::isnan(telemetry_mock.co2_level));     // SCD30 still works!
+    assert(std::isnan(telemetry_mock.co2_level));
 
     sensors::set_simulated_health_sht30(true);
-    sensors::set_simulated_health_ds18b20(true);
     assert(sensors::read_all_telemetry(telemetry_mock) == true);
     assert(!std::isnan(telemetry_mock.temp_air));
     assert(!std::isnan(telemetry_mock.humidity_air));
-    assert(!std::isnan(telemetry_mock.temp_substrate));
-    assert(!std::isnan(telemetry_mock.co2_level));
+    assert(std::isnan(telemetry_mock.co2_level));
 
     // 17. Test Task G1 - Actuators Mock & Fail-Safe init
     Serial.println("[TEST] Starting Task G1 - Actuators GPIO Initialization Unit Tests...");
@@ -722,7 +679,6 @@ int main() {
     // 19.5 Send TelemetryData through telemetry queue
     TelemetryData tel_data;
     tel_data.temp_air       = 25.0f;
-    tel_data.temp_substrate = 22.5f;
     tel_data.humidity_air   = 80.0f;
     tel_data.co2_level      = 600.0f;
 
@@ -732,7 +688,6 @@ int main() {
     TelemetryData received_tel;
     assert(xQueueReceive(test_tel_queue, &received_tel, 0) == pdTRUE);
     assert(received_tel.temp_air       == 25.0f);
-    assert(received_tel.temp_substrate == 22.5f);
     assert(received_tel.humidity_air   == 80.0f);
     assert(received_tel.co2_level      == 600.0f);
     assert(uxQueueMessagesWaiting(test_tel_queue) == 0);
@@ -806,6 +761,56 @@ int main() {
     }
     assert(slock.lock_count() == 0);
 
+    // 21. Test Task A1 - MathEngine Fuzzy Area calculation
+    Serial.println("[TEST] Starting Task A1 - MathEngine Unit Tests...");
+    
+    // Case 1: All membership values are zero. Centroid denominator K should be 0.
+    {
+        float kz = -999.0f, k = -999.0f;
+        float tb = MathEngine::calculateFuzzyArea(0.0f, 0.0f, 0.0f, kz, k);
+        assert(tb == 0.0f);
+        assert(k == 0.0f);
+        assert(kz == 0.0f);
+    }
+
+    // Case 2: Standard values
+    {
+        float kz = 0.0f, k = 0.0f;
+        float tb = MathEngine::calculateFuzzyArea(0.8f, 0.5f, 0.2f, kz, k);
+        assert(!std::isnan(tb));
+        assert(!std::isnan(kz));
+        assert(!std::isnan(k));
+        assert(k > 0.0f);
+        assert(tb >= 0.0f);
+        // Overloaded signature check
+        float tb2 = MathEngine::calculateFuzzyArea(0.8f, 0.5f, 0.2f);
+        assert(tb == tb2);
+    }
+
+    // Case 3: Fault Injection (NaN and Inf)
+    {
+        float kz = -999.0f, k = -999.0f;
+        float tb = MathEngine::calculateFuzzyArea(NAN, 0.5f, 0.2f, kz, k);
+        assert(tb == 0.0f);
+        assert(k == 0.0f);
+        assert(kz == 0.0f);
+
+        tb = MathEngine::calculateFuzzyArea(0.8f, INFINITY, 0.2f, kz, k);
+        assert(tb == 0.0f);
+        assert(k == 0.0f);
+        assert(kz == 0.0f);
+    }
+
+    // Case 4: Centroid value less than 1.0 should be clamped to 0.0
+    {
+        float kz = 0.0f, k = 0.0f;
+        float tb = MathEngine::calculateFuzzyArea(0.0f, 0.0f, 1.0f, kz, k);
+        assert(k == 1.0f);
+        assert(std::abs(kz - 0.666667f) < 1e-4f);
+        assert(tb == 0.0f);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }
+

@@ -19,14 +19,14 @@ namespace sensors
     };
 
     /**
-     * @brief Khởi tạo các placeholder cho cảm biến (SHT30, DS18B20, SCD30).
+     * @brief Khởi tạo bus I2C và driver SHT30.
      * Thiết kế theo dạng HAL, cô lập với logic chính.
      * @return true nếu khởi tạo thành công, false nếu có lỗi.
      */
     bool init_sensors_placeholder();
 
     /**
-     * @brief Đọc nhiệt độ và độ ẩm không khí giả lập từ cảm biến SHT30.
+     * @brief Đọc nhiệt độ và độ ẩm không khí từ cảm biến SHT30 thật qua I2C.
      * @param[out] temp Nhiệt độ không khí (°C)
      * @param[out] hum Độ ẩm không khí (%)
      * @return true nếu đọc thành công, false nếu cảm biến lỗi.
@@ -34,27 +34,21 @@ namespace sensors
     bool read_sht30(float &temp, float &hum);
 
     /**
-     * @brief Đọc nhiệt độ cơ chất giả lập từ cảm biến DS18B20.
-     * @param[out] temp Nhiệt độ cơ chất (°C)
-     * @return true nếu đọc thành công, false nếu cảm biến lỗi.
-     */
-    bool read_ds18b20(float &temp);
-
-    /**
-     * @brief Đọc nồng độ CO2 giả lập từ cảm biến SCD30.
-     * @param[out] co2 Nồng độ CO2 (ppm)
-     * @return true nếu đọc thành công, false nếu cảm biến lỗi.
+     * @brief Đọc nồng độ CO2 từ SCD30.
+     * Trả về NAN (N/A) cho đến khi SCD30 được tích hợp phần cứng.
+     * @param[out] co2 Nồng độ CO2 (ppm) — luôn NAN hiện tại
+     * @return false (chưa có sensor).
      */
     bool read_scd30(float &co2);
 
     /**
-     * @brief Đọc đồng thời toàn bộ telemetry từ các cảm biến vào struct TelemetryData.
+     * @brief Đọc đồng thời toàn bộ telemetry vào struct TelemetryData.
      * @param[out] data Struct chứa dữ liệu telemetry đầu ra.
-     * @return true nếu toàn bộ dữ liệu hợp lệ, false nếu bất kỳ cảm biến nào lỗi.
+     * @return true nếu SHT30 hợp lệ, false nếu cảm biến lỗi.
      */
     bool read_all_telemetry(TelemetryData &data);
 
-    // --- Các API bổ sung cho việc giả lập lỗi và kiểm toán độc lập ---
+    // --- API bổ sung cho fault injection (SHT30) ---
     
     /**
      * @brief Lấy mã lỗi cuối cùng của cảm biến SHT30.
@@ -62,32 +56,10 @@ namespace sensors
     SensorError get_last_error_sht30();
 
     /**
-     * @brief Lấy mã lỗi cuối cùng của cảm biến DS18B20.
-     */
-    SensorError get_last_error_ds18b20();
-
-    /**
-     * @brief Lấy mã lỗi cuối cùng của cảm biến SCD30.
-     */
-    SensorError get_last_error_scd30();
-
-    /**
-     * @brief Giả lập trạng thái phần cứng của cảm biến SHT30 (Fault Injection).
-     * @param healthy true: cảm biến hoạt động bình thường, false: giả lập lỗi chập mạch/mất kết nối.
+     * @brief Giả lập trạng thái phần cứng của SHT30 (Fault Injection).
+     * @param healthy true: cảm biến hoạt động bình thường, false: giả lập lỗi.
      */
     void set_simulated_health_sht30(bool healthy);
-
-    /**
-     * @brief Giả lập trạng thái phần cứng của cảm biến DS18B20 (Fault Injection).
-     * @param healthy true: cảm biến hoạt động bình thường, false: giả lập lỗi chập mạch/mất kết nối.
-     */
-    void set_simulated_health_ds18b20(bool healthy);
-
-    /**
-     * @brief Giả lập trạng thái phần cứng của cảm biến SCD30 (Fault Injection).
-     * @param healthy true: cảm biến hoạt động bình thường, false: giả lập lỗi chập mạch/mất kết nối.
-     */
-    void set_simulated_health_scd30(bool healthy);
 
     /**
      * @brief True while SHT30 internal heater is ON or within post-heater cool-down.

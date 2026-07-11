@@ -175,11 +175,10 @@ static void sample_control_and_enqueue_telemetry()
     {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf(
-            "[CORE1_TASK] Telemetry: temp_air=%.2f°C humidity=%.2f%% co2=%.1fppm ok=%d defog=%d | "
+            "[CORE1_TASK] Telemetry: temp_air=%.2f°C humidity=%.2f%% co2=N/A ok=%d defog=%d | "
             "mist=%d fan=%d heater=%d blackout=%d\n",
             data.temp_air,
             data.humidity_air,
-            data.co2_level,
             static_cast<int>(ok),
             static_cast<int>(defogging),
             static_cast<int>(out.mist_active),

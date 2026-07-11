@@ -233,23 +233,33 @@ Recommended implementation:
    - snapshot > 20 sec with online status → stale;
    - offline takes priority over stale.
 
-### 5.2 Admin enrollment workflow
+### 5.2 Admin enrollment workflow (Phase 2 — done)
 
-Current registry table exists, but no admin API/UI enrollment yet.
+MVP enrollment is an ops script + seed SQL, not a full admin UI.
 
-MVP acceptable path: SQL/migration/admin script.
+**Script:** `scripts/enroll-device.sh`
 
-Need define actual sequence:
+```bash
+DEVICE_PSK='unique_secret' ./scripts/enroll-device.sh mushroom_s3_aabbccddeeff [house_01]
+```
 
-1. Flash identical binary.
-2. Read derived MAC device ID from serial/SoftAP config.
-3. Provision Wi-Fi + MQTT broker + unique PSK in NVS.
-4. Create EMQX user: username = device ID, password = unique PSK.
-5. Insert device registry row mapping `device_id → house_id`, `mqtt_username = device_id`, enabled true.
-6. Refresh/restart backend cache.
-7. UI uses exactly same device ID through `NEXT_PUBLIC_DEVICE_ID`.
+Steps performed by the script:
+1. Login to EMQX REST API using root `.env` admin credentials.
+2. Create/update EMQX built-in auth user (`user_id = device_id`, password = PSK).
+3. Upsert `mushroom_houses` (if missing) + `devices` row via `docker exec … psql`.
+4. Prints `NEXT_PUBLIC_DEVICE_ID=` value for UI env.
 
-May add explicit admin endpoint later, but **never** reintroduce `/auth/token` on reconnect.
+**Seed SQL:** `database/seed-lab.sql` — example house + device upsert with no secrets.
+
+Field sequence:
+1. Flash identical firmware binary.
+2. Read MAC-derived device ID from serial log or SoftAP portal.
+3. Run `enroll-device.sh` to provision EMQX user + Postgres registry row.
+4. Provision device NVS via SoftAP (Wi-Fi, broker IP, port, PSK).
+5. Set `NEXT_PUBLIC_DEVICE_ID` in `mushroom-ui/.env.local` or Docker env.
+6. Verify E2E: ESP32 → EMQX → NestJS → TimescaleDB → UI cards.
+
+May add explicit Nest admin endpoint later, but **never** reintroduce `/auth/token` on reconnect.
 
 ### 5.3 Transport/security hardening (not done)
 

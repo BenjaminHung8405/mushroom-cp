@@ -57,9 +57,7 @@ void task_core0_communication(void* /*pvParameters*/)
                     doc["humidity_air"] = tel.humidity_air;
                     doc["humidity"] = tel.humidity_air;
                 }
-                if (!std::isnan(tel.temp_substrate)) {
-                    doc["substrate_temperature"] = tel.temp_substrate;
-                }
+                // co2_level is NAN until SCD30 is integrated — omitted automatically.
                 if (!std::isnan(tel.co2_level)) {
                     doc["co2_level"] = tel.co2_level;
                     doc["co2"] = tel.co2_level;
