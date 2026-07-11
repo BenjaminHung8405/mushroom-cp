@@ -130,9 +130,9 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2) {
         return 0.0f;
     }
 
-    // Current hardware uses only ON/OFF relay control, not PWM. Hysteresis
-    // determines a stable binary command; any future TPC layer can consume the
-    // same normalized convention without changing this hardware behavior.
+    // The hysteresis stage deliberately requests full normalized demand. It
+    // does not drive a relay or generate pulses: the downstream TPC scheduler
+    // is the sole owner of SSR HIGH/LOW timing.
     return 1.0f;
 }
 

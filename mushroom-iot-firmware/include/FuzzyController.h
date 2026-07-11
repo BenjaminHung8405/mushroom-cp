@@ -95,7 +95,7 @@ CO2RuleState makeInitialCO2State();
  *
  * @param state Mutable hysteresis latch owned by the caller.
  * @param errorCO2 CO2 error in ppm (target - measured).
- * @return Binary raw exhaust command: 1.0 for relay ON, 0.0 for relay OFF.
+ * @return Normalized raw TPC demand: 1.0 while the latch requests exhaust, 0.0 otherwise.
  */
 float executeCO2Rules(CO2RuleState& state, float errorCO2);
 

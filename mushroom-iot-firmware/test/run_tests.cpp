@@ -1109,33 +1109,45 @@ int main() {
         assert(out == 0.0f);
         assert(state.exhaust_active == false);
 
-        // 26.3 Cross the ON threshold to engage the exhaust latch.
+        // 26.3 Exact ON boundary remains OFF: engagement is strictly above
+        // 50 ppm excess, which makes the deadband unambiguous.
+        out = FuzzyController::executeCO2Rules(state, -50.0f);
+        assert(out == 0.0f);
+        assert(state.exhaust_active == false);
+
+        // 26.4 Cross the ON threshold to engage the exhaust latch.
         out = FuzzyController::executeCO2Rules(state, -51.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);
 
-        // 26.4 While latched, remaining inside the deadband keeps the binary
-        // relay command ON even though the excess is below the ON threshold.
+        // 26.5 Exact OFF boundary keeps the latch active; release is strictly
+        // below 20 ppm excess.
+        out = FuzzyController::executeCO2Rules(state, -20.0f);
+        assert(out == 1.0f);
+        assert(state.exhaust_active == true);
+
+        // 26.6 While latched, remaining inside the deadband keeps the full
+        // TPC demand even though the excess is below the ON threshold.
         out = FuzzyController::executeCO2Rules(state, -30.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);
 
-        // 26.5 Fall below the OFF threshold to release the latch.
+        // 26.7 Fall below the OFF threshold to release the latch.
         out = FuzzyController::executeCO2Rules(state, -10.0f);
         assert(out == 0.0f);
         assert(state.exhaust_active == false);
 
-        // 26.6 Large excess remains the binary ON command once engaged.
+        // 26.8 Large excess remains the full TPC demand once engaged.
         out = FuzzyController::executeCO2Rules(state, -450.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);
 
-        // 26.7 Negative excess (measured below target) keeps exhaust OFF.
+        // 26.9 Negative excess (measured below target) keeps exhaust OFF.
         out = FuzzyController::executeCO2Rules(state, 100.0f);
         assert(out == 0.0f);
         assert(state.exhaust_active == false);
 
-        // 26.8 Invalid sensor data fails safe and clears the latch.
+        // 26.10 Invalid sensor data fails safe and clears the latch.
         state.exhaust_active = true;
         out = FuzzyController::executeCO2Rules(state, NAN);
         assert(out == 0.0f);
@@ -1144,7 +1156,7 @@ int main() {
         assert(out == 0.0f);
         assert(state.exhaust_active == false);
 
-        // 26.9 Output remains binary and normalized for extreme excess values.
+        // 26.11 Output remains normalized for extreme excess values.
         out = FuzzyController::executeCO2Rules(state, -10000.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);

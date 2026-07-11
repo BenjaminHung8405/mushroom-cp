@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:54:54+07:00]
+- **Task ID**: B2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [FuzzyController.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/FuzzyController.h)
+  - [MODIFY] [FuzzyController.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/FuzzyController.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Rà soát `executeCO2Rules()` theo semantics SSR + TPC: khi latch ON trả demand chuẩn hóa `ExhCO2 = 1.0`, khi OFF trả `0.0`; không threshold/map sang GPIO và không tự tạo xung trong FuzzyController.
+  - Giữ hysteresis/deadband caller-owned (`CO2RuleState`): bật khi excess > 50 ppm, giữ latch trong dải chết, nhả khi excess < 20 ppm; NaN/Inf fail-safe OFF và xóa latch.
+  - Cập nhật docs/comment để khẳng định TPC Task là nơi duy nhất quyết định pha HIGH/LOW SSR; hysteresis chỉ yêu cầu full duty demand.
+  - Bổ sung test biên chính xác: excess = 50 ppm vẫn OFF, excess = 20 ppm vẫn giữ latch ON; cập nhật wording test B2 theo TPC demand.
+  - Tự kiểm tra: focused host test B2 với `clang++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined` PASS; static check không có `digitalWrite`/`analogWrite`/`ledcWrite` trong FuzzyController; `git diff --check` sạch.
+
 ## [2026-07-11T16:50:57+07:00]
 - **Task ID**: B1
 - **Trạng thái hiện tại**: Đang chờ QA Review
