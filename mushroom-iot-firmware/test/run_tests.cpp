@@ -810,6 +810,52 @@ int main() {
         assert(tb == 0.0f);
     }
 
+    // 22. Test Task A2 - MathEngine computeMembership (trimf and trapmf)
+    Serial.println("[TEST] Starting Task A2 - computeMembership Unit Tests...");
+    {
+        // 22.1 Triangular Membership (trimf) checks: a=1.0, b=2.0, c=3.0
+        assert(MathEngine::computeMembership(0.5f, 1.0f, 2.0f, 3.0f) == 0.0f);   // x < a
+        assert(MathEngine::computeMembership(1.0f, 1.0f, 2.0f, 3.0f) == 0.0f);   // x == a (edge)
+        assert(std::abs(MathEngine::computeMembership(1.5f, 1.0f, 2.0f, 3.0f) - 0.5f) < 1e-6f); // rising slope
+        assert(MathEngine::computeMembership(2.0f, 1.0f, 2.0f, 3.0f) == 1.0f);   // x == b (peak)
+        assert(std::abs(MathEngine::computeMembership(2.5f, 1.0f, 2.0f, 3.0f) - 0.5f) < 1e-6f); // falling slope
+        assert(MathEngine::computeMembership(3.0f, 1.0f, 2.0f, 3.0f) == 0.0f);   // x == c (edge)
+        assert(MathEngine::computeMembership(3.5f, 1.0f, 2.0f, 3.0f) == 0.0f);   // x > c
+
+        // 22.2 Triangular Degenerate cases
+        assert(MathEngine::computeMembership(1.5f, 2.0f, 2.0f, 3.0f) == 0.0f);   // a == b, x < a
+        assert(MathEngine::computeMembership(2.0f, 2.0f, 2.0f, 3.0f) == 1.0f);   // a == b, x == b
+        assert(MathEngine::computeMembership(2.5f, 1.0f, 2.0f, 2.0f) == 0.0f);   // b == c, x > c
+        assert(MathEngine::computeMembership(2.0f, 1.0f, 2.0f, 2.0f) == 1.0f);   // b == c, x == b
+
+        // 22.3 Triangular Robustness with NaN/Inf
+        assert(MathEngine::computeMembership(NAN, 1.0f, 2.0f, 3.0f) == 0.0f);
+        assert(MathEngine::computeMembership(1.5f, NAN, 2.0f, 3.0f) == 0.0f);
+        assert(MathEngine::computeMembership(1.5f, 1.0f, INFINITY, 3.0f) == 0.0f);
+
+        // 22.4 Trapezoidal Membership (trapmf) checks: a=1.0, b=2.0, c=3.0, d=4.0
+        assert(MathEngine::computeMembership(0.5f, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);   // x < a
+        assert(MathEngine::computeMembership(1.0f, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);   // x == a (edge)
+        assert(std::abs(MathEngine::computeMembership(1.5f, 1.0f, 2.0f, 3.0f, 4.0f) - 0.5f) < 1e-6f); // rising slope
+        assert(MathEngine::computeMembership(2.0f, 1.0f, 2.0f, 3.0f, 4.0f) == 1.0f);   // x == b
+        assert(MathEngine::computeMembership(2.5f, 1.0f, 2.0f, 3.0f, 4.0f) == 1.0f);   // b < x < c (plateau)
+        assert(MathEngine::computeMembership(3.0f, 1.0f, 2.0f, 3.0f, 4.0f) == 1.0f);   // x == c
+        assert(std::abs(MathEngine::computeMembership(3.5f, 1.0f, 2.0f, 3.0f, 4.0f) - 0.5f) < 1e-6f); // falling slope
+        assert(MathEngine::computeMembership(4.0f, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);   // x == d (edge)
+        assert(MathEngine::computeMembership(4.5f, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);   // x > d
+
+        // 22.5 Trapezoidal Degenerate cases
+        assert(MathEngine::computeMembership(1.5f, 2.0f, 2.0f, 3.0f, 4.0f) == 0.0f);   // a == b, x < a
+        assert(MathEngine::computeMembership(2.0f, 2.0f, 2.0f, 3.0f, 4.0f) == 1.0f);   // a == b, x == b
+        assert(MathEngine::computeMembership(3.5f, 1.0f, 2.0f, 3.0f, 3.0f) == 0.0f);   // c == d, x > d
+        assert(MathEngine::computeMembership(3.0f, 1.0f, 2.0f, 3.0f, 3.0f) == 1.0f);   // c == d, x == c
+
+        // 22.6 Trapezoidal Robustness with NaN/Inf
+        assert(MathEngine::computeMembership(NAN, 1.0f, 2.0f, 3.0f, 4.0f) == 0.0f);
+        assert(MathEngine::computeMembership(2.5f, 1.0f, 2.0f, NAN, 4.0f) == 0.0f);
+        assert(MathEngine::computeMembership(2.5f, 1.0f, -INFINITY, 3.0f, 4.0f) == 0.0f);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

@@ -34,4 +34,27 @@ float calculateFuzzyArea(float w1, float w2, float w3, float& Kz, float& K);
  */
 float calculateFuzzyArea(float w1, float w2, float w3);
 
+/**
+ * @brief Computes membership value for a triangular membership function (trimf).
+ * 
+ * @param x The input value.
+ * @param a The left feet (value where membership starts to rise from 0 to 1).
+ * @param b The peak (value where membership is 1.0).
+ * @param c The right feet (value where membership returns to 0).
+ * @return float The membership value in range [0.0, 1.0].
+ */
+float computeMembership(float x, float a, float b, float c);
+
+/**
+ * @brief Computes membership value for a trapezoidal membership function (trapmf).
+ * 
+ * @param x The input value.
+ * @param a The left feet (value where membership starts to rise from 0 to 1).
+ * @param b The left peak start (value where membership reaches 1.0).
+ * @param c The right peak end (value where membership starts to fall from 1.0).
+ * @param d The right feet (value where membership returns to 0).
+ * @return float The membership value in range [0.0, 1.0].
+ */
+float computeMembership(float x, float a, float b, float c, float d);
+
 } // namespace MathEngine

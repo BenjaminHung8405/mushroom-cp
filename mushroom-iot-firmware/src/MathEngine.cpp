@@ -89,4 +89,69 @@ float calculateFuzzyArea(float w1, float w2, float w3) {
     return calculateFuzzyArea(w1, w2, w3, dummy_Kz, dummy_K);
 }
 
+float computeMembership(float x, float a, float b, float c) {
+    if (std::isnan(x) || std::isinf(x) || 
+        std::isnan(a) || std::isinf(a) || 
+        std::isnan(b) || std::isinf(b) || 
+        std::isnan(c) || std::isinf(c)) {
+        return 0.0f;
+    }
+
+    if (x <= a || x >= c) {
+        if (x == b) {
+            return 1.0f;
+        }
+        return 0.0f;
+    }
+    if (x == b) {
+        return 1.0f;
+    }
+
+    float val = 0.0f;
+    if (x < b) {
+        if (b > a) {
+            val = (x - a) / (b - a);
+        }
+    } else {
+        if (c > b) {
+            val = (c - x) / (c - b);
+        }
+    }
+
+    return (val < 0.0f) ? 0.0f : ((val > 1.0f) ? 1.0f : val);
+}
+
+float computeMembership(float x, float a, float b, float c, float d) {
+    if (std::isnan(x) || std::isinf(x) || 
+        std::isnan(a) || std::isinf(a) || 
+        std::isnan(b) || std::isinf(b) || 
+        std::isnan(c) || std::isinf(c) || 
+        std::isnan(d) || std::isinf(d)) {
+        return 0.0f;
+    }
+
+    if (x <= a || x >= d) {
+        if (x >= b && x <= c) {
+            return 1.0f;
+        }
+        return 0.0f;
+    }
+    if (x >= b && x <= c) {
+        return 1.0f;
+    }
+
+    float val = 0.0f;
+    if (x < b) {
+        if (b > a) {
+            val = (x - a) / (b - a);
+        }
+    } else {
+        if (d > c) {
+            val = (d - x) / (d - c);
+        }
+    }
+
+    return (val < 0.0f) ? 0.0f : ((val > 1.0f) ? 1.0f : val);
+}
+
 } // namespace MathEngine

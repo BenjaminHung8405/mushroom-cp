@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:03:00+07:00]
+- **Task ID**: A2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [MathEngine.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/MathEngine.h)
+  - [MODIFY] [MathEngine.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/MathEngine.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - Triển khai thành công hàm nạp chồng `computeMembership()` cho hàm thuộc tính tam giác (`trimf`) và hình thang (`trapmf`) trong `MathEngine.h` và `MathEngine.cpp`.
+  - Logic tính toán được tối ưu CPU tối đa: kiểm tra và thoát sớm khi $x$ nằm ngoài miền xác định, chỉ thực hiện phép chia tại sườn dốc tương ứng (không tính toán dư thừa).
+  - Ép kết quả đầu ra luôn nằm trong khoảng `[0.0, 1.0]` bằng cơ chế kẹp an toàn.
+  - Xử lý mượt mà và đúng đắn các trường hợp suy biến biên trùng nhau ($a == b$ hoặc $c == d$) để tránh lỗi chia cho 0.
+  - Tích hợp cơ chế kiểm duyệt dữ liệu đầu vào (NaN/Inf) để trả về `0.0f` fallback an toàn.
+  - Viết bộ unit tests phủ toàn bộ các trường hợp biên của hàm tam giác & hình thang (gồm sườn dốc, đỉnh, ngoài khoảng, trường hợp suy biến và kiểm thử NaN/Inf) trong `run_tests.cpp`.
+  - Kết quả kiểm tra nội bộ: Biên dịch bằng `g++` local thành công 100%, vượt qua toàn bộ test suite hiện có của dự án.
+
 ## [2026-07-11T16:01:00+07:00]
 - **Task ID**: A1
 - **Trạng thái hiện tại**: Đang chờ QA Review
