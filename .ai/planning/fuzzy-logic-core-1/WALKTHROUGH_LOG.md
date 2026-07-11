@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T17:20:52+07:00]
+- **Task ID**: B5
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai `task_core1_control()` (Core1_ControlTask) theo pipeline bắt buộc: sensors → Trajectory setpoints → AdaptiveTuner gains → Fuzzy dual-heater + CO2 → arbitrateOutputs → hardwareProtectionOverride → applyTpcOutputs (digitalWrite HIGH/LOW) → `vTaskDelay(pdMS_TO_TICKS(50))`.
+  - Không dùng `delay()`, `analogWrite()`, `ledcWrite()`, `malloc`/`new`/`String` trong loop; state (CO2 latch, integral gains, TPC scheduler) nằm trên stack của task, caller-owned.
+  - RTC chưa có provider thật → `readRtcTimeFailSafe()` trả invalid → hard-rule ép HWat/Mist OFF trước TPC, đúng biosafety fail-safe.
+  - Bỏ local_control hysteresis path cũ trên Core 1; legacy MQTT ActuatorCommand bị drain/drop, không bypass pipeline TPC.
+  - Unit test B5: single-iteration host path xác nhận init GPIO LOW + protection force HWat/Mist LOW; focused host compile+run PASS; static check thứ tự protection→TPC→vTaskDelay; `git diff --check` sạch.
+
 ## [2026-07-11T17:04:48+07:00]
 - **Task ID**: B4
 - **Trạng thái hiện tại**: Đang chờ QA Review

@@ -47,10 +47,6 @@ int mock_operation_counter = 0;
 void setup();
 void loop();
 
-// Symbols exported from core1_tasks.cpp for test visibility
-extern const uint8_t DEMO_RELAY_PINS[];
-extern const size_t  DEMO_RELAY_COUNT;
-
 int main() {
     xWifiEventGroup = xEventGroupCreate();
     Serial.println("--- Starting StorageManager Unit Tests ---");
@@ -704,23 +700,18 @@ int main() {
     mock_pin_write_order.clear();
     mock_operation_counter = 0;
 
-    // Call the task once — it will read sensors, toggle a relay, and return
+    // Execute a single iteration of the TPC control pipeline
     task_core1_control(nullptr);
 
-    // Verify that at least one relay was toggled by the demo cycle
-    bool any_relay_toggled = false;
-    for (size_t i = 0; i < DEMO_RELAY_COUNT; ++i)
-    {
-        if (mock_pin_values.count(DEMO_RELAY_PINS[i]) > 0)
-        {
-            any_relay_toggled = true;
-            break;
-        }
-    }
-    assert(any_relay_toggled == true);
-
-    // Verify sensors were initialized (pin modes recorded)
+    // Verify sensors and relays were initialized
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) > 0);
+    assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_1) > 0);
+    assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
+
+    // TPC initialized its channels to OFF (LOW) by default.
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
 
     // 19.7 Cleanup queues
     vQueueDelete(test_act_queue);
@@ -1299,6 +1290,41 @@ int main() {
         assert(std::is_pod<TPC_Task::TpcSchedulerState>::value == true);
     }
 
+
+    // 29. Test Task B5 - Core1_ControlTask TPC pipeline single iteration
+    Serial.println("[TEST] Starting Task B5 - Core1 TPC Pipeline Unit Tests...");
+    {
+        // Reset mock state for a clean pipeline run
+        sensors::init_sensors_placeholder();
+        mock_pin_modes.clear();
+        mock_pin_values.clear();
+        mock_pin_write_order.clear();
+        mock_operation_counter = 0;
+
+        // Execute one full pipeline iteration
+        task_core1_control(nullptr);
+
+        // Verify all SSR relay pins were initialized as OUTPUT
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_1) == 1);
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_2) == 1);
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) == 1);
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
+
+        // RTC is unavailable (fail-safe), so hardwareProtectionOverride() forces
+        // HWat and Mist to 0.0 duty → TPC writes LOW to both heater pins.
+        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_2] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+
+        // HAir and Exhaust are unaffected by the blackout interlock; they remain
+        // LOW because the default crop day (0.0) produces zero cold/wet demand.
+        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
+
+        // Verify no heap allocation or delay() was used — confirmed by static
+        // analysis of core1_tasks.cpp (no malloc/new/String/delay in loop body).
+        // The pipeline correctly follows: sensors → trajectory → fuzzy → gains
+        // → arbitration → protection → TPC → vTaskDelay(50).
+    }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

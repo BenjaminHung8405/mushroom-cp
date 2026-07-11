@@ -3,17 +3,22 @@
 #include "actuators.h"
 #include "config.h"
 #include "models.h"
-#include "local_control.h"
+#include "Trajectory.h"
+#include "AdaptiveTuner.h"
+#include "FuzzyController.h"
+#include "TPC_Task.h"
 #include "serial_mutex.h"
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
+#include <cmath>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #else
 #include "Arduino.h"
+#include <cmath>
 #endif
 
 // ---------------------------------------------------------------------------
@@ -134,82 +139,79 @@ void task_hardware_button(void* /*pvParameters*/)
 }
 
 
-// Relay pin table used for the periodic demo toggle (mock exercise only).
-// Exposed via extern for unit-test visibility.
-extern const uint8_t DEMO_RELAY_PINS[];
-extern const size_t  DEMO_RELAY_COUNT;
+// Physical SSR assignments. The TPC layer is the exclusive owner of their
+// HIGH/LOW phase; no other Core 1 path writes these output pins after init.
+constexpr TPC_Task::TpcChannelConfig H_AIR_TPC_CONFIG = {
+    config::pins::PIN_RELAY_HEATER_1, 60000U, 2000U, 2000U};
+constexpr TPC_Task::TpcChannelConfig H_WAT_TPC_CONFIG = {
+    config::pins::PIN_RELAY_HEATER_2, 60000U, 2000U, 2000U};
+constexpr TPC_Task::TpcChannelConfig MIST_TPC_CONFIG = {
+    config::pins::PIN_RELAY_MIST, 60000U, 2000U, 2000U};
+constexpr TPC_Task::TpcChannelConfig EXHAUST_TPC_CONFIG = {
+    config::pins::PIN_RELAY_FAN, 60000U, 2000U, 2000U};
 
-const uint8_t DEMO_RELAY_PINS[] = {
-    config::pins::PIN_RELAY_MIST,
-    config::pins::PIN_RELAY_FAN,
-    config::pins::PIN_RELAY_HEATER_1,
-    config::pins::PIN_RELAY_HEATER_2
-};
-const size_t DEMO_RELAY_COUNT =
-    sizeof(DEMO_RELAY_PINS) / sizeof(DEMO_RELAY_PINS[0]);
+constexpr float CONTROL_PERIOD_SECONDS = 0.050f;
+constexpr float SAFE_DEFAULT_CROP_DAY = 0.0f;
 
-// ---------------------------------------------------------------------------
-// Helper: apply local hysteresis outputs to GPIO relays
-// ---------------------------------------------------------------------------
-static void apply_relay_outputs(const local_control::RelayOutputs &out)
+bool isFinite(float value)
 {
-    actuators::set_relay_state(config::pins::PIN_RELAY_MIST, out.mist_active);
-    actuators::set_relay_state(config::pins::PIN_RELAY_FAN, out.fan_active);
-    actuators::set_relay_state(config::pins::PIN_RELAY_HEATER_1, out.heater_active);
-    actuators::set_relay_state(config::pins::PIN_RELAY_HEATER_2, out.heater_active);
+    return std::isfinite(value);
+}
+
+// RTC integration is intentionally fail-safe until an RTC/NTP provider is
+// wired into Core 1. An invalid sample makes hardwareProtectionOverride()
+// force HWat and Mist OFF, as required by the biosafety hard rule.
+TPC_Task::RtcTimePod readRtcTimeFailSafe()
+{
+    return TPC_Task::RtcTimePod{false, 0U, 0U};
 }
 
 // ---------------------------------------------------------------------------
-// Helper: sample sensors, run edge safety control, enqueue telemetry
+// Helper: sample sensors and enqueue telemetry without changing GPIO state.
 // ---------------------------------------------------------------------------
-static void sample_control_and_enqueue_telemetry()
+static void sample_and_enqueue_telemetry(TelemetryData& data)
 {
-    TelemetryData data = {};
-    bool ok = sensors::read_all_telemetry(data);
-    const bool defogging = sensors::is_sht30_defogging();
-    const unsigned long now = millis();
-
-    local_control::RelayOutputs out = local_control::compute(data, now, defogging);
-    apply_relay_outputs(out);
+    const bool ok = sensors::read_all_telemetry(data);
 
     {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf(
-            "[CORE1_TASK] Telemetry: temp_air=%.2f°C humidity=%.2f%% co2=N/A ok=%d defog=%d | "
-            "mist=%d fan=%d heater=%d blackout=%d\n",
+            "[CORE1_TASK] Telemetry: temp_air=%.2f°C humidity=%.2f%% co2=%.2f ok=%d\n",
             data.temp_air,
             data.humidity_air,
-            static_cast<int>(ok),
-            static_cast<int>(defogging),
-            static_cast<int>(out.mist_active),
-            static_cast<int>(out.fan_active),
-            static_cast<int>(out.heater_active),
-            static_cast<int>(out.midday_blackout_active));
+            data.co2_level,
+            static_cast<int>(ok));
     }
 
     if (xTelemetryQueue != nullptr)
     {
-        // Non-blocking send; drop the sample if the queue is full rather than
-        // stalling the real-time control loop.
-        BaseType_t sent = xQueueSend(xTelemetryQueue, &data, 0);
+        // Non-blocking send: telemetry must never stall real-time SSR control.
+        const BaseType_t sent = xQueueSend(xTelemetryQueue, &data, 0);
         if (sent != pdTRUE)
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.println("[CORE1_TASK] WARNING: Telemetry queue full — sample dropped.");
         }
     }
+}
 
-    // Drain legacy actuator queue (no longer used for MQTT authority).
-    if (xActuatorQueue != nullptr)
+// ---------------------------------------------------------------------------
+// Helper: drain legacy commands without allowing them to bypass the pipeline.
+// ---------------------------------------------------------------------------
+static void drain_legacy_actuator_queue()
+{
+    if (xActuatorQueue == nullptr)
     {
-        ActuatorCommand cmd;
-        while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf(
-                "[CORE1_TASK] Dropped legacy ActuatorCommand pin=%u (edge owns relays).\n",
-                static_cast<unsigned>(cmd.relay_id));
-        }
+        return;
+    }
+
+    ActuatorCommand cmd;
+    while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf(
+            "[CORE1_TASK] Dropped legacy ActuatorCommand pin=%u; TPC pipeline owns SSRs.\n",
+            static_cast<unsigned>(cmd.relay_id));
     }
 }
 
@@ -220,73 +222,82 @@ void task_core1_control(void* /*pvParameters*/)
 {
     {
         ScopedSerialLock guard(SerialLock::get_instance());
-        Serial.println("[CORE1_TASK] Starting task_core1_control on Core 1...");
+        Serial.println("[CORE1_TASK] Starting TPC control pipeline on Core 1...");
     }
 
-    // 1. Initialise HAL layers (safe to call once; idempotent for mock)
+    // GPIO is initialized LOW before this task accepts any demand.
     sensors::init_sensors_placeholder();
     actuators::init_actuators_gpio();
-    local_control::init();
 
 #ifndef UNIT_TEST
-    // Explicitly register this task. IDLE-task monitoring alone cannot catch a
-    // stalled control task that still yields elsewhere; every completed control
-    // iteration must kick the WDT below.
     if (esp_task_wdt_add(nullptr) != ESP_OK)
     {
         Serial.println("[CORE1_TASK] WARNING: Failed to register Core 1 task with Task WDT.");
     }
 #endif
 
-    unsigned long last_sensor_ms = 0;
-
-    #ifndef UNIT_TEST
-    while (1)
-    #else
-    // Host unit-test path: execute a single iteration then return
-    for (int _iter = 0; _iter < 1; ++_iter)
-    #endif
-    {
-        // Edge safety loop: sample sensors, recompute hysteresis, apply relays.
-        unsigned long now = millis();
-        if ((now - last_sensor_ms) >= SENSOR_READ_INTERVAL_MS || last_sensor_ms == 0)
-        {
-            last_sensor_ms = now;
-            sample_control_and_enqueue_telemetry();
-        }
-
-        // SoftAP / WiFi-down is no longer a special "enter fuzzy" path — local
-        // hysteresis already owns relays regardless of MQTT connectivity.
-        if (xWifiEventGroup != nullptr)
-        {
-            EventBits_t bits = xEventGroupGetBits(xWifiEventGroup);
-            if (bits & WIFI_SOFTAP_BIT)
-            {
-                static unsigned long last_autonomy_log = 0;
-                if (now - last_autonomy_log >= 5000UL || last_autonomy_log == 0)
-                {
-                    last_autonomy_log = now;
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[CORE1_TASK] SoftAP active — edge hysteresis still owns relays.");
-                }
-            }
-        }
+    TelemetryData telemetry = {NAN, NAN, NAN};
+    FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
+    AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
+    TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();
+    unsigned long lastSensorMs = 0U;
+    unsigned long lastControlMs = millis();
 
 #ifndef UNIT_TEST
-        static unsigned long last_stack_log = 0;
-        if (now - last_stack_log >= 5000UL)
+    while (true)
+#else
+    // Host unit-test path executes exactly one complete pipeline iteration.
+    for (int iteration = 0; iteration < 1; ++iteration)
+#endif
+    {
+        const unsigned long now = millis();
+        if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
         {
-            last_stack_log = now;
-            ScopedSerialLock guard(SerialLock::get_instance());
-            UBaseType_t hwm = uxTaskGetStackHighWaterMark(nullptr);
-            Serial.printf("[CORE1_TASK] Stack High Water Mark: %u words\n",
-                          static_cast<unsigned>(hwm));
+            lastSensorMs = now;
+            sample_and_enqueue_telemetry(telemetry);
         }
 
-        // Kick Task WDT after a completed loop. vTaskDelay alone is not enough —
-        // an infinite wait inside I2C can still yield while this task is stuck.
+        // The growth-day source is not yet provisioned. Day 0 is an explicit,
+        // deterministic safe default rather than inventing time-derived state.
+        const Trajectory::SetpointPod setpoints =
+            Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
+        const float errorTemp = isFinite(telemetry.temp_air)
+            ? setpoints.temp_target - telemetry.temp_air : NAN;
+        const float errorHumid = isFinite(telemetry.humidity_air)
+            ? setpoints.humidity_target - telemetry.humidity_air : NAN;
+        const float errorCO2 = isFinite(telemetry.co2_level)
+            ? setpoints.co2_target - telemetry.co2_level : NAN;
+
+        const unsigned long elapsedMs = now - lastControlMs;
+        lastControlMs = now;
+        const float dtSeconds = (elapsedMs == 0U)
+            ? CONTROL_PERIOD_SECONDS
+            : static_cast<float>(elapsedMs) / 1000.0f;
+        const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
+            tunerState, errorTemp, errorHumid, dtSeconds);
+        const FuzzyController::DualHeaterOutputsPod thermalDemands =
+            FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
+        const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
+        FuzzyController::ArbitratedOutputsPod outputs =
+            FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
+
+        // Mandatory ordering: all fuzzy/gain work completes before this hard
+        // interlock, then only TPC translates protected duties to GPIO levels.
+        TPC_Task::hardwareProtectionOverride(outputs, readRtcTimeFailSafe());
+        TPC_Task::applyTpcOutputs(
+            outputs,
+            H_AIR_TPC_CONFIG,
+            H_WAT_TPC_CONFIG,
+            MIST_TPC_CONFIG,
+            EXHAUST_TPC_CONFIG,
+            tpcState);
+
+        drain_legacy_actuator_queue();
+
+#ifndef UNIT_TEST
         esp_task_wdt_reset();
-        vTaskDelay(pdMS_TO_TICKS(50));
 #endif
+        // Required yielding point: no delay(), no busy wait, and no heap work.
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
