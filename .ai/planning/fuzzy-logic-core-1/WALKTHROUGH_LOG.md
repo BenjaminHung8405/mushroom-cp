@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:24:28+07:00]
+- **Task ID**: B1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [FuzzyController.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/FuzzyController.h)
+  - [NEW] [FuzzyController.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/FuzzyController.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Tạo module fuzzy thuần, không trạng thái `FuzzyController` và triển khai `executeDualHeaterRules(errorTemp, errorHumid)` theo quy ước lỗi `target - measured`.
+  - Nhánh **Lạnh & Khô** ưu tiên sấy khí (`HAir`) và chỉ cấp phần ngân sách còn lại cho phun sương (`Mist`); nhánh **Lạnh & Ẩm ướt** ưu tiên sấy nước (`HWat`) và khóa Mist/ExhTH. Cơ chế ngân sách bảo đảm `HAir + Mist <= 1.0`, tránh kích hoạt đồng thời quá mức hai thiết bị triệt tiêu nhau.
+  - Nhiệt độ cao hoặc độ ẩm dư kích hoạt `ExhTH`; tất cả bốn đầu ra được kẹp cứng về `[0.0, 1.0]`. Dữ liệu lỗi NaN/Inf trả về toàn bộ công suất 0 theo fail-safe.
+  - Bổ sung unit test độc lập cho hai nhánh bắt buộc, kiểm tra ngân sách công suất, exhaust, clamp, dữ liệu invalid và POD layout.
+  - Kết quả tự kiểm tra: test tập trung B1 với `-Wall -Wextra -Werror` cùng AddressSanitizer/UndefinedBehaviorSanitizer PASS; biên dịch và chạy toàn bộ host test suite PASS. `git diff --check` sạch. PlatformIO CLI không có trong môi trường nên chưa thể chạy firmware build trên target.
+
 ## [2026-07-11T16:19:56+07:00]
 - **Task ID**: A1, A2, A3, A4 (Full Track A Audit)
 - **Trạng thái hiện tại**: QA Approved — All LGTM / Done
