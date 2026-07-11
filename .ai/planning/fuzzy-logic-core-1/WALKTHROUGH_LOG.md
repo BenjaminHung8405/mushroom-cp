@@ -1,5 +1,36 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-11T16:47:45+07:00]
+- **Task ID**: Kế hoạch Sprint 1 — điều chỉnh kiến trúc SSR + TPC
+- **Trạng thái hiện tại**: Đã cập nhật kế hoạch; B1, B2, B3, B4, B5 ở Pending
+- **Danh sách file**:
+  - [MODIFY] [README.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/README.md)
+  - [MODIFY] [sprint_1.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/sprint_1.md)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Theo yêu cầu mới, SSR được điều khiển bằng TPC (Time-Proportional Control): demand mờ `[0.0, 1.0]` được chuyển thành thời lượng ON/OFF trong cửa sổ thời gian dài qua `digitalWrite()`, không dùng PWM tần số cao.
+  - Cập nhật luồng kiến trúc: fuzzy → arbitration → demand TPC → hardware protection → TPC window/minimum ON-OFF → GPIO SSR.
+  - Các task bị ảnh hưởng B1, B2, B3 được trả về `[ ] Pending` để rà soát semantics demand TPC; B4/B5 vẫn Pending nhưng được mở rộng chỉ dẫn TPC scheduler, RTC fail-safe, minimum ON/OFF và thứ tự safety bắt buộc.
+  - Không thay đổi mã firmware trong bản cập nhật kế hoạch này. Đã kiểm tra `git diff --check` sạch.
+
+## [2026-07-11T16:39:27+07:00]
+- **Task ID**: B3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [FuzzyController.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/FuzzyController.h)
+  - [MODIFY] [FuzzyController.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/FuzzyController.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai `arbitrateOutputs(thermalOutputs, exhCO2, gains)` trong `FuzzyController`, trả `ArbitratedOutputsPod` (HAir/HWat/Mist/Exh) đã chuẩn hóa.
+  - Decoupled arbitrator: trộn `ExhTH` và `ExhCO2` bằng `std::max` để kênh xả được kích hoạt khi CO2 hoặc nhiệt-ẩm yêu cầu mạnh hơn; không nhân gain lên kênh exhaust.
+  - HAir/HWat/Mist được nhân với `gain_*` từ AdaptiveTuner; gain finite bị kẹp cứng vào band an toàn `[0.5, 2.5]`; NaN/Inf gain fail-safe OFF cho kênh tương ứng.
+  - Post-arbitration clamp: mọi kết quả sau nhân gain/trộn exhaust bị clamp về `[0.0, 1.0]` — phù hợp relay ON/OFF (không PWM).
+  - Bổ sung unit tests Task B3 (nominal, max-authority, gain apply, NaN fail-safe, out-of-band gain, POD layout) và smoke regression A1–A4 + B1–B3.
+  - Kết quả tự kiểm tra: focused host tests cho B3 và core math smoke với `-Wall -Wextra -Werror -fsanitize=address,undefined` PASS. `git diff --check` sạch. Full suite phụ thuộc ESP/WiFi/FreeRTOS không chạy được trên host (thiếu header platform), không ảnh hưởng logic B3.
+
 ## [2026-07-11T16:30:08+07:00]
 - **Task ID**: B2
 - **Trạng thái hiện tại**: Đang chờ QA Review

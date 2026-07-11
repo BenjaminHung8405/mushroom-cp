@@ -12,14 +12,15 @@
   2. [sprint_2.md (Hạ tầng IoT, Delta MQTT Base64 và Web Dashboard - Core 0)](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/sprint_2.md)
 
 ## Addition Plan
-- **Yêu cầu phát sinh**: Chưa có
+- **Yêu cầu phát sinh (2026-07-11)**: Áp dụng **TPC (Time-Proportional Control)** cho SSR: chuyển demand mờ chuẩn hóa `[0.0, 1.0]` thành tỷ lệ thời gian ON/OFF trong cửa sổ TPC để điều khiển máy siêu âm, sấy khí và quạt hút.
 
-## ⚠️ Lưu ý Phần cứng Quan trọng
-> **Hệ thống hiện chỉ điều khiển relay ON/OFF, không dùng PWM.**
-> - Tất cả output fuzzy (`HAir`, `HWat`, `Mist`, `ExhTH`, `ExhCO2`) là lệnh nhị phân: `0.0` = OFF, `1.0` = ON.
-> - Không có TPC (Time Pulse Control), không băm xung, không duty cycle tỉ lệ.
-> - Các hàm `arbitrateOutputs()` (B3) và `hardwareProtectionOverride()` (B4) chỉ thao tác trên giá trị boolean, không tạo PWM.
-> - `Core1_ControlTask()` (B5) gọi `digitalWrite(pin, HIGH/LOW)`, không `analogWrite()`.
+## ⚠️ Lưu ý Phần cứng Quan trọng — SSR + TPC
+> **Hệ thống dùng SSR và áp dụng TPC, không dùng PWM tần số cao.**
+> - Tất cả output fuzzy (`HAir`, `HWat`, `Mist`, `ExhTH`, `ExhCO2`) là **demand chuẩn hóa** `[0.0, 1.0]`, trong đó `0.0` = luôn OFF và `1.0` = luôn ON trong cửa sổ TPC.
+> - `TPC_Task` chuyển demand thành khoảng ON/OFF bằng `digitalWrite(pin, HIGH/LOW)` và timer non-blocking; tuyệt đối không dùng `analogWrite()`, `ledcWrite()` hoặc PWM tần số cao.
+> - Mỗi thiết bị SSR phải có cửa sổ TPC và thời gian ON/OFF tối thiểu cấu hình được; không được đóng cắt nhanh hoặc đảo trạng thái liên tục theo từng tick 50 ms.
+> - `arbitrateOutputs()` (B3) trả demand liên tục đã clamp `[0.0, 1.0]`; `hardwareProtectionOverride()` (B4) ép duty của HWat/Mist về `0.0` trước khi TPC quyết định mức GPIO.
+> - `Core1_ControlTask()` (B5) phải gọi `hardwareProtectionOverride()` ở bước cuối trước TPC/GPIO và chỉ xuất mức HIGH/LOW do TPC quyết định.
 
 ## Tracks Progress
 
@@ -38,11 +39,11 @@
 #### Track B: Điều khiển & Chấp hành (Sprint 1 - Hardware & Control Logic)
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
-| B1 | Tạo file `FuzzyController.h` / `FuzzyController.cpp` và triển khai hàm `executeDualHeaterRules()` nạp `errorTemp`, `errorHumid`, trả về công suất thô cho HAir, HWat, Mist, ExhTH. | [ ] QA Review | - **Fuzzy Rules Invariants**: Phân nhánh logic "Lạnh & Khô" vs "Lạnh & Ẩm ướt" phải được kiểm thử độc lập. Đảm bảo luật mờ không gây ra tình trạng bật đồng thời hai thiết bị triệt tiêu nhau (vd: sấy nhiệt và phun sương đồng thời quá mức) trừ khi được cấu hình đặc biệt.<br>- **Ràng buộc Output**: Giá trị trả về cho mỗi kênh điều khiển phải là trị số thô trong khoảng `[0.0, 1.0]`. |
-| B2 | Triển khai hàm `executeCO2Rules()` trong `FuzzyController` nạp `errorCO2` và trả về công suất xả khí ExhCO2. | [ ] QA Review | - **Hysteresis Control**: Áp dụng cơ chế trễ (Hysteresis) hoặc khoảng chết (Deadband) xung quanh setpoint CO2 để ngăn chặn hiện tượng quạt xả đóng ngắt liên tục (Chống mòn thiết bị vật lý). |
-| B3 | Triển khai hàm `arbitrateOutputs()` trong `FuzzyController` trộn `ExhTH` và `ExhCO2` bằng hàm `std::max`, nhân với tập hệ số Gains từ `AdaptiveTuner`. | [ ] Pending | - **Decoupled Arbitrator Pattern**: Trộn đầu ra xả gió giữa bài toán nhiệt-ẩm và bài toán CO2 bằng hàm toán học phi tuyến `std::max`. Đảm bảo hệ thống ưu tiên xả khi CO2 tích tụ cao.<br>- **Post-arbitration Clamp**: Kết quả sau khi nhân với Gains bắt buộc phải được clamp về `[0.0, 1.0]` — hiện tại là lệnh relay nhị phân (ON/OFF), không PWM. |
-| B4 | Tạo file `TPC_Task.h` / `TPC_Task.cpp` và triển khai hàm `hardwareProtectionOverride()` ép `out_HWat = 0` và `out_Mist = 0` nếu nằm trong khoảng 11:00 AM - 13:30 PM. | [ ] Pending | - **Biosafety / Hardware Hard-rule**: Hàm này là tuyến phòng thủ tối cao, chạy ở cuối chu trình điều khiển, không được phép bị bỏ qua bởi bất kỳ logic mờ hay thuật toán thích nghi nào.<br>- **Lỗi RTC Fallback**: Nếu không thể đọc được thời gian thực từ RTC (hoặc RTC trả về dữ liệu lỗi), bắt buộc phải fallback về trạng thái an toàn: ngắt hoàn toàn bộ sấy nước (`out_HWat = 0`) và phun sương (`out_Mist = 0`). |
-| B5 | Triển khai hàm `Core1_ControlTask()` — Task loop vô tận cho FreeRTOS ghim vào Core 1, điều khiển GPIO bằng `digitalWrite()` (relay ON/OFF), gọi `vTaskDelay(50)`. | [ ] Pending | - **Chống treo Watchdog (TWDT)**: Bắt buộc gọi `vTaskDelay(pdMS_TO_TICKS(50))` ở mỗi chu kỳ để nhường CPU cho IDLE task chạy trên Core 1. Cấm dùng `delay()` làm đóng băng core.<br>- **Bộ nhớ Heap**: Tuyệt đối không sử dụng cấp phát động (`malloc`, `new`, `String`) bên trong vòng lặp vô tận này để phòng ngừa rò rỉ RAM gây sập hệ thống sau nhiều ngày hoạt động.<br>- **Thứ tự thực thi**: Hàm `hardwareProtectionOverride()` bắt buộc phải được gọi ở dòng cuối cùng ngay trước khi xuất tín hiệu điều khiển ra các GPIO Registers (SSR Relays).<br>- **⚠️ Relay ON/OFF**: Không dùng PWM/analogWrite — tất cả output là digitalWrite(pin, HIGH/LOW). |
+| B1 | Rà soát/điều chỉnh `executeDualHeaterRules()` trong `FuzzyController` để trả demand TPC thô cho HAir, HWat, Mist, ExhTH từ `errorTemp`, `errorHumid`. | [ ] In Progress | - **Fuzzy Rules Invariants**: Phân nhánh "Lạnh & Khô" vs "Lạnh & Ẩm ướt" phải được kiểm thử độc lập; không tạo demand cao đồng thời cho thiết bị triệt tiêu nhau trừ cấu hình đặc biệt.<br>- **TPC Semantics**: Mỗi output là duty demand `[0.0, 1.0]` cho TPC, **chưa** được threshold/map thành relay boolean trong FuzzyController. |
+| B2 | Rà soát/điều chỉnh `executeCO2Rules()` trong `FuzzyController` để tạo demand xả `ExhCO2` tương thích TPC từ `errorCO2`. | [ ] Pending | - **Hysteresis Control**: Áp dụng hysteresis/deadband quanh setpoint để chống chattering; state latch phải tường minh/caller-owned.<br>- **TPC Semantics**: Latch có thể yêu cầu duty `1.0`, nhưng không được gọi GPIO hay tự tạo xung; TPC Task là nơi duy nhất quyết định pha ON/OFF SSR. |
+| B3 | Rà soát/điều chỉnh `arbitrateOutputs()` trong `FuzzyController`: trộn `ExhTH`/`ExhCO2` bằng `std::max`, nhân HAir/HWat/Mist với Gains từ `AdaptiveTuner`, trả duty demand TPC. | [ ] Pending | - **Decoupled Arbitrator Pattern**: Dùng `std::max` cho demand exhaust để CO2 cao được ưu tiên độc lập.<br>- **Post-arbitration Clamp**: Kết quả sau gain/arbitration phải clamp `[0.0, 1.0]`; **cấm** threshold/map sang `0.0/1.0` relay tại B3. |
+| B4 | Tạo file `TPC_Task.h` / `TPC_Task.cpp`; triển khai `hardwareProtectionOverride()` và lõi chuyển duty TPC sang trạng thái SSR. | [ ] Pending | - **Biosafety / Hardware Hard-rule**: Trước pha TPC/GPIO, ép duty `out_HWat = 0.0` và `out_Mist = 0.0` trong 11:00–13:30; không logic mờ/tuning nào được bypass.<br>- **RTC Fail-safe**: RTC không đọc được hoặc dữ liệu lỗi phải ép duty HWat/Mist về `0.0`.<br>- **TPC Scheduler**: Dùng `millis()` non-blocking, cửa sổ/ON-OFF minimum configurable theo thiết bị; output luôn là `digitalWrite(HIGH/LOW)`, không PWM. |
+| B5 | Triển khai `Core1_ControlTask()` — FreeRTOS loop ghim Core 1, chạy fuzzy → arbitration → protection → TPC → GPIO SSR và gọi `vTaskDelay(50)`. | [ ] Pending | - **Chống treo Watchdog (TWDT)**: Gọi `vTaskDelay(pdMS_TO_TICKS(50))` mỗi chu kỳ; cấm `delay()`.<br>- **Bộ nhớ Heap**: Cấm `malloc`, `new`, `String` trong loop vô tận.<br>- **Thứ tự bắt buộc**: `hardwareProtectionOverride()` phải chạy sau fuzzy/arbitration và ngay trước khi TPC quyết định HIGH/LOW xuất GPIO.<br>- **TPC/SSR**: Không PWM/analogWrite; chỉ `digitalWrite`, nhưng trạng thái HIGH/LOW được tính theo duty và cửa sổ TPC, với bảo vệ minimum ON/OFF. |
 
 ---
 

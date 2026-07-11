@@ -11,8 +11,8 @@ Xây dựng firmware cho vi điều khiển ESP32 áp dụng kiến trúc phân 
   - `ArduinoJson` (v6/v7) (Trích xuất và đóng gói dữ liệu Delta JSON).
   - `mbedtls/base64.h` (Thư viện C native của ESP32 để mã hóa payload).
   - `WebServer`, `WiFi` (Quản lý SoftAP + Station).
-- **Hardware:** ESP32, SSR Relays, Cảm biến SHT30 (I2C), Cảm biến SCD30 (I2C).
-- **⚠️ Lưu ý phần cứng:** Hệ thống hiện chỉ điều khiển relay **ON/OFF** (SSR Relays). **Không dùng PWM**, không băm xung thời gian (TPC), không duty cycle tỉ lệ. Mọi output fuzzy được ánh xạ nhị phân: `0.0` = OFF, `1.0` = ON qua `digitalWrite()`.
+- **Hardware:** ESP32-S3 WROOM N16R8, SSR Relays, Cảm biến SHT30 (I2C), Cảm biến SCD30 (I2C).
+- **⚠️ Lưu ý phần cứng:** Hệ thống dùng SSR với **TPC (Time-Proportional Control)**. Output fuzzy là duty demand `[0.0, 1.0]`, được TPC Task chuyển thành các pha ON/OFF trong cửa sổ thời gian bằng `digitalWrite()`. Không dùng `analogWrite()`, `ledcWrite()` hoặc PWM tần số cao; phải áp dụng cửa sổ TPC và thời gian ON/OFF tối thiểu theo từng thiết bị.
 
 ## 3. QUY TẮC VIẾT CODE TOÀN CỤC (CODING CONVENTIONS)
 - **Kiến trúc:** Phân tách rõ ràng giữa tầng thuật toán (Fuzzy/Math) và tầng phần cứng (GPIO/I2C). Các mô-đun thuật toán không được chứa hàm delay() hay gọi trực tiếp thư viện phần cứng.

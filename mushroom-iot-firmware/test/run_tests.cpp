@@ -1134,6 +1134,66 @@ int main() {
         assert(state.exhaust_active == true);
     }
 
+    // 27. Test Task B3 - FuzzyController gain arbitration and exhaust merge
+    Serial.println("[TEST] Starting Task B3 - FuzzyController Arbitration Unit Tests...");
+    {
+        using FuzzyController::ArbitratedOutputsPod;
+        using FuzzyController::DualHeaterOutputsPod;
+
+        const AdaptiveTuner::GainsPod nominal = {1.0f, 1.0f, 1.0f};
+        const DualHeaterOutputsPod raw = {0.40f, 0.30f, 0.20f, 0.35f};
+        const ArbitratedOutputsPod nominalOut =
+            FuzzyController::arbitrateOutputs(raw, 0.60f, nominal);
+
+        // 27.1 Nominal gains preserve actuator demands and CO2 takes the
+        // shared exhaust relay whenever its demand exceeds the TH request.
+        assert(std::abs(nominalOut.HAir - 0.40f) < 1e-6f);
+        assert(std::abs(nominalOut.HWat - 0.30f) < 1e-6f);
+        assert(std::abs(nominalOut.Mist - 0.20f) < 1e-6f);
+        assert(std::abs(nominalOut.Exh - 0.60f) < 1e-6f);
+
+        // 27.2 Thermal/humidity demand remains authoritative if it is larger.
+        const ArbitratedOutputsPod thermalExhaust =
+            FuzzyController::arbitrateOutputs(raw, 0.10f, nominal);
+        assert(std::abs(thermalExhaust.Exh - 0.35f) < 1e-6f);
+
+        // 27.3 Per-channel adaptive gains apply only to HAir/HWat/Mist, and
+        // post-gain products are clamped to the normalized range.
+        const AdaptiveTuner::GainsPod adjusted = {2.5f, 0.5f, 2.0f};
+        const DualHeaterOutputsPod gainRaw = {0.80f, 0.80f, 0.60f, 0.20f};
+        const ArbitratedOutputsPod adjustedOut =
+            FuzzyController::arbitrateOutputs(gainRaw, 0.10f, adjusted);
+        assert(adjustedOut.HAir == 1.0f);  // 0.80 * 2.5 -> clamp to 1.0
+        assert(std::abs(adjustedOut.HWat - 0.40f) < 1e-6f);
+        assert(adjustedOut.Mist == 1.0f);  // 0.60 * 2.0 -> clamp to 1.0
+        assert(std::abs(adjustedOut.Exh - 0.20f) < 1e-6f);
+
+        // 27.4 Malformed raw commands are clamped; NaN/Inf gains fail safe
+        // OFF for the corresponding actuator. Finite-but-out-of-band gains
+        // are bounded to the tuner safety band [0.5, 2.5].
+        const DualHeaterOutputsPod malformedRaw = {NAN, -1.0f, 2.0f, INFINITY};
+        const AdaptiveTuner::GainsPod malformedGains = {NAN, 100.0f, NAN};
+        const ArbitratedOutputsPod safeOut = FuzzyController::arbitrateOutputs(
+            malformedRaw, NAN, malformedGains);
+        assert(safeOut.HAir == 0.0f);   // NaN raw -> safeUnit -> 0
+        assert(safeOut.HWat == 0.0f);   // -1.0 raw -> clampUnit -> 0
+        assert(safeOut.Mist == 0.0f);   // NaN gain -> safeGain -> 0
+        assert(safeOut.Exh == 0.0f);    // NaN exhCO2 -> safeUnit -> 0
+
+        // 27.5 Out-of-band finite gains are bounded to the tuner safety band.
+        const DualHeaterOutputsPod boundedRaw = {0.50f, 0.50f, 0.50f, 0.0f};
+        const AdaptiveTuner::GainsPod outOfBandGains = {100.0f, -100.0f, 100.0f};
+        const ArbitratedOutputsPod boundedOut = FuzzyController::arbitrateOutputs(
+            boundedRaw, 0.0f, outOfBandGains);
+        assert(boundedOut.HAir == 1.0f);  // 0.5 * max gain 2.5 -> clamp
+        assert(std::abs(boundedOut.HWat - 0.25f) < 1e-6f);
+        assert(boundedOut.Mist == 1.0f);
+
+        assert(std::is_pod<ArbitratedOutputsPod>::value == true);
+        assert(sizeof(ArbitratedOutputsPod) == 16);
+        assert(alignof(ArbitratedOutputsPod) == 4);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

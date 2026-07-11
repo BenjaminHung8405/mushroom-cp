@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AdaptiveTuner.h"
+
 /**
  * @file FuzzyController.h
  * @brief Fuzzy rule stages for temperature/humidity and CO2 exhaust control.
@@ -32,6 +34,19 @@ struct DualHeaterOutputsPod {
  */
 struct CO2RuleState {
     bool exhaust_active;  ///< Latch: true while the exhaust demand is held ON.
+} __attribute__((aligned(4)));
+
+/**
+ * @brief Post-arbitration actuator demands ready for the protection/GPIO stage.
+ *
+ * Every field is hard-clamped to [0.0, 1.0]. Current hardware maps these
+ * demands to ON/OFF relays later (duty > 0.5 => ON); there is no PWM here.
+ */
+struct ArbitratedOutputsPod {
+    float HAir;
+    float HWat;
+    float Mist;
+    float Exh;
 } __attribute__((aligned(4)));
 
 /**
@@ -77,5 +92,27 @@ CO2RuleState makeInitialCO2State();
  * @return Binary raw exhaust command: 1.0 for relay ON, 0.0 for relay OFF.
  */
 float executeCO2Rules(CO2RuleState& state, float errorCO2);
+
+/**
+ * @brief Applies adaptive gains and resolves the two exhaust requests.
+ *
+ * HAir, HWat, and Mist are multiplied by their respective adaptive gains.
+ * Thermal/humidity and CO2 exhaust demands are decoupled and merged with
+ * std::max so either subsystem can independently request the shared exhaust
+ * channel. Results after gain multiplication are hard-clamped to [0.0, 1.0].
+ *
+ * Non-finite raw demands or gains fail safe to OFF for their channel. Gains
+ * are additionally bounded to the AdaptiveTuner safety band [0.5, 2.5]
+ * before multiplication.
+ *
+ * @param thermalOutputs Raw normalized temperature/humidity outputs.
+ * @param exhCO2 Raw normalized CO2 exhaust demand.
+ * @param gains Adaptive gains for HAir, HWat, and Mist.
+ * @return Normalized post-arbitration demands for the protection/GPIO stage.
+ */
+ArbitratedOutputsPod arbitrateOutputs(
+    const DualHeaterOutputsPod& thermalOutputs,
+    float exhCO2,
+    const AdaptiveTuner::GainsPod& gains);
 
 } // namespace FuzzyController

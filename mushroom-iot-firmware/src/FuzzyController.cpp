@@ -1,5 +1,6 @@
 #include "FuzzyController.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace FuzzyController {
@@ -31,6 +32,27 @@ inline float clampUnit(float value) {
 
 inline bool isFinite(float value) {
     return !std::isnan(value) && !std::isinf(value);
+}
+
+inline float safeUnit(float value) {
+    return isFinite(value) ? clampUnit(value) : 0.0f;
+}
+
+// Bounds a gain into AdaptiveTuner's hardware-safe band. Invalid values fail
+// safe to 0.0 so the corresponding actuator channel is forced OFF.
+inline float safeGain(float value) {
+    constexpr float GAIN_MIN = 0.5f;
+    constexpr float GAIN_MAX = 2.5f;
+    if (!isFinite(value)) {
+        return 0.0f;
+    }
+    if (value < GAIN_MIN) {
+        return GAIN_MIN;
+    }
+    if (value > GAIN_MAX) {
+        return GAIN_MAX;
+    }
+    return value;
 }
 
 // Pure ramp membership: 0 at error <= 0, 1 at error >= fullScale.
@@ -109,6 +131,34 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2) {
     // determines a stable binary command; any future TPC layer can consume the
     // same normalized convention without changing this hardware behavior.
     return 1.0f;
+}
+
+ArbitratedOutputsPod arbitrateOutputs(
+    const DualHeaterOutputsPod& thermalOutputs,
+    float exhCO2,
+    const AdaptiveTuner::GainsPod& gains) {
+    // Apply adaptive gains only to the heaters/mist channels. Post-gain
+    // products are hard-clamped to the unit interval for the relay stage.
+    const float hAirDemand = clampUnit(
+        safeUnit(thermalOutputs.HAir) * safeGain(gains.gain_HAir));
+    const float hWatDemand = clampUnit(
+        safeUnit(thermalOutputs.HWat) * safeGain(gains.gain_HWat));
+    const float mistDemand = clampUnit(
+        safeUnit(thermalOutputs.Mist) * safeGain(gains.gain_Mist));
+
+    // Keep the CO2 and thermal/humidity rule bases independent until this
+    // single arbitration point. std::max gives either demand full authority
+    // to request the shared exhaust channel (CO2-high priority when larger).
+    const float exhaustDemand = std::max(
+        safeUnit(thermalOutputs.ExhTH),
+        safeUnit(exhCO2));
+
+    return ArbitratedOutputsPod{
+        hAirDemand,
+        hWatDemand,
+        mistDemand,
+        clampUnit(exhaustDemand),
+    };
 }
 
 } // namespace FuzzyController
