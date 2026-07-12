@@ -71,7 +71,7 @@ namespace mqtt
         
         mqtt_client.setKeepAlive(60);
         mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
-        mqtt_client.setCallback(MqttClient::mqtt_callback_static);
+        mqtt_client.setCallback(MqttClient::handleMQTTCallback);
 
         {
             ScopedSerialLock guard(SerialLock::get_instance());
@@ -230,6 +230,11 @@ namespace mqtt
         get_instance().handle_message(topic, payload, length);
     }
 
+    void MqttClient::handleMQTTCallback(char* topic, uint8_t* payload, unsigned int length)
+    {
+        get_instance().handle_message(topic, payload, length);
+    }
+
     void MqttClient::handle_message(char* topic, uint8_t* payload, unsigned int length)
     {
         // 1. Sanity Check / Null Pointer Safeguards
@@ -298,7 +303,32 @@ namespace mqtt
             return;
         }
 
-        process_setpoints(doc);
+        bool is_command = false;
+        if (doc.containsKey("cmd"))
+        {
+            const char* cmd_val = doc["cmd"].as<const char*>();
+            if (cmd_val != nullptr && strcmp(cmd_val, "full_sync") == 0)
+            {
+                set_shared_force_full_publish(true);
+                is_command = true;
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] Command received: full_sync. Flag shared_forceFullPublish set to true.");
+                }
+            }
+        }
+
+        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
+            doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
+            doc.containsKey("humidity") || doc.containsKey("co2") ||
+            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec"))
+        {
+            process_setpoints(doc);
+        }
+        else if (!is_command)
+        {
+            process_setpoints(doc);
+        }
     }
 
     void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)

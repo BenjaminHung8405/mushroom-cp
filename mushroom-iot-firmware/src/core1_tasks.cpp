@@ -28,6 +28,44 @@ QueueHandle_t xActuatorQueue  = nullptr;
 QueueHandle_t xTelemetryQueue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
+volatile bool shared_forceFullPublish = false;
+#ifndef UNIT_TEST
+SemaphoreHandle_t xTelemetryMutex = nullptr;
+#endif
+
+bool get_shared_force_full_publish()
+{
+#ifndef UNIT_TEST
+    if (xTelemetryMutex != nullptr)
+    {
+        if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
+        {
+            bool val = shared_forceFullPublish;
+            xSemaphoreGive(xTelemetryMutex);
+            return val;
+        }
+    }
+#endif
+    return shared_forceFullPublish;
+}
+
+void set_shared_force_full_publish(bool val)
+{
+#ifndef UNIT_TEST
+    if (xTelemetryMutex != nullptr)
+    {
+        if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
+        {
+            shared_forceFullPublish = val;
+            xSemaphoreGive(xTelemetryMutex);
+        }
+        return;
+    }
+#endif
+    shared_forceFullPublish = val;
+}
+
+
 // ---------------------------------------------------------------------------
 // Local constants — no heap allocation inside the infinite loop
 // ---------------------------------------------------------------------------

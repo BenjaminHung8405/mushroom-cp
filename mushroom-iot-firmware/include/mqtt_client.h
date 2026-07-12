@@ -106,6 +106,11 @@ namespace mqtt
         static void mqtt_callback_static(char* topic, uint8_t* payload, unsigned int length);
 
         /**
+         * @brief Static callback hook that handles incoming MQTT messages.
+         */
+        static void handleMQTTCallback(char* topic, uint8_t* payload, unsigned int length);
+
+        /**
          * @brief Internal message handler to process incoming payloads on subscribed topics.
          */
         void handle_message(char* topic, uint8_t* payload, unsigned int length);

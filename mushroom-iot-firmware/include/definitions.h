@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <freertos/event_groups.h>
+#include <freertos/semphr.h>
 #else
 // Host-side unit-test stubs — QueueHandle_t is defined in test/Arduino.h.
 // Provide a forward typedef so this header can be included before Arduino.h.
@@ -26,6 +27,15 @@ typedef void* EventGroupHandle_t;
 #define WIFI_FACTORY_RESET_BIT      (1 << 3)
 
 extern EventGroupHandle_t xWifiEventGroup;
+
+extern volatile bool shared_forceFullPublish;
+#ifndef UNIT_TEST
+extern SemaphoreHandle_t xTelemetryMutex;
+#endif
+
+// Safe helper functions for thread-safe access to shared_forceFullPublish
+bool get_shared_force_full_publish();
+void set_shared_force_full_publish(bool val);
 
 #include "models.h"
 

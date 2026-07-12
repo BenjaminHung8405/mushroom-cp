@@ -42,6 +42,7 @@ public:
 
     const char* c_str() const { return std::string::c_str(); }
     size_t length() const { return std::string::length(); }
+    bool isEmpty() const { return empty(); }
 };
 
 class HardwareSerial {

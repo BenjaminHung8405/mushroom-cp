@@ -85,6 +85,18 @@ void setup()
         Serial.println("[MAIN] xWifiEventGroup created successfully.");
     }
 
+#ifndef UNIT_TEST
+    xTelemetryMutex = xSemaphoreCreateMutex();
+    if (xTelemetryMutex == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xTelemetryMutex!");
+    }
+    else
+    {
+        Serial.println("[MAIN] xTelemetryMutex created successfully.");
+    }
+#endif
+
     #ifndef UNIT_TEST
     // 4. Create and pin Task Core 0 Communication to Core 0
     {

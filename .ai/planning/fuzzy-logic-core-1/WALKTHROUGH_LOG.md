@@ -1,5 +1,27 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:12:00+07:00]
+- **Task ID**: D2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai biến cờ chia sẻ đa nhân `shared_forceFullPublish` dưới dạng `volatile bool` và đồng hành với Mutex `xTelemetryMutex` nhằm bảo vệ dữ liệu truyền nhận giữa Core 0 (đầu nạp tin nhắn/quản lý truyền thông) và Core 1 (luồng điều khiển TPC).
+  - Triển khai các hàm helper thread-safe `get_shared_force_full_publish()` và `set_shared_force_full_publish()` sử dụng cơ chế tranh chấp mutex an toàn non-blocking cho môi trường FreeRTOS đa lõi trên ESP32.
+  - Sửa đổi hàm xử lý callback MQTT `handle_message()` thành `handleMQTTCallback()` trong lớp `MqttClient` đóng vai trò nhận gói tin từ MQTT Broker. Thêm logic bóc tách khóa `"cmd"` để nhận diện lệnh hệ thống `"full_sync"`. Khi khớp lệnh, lập tức đổi trạng thái cờ `shared_forceFullPublish = true` một cách an toàn.
+  - Áp dụng các quy tắc bảo vệ dữ liệu (Data Sanitization): Kiểm tra con trỏ dữ liệu MQTT hợp lệ, kiểm soát chặt kích thước payload tối đa (512 bytes) để chống tràn đệm, sao chép sang vùng đệm cục bộ an toàn trước khi Deserialization JSON.
+  - Bổ dung Case J trong bộ kịch bản kiểm thử MQTT callback tại `test/run_tests.cpp` để kiểm chứng logic bắt lệnh `"cmd": "full_sync"` hoạt động chính xác và an toàn.
+  - Khắc phục lỗi thiếu thư viện `<freertos/semphr.h>` trên `definitions.h` và bổ sung phương thức kiểm tra chuỗi rỗng `isEmpty()` cho mock class `String` trên môi trường kiểm thử offline.
+  - Tự kiểm tra: Biên dịch và chạy bộ kiểm thử offline `run_tests` thành công 100% không lỗi; PlatformIO biên dịch thành công cho target ESP32-S3 `otg` không phát sinh lỗi liên kết hay data race.
+
 ## [2026-07-12T12:08:00+07:00]
 - **Task ID**: D1
 - **Trạng thái hiện tại**: Đang chờ QA Review

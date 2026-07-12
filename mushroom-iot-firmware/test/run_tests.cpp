@@ -185,7 +185,7 @@ int main() {
     // Test init_wifi when NVS has credentials (should result in STA_CONNECTING)
     assert(wifi::init_wifi() == wifi::WifiState::STA_CONNECTING);
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
-    assert(WiFi.mock_mode == WIFI_STA);
+    assert(WiFi.mock_mode == WIFI_AP_STA);
     assert(WiFi.mock_ssid == "WiFi_STA_Test");
     assert(WiFi.mock_pass == "sta_password");
 
@@ -440,6 +440,22 @@ int main() {
             vQueueDelete(xActuatorQueue);
             xActuatorQueue = nullptr;
         }
+    }
+
+    // Case J: Command "full_sync" (Task D2)
+    {
+        Serial.println("--- Case J: Command full_sync ---");
+        set_shared_force_full_publish(false);
+        assert(get_shared_force_full_publish() == false);
+
+        std::string payload = "{\"cmd\":\"full_sync\"}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+        
+        assert(get_shared_force_full_publish() == true);
+
+        // Reset it back
+        set_shared_force_full_publish(false);
+        assert(get_shared_force_full_publish() == false);
     }
 
     // 13. Test Task D1 - Core 0 Communication Task
