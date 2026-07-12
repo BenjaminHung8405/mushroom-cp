@@ -96,6 +96,11 @@ namespace mqtt
          */
         const MqttTopics& get_resolved_topics() const;
 
+        /**
+         * @brief Returns the current reconnect interval (for unit testing backoff).
+         */
+        unsigned long get_reconnect_interval() const;
+
     private:
         MqttClient() = default;
         ~MqttClient() = default;
@@ -163,6 +168,7 @@ namespace mqtt
         MqttState current_state = MqttState::IDLE;
         MqttTopics resolved_topics;
         unsigned long last_reconnect_attempt = 0;
+        unsigned long current_reconnect_interval = 2000; ///< Current backoff reconnect interval in ms
         bool is_reconnecting = false;
 #ifndef UNIT_TEST
         void* mqtt_mutex = nullptr;

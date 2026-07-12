@@ -141,12 +141,11 @@ namespace mqtt
 
     void MqttClient::maintain_mqtt_connection()
     {
-        constexpr unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000;
-
         if (mqtt_client.connected())
         {
             mqtt_client.loop();
             current_state = MqttState::CONNECTED;
+            current_reconnect_interval = 2000; // Reset backoff interval on success
         }
         else
         {
@@ -158,10 +157,11 @@ namespace mqtt
                 }
                 local_control::on_backend_link_lost();
                 current_state = MqttState::DISCONNECTED;
+                current_reconnect_interval = 2000; // Reset backoff interval on connection loss
             }
 
             unsigned long now = millis();
-            if (now - last_reconnect_attempt >= MQTT_RECONNECT_INTERVAL_MS)
+            if (now - last_reconnect_attempt >= current_reconnect_interval)
             {
                 reconnect_mqtt();
             }
@@ -433,11 +433,12 @@ namespace mqtt
     {
         // 1. Safeguard against calling reconnect when WiFi is not ready or SoftAP mode is active
         wifi::WifiState wifi_state = wifi::get_wifi_state();
-        if (wifi_state != wifi::WifiState::STA_CONNECTED)
+        if (WiFi.status() != WL_CONNECTED || wifi_state != wifi::WifiState::STA_CONNECTED)
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Reconnect aborted: WiFi is not STA_CONNECTED.");
+                Serial.printf("[MQTT] Reconnect aborted: WiFi status is not WL_CONNECTED (status=%d, state=%d).\n", 
+                              (int)WiFi.status(), (int)wifi_state);
             }
             current_state = MqttState::ERROR_NO_WIFI;
             return;
@@ -535,6 +536,7 @@ namespace mqtt
                 Serial.println("[MQTT] Connected to broker successfully.");
             }
             current_state = MqttState::CONNECTED;
+            current_reconnect_interval = 2000; // Reset backoff interval on success
             
             // Subscribe to the incoming control setpoint commands
             mqtt_client.subscribe(resolved_topics.setpoint.c_str(), 1);
@@ -561,6 +563,11 @@ namespace mqtt
                 }
             }
             current_state = MqttState::DISCONNECTED;
+            current_reconnect_interval = std::min(current_reconnect_interval * 2, 60000UL); // Double and limit to 60s
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Reconnect interval increased to %lu ms (exponential backoff).\n", current_reconnect_interval);
+            }
         }
         return connected;
     }
@@ -573,6 +580,11 @@ namespace mqtt
             client_id = "esp32_mushroom_default";
         }
         return client_id;
+    }
+
+    unsigned long MqttClient::get_reconnect_interval() const
+    {
+        return current_reconnect_interval;
     }
 
 } // namespace mqtt

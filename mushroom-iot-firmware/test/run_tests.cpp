@@ -341,10 +341,92 @@ int main() {
     assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
     assert(PubSubClient::mock_state == 4);
     PubSubClient::mock_connect_result = true;
-    mock_millis_offset += 5000;
+    mock_millis_offset += 9000;
     mqtt_client.loop();  // reconnect succeeds
     assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
     assert(mqtt_client.is_connected() == true);
+
+    // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
+    Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
+    
+    // Ensure client is currently CONNECTED and interval is reset to 2000 ms
+    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.get_reconnect_interval() == 2000);
+
+    // 1. Sudden WiFi disconnection
+    WiFi.mock_status = WL_DISCONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
+    
+    // Call loop to detect WiFi loss, transition to ERROR_NO_WIFI, and disconnect MQTT
+    PubSubClient::mock_connected = false;
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+
+    // 2. Attempt to reconnect during WiFi outage. WiFi Safeguard must prevent this, state remains ERROR_NO_WIFI
+    mock_millis_offset += 3000;
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+
+    // 3. Restore WiFi connection
+    // WiFiManager is in STA_DISCONNECTED. We must advance time to exceed the 10-second reconnect interval.
+    mock_millis_offset += 11000;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
+
+    WiFi.mock_status = WL_CONNECTED;
+    wifi::check_wifi_connection();
+    assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
+
+    // Set MQTT mock to fail connection so that it transitions to DISCONNECTED on restored WiFi
+    PubSubClient::mock_connect_result = false;
+    PubSubClient::mock_connected = false;
+
+    // Call loop again. Since WiFi is restored, state transitions from ERROR_NO_WIFI to DISCONNECTED.
+    // It also immediately attempts reconnect because mock_millis_offset has advanced by 11000 ms (> 2000 ms).
+    // The reconnect fails, so interval increases from 2000 to 4000 ms.
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_client.get_reconnect_interval() == 4000);
+
+    // 4. Begin reconnection attempts and Exponential Backoff
+
+    // Loop after another 2000 ms (total elapsed since retry 1 is 2000 ms, which is less than 4000 ms)
+    mock_millis_offset += 2000;
+    mqtt_client.loop();
+    // Reconnect should NOT trigger, interval remains 4000 ms
+    assert(mqtt_client.get_reconnect_interval() == 4000);
+
+    // Retry 2: triggered after waiting another 2500 ms (total elapsed since retry 1 is 4500 ms > 4000 ms)
+    mock_millis_offset += 2500;
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    // Interval must double: 4000 -> 8000 ms
+    assert(mqtt_client.get_reconnect_interval() == 8000);
+
+    // Loop after 5000 ms (less than 8000 ms)
+    mock_millis_offset += 5000;
+    mqtt_client.loop();
+    assert(mqtt_client.get_reconnect_interval() == 8000);
+
+    // Retry 3: triggered after waiting another 4000 ms (total elapsed since retry 2 is 9000 ms > 8000 ms)
+    mock_millis_offset += 4000;
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    // Interval must double: 8000 -> 16000 ms
+    assert(mqtt_client.get_reconnect_interval() == 16000);
+
+    // 5. Restore connection success
+    PubSubClient::mock_connect_result = true;
+    PubSubClient::mock_connected = true;
+
+    // Trigger retry 4: after waiting > 16000 ms (+17000 ms)
+    mock_millis_offset += 17000;
+    mqtt_client.loop();
+    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.is_connected() == true);
+    // Interval must reset back to 2000 ms
+    assert(mqtt_client.get_reconnect_interval() == 2000);
 
     // 12.5 Test publish functions return value under connected state
     assert(mqtt_client.publish_status(true) == true);

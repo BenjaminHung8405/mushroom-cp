@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:15:00+07:00]
+- **Task ID**: D3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [CryptoUtils.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/CryptoUtils.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai thuật toán Exponential Backoff cho cơ chế tự động kết nối lại MQTT trong `MqttClient::maintain_mqtt_connection()`. Khoảng thời gian thử lại bắt đầu từ 2000 ms, nhân đôi sau mỗi lần kết nối thất bại và bị giới hạn tối đa là 60000 ms (60 giây). Khoảng thời gian này tự động reset về 2000 ms khi kết nối lại thành công hoặc khi mất kết nối từ trạng thái CONNECTED.
+  - Triển khai Mạch bảo vệ (WiFi Safeguard) trong `MqttClient::reconnect_mqtt()`: kiểm tra điều kiện `WiFi.status() != WL_CONNECTED` cùng với wifi_state check để ngăn chặn việc gọi kết nối lại MQTT khi WiFi chưa sẵn sàng.
+  - Sửa đổi `CryptoUtils.cpp` để bọc phần include `<mbedtls/base64.h>` trong `#ifndef UNIT_TEST` và cung cấp một bộ mã hóa base64 giả lập trên host PC. Điều này cho phép compile thành công tất cả các file mã nguồn của dự án trên host.
+  - Viết bộ kiểm thử unit test chi tiết (Case 12.4c) trong `test/run_tests.cpp` để kiểm chứng hành vi của Exponential Backoff và Mạch bảo vệ. Đồng thời, tinh chỉnh lại test case 12.4b cũ bằng cách tăng khoảng chờ `mock_millis_offset` lên 9000 ms nhằm tương thích với khoảng reconnect interval động mới.
+  - Tự kiểm tra: Biên dịch offline bằng `g++` cục bộ thành công 100% không lỗi; chạy `./run_tests` vượt qua 100% assertions thành công tốt đẹp (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-12T12:12:00+07:00]
 - **Task ID**: D2
 - **Trạng thái hiện tại**: Đang chờ QA Review
