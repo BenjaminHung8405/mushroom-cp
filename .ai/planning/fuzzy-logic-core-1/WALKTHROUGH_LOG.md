@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T11:03:39+07:00]
+- **Task ID**: C1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [CryptoUtils.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/CryptoUtils.h)
+  - [NEW] [CryptoUtils.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/CryptoUtils.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Tạo module `CryptoUtils` với ba overload `encodeBase64String()` (raw bytes, `const char*`, `String`) dùng trực tiếp API native `mbedtls_base64_encode` từ `mbedtls/base64.h`.
+  - Giới hạn input telemetry ở 512 bytes và dùng buffer output cố định 684 bytes trên Stack; không dùng buffer Heap hay cấp phát động trong encoder. Dữ liệu null không hợp lệ, input quá giới hạn và lỗi mbedTLS fail-safe trả về chuỗi rỗng; input rỗng hợp lệ trả về Base64 rỗng.
+  - Tự kiểm tra: PlatformIO target build `pio run -e otg` PASS; host test với AddressSanitizer/UndefinedBehaviorSanitizer xác nhận chuẩn Base64 (padding, dữ liệu binary), biên 512 bytes, null và oversized input PASS; `git diff --check` sạch.
+
+
 ## [2026-07-11T18:00:00+07:00]
 - **Task ID**: Kiến trúc TPC & Fail-safe (Phase 1)
 - **Trạng thái hiện tại**: Đã chốt phương án
