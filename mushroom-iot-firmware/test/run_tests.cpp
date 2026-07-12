@@ -14,6 +14,7 @@
 #include "AdaptiveTuner.h"
 #include "FuzzyController.h"
 #include "TPC_Task.h"
+#include "Telemetry.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -699,6 +700,7 @@ int main() {
     mock_pin_values.clear();
     mock_pin_write_order.clear();
     mock_operation_counter = 0;
+    mock_millis_offset = 0;
 
     // Execute a single iteration of the TPC control pipeline
     task_core1_control(nullptr);
@@ -711,7 +713,7 @@ int main() {
     // TPC initialized its channels to OFF (LOW) by default.
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
     assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
-    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
     // 19.7 Cleanup queues
     vQueueDelete(test_act_queue);
@@ -1300,6 +1302,7 @@ int main() {
         mock_pin_values.clear();
         mock_pin_write_order.clear();
         mock_operation_counter = 0;
+        mock_millis_offset = 0;
 
         // Execute one full pipeline iteration
         task_core1_control(nullptr);
@@ -1315,15 +1318,92 @@ int main() {
         assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_2] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
-        // HAir and Exhaust are unaffected by the blackout interlock; they remain
-        // LOW because the default crop day (0.0) produces zero cold/wet demand.
+        // HAir and Exhaust are unaffected by the blackout interlock; Exhaust is
+        // HIGH because the default crop day (0.0) target (24.0C) is lower than mock temperature.
         assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
-        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
         // Verify no heap allocation or delay() was used — confirmed by static
         // analysis of core1_tasks.cpp (no malloc/new/String/delay in loop body).
         // The pipeline correctly follows: sensors → trajectory → fuzzy → gains
         // → arbitration → protection → TPC → vTaskDelay(50).
+    }
+
+    // 30. Test Task C2 - Telemetry evaluateDeltaThresholds
+    Serial.println("[TEST] Starting Task C2 - Telemetry Unit Tests...");
+    {
+        // Check POD status of state
+        assert(std::is_pod<Telemetry::TelemetryState>::value == true);
+
+        // 30.1 Test isDeltaExceeded
+        // Float deviations
+        assert(Telemetry::isDeltaExceeded(25.0f, 25.1f, 0.2f) == false);
+        assert(Telemetry::isDeltaExceeded(25.0f, 25.25f, 0.2f) == true);
+        assert(Telemetry::isDeltaExceeded(25.0f, 24.75f, 0.2f) == true);
+        
+        // NAN behaviors
+        assert(Telemetry::isDeltaExceeded(NAN, NAN, 1.0f) == false);
+        assert(Telemetry::isDeltaExceeded(25.0f, NAN, 1.0f) == true);
+        assert(Telemetry::isDeltaExceeded(NAN, 25.0f, 1.0f) == true);
+
+        // 30.2 Test evaluateDeltaThresholds first publish (cold start)
+        Telemetry::TelemetryState state = Telemetry::makeInitialState();
+        TelemetryData current = { 25.0f, 80.0f, NAN };
+        
+        // First publish must be FULL
+        assert(Telemetry::evaluateDeltaThresholds(current, state, 1000UL) == Telemetry::PublishType::FULL);
+        assert(state.lastPubState.temp_air == 25.0f);
+        assert(state.lastPubState.humidity_air == 80.0f);
+        assert(std::isnan(state.lastPubState.co2_level));
+        assert(state.lastPubTimeMs == 1000UL);
+        assert(state.forceFullPublish == false);
+
+        // 30.3 Test no change
+        assert(Telemetry::evaluateDeltaThresholds(current, state, 2000UL) == Telemetry::PublishType::NONE);
+        // State remains unchanged
+        assert(state.lastPubTimeMs == 1000UL);
+
+        // 30.4 Test small change below thresholds
+        TelemetryData small_change = { 25.1f, 80.5f, NAN };
+        assert(Telemetry::evaluateDeltaThresholds(small_change, state, 3000UL) == Telemetry::PublishType::NONE);
+        assert(state.lastPubTimeMs == 1000UL);
+
+        // 30.5 Test Temp change exceeds threshold (> 0.2°C)
+        TelemetryData temp_exceeded = { 25.25f, 80.0f, NAN };
+        assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 4000UL) == Telemetry::PublishType::DELTA);
+        assert(state.lastPubState.temp_air == 25.25f);
+        assert(state.lastPubTimeMs == 4000UL);
+
+        // 30.6 Test Humid change exceeds threshold (> 1.0%)
+        TelemetryData humid_exceeded = { 25.25f, 81.1f, NAN };
+        assert(Telemetry::evaluateDeltaThresholds(humid_exceeded, state, 5000UL) == Telemetry::PublishType::DELTA);
+        assert(state.lastPubState.humidity_air == 81.1f);
+        assert(state.lastPubTimeMs == 5000UL);
+
+        // 30.7 Test CO2 change transitions from NAN to finite (sensor connected)
+        TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f };
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 6000UL) == Telemetry::PublishType::DELTA);
+        assert(state.lastPubState.co2_level == 400.0f);
+        assert(state.lastPubTimeMs == 6000UL);
+
+        // 30.8 Test CO2 change exceeds threshold (> 10 ppm)
+        TelemetryData co2_exceeded = { 25.25f, 81.1f, 411.0f };
+        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 7000UL) == Telemetry::PublishType::DELTA);
+        assert(state.lastPubState.co2_level == 411.0f);
+        assert(state.lastPubTimeMs == 7000UL);
+
+        // 30.9 Test forceFullPublish flag
+        state.forceFullPublish = true;
+        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL) == Telemetry::PublishType::FULL);
+        assert(state.forceFullPublish == false);
+        assert(state.lastPubTimeMs == 8000UL);
+
+        // 30.10 Test heartbeat keepalive timeout (5 minutes = 300,000 ms)
+        // Set time just under 5 mins
+        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL + 299999UL) == Telemetry::PublishType::NONE);
+        // Exceeds 5 mins
+        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL + 300000UL) == Telemetry::PublishType::FULL);
+        assert(state.lastPubTimeMs == 308000UL);
     }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

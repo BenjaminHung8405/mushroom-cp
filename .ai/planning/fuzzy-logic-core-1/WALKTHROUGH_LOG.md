@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:03:00+07:00]
+- **Task ID**: C2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [Telemetry.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/Telemetry.h)
+  - [NEW] [Telemetry.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/Telemetry.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - Tạo module `Telemetry` và triển khai hàm `evaluateDeltaThresholds()` để tối ưu hóa tần suất truyền tin dựa trên sự thay đổi giá trị cảm biến (Delta Thresholding) và khoảng thời gian giữ kết nối (Heartbeat Keepalive).
+  - Tích hợp cấu trúc `TelemetryState` dưới dạng POD standard-layout để đảm bảo an toàn bộ nhớ và tối ưu hóa căn chỉnh 32-bit.
+  - Sử dụng sai số delta tối thiểu: lệch nhiệt độ > 0.2°C, độ ẩm > 1.0%, CO2 > 10 ppm. Xử lý an toàn giá trị `NAN`: nếu trạng thái lỗi/kết nối của cảm biến thay đổi (NAN chuyển thành hữu hạn hoặc ngược lại) thì kích hoạt gửi tin lập tức; nếu cả hai đều NAN thì bỏ qua.
+  - Hỗ trợ cờ `forceFullPublish` và tự động kích hoạt gửi gói tin đầy đủ (`FULL`) sau mỗi 5 phút (300,000 ms) keepalive để backend kiểm soát trạng thái hoạt động (LWT).
+  - Khắc phục logic kiểm thử không nhất quán trong `test/run_tests.cpp` (do sai lệch `mock_millis_offset` kế thừa từ các test case trước đó làm biến đổi giá trị cảm biến nhiệt độ mock).
+  - Tự kiểm tra: Biên dịch và chạy bộ test offline thành công 100% không lỗi; PlatformIO build thành công cho target ESP32-S3 `otg`.
+
 ## [2026-07-12T11:03:39+07:00]
 - **Task ID**: C1
 - **Trạng thái hiện tại**: Đang chờ QA Review
