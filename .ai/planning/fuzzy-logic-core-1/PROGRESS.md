@@ -79,3 +79,31 @@ C1 | Tạo file `CryptoUtils.h` / `CryptoUtils.cpp` và triển khai hàm `encod
 | :--- | :--- | :--- | :--- |
 | E1 | Sửa file `main.cpp` — triển khai hàm `setup()` khởi tạo I2C, kích hoạt WiFi, tạo task chạy trên Core 1. | [ ] Pending | - **Quy trình khởi tạo Fail-Safe**: Bắt buộc khởi tạo GPIO cho các Relay ở mức an toàn (`LOW` hoặc `OFF`) đầu tiên, sau đó mới đến các thiết bị ngoại vi I2C/Mạng. Việc này đảm bảo thiết bị không tự kích hoạt relay khi ESP32 reboot.<br>- **FreeRTOS Task Allocation**: Phân bổ stack size hợp lý cho từng Task (Core 1 Task: 4096 bytes; Core 0 Task: 8192 bytes do gánh tác vụ mạng/JSON).<br>- **NTP Provider**: Sau khi WiFi Station kết nối, gọi `configTime(7*3600, 0, ...)` và chỉ công bố giờ hợp lệ cho Core 1 khi NTP đã sync; chưa sync => `RtcTimePod.valid=false`. |
 | E2 | Cập nhật hàm `loop()` trong `main.cpp` — duy trì HTTP client Webserver, duy trì kết nối MQTT và chu kỳ quét delta mỗi 5000ms. | [ ] Pending | - **Non-blocking Loop**: Hàm `loop()` trên Core 0 chỉ đóng vai trò bộ điều phối không chặn. Mọi chu kỳ quét định kỳ (ví dụ: 5000ms để kiểm tra delta) phải sử dụng bộ định thời dựa trên so sánh `millis()`, tuyệt đối cấm dùng `delay()`. |
+
+
+---
+
+### SPRINT 3: OFFLINE SETPOINT PERSISTENCE & ROTARY ENCODER OVERRIDE
+
+#### Track F: Persistency & Queue IPC (Sprint 3 - NVS + Core 1)
+
+| Task ID | Mô tả Task | Status | Note (Technical Directives) |
+| :--- | :--- | :--- | :--- |
+| F1 | Thêm snapshot POD typed, key NVS `last_sp`/`hw_ovr`, và API save/load/clear trong `StorageManager`. | [ ] Pending | - Core 0 persist; Core 1 tuyệt đối không đọc/ghi Flash runtime.<br>- Backend T:[10,45], H:[30,95], CO2:[400,10000]; manual T:[20,40], H:[50,95].<br>- Mỗi float chỉ ghi khi `fabs(new-old) >= 0.1f`; field boolean/source đổi thì ghi ngay.<br>- NVS corrupt/empty → trajectory Day 0. |
+| F2 | Thêm `ControlSetpointCommand` và hai FreeRTOS Queue depth 1: baseline backend + hardware override. | [ ] Pending | - Sender dùng `xQueueOverwrite`, Core 1 non-blocking drain ở đầu tick 50 ms.<br>- Không EventBit, không JSON/String/NVS handle truyền qua IPC.<br>- Core 1 giữ baseline và overlay tách riêng để MQTT không đè manual override. |
+| F3 | Cập nhật MQTT callback: validate → persist baseline → queue typed baseline; hỗ trợ `clearHardwareOverride:true`. | [ ] Pending | - MQTT clear xóa key `hw_ovr` rồi queue command clear; payload backend còn lại vẫn cập nhật baseline.<br>- Chỉ ACL/auth MQTT hiện có mới phát được lệnh.<br>- Không lưu raw JSON, không gọi `local_control`. |
+| F4 | Hydrate NVS trong `setup()` trước khi start task và đẩy snapshot vào queue. | [ ] Pending | - Startup queue creation + NVS hydration phải xong trước Core 0/Core 1.<br>- Core 1 nhận POD duy nhất qua queue, fallback trajectory khi không có baseline. |
+| F5 | Cập nhật `task_core1_control()` với priority `manual override > backend baseline > trajectory Day 0`. | [ ] Pending | - Validate lại command trước mutate state; command lỗi reject/log.<br>- Clear chỉ bỏ overlay và quay về baseline mới nhất.<br>- Interlock sensor/blackout/TPC vẫn ưu tiên trên setpoint. |
+| F6 | Tạo `encoder.h/.cpp` + Core 0 encoder input task cho KY-040 GPIO5/6/7. | [ ] Pending | - KY-040 bắt buộc cấp 3.3V, `INPUT_PULLUP`.<br>- CLK ISR + DT quadrature, reject edge <2ms; SW stable 30ms, double click 300ms, long-press ≥3s.<br>- Monitor double-click → Edit Temp; Edit click đổi Temp/Humi; Edit long-press save; Monitor long-press khi override active → clear.<br>- Step T 0.5°C/RH 1%, clamp T:[20,40] H:[50,95]. |
+| F7 | Xóa hoàn toàn `local_control` legacy module và mọi reference/test/comment liên quan. | [ ] Pending | - Không compatibility shim.<br>- Core 1 TPC/fuzzy là control path duy nhất. |
+| F8 | Unit/integration tests cho NVS epsilon, Queue priority, encoder gestures và regression TPC. | [ ] Pending | - Test 30.00000→30.00001/30.09 không ghi, →30.10 ghi.<br>- Manual thắng MQTT baseline; local/MQTT clear trả về latest baseline.<br>- Verify Core 1 runtime không NVS access; SSR safety vẫn giữ khi override active. |
+
+## Addition Plan — Sprint 3 (2026-07-12)
+
+- **Yêu cầu phát sinh**: Khi rớt mạng, ESP32 sử dụng setpoint cuối backend thay vì hardcode; người vận hành có thể override cả nhiệt độ/độ ẩm bằng rotary encoder.
+- **Quyết định kiến trúc**:
+  - NVS snapshot ở Core 0/startup; Queue POD là IPC runtime duy nhất tới Core 1.
+  - Priority: Hardware Override > Backend/NVS > Trajectory Day 0.
+  - Rotary KY-040: 3.3V, CLK=GPIO5, DT=GPIO6, SW=GPIO7; display tách Sprint khác.
+  - Manual override giữ đến local long-press hoặc MQTT `clearHardwareOverride:true` clear.
+  - NVS epsilon `0.1f`; xóa `local_control` dead code.
