@@ -1,4 +1,41 @@
-# WALKTHROUGH_LOG.md
+## [2026-07-12T12:55:00+07:00]
+- **Task ID**: E2
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2 - Sửa đổi theo feedback của QA)
+- **Danh sách file đã sửa**:
+  - [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+  - [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [CryptoUtils.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/CryptoUtils.h)
+  - [CryptoUtils.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/CryptoUtils.cpp)
+  - [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Khắc phục luồng lệnh full_sync**: Không consume/xóa cờ `shared_forceFullPublish` trước khi publish thành công. Cờ được consume ở đầu publication scan, nhưng nếu encode hoặc publish thất bại, cờ được khôi phục nguyên tử bằng cách gọi `set_shared_force_full_publish(true)`. Nếu cờ được callback ghi đè lên trong lúc publish, nó vẫn được bảo toàn.
+  - **Tách task_core0_communication()**: Hàm dài 129 dòng đã được tách thành các hàm helper nhỏ, mỗi hàm dưới 50 dòng và có một trách nhiệm duy nhất (`drainTelemetryQueue()`, `processWebServer()`, `processTelemetryPublication()`, `handleTelemetryScan()`, `logStackWatermark()`, `delayCore0Task()`).
+  - **Đồng bộ UNIT_TEST loop**: Nhánh `UNIT_TEST` của `loop()` trong `main.cpp` hiện gọi trực tiếp `processTelemetryPublication()` thay vì duplicate luồng, đảm bảo kiểm thử đồng nhất với production.
+  - **Bổ sung regression tests (Case 30.12)**: Thêm các kịch bản kiểm thử cho việc duy trì trạng thái FULL khi publish/encode thất bại, race condition callback full_sync trong lúc publish, và cập nhật cache thành công.
+
+## [2026-07-12T14:00:00+07:00]
+- **Task ID**: E2
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2)
+- **Danh sách file**:
+  - [MODIFY] [Telemetry.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/Telemetry.h)
+  - [MODIFY] [Telemetry.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/Telemetry.cpp)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - **[High] Lỗi 1 — Delta state mutation trước khi publish thành công**: Tách `evaluateDeltaThresholds()` thành pure evaluation (không mutate state). Thêm `commitSuccessfulPublish()` chỉ được gọi sau khi JSON hợp lệ, Base64 không rỗng, và `mqtt_client.publish_telemetry()` trả `true`. Khi encode/publish thất bại, state giữ nguyên để retry ở lần scan tiếp theo.
+  - **[High] Lỗi 2 — Race condition cờ đa nhân**: Thêm `consume_shared_force_full_publish()` đọc + reset cờ trong cùng một critical section (mutex lock/unlock). Core 0 dùng hàm này thay cho cặp get/set riêng biệt, loại bỏ window race với MQTT callback.
+  - **[Medium] Lỗi 3 — `delay()` trong `setup()`**: Xóa hoàn toàn `delay(200)` và busy-wait chờ Serial CDC khỏi `main.cpp::setup()` để safety path khởi động ngay, không bị block.
+  - **[Regression tests]**: Bổ sung Case K kiểm tra atomic consume; các sub-case 30.0, 30.4–30.6 xác nhận Base64 oversize fail-safe, failed publish không mất delta/full_sync, encoding failure không clear forceFullPublish, heartbeat vẫn retry đúng.
+  - **Tự kiểm tra**: Biên dịch host test `g++ -DUNIT_TEST` thành công, chạy `./run_tests` → `--- All Unit Tests Passed Successfully! ---` (toàn bộ 30+ test cases bao gồm Case K mới).
+
+
 
 ## [2026-07-12T12:28:07+07:00]
 - **Task ID**: E2

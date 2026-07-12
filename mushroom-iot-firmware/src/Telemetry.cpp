@@ -31,7 +31,7 @@ bool isDeltaExceeded(float val1, float val2, float threshold)
     return std::fabs(val1 - val2) > threshold;
 }
 
-PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState& state, unsigned long nowMs)
+PublishType evaluateDeltaThresholds(const TelemetryData& current, const TelemetryState& state, unsigned long nowMs)
 {
     constexpr unsigned long KEEPALIVE_INTERVAL_MS = 300000UL; // 5 minutes
 
@@ -40,9 +40,6 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState
 
     if (state.forceFullPublish || keepalive_expired)
     {
-        state.lastPubState = current;
-        state.lastPubTimeMs = nowMs;
-        state.forceFullPublish = false;
         return PublishType::FULL;
     }
 
@@ -52,12 +49,19 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState
 
     if (temp_changed || humid_changed || co2_changed)
     {
-        state.lastPubState = current;
-        state.lastPubTimeMs = nowMs;
         return PublishType::DELTA;
     }
 
     return PublishType::NONE;
+}
+
+void commitSuccessfulPublish(TelemetryState& state,
+                             const TelemetryData& published,
+                             unsigned long publishedAtMs)
+{
+    state.lastPubState = published;
+    state.lastPubTimeMs = publishedAtMs;
+    state.forceFullPublish = false;
 }
 
 String buildDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, PublishType pubType)

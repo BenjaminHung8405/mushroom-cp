@@ -14,6 +14,10 @@
 
 namespace CryptoUtils {
 
+#ifdef UNIT_TEST
+extern bool mock_base64_fail;
+#endif
+
 /** Maximum raw payload accepted by the fixed-size telemetry encoder. */
 constexpr size_t kMaxBase64InputBytes = 512U;
 

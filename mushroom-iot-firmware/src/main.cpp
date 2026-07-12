@@ -30,13 +30,6 @@ void setup()
 {
     // Initialize Serial interface
     Serial.begin(115200);
-    // Native USB CDC (ARDUINO_USB_CDC_ON_BOOT=1) cần thời gian để re-enumerate
-    // sau khi esptool hard-reset. delay(500) không đủ — tăng lên 2000ms.
-    // Thêm wait loop để không miss log nếu monitor mở chậm hơn.
-    uint32_t t0 = millis();
-    while (!Serial && (millis() - t0) < 3000) { ; } // chờ tối đa 3s
-    delay(200); // buffer nhỏ cho USB host xử lý
-
     // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức LOW (OFF) ngay lập tức
     actuators::init_actuators_gpio();
 
@@ -205,19 +198,9 @@ void loop()
     if (now - last_delta_scan >= 5000)
     {
         last_delta_scan = now;
-        // Thực hiện quét delta trong unit test
         static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
         TelemetryData mock_tel = {25.0f, 80.0f, NAN};
-        Telemetry::PublishType pubType = Telemetry::evaluateDeltaThresholds(mock_tel, telemetryState, now);
-        if (pubType != Telemetry::PublishType::NONE)
-        {
-            String json_payload = Telemetry::buildDeltaPayload(mock_tel, telemetryState.lastPubState, pubType);
-            if (json_payload.length() > 0)
-            {
-                String base64_payload = CryptoUtils::encodeBase64String(json_payload);
-                mqtt::MqttClient::get_instance().publish_telemetry(base64_payload);
-            }
-        }
+        processTelemetryPublication(now, mock_tel, telemetryState);
     }
     #endif
 }

@@ -41,13 +41,32 @@ bool get_shared_force_full_publish()
     {
         if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
         {
-            bool val = shared_forceFullPublish;
+            const bool val = shared_forceFullPublish;
             xSemaphoreGive(xTelemetryMutex);
             return val;
         }
     }
 #endif
     return shared_forceFullPublish;
+}
+
+bool consume_shared_force_full_publish()
+{
+#ifndef UNIT_TEST
+    if (xTelemetryMutex != nullptr)
+    {
+        if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
+        {
+            const bool val = shared_forceFullPublish;
+            shared_forceFullPublish = false;
+            xSemaphoreGive(xTelemetryMutex);
+            return val;
+        }
+    }
+#endif
+    const bool val = shared_forceFullPublish;
+    shared_forceFullPublish = false;
+    return val;
 }
 
 void set_shared_force_full_publish(bool val)

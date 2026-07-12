@@ -65,14 +65,27 @@ bool isDeltaExceeded(float val1, float val2, float threshold);
  *   - Humidity has drifted by > 1.0%.
  *   - CO2 level has drifted by > 10 ppm.
  *
- * Updates the persistent state object in place upon a successful trigger.
+ * This function is side-effect free: it only evaluates whether a publish is
+ * needed. Call commitSuccessfulPublish() only after JSON construction, Base64
+ * encoding, and MQTT publication have all succeeded.
  *
  * @param current Latest telemetry sample read from Core 1 queue.
- * @param state Mutable persistent state tracking cache and times.
+ * @param state Persistent state from the last successful publication.
  * @param nowMs Current time in milliseconds (millis()).
  * @return PublishType indicating FULL, DELTA, or NONE.
  */
-PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState& state, unsigned long nowMs);
+PublishType evaluateDeltaThresholds(const TelemetryData& current, const TelemetryState& state, unsigned long nowMs);
+
+/**
+ * @brief Commits a telemetry sample after its MQTT publication succeeds.
+ *
+ * Updates the last-published cache/time and clears a pending full-publish
+ * request. Failed serialization, encoding, or MQTT publication must not call
+ * this function so the exact same work is retried on the next scan.
+ */
+void commitSuccessfulPublish(TelemetryState& state,
+                             const TelemetryData& published,
+                             unsigned long publishedAtMs);
 
 /**
  * @brief Builds a JSON payload containing only the modified telemetry fields (or all fields for FULL).

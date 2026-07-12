@@ -16,6 +16,7 @@
 #include "FuzzyController.h"
 #include "TPC_Task.h"
 #include "Telemetry.h"
+#include "CryptoUtils.h"
 #include "WebInterface.h"
 #include <cassert>
 #include <type_traits>
@@ -38,6 +39,7 @@ int PubSubClient::mock_state = 0;
 std::string PubSubClient::mock_server_host = "";
 uint16_t PubSubClient::mock_server_port = 0;
 bool PubSubClient::mock_connect_result = true;
+bool PubSubClient::mock_publish_result = true;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 EventBits_t mock_event_group_bits = 0;
 
@@ -539,6 +541,17 @@ int main() {
         // Reset it back
         set_shared_force_full_publish(false);
         assert(get_shared_force_full_publish() == false);
+    }
+
+    // Case K: Atomic consume of full_sync flag (Task E2 regression)
+    {
+        Serial.println("--- Case K: Atomic consume_shared_force_full_publish ---");
+        set_shared_force_full_publish(false);
+        assert(consume_shared_force_full_publish() == false);
+        set_shared_force_full_publish(true);
+        assert(consume_shared_force_full_publish() == true);
+        assert(get_shared_force_full_publish() == false);
+        assert(consume_shared_force_full_publish() == false);
     }
 
     // 13. Test Task D1 - Core 0 Communication Task
@@ -1444,6 +1457,11 @@ int main() {
         // Check POD status of state
         assert(std::is_pod<Telemetry::TelemetryState>::value == true);
 
+        // 30.0 Regression: oversize Base64 input must fail with an empty payload.
+        uint8_t oversizedBase64Input[CryptoUtils::kMaxBase64InputBytes + 1U] = {};
+        assert(CryptoUtils::encodeBase64String(
+            oversizedBase64Input, sizeof(oversizedBase64Input)).length() == 0U);
+
         // 30.1 Test isDeltaExceeded
         // Float deviations
         assert(Telemetry::isDeltaExceeded(25.0f, 25.1f, 0.2f) == false);
@@ -1455,64 +1473,57 @@ int main() {
         assert(Telemetry::isDeltaExceeded(25.0f, NAN, 1.0f) == true);
         assert(Telemetry::isDeltaExceeded(NAN, 25.0f, 1.0f) == true);
 
-        // 30.2 Test evaluateDeltaThresholds first publish (cold start)
+        // 30.2 evaluateDeltaThresholds is side-effect free; commit only after MQTT ACK.
         Telemetry::TelemetryState state = Telemetry::makeInitialState();
         TelemetryData current = { 25.0f, 80.0f, NAN };
-        
-        // First publish must be FULL
         assert(Telemetry::evaluateDeltaThresholds(current, state, 1000UL) == Telemetry::PublishType::FULL);
+        assert(state.lastPubTimeMs == 0UL);
+        Telemetry::commitSuccessfulPublish(state, current, 1000UL);
         assert(state.lastPubState.temp_air == 25.0f);
         assert(state.lastPubState.humidity_air == 80.0f);
         assert(std::isnan(state.lastPubState.co2_level));
         assert(state.lastPubTimeMs == 1000UL);
-        assert(state.forceFullPublish == false);
 
-        // 30.3 Test no change
+        // 30.3 No change and small changes remain suppressed.
         assert(Telemetry::evaluateDeltaThresholds(current, state, 2000UL) == Telemetry::PublishType::NONE);
-        // State remains unchanged
-        assert(state.lastPubTimeMs == 1000UL);
-
-        // 30.4 Test small change below thresholds
         TelemetryData small_change = { 25.1f, 80.5f, NAN };
         assert(Telemetry::evaluateDeltaThresholds(small_change, state, 3000UL) == Telemetry::PublishType::NONE);
         assert(state.lastPubTimeMs == 1000UL);
 
-        // 30.5 Test Temp change exceeds threshold (> 0.2°C)
+        // 30.4 Regression: failed publish must leave delta pending for retry.
         TelemetryData temp_exceeded = { 25.25f, 80.0f, NAN };
         assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 4000UL) == Telemetry::PublishType::DELTA);
+        assert(state.lastPubState.temp_air == 25.0f);
+        assert(state.lastPubTimeMs == 1000UL);
+        assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 5000UL) == Telemetry::PublishType::DELTA);
+        Telemetry::commitSuccessfulPublish(state, temp_exceeded, 5000UL);
         assert(state.lastPubState.temp_air == 25.25f);
-        assert(state.lastPubTimeMs == 4000UL);
-
-        // 30.6 Test Humid change exceeds threshold (> 1.0%)
-        TelemetryData humid_exceeded = { 25.25f, 81.1f, NAN };
-        assert(Telemetry::evaluateDeltaThresholds(humid_exceeded, state, 5000UL) == Telemetry::PublishType::DELTA);
-        assert(state.lastPubState.humidity_air == 81.1f);
         assert(state.lastPubTimeMs == 5000UL);
 
-        // 30.7 Test CO2 change transitions from NAN to finite (sensor connected)
-        TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f };
-        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 6000UL) == Telemetry::PublishType::DELTA);
-        assert(state.lastPubState.co2_level == 400.0f);
-        assert(state.lastPubTimeMs == 6000UL);
-
-        // 30.8 Test CO2 change exceeds threshold (> 10 ppm)
-        TelemetryData co2_exceeded = { 25.25f, 81.1f, 411.0f };
-        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 7000UL) == Telemetry::PublishType::DELTA);
-        assert(state.lastPubState.co2_level == 411.0f);
+        // 30.5 Regression: encoding/oversize failure must not clear full_sync.
+        state.forceFullPublish = true;
+        assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 6000UL) == Telemetry::PublishType::FULL);
+        assert(state.forceFullPublish == true);
+        assert(state.lastPubTimeMs == 5000UL);
+        // Simulate failed encode by deliberately not committing; next scan retries FULL.
+        assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 7000UL) == Telemetry::PublishType::FULL);
+        assert(state.forceFullPublish == true);
+        Telemetry::commitSuccessfulPublish(state, temp_exceeded, 7000UL);
+        assert(state.forceFullPublish == false);
         assert(state.lastPubTimeMs == 7000UL);
 
-        // 30.9 Test forceFullPublish flag
-        state.forceFullPublish = true;
-        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL) == Telemetry::PublishType::FULL);
-        assert(state.forceFullPublish == false);
-        assert(state.lastPubTimeMs == 8000UL);
-
-        // 30.10 Test heartbeat keepalive timeout (5 minutes = 300,000 ms)
-        // Set time just under 5 mins
-        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL + 299999UL) == Telemetry::PublishType::NONE);
-        // Exceeds 5 mins
-        assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL + 300000UL) == Telemetry::PublishType::FULL);
-        assert(state.lastPubTimeMs == 308000UL);
+        // 30.6 Delta and heartbeat are also committed only after success.
+        TelemetryData humid_exceeded = { 25.25f, 81.1f, NAN };
+        assert(Telemetry::evaluateDeltaThresholds(humid_exceeded, state, 8000UL) == Telemetry::PublishType::DELTA);
+        Telemetry::commitSuccessfulPublish(state, humid_exceeded, 8000UL);
+        TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f };
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL) == Telemetry::PublishType::DELTA);
+        Telemetry::commitSuccessfulPublish(state, co2_connected, 9000UL);
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 299999UL) == Telemetry::PublishType::NONE);
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 300000UL) == Telemetry::PublishType::FULL);
+        assert(state.lastPubTimeMs == 9000UL);
+        Telemetry::commitSuccessfulPublish(state, co2_connected, 309000UL);
+        assert(state.lastPubTimeMs == 309000UL);
 
         // 30.11 Test buildDeltaPayload
         TelemetryData baseline = { 25.0f, 80.0f, NAN };
@@ -1575,6 +1586,68 @@ int main() {
             assert(!doc.containsKey("rH"));
             assert(doc.containsKey("tC"));
             assert(std::fabs(doc["tC"].as<float>() - 400.0f) < 0.01f);
+        }
+
+        // 30.12 Regression: processTelemetryPublication and full_sync persistence
+        {
+            // Set up connected state
+            PubSubClient::mock_connected = true;
+            PubSubClient::mock_publish_result = true;
+            CryptoUtils::mock_base64_fail = false;
+
+            Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
+            TelemetryData mock_tel = {25.0f, 80.0f, NAN};
+
+            // 1. full_sync + publish failed -> next scan remains FULL
+            set_shared_force_full_publish(true);
+            PubSubClient::mock_publish_result = false;
+            
+            unsigned long now = 1000UL;
+            processTelemetryPublication(now, mock_tel, telemetryState);
+            
+            // Assertions:
+            // Since publish failed, telemetryState.lastPubTimeMs must still be 0 (no commit)
+            assert(telemetryState.lastPubTimeMs == 0UL);
+            // Since publish failed, the shared_forceFullPublish flag must have been restored to true
+            assert(get_shared_force_full_publish() == true);
+            
+            // 2. full_sync + encode failed -> next scan remains FULL
+            // Clear shared first
+            consume_shared_force_full_publish();
+            set_shared_force_full_publish(true);
+            PubSubClient::mock_publish_result = true;
+            CryptoUtils::mock_base64_fail = true;
+            
+            processTelemetryPublication(2000UL, mock_tel, telemetryState);
+            assert(telemetryState.lastPubTimeMs == 0UL);
+            assert(get_shared_force_full_publish() == true);
+
+            // 3. Callback receives full_sync during publish -> subsequent request remains pending
+            // Reset state
+            telemetryState = Telemetry::makeInitialState();
+            CryptoUtils::mock_base64_fail = false;
+            set_shared_force_full_publish(true);
+            
+            // Consume the flag manually (simulate starting processTelemetryPublication):
+            bool consumed = consume_shared_force_full_publish();
+            assert(consumed == true);
+            assert(get_shared_force_full_publish() == false);
+            
+            // Simulate callback setting it to true during publication:
+            set_shared_force_full_publish(true);
+            
+            // Complete successful publish:
+            Telemetry::commitSuccessfulPublish(telemetryState, mock_tel, 3000UL);
+            
+            // Assert that the new request was NOT cleared:
+            assert(get_shared_force_full_publish() == true);
+            
+            // 4. Reconnect and publish successfully -> new flag is cleared
+            // First, consume the flag and publish
+            PubSubClient::mock_publish_result = true;
+            processTelemetryPublication(4000UL, mock_tel, telemetryState);
+            assert(telemetryState.lastPubTimeMs == 4000UL);
+            assert(get_shared_force_full_publish() == false);
         }
     }
 

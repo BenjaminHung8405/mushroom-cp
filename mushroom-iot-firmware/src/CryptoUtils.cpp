@@ -11,6 +11,8 @@
 namespace CryptoUtils {
 
 #ifdef UNIT_TEST
+bool mock_base64_fail = false;
+
 static const char base64_chars[] = 
              "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
              "abcdefghijklmnopqrstuvwxyz"
@@ -64,6 +66,10 @@ String encodeBase64String(const uint8_t* data, size_t len)
     }
 
 #ifdef UNIT_TEST
+    if (mock_base64_fail)
+    {
+        return String();
+    }
     return mock_base64_encode(data, len);
 #else
     char encoded[kMaxBase64OutputBytes + 1U] = {};

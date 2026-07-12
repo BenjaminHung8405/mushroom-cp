@@ -17,6 +17,119 @@
 #include "Arduino.h"
 #endif
 
+static void drainTelemetryQueue(TelemetryData& last_known_telemetry)
+{
+    TelemetryData tel;
+    while (xTelemetryQueue != nullptr && xQueueReceive(xTelemetryQueue, &tel, 0) == pdTRUE)
+    {
+        last_known_telemetry = tel;
+    }
+}
+
+static void processWebServer()
+{
+#ifndef UNIT_TEST
+    if (wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED)
+    {
+        web_interface::init_server();
+        web_interface::handle_client();
+    }
+    else
+    {
+        web_interface::stop_server();
+    }
+#endif
+}
+
+void processTelemetryPublication(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
+{
+    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
+    if (mqtt_client.is_connected())
+    {
+        const bool consumed_force = consume_shared_force_full_publish();
+        if (consumed_force)
+        {
+            telemetryState.forceFullPublish = true;
+        }
+
+        const Telemetry::PublishType pubType =
+            Telemetry::evaluateDeltaThresholds(last_known_telemetry, telemetryState, now);
+
+        if (pubType != Telemetry::PublishType::NONE)
+        {
+            bool success = false;
+            String json_payload = Telemetry::buildDeltaPayload(last_known_telemetry, telemetryState.lastPubState, pubType);
+
+            if (json_payload.length() > 0)
+            {
+                String base64_payload = CryptoUtils::encodeBase64String(json_payload);
+                if (base64_payload.length() > 0)
+                {
+                    if (mqtt_client.publish_telemetry(base64_payload))
+                    {
+                        Telemetry::commitSuccessfulPublish(
+                            telemetryState, last_known_telemetry, now);
+                        success = true;
+                    }
+                    else
+                    {
+                        ScopedSerialLock guard(SerialLock::get_instance());
+                        Serial.println("[CORE0_TASK] WARNING: Failed to publish delta telemetry.");
+                    }
+                }
+                else
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[CORE0_TASK] WARNING: Failed to encode delta telemetry.");
+                }
+            }
+
+            if (!success && consumed_force)
+            {
+                set_shared_force_full_publish(true);
+            }
+        }
+    }
+}
+
+static void handleTelemetryScan(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
+{
+    static unsigned long last_delta_scan = 0;
+    if (now - last_delta_scan >= 5000)
+    {
+        last_delta_scan = now;
+        processTelemetryPublication(now, last_known_telemetry, telemetryState);
+    }
+}
+
+static void logStackWatermark(unsigned long now)
+{
+    static unsigned long last_stack_log = 0;
+    if (now - last_stack_log >= 5000)
+    {
+        last_stack_log = now;
+        ScopedSerialLock guard(SerialLock::get_instance());
+        #ifndef UNIT_TEST
+        UBaseType_t high_water = uxTaskGetStackHighWaterMark(nullptr);
+        Serial.printf("[CORE0_TASK] Stack High Water Mark: %u words\n",
+                      static_cast<unsigned int>(high_water));
+        #else
+        Serial.println("[CORE0_TASK] Stack High Water Mark: 4096 words");
+        #endif
+    }
+}
+
+static void delayCore0Task()
+{
+    #ifndef UNIT_TEST
+    if (wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    #endif
+}
+
 void task_core0_communication(void* /*pvParameters*/)
 {
     {
@@ -30,10 +143,12 @@ void task_core0_communication(void* /*pvParameters*/)
     // Initialize MQTT
     mqtt::MqttClient::get_instance().init();
 
+    static TelemetryData last_known_telemetry = {NAN, NAN, NAN};
+    static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
+
     #ifndef UNIT_TEST
     while (1)
     #else
-    // For unit testing, run the loop once to prevent hanging the test suite
     for (int i = 0; i < 1; ++i)
     #endif
     {
@@ -44,92 +159,19 @@ void task_core0_communication(void* /*pvParameters*/)
         mqtt::MqttClient::get_instance().loop();
 
         // 3. Maintain HTTP local Webserver based on WiFi state
-        #ifndef UNIT_TEST
-        if (wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED)
-        {
-            web_interface::init_server();
-            web_interface::handle_client();
-        }
-        else
-        {
-            web_interface::stop_server();
-        }
-        #endif
+        processWebServer();
 
-        // 4. Drain telemetry queue from Core 1 to keep it clean and non-blocking
-        static TelemetryData last_known_telemetry = {NAN, NAN, NAN};
-        TelemetryData tel;
-        while (xTelemetryQueue != nullptr && xQueueReceive(xTelemetryQueue, &tel, 0) == pdTRUE)
-        {
-            last_known_telemetry = tel;
-        }
+        // 4. Drain telemetry queue from Core 1
+        drainTelemetryQueue(last_known_telemetry);
 
-        // 5. Chu kỳ quét delta telemetry mỗi 5000ms (non-blocking)
-        static unsigned long last_delta_scan = 0;
-        static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
+        // 5. Telemetry publication scan
         unsigned long now = millis();
+        handleTelemetryScan(now, last_known_telemetry, telemetryState);
 
-        if (now - last_delta_scan >= 5000)
-        {
-            last_delta_scan = now;
-            mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
-            if (mqtt_client.is_connected())
-            {
-                // Đồng bộ cờ force_full_publish từ MQTT callback nhận lệnh full_sync
-                if (get_shared_force_full_publish())
-                {
-                    telemetryState.forceFullPublish = true;
-                    set_shared_force_full_publish(false);
-                }
-
-                // Đánh giá ngưỡng delta biến đổi dữ liệu
-                Telemetry::PublishType pubType = Telemetry::evaluateDeltaThresholds(last_known_telemetry, telemetryState, now);
-
-                if (pubType != Telemetry::PublishType::NONE)
-                {
-                    // Tạo payload chỉ chứa các trường thay đổi (hoặc full payload nếu FULL)
-                    String json_payload = Telemetry::buildDeltaPayload(last_known_telemetry, telemetryState.lastPubState, pubType);
-
-                    if (json_payload.length() > 0)
-                    {
-                        // SPRINT 2 Rule 3: Mã hóa Base64 trước khi đẩy lên MQTT broker để bảo mật truyền thông
-                        String base64_payload = CryptoUtils::encodeBase64String(json_payload);
-
-                        bool ok = mqtt_client.publish_telemetry(base64_payload);
-                        if (!ok)
-                        {
-                            ScopedSerialLock guard(SerialLock::get_instance());
-                            Serial.println("[CORE0_TASK] WARNING: Failed to publish delta telemetry.");
-                        }
-                    }
-                }
-            }
-        }
-
-        // 6. Monitor Stack High Water Mark periodically (every 5 seconds)
-        static unsigned long last_stack_log = 0;
-        if (now - last_stack_log >= 5000)
-        {
-            last_stack_log = now;
-            ScopedSerialLock guard(SerialLock::get_instance());
-            #ifndef UNIT_TEST
-            UBaseType_t high_water = uxTaskGetStackHighWaterMark(nullptr);
-            Serial.printf("[CORE0_TASK] Stack High Water Mark: %u words\n",
-                          static_cast<unsigned int>(high_water));
-            #else
-            Serial.println("[CORE0_TASK] Stack High Water Mark: 4096 words");
-            #endif
-        }
+        // 6. Monitor Stack High Water Mark
+        logStackWatermark(now);
 
         // 7. Yield and feed Watchdog
-        #ifndef UNIT_TEST
-        // SoftAP captive portal needs tighter HTTP/DNS polling so phones don't
-        // drop the association while the user is typing the WiFi password.
-        if (wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-        #endif
+        delayCore0Task();
     }
 }

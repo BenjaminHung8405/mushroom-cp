@@ -174,6 +174,7 @@ public:
     static std::string mock_server_host;
     static uint16_t mock_server_port;
     static bool mock_connect_result;
+    static bool mock_publish_result;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
 
@@ -201,8 +202,8 @@ public:
 
     bool loop() { return true; }
 
-    bool publish(const char* topic, const char* payload) { return true; }
-    bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return true; }
+    bool publish(const char* topic, const char* payload) { return mock_publish_result; }
+    bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return mock_publish_result; }
 
     bool subscribe(const char* topic) { return true; }
     bool subscribe(const char* topic, uint8_t qos) { return true; }
@@ -212,7 +213,6 @@ public:
     int state() { return mock_state; }
 };
 
-// ---------------------------------------------------------------------------
 // FreeRTOS stubs for host-side UNIT_TEST builds
 // ---------------------------------------------------------------------------
 

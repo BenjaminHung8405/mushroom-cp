@@ -33,8 +33,11 @@ extern volatile bool shared_forceFullPublish;
 extern SemaphoreHandle_t xTelemetryMutex;
 #endif
 
-// Safe helper functions for thread-safe access to shared_forceFullPublish
+// Safe helper functions for thread-safe access to shared_forceFullPublish.
+// consume_shared_force_full_publish() reads and clears the request in one
+// critical section, so a concurrent MQTT callback cannot be overwritten.
 bool get_shared_force_full_publish();
+bool consume_shared_force_full_publish();
 void set_shared_force_full_publish(bool val);
 
 struct SharedSystemState {
@@ -57,7 +60,9 @@ extern SharedSystemState shared_systemState;
 void update_shared_system_state(const SharedSystemState& state);
 SharedSystemState get_shared_system_state();
 
-#include "models.h"
+#include "Telemetry.h"
+
+void processTelemetryPublication(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState);
 
 /**
  * @brief FreeRTOS task running on Core 0 to handle WiFi and MQTT communication.
