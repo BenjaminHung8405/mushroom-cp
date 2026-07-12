@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:05:00+07:00]
+- **Task ID**: C3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [Telemetry.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/Telemetry.h)
+  - [MODIFY] [Telemetry.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/Telemetry.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - Triển khai thành công hàm `buildDeltaPayload()` trong module `Telemetry` để tạo chuỗi JSON nén chỉ chứa các trường thay đổi (DELTA) hoặc toàn bộ các trường (FULL).
+  - Áp dụng các quy tắc bảo vệ: Sử dụng `StaticJsonDocument` cố định 512 bytes trên Stack thay vì `DynamicJsonDocument` động để chống phân mảnh RAM.
+  - Sử dụng các phím tắt short-keys: `rT` (nhiệt độ thực đo), `rH` (độ ẩm thực đo), `tC` (nồng độ CO2 thực đo) để thu gọn tối đa băng thông IoT.
+  - Xử lý giá trị `NAN` an toàn: nếu một trường có giá trị là `NAN`, nó sẽ được mã hóa thành `null` trong JSON thay vì bị bỏ qua hoặc làm hỏng cấu trúc.
+  - Thiết lập khởi tạo `doc.to<JsonObject>()` để đảm bảo chuỗi DELTA khi không có thay đổi nào sẽ trả về đối tượng trống `"{}"` thay vì `"null"`.
+  - Bổ sung 6 kịch bản kiểm thử độc lập cho `buildDeltaPayload` trong `test/run_tests.cpp` (NONE, FULL với NAN, DELTA không thay đổi, DELTA đổi nhiệt độ, DELTA đổi nhiệt độ + độ ẩm, DELTA khi CO2 kết nối lại), sử dụng so sánh dựa trên giải mã JSON float delta để tránh lỗi lệch format chữ số floating-point.
+  - Tự kiểm tra: Biên dịch và chạy bộ test offline `./run_tests` thành công 100% không lỗi.
+
 ## [2026-07-12T12:03:00+07:00]
 - **Task ID**: C2
 - **Trạng thái hiện tại**: Đang chờ QA Review

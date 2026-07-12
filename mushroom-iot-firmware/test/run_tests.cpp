@@ -1404,6 +1404,69 @@ int main() {
         // Exceeds 5 mins
         assert(Telemetry::evaluateDeltaThresholds(co2_exceeded, state, 8000UL + 300000UL) == Telemetry::PublishType::FULL);
         assert(state.lastPubTimeMs == 308000UL);
+
+        // 30.11 Test buildDeltaPayload
+        TelemetryData baseline = { 25.0f, 80.0f, NAN };
+        
+        // 30.11.1 NONE publish type should yield empty string
+        assert(Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::NONE) == "");
+
+        // 30.11.2 FULL publish type should contain all keys
+        String full_payload = Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::FULL);
+        {
+            StaticJsonDocument<256> doc;
+            DeserializationError err = deserializeJson(doc, full_payload);
+            assert(!err);
+            assert(doc.containsKey("rT"));
+            assert(std::fabs(doc["rT"].as<float>() - 25.0f) < 0.01f);
+            assert(doc.containsKey("rH"));
+            assert(std::fabs(doc["rH"].as<float>() - 80.0f) < 0.01f);
+            assert(doc.containsKey("tC"));
+            assert(doc["tC"].isNull());
+        }
+
+        // 30.11.3 DELTA publish type - no changes
+        assert(Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::DELTA) == "{}");
+
+        // 30.11.4 DELTA publish type - only temperature changed
+        TelemetryData temp_changed = { 25.3f, 80.0f, NAN };
+        String temp_delta_payload = Telemetry::buildDeltaPayload(temp_changed, baseline, Telemetry::PublishType::DELTA);
+        {
+            StaticJsonDocument<256> doc;
+            DeserializationError err = deserializeJson(doc, temp_delta_payload);
+            assert(!err);
+            assert(doc.containsKey("rT"));
+            assert(std::fabs(doc["rT"].as<float>() - 25.3f) < 0.01f);
+            assert(!doc.containsKey("rH"));
+            assert(!doc.containsKey("tC"));
+        }
+
+        // 30.11.5 DELTA publish type - temperature and humidity changed
+        TelemetryData temp_humid_changed = { 25.3f, 81.5f, NAN };
+        String multi_delta_payload = Telemetry::buildDeltaPayload(temp_humid_changed, baseline, Telemetry::PublishType::DELTA);
+        {
+            StaticJsonDocument<256> doc;
+            DeserializationError err = deserializeJson(doc, multi_delta_payload);
+            assert(!err);
+            assert(doc.containsKey("rT"));
+            assert(std::fabs(doc["rT"].as<float>() - 25.3f) < 0.01f);
+            assert(doc.containsKey("rH"));
+            assert(std::fabs(doc["rH"].as<float>() - 81.5f) < 0.01f);
+            assert(!doc.containsKey("tC"));
+        }
+
+        // 30.11.6 DELTA publish type - CO2 becomes valid
+        TelemetryData co2_became_valid = { 25.0f, 80.0f, 400.0f };
+        String co2_delta_payload = Telemetry::buildDeltaPayload(co2_became_valid, baseline, Telemetry::PublishType::DELTA);
+        {
+            StaticJsonDocument<256> doc;
+            DeserializationError err = deserializeJson(doc, co2_delta_payload);
+            assert(!err);
+            assert(!doc.containsKey("rT"));
+            assert(!doc.containsKey("rH"));
+            assert(doc.containsKey("tC"));
+            assert(std::fabs(doc["tC"].as<float>() - 400.0f) < 0.01f);
+        }
     }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

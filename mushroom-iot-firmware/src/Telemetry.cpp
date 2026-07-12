@@ -1,4 +1,5 @@
 #include "Telemetry.h"
+#include <ArduinoJson.h>
 
 namespace Telemetry {
 
@@ -59,4 +60,70 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState
     return PublishType::NONE;
 }
 
+String buildDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, PublishType pubType)
+{
+    if (pubType == PublishType::NONE)
+    {
+        return "";
+    }
+
+    StaticJsonDocument<512> doc;
+    JsonObject root = doc.to<JsonObject>();
+
+    if (pubType == PublishType::FULL)
+    {
+        if (std::isnan(current.temp_air)) {
+            root["rT"] = nullptr;
+        } else {
+            root["rT"] = current.temp_air;
+        }
+
+        if (std::isnan(current.humidity_air)) {
+            root["rH"] = nullptr;
+        } else {
+            root["rH"] = current.humidity_air;
+        }
+
+        if (std::isnan(current.co2_level)) {
+            root["tC"] = nullptr;
+        } else {
+            root["tC"] = current.co2_level;
+        }
+    }
+    else if (pubType == PublishType::DELTA)
+    {
+        if (isDeltaExceeded(current.temp_air, lastPubState.temp_air, 0.2f))
+        {
+            if (std::isnan(current.temp_air)) {
+                root["rT"] = nullptr;
+            } else {
+                root["rT"] = current.temp_air;
+            }
+        }
+
+        if (isDeltaExceeded(current.humidity_air, lastPubState.humidity_air, 1.0f))
+        {
+            if (std::isnan(current.humidity_air)) {
+                root["rH"] = nullptr;
+            } else {
+                root["rH"] = current.humidity_air;
+            }
+        }
+
+        if (isDeltaExceeded(current.co2_level, lastPubState.co2_level, 10.0f))
+        {
+            if (std::isnan(current.co2_level)) {
+                root["tC"] = nullptr;
+            } else {
+                root["tC"] = current.co2_level;
+            }
+        }
+    }
+
+    String output;
+    serializeJson(doc, output);
+    return output;
+}
+
 } // namespace Telemetry
+

@@ -9,6 +9,7 @@
  */
 
 #include "models.h"
+#include <Arduino.h>
 #include <stdint.h>
 #include <cmath>
 
@@ -73,4 +74,17 @@ bool isDeltaExceeded(float val1, float val2, float threshold);
  */
 PublishType evaluateDeltaThresholds(const TelemetryData& current, TelemetryState& state, unsigned long nowMs);
 
+/**
+ * @brief Builds a JSON payload containing only the modified telemetry fields (or all fields for FULL).
+ *
+ * Uses a StaticJsonDocument<512> on the stack for heap protection.
+ *
+ * @param current Latest telemetry sample.
+ * @param lastPubState Reference telemetry state from the last successful publish.
+ * @param pubType NONE, DELTA, or FULL.
+ * @return String containing the compact JSON payload, or an empty string if NONE.
+ */
+String buildDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, PublishType pubType);
+
 } // namespace Telemetry
+
