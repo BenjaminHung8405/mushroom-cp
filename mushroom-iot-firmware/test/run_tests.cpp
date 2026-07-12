@@ -1594,12 +1594,23 @@ int main() {
         assert(std::fabs(loaded.mist_duty - 0.12f) < 0.01f);
         assert(std::fabs(loaded.exhaust_duty - 0.0f) < 0.01f);
         
-        // 31.2 Test WebInterface stubs
+        // 31.2 Test WebInterface stubs and rate-limiting
         web_interface::init_server();
         assert(web_interface::is_server_running() == false); // False under UNIT_TEST
         web_interface::handle_client();
         web_interface::serveDashboardHTML();
+        web_interface::apiGetRealtimeData(); // Should not crash
         web_interface::stop_server();
+
+        // 31.3 Test check_rate_limit logic
+        // First call should succeed
+        assert(web_interface::check_rate_limit(10000UL) == true);
+        // Call within 1s (e.g. at 10500ms) should fail (be throttled)
+        assert(web_interface::check_rate_limit(10500UL) == false);
+        // Call at exactly 1s delta (11000ms) should succeed
+        assert(web_interface::check_rate_limit(11000UL) == true);
+        // Call after 2s delta (13000ms) should succeed
+        assert(web_interface::check_rate_limit(13000UL) == true);
     }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

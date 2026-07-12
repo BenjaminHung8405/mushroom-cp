@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:21:04+07:00]
+- **Task ID**: D5
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [WebInterface.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/WebInterface.h)
+  - [MODIFY] [WebInterface.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Tách và chuyển đổi hàm `apiGetRealtimeData()` sang namespace `web_interface` để đảm bảo cấu trúc tổ chức mã nguồn rõ ràng và module hóa cao.
+  - Triển khai hàm kiểm tra giới hạn tần suất request `check_rate_limit(unsigned long now)` trong namespace `web_interface`. Hàm sử dụng cơ chế so sánh non-blocking `millis()` với sai số thời gian tối thiểu 1000 ms, tự động chống tràn thời gian (millis rollover) và chỉ cập nhật thời điểm request cuối cùng đối với các yêu cầu thành công.
+  - Bổ sung unit tests (Case 31.3) trong `test/run_tests.cpp` để kiểm chứng toàn vẹn logic hoạt động của `check_rate_limit()` đối với các request liên tục trong khoảng cách ngắn hơn 1 giây (được throttling) và request sau 1 giây (được cho phép).
+  - Tự kiểm tra: Biên dịch và chạy bộ kiểm thử offline `run_tests` thành công 100% không phát sinh lỗi (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-12T12:18:00+07:00]
 - **Task ID**: D4
 - **Trạng thái hiện tại**: Đang chờ QA Review

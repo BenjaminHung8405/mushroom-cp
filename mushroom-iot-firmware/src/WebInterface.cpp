@@ -370,66 +370,76 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 </body>
 </html>
 )rawliteral";
-
-static void apiGetRealtimeData()
-{
-    // Rate Limiting: tối đa 1 request mỗi 1 giây
-    static unsigned long last_request_time = 0;
-    unsigned long now = millis();
-    if (now - last_request_time < 1000)
-    {
-        localWebServer.sendHeader("Retry-After", "1");
-        localWebServer.sendHeader("Cache-Control", "no-store");
-        localWebServer.send(429, "application/json", "{\"error\":\"Too Many Requests\"}");
-        return;
-    }
-    last_request_time = now;
-
-    // Lấy trạng thái hệ thống thread-safe
-    SharedSystemState state = get_shared_system_state();
-
-    StaticJsonDocument<512> doc;
-    
-    if (std::isnan(state.temp_air)) doc["temp_air"] = nullptr;
-    else doc["temp_air"] = state.temp_air;
-
-    if (std::isnan(state.humidity_air)) doc["humidity_air"] = nullptr;
-    else doc["humidity_air"] = state.humidity_air;
-
-    if (std::isnan(state.co2_level)) doc["co2_level"] = nullptr;
-    else doc["co2_level"] = state.co2_level;
-
-    if (std::isnan(state.temp_target)) doc["temp_target"] = nullptr;
-    else doc["temp_target"] = state.temp_target;
-
-    if (std::isnan(state.humidity_target)) doc["humidity_target"] = nullptr;
-    else doc["humidity_target"] = state.humidity_target;
-
-    if (std::isnan(state.co2_target)) doc["co2_target"] = nullptr;
-    else doc["co2_target"] = state.co2_target;
-
-    doc["h_air_duty"] = state.h_air_duty;
-    doc["h_wat_duty"] = state.h_wat_duty;
-    doc["mist_duty"] = state.mist_duty;
-    doc["exhaust_duty"] = state.exhaust_duty;
-
-    doc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
-    doc["mqtt_connected"] = mqtt::MqttClient::get_instance().is_connected();
-    doc["uptime"] = now / 1000;
-    doc["free_heap"] = ESP.getFreeHeap();
-
-    String jsonResponse;
-    serializeJson(doc, jsonResponse);
-
-    localWebServer.sendHeader("Cache-Control", "no-store");
-    localWebServer.sendHeader("Access-Control-Allow-Origin", "*");
-    localWebServer.send(200, "application/json; charset=utf-8", jsonResponse);
-}
-
 #endif
 
 namespace web_interface
 {
+    bool check_rate_limit(unsigned long now)
+    {
+        static unsigned long last_request_time = 0;
+        static bool has_last_request = false;
+        if (has_last_request && (now - last_request_time < 1000))
+        {
+            return false;
+        }
+        last_request_time = now;
+        has_last_request = true;
+        return true;
+    }
+
+    void apiGetRealtimeData()
+    {
+#ifndef UNIT_TEST
+        if (!check_rate_limit(millis()))
+        {
+            localWebServer.sendHeader("Retry-After", "1");
+            localWebServer.sendHeader("Cache-Control", "no-store");
+            localWebServer.send(429, "application/json", "{\"error\":\"Too Many Requests\"}");
+            return;
+        }
+
+        // Lấy trạng thái hệ thống thread-safe
+        SharedSystemState state = get_shared_system_state();
+
+        StaticJsonDocument<512> doc;
+        
+        if (std::isnan(state.temp_air)) doc["temp_air"] = nullptr;
+        else doc["temp_air"] = state.temp_air;
+
+        if (std::isnan(state.humidity_air)) doc["humidity_air"] = nullptr;
+        else doc["humidity_air"] = state.humidity_air;
+
+        if (std::isnan(state.co2_level)) doc["co2_level"] = nullptr;
+        else doc["co2_level"] = state.co2_level;
+
+        if (std::isnan(state.temp_target)) doc["temp_target"] = nullptr;
+        else doc["temp_target"] = state.temp_target;
+
+        if (std::isnan(state.humidity_target)) doc["humidity_target"] = nullptr;
+        else doc["humidity_target"] = state.humidity_target;
+
+        if (std::isnan(state.co2_target)) doc["co2_target"] = nullptr;
+        else doc["co2_target"] = state.co2_target;
+
+        doc["h_air_duty"] = state.h_air_duty;
+        doc["h_wat_duty"] = state.h_wat_duty;
+        doc["mist_duty"] = state.mist_duty;
+        doc["exhaust_duty"] = state.exhaust_duty;
+
+        doc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
+        doc["mqtt_connected"] = mqtt::MqttClient::get_instance().is_connected();
+        doc["uptime"] = millis() / 1000;
+        doc["free_heap"] = ESP.getFreeHeap();
+
+        String jsonResponse;
+        serializeJson(doc, jsonResponse);
+
+        localWebServer.sendHeader("Cache-Control", "no-store");
+        localWebServer.sendHeader("Access-Control-Allow-Origin", "*");
+        localWebServer.send(200, "application/json; charset=utf-8", jsonResponse);
+#endif
+    }
+
     void init_server()
     {
 #ifndef UNIT_TEST

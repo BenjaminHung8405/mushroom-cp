@@ -30,4 +30,16 @@ namespace web_interface
      * @brief Phục vụ trang HTML Dashboard (phương thức GET /) lưu trong Flash.
      */
     void serveDashboardHTML();
+
+    /**
+     * @brief Phục vụ API lấy dữ liệu thời gian thực (phương thức GET /data) có giới hạn tần suất.
+     */
+    void apiGetRealtimeData();
+
+    /**
+     * @brief Kiểm tra giới hạn tần suất gửi request (rate limiting).
+     * @param now Thời gian hiện tại tính bằng mili-giây (millis()).
+     * @return true nếu request được chấp nhận, false nếu bị giới hạn (429).
+     */
+    bool check_rate_limit(unsigned long now);
 }
