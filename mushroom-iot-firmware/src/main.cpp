@@ -6,6 +6,9 @@
 #include "actuators.h"
 #include "sensors.h"
 #include "wifi_manager.h"
+#include "mqtt_client.h"
+#include "Telemetry.h"
+#include "CryptoUtils.h"
 
 // Queue depth constants — sized for the expected inter-core message rate.
 // Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
@@ -190,5 +193,31 @@ void loop()
     // but we can delay or delete it since logic is delegated to FreeRTOS tasks.
     #ifndef UNIT_TEST
     vTaskDelay(pdMS_TO_TICKS(1000));
+    #else
+    // Trong môi trường UNIT_TEST, ta chạy loop của Core 0 để kiểm thử đồng bộ
+    // (như duy trì Webserver, MQTT loop, check delta telemetry)
+    // Điều này đảm bảo biên dịch thành công và kiểm chứng được các luồng logic trong test suite.
+    wifi::check_wifi_connection();
+    mqtt::MqttClient::get_instance().loop();
+
+    static unsigned long last_delta_scan = 0;
+    unsigned long now = millis();
+    if (now - last_delta_scan >= 5000)
+    {
+        last_delta_scan = now;
+        // Thực hiện quét delta trong unit test
+        static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
+        TelemetryData mock_tel = {25.0f, 80.0f, NAN};
+        Telemetry::PublishType pubType = Telemetry::evaluateDeltaThresholds(mock_tel, telemetryState, now);
+        if (pubType != Telemetry::PublishType::NONE)
+        {
+            String json_payload = Telemetry::buildDeltaPayload(mock_tel, telemetryState.lastPubState, pubType);
+            if (json_payload.length() > 0)
+            {
+                String base64_payload = CryptoUtils::encodeBase64String(json_payload);
+                mqtt::MqttClient::get_instance().publish_telemetry(base64_payload);
+            }
+        }
+    }
     #endif
 }

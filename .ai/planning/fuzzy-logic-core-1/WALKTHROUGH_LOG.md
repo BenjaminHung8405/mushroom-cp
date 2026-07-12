@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:28:07+07:00]
+- **Task ID**: E2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai định tuyến và duy trì hoạt động WebServer cục bộ (`web_interface::handle_client()`) trong tác vụ Core 0 loop (`task_core0_communication`) dựa trên trạng thái kết nối WiFi STA (chỉ chạy khi ở chế độ `STA_CONNECTED`, tự động dừng khi mất WiFi hoặc kích hoạt SoftAP).
+  - Tích hợp và cấu hình kiểm tra độ lệch delta cảm biến định kỳ mỗi 5000 ms bằng bộ so sánh non-blocking `millis()`.
+  - Kết xuất và đồng bộ hóa cờ `shared_forceFullPublish` nhận từ MQTT Broker để ép gửi gói tin telemetry đầy đủ (`PublishType::FULL`).
+  - Sử dụng hàm `Telemetry::evaluateDeltaThresholds` và `Telemetry::buildDeltaPayload` để giảm thiểu băng thông truyền thông, tự động tạo payload nén chỉ chứa các short-keys thay đổi.
+  - SPRINT 2 Rule 3: Áp dụng mã hóa Base64 an toàn (`CryptoUtils::encodeBase64String`) cho toàn bộ gói tin JSON telemetry trước khi xuất bản ra môi trường internet thông qua MQTT.
+  - Sửa đổi hàm `loop()` trong `main.cpp` để chạy an toàn trong chế độ biên dịch thường (`vTaskDelay(1000)`), đồng thời hoạt động như một tick kiểm thử đồng bộ không chặn trong chế độ `UNIT_TEST` để kiểm chứng logic WiFi check, WebServer, MQTT và delta telemetry.
+  - Tự kiểm tra: Biên dịch thành công 100% không phát sinh cảnh báo, toàn bộ unit test suite `run_tests` đều PASS thành công tốt đẹp.
+
 ## [2026-07-12T12:24:08+07:00]
 - **Task ID**: E1
 - **Trạng thái hiện tại**: Đang chờ QA Review

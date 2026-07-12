@@ -78,7 +78,7 @@ C1 | Tạo file `CryptoUtils.h` / `CryptoUtils.cpp` và triển khai hàm `encod
 | Task ID | Mô tả Task | Status | Note (Technical Directives) |
 | :--- | :--- | :--- | :--- |
 | E1 | Sửa file `main.cpp` — triển khai hàm `setup()` khởi tạo I2C, kích hoạt WiFi, tạo task chạy trên Core 1. | [ ] QA Review | - **Quy trình khởi tạo Fail-Safe**: Bắt buộc khởi tạo GPIO cho các Relay ở mức an toàn (`LOW` hoặc `OFF`) đầu tiên, sau đó mới đến các thiết bị ngoại vi I2C/Mạng. Việc này đảm bảo thiết bị không tự kích hoạt relay khi ESP32 reboot.<br>- **FreeRTOS Task Allocation**: Phân bổ stack size hợp lý cho từng Task (Core 1 Task: 4096 bytes; Core 0 Task: 8192 bytes do gánh tác vụ mạng/JSON).<br>- **NTP Provider**: Sau khi WiFi Station kết nối, gọi `configTime(7*3600, 0, ...)` và chỉ công bố giờ hợp lệ cho Core 1 khi NTP đã sync; chưa sync => `RtcTimePod.valid=false`. |
-| E2 | Cập nhật hàm `loop()` trong `main.cpp` — duy trì HTTP client Webserver, duy trì kết nối MQTT và chu kỳ quét delta mỗi 5000ms. | [ ] Pending | - **Non-blocking Loop**: Hàm `loop()` trên Core 0 chỉ đóng vai trò bộ điều phối không chặn. Mọi chu kỳ quét định kỳ (ví dụ: 5000ms để kiểm tra delta) phải sử dụng bộ định thời dựa trên so sánh `millis()`, tuyệt đối cấm dùng `delay()`. |
+| E2 | Cập nhật hàm `loop()` trong `main.cpp` — duy trì HTTP client Webserver, duy trì kết nối MQTT và chu kỳ quét delta mỗi 5000ms. | [ ] QA Review | - **Non-blocking Loop**: Hàm `loop()` trên Core 0 chỉ đóng vai trò bộ điều phối không chặn. Mọi chu kỳ quét định kỳ (ví dụ: 5000ms để kiểm tra delta) phải sử dụng bộ định thời dựa trên so sánh `millis()`, tuyệt đối cấm dùng `delay()`. |
 
 
 ---
