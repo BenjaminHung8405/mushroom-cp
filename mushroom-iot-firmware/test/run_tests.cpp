@@ -597,6 +597,9 @@ int main() {
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
     
+    // Reset sensors initialization status for this test
+    sensors::reset_sensors_initialized_for_test();
+
     // 16.1 Test before initialization
     float t_sht = 0, h_sht = 0, t_ds = 0, co2_scd = 0;
     TelemetryData telemetry_mock;

@@ -934,10 +934,10 @@ setInterval(function(){
         {
             if (WiFi.status() == WL_CONNECTED)
             {
-                // MQTT uses the provisioned NVS pre-shared key directly. Do not gate
-                // station connectivity on a NestJS HTTP token: a regional power/network
-                // recovery must not cause all devices to stampede /auth/token.
                 Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
+#ifndef UNIT_TEST
+                configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+#endif
                 reconnect_attempts = 0;
                 set_state(WifiState::STA_CONNECTED);
             }

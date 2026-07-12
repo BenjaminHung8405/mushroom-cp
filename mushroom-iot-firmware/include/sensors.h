@@ -67,4 +67,11 @@ namespace sensors
      */
     bool is_sht30_defogging();
 
+#ifdef UNIT_TEST
+    /**
+     * @brief Reset initialization flag for unit tests.
+     */
+    void reset_sensors_initialized_for_test();
+#endif
+
 } // namespace sensors

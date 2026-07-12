@@ -3,6 +3,9 @@
 #include "storage.h"
 #include "config.h"
 #include "serial_mutex.h"
+#include "actuators.h"
+#include "sensors.h"
+#include "wifi_manager.h"
 
 // Queue depth constants — sized for the expected inter-core message rate.
 // Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
@@ -17,7 +20,7 @@ static constexpr UBaseType_t CORE0_TASK_PRIORITY = 1;
 static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
 
 // Stack budgets (bytes). Core 0 runs HTTP and MQTT networking.
-static constexpr uint32_t CORE0_STACK_BYTES = 12288;
+static constexpr uint32_t CORE0_STACK_BYTES = 8192;
 static constexpr uint32_t CORE1_STACK_BYTES = 4096;
 
 void setup()
@@ -30,9 +33,16 @@ void setup()
     uint32_t t0 = millis();
     while (!Serial && (millis() - t0) < 3000) { ; } // chờ tối đa 3s
     delay(200); // buffer nhỏ cho USB host xử lý
+
+    // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức LOW (OFF) ngay lập tức
+    actuators::init_actuators_gpio();
+
     Serial.println("[MAIN] ESP32 Firmware Starting...");
 
-    // 1. Initialize NVS Storage
+    // 2. Khởi tạo I2C bus và cảm biến SHT30
+    sensors::init_sensors_placeholder();
+
+    // 3. Initialize NVS Storage
     storage::StorageManager &storage = storage::StorageManager::get_instance();
     if (storage.init())
     {
@@ -43,13 +53,13 @@ void setup()
         Serial.println("[MAIN] ERROR: NVS Storage initialization failed!");
     }
 
-    // 2. Load runtime configuration from NVS
+    // 4. Load runtime configuration from NVS
     config::network::load_runtime_config();
 
-    // 3. Create Serial mutex (protects UART from concurrent Core 0/Core 1 writes)
+    // 5. Create Serial mutex (protects UART from concurrent Core 0/Core 1 writes)
     init_serial_mutex();
 
-    // 4. Create FreeRTOS Queues for inter-core communication
+    // 6. Create FreeRTOS Queues for inter-core communication
     //    Must be created BEFORE either task starts so both cores see valid handles.
     xActuatorQueue = xQueueCreate(ACTUATOR_QUEUE_DEPTH, sizeof(ActuatorCommand));
     if (xActuatorQueue == nullptr)
@@ -97,8 +107,11 @@ void setup()
     }
 #endif
 
+    // 7. Initialize and activate WiFi
+    wifi::init_wifi();
+
     #ifndef UNIT_TEST
-    // 4. Create and pin Task Core 0 Communication to Core 0
+    // 8. Create and pin Task Core 0 Communication to Core 0
     {
         BaseType_t result = xTaskCreatePinnedToCore(
             task_core0_communication, // Task function

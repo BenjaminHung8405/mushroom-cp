@@ -235,4 +235,11 @@ namespace sensors
         return sht30_heater_active || (millis() < sht30_defog_hold_until);
     }
 
+#ifdef UNIT_TEST
+    void reset_sensors_initialized_for_test()
+    {
+        sensors_initialized = false;
+    }
+#endif
+
 } // namespace sensors

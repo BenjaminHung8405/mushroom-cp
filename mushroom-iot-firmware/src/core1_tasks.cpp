@@ -19,6 +19,7 @@
 #else
 #include "Arduino.h"
 #include <cmath>
+#include <time.h>
 #endif
 
 // ---------------------------------------------------------------------------
@@ -239,6 +240,23 @@ bool isFinite(float value)
 // force HWat and Mist OFF, as required by the biosafety hard rule.
 TPC_Task::RtcTimePod readRtcTimeFailSafe()
 {
+#ifndef UNIT_TEST
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    
+    // Check if the system time is synchronized. If not synced, year will be 1970 (tm_year = 70)
+    // We assume any year >= 2026 is synced since current local time is 2026.
+    if (timeinfo.tm_year >= (2026 - 1900))
+    {
+        return TPC_Task::RtcTimePod{
+            true, 
+            static_cast<uint8_t>(timeinfo.tm_hour), 
+            static_cast<uint8_t>(timeinfo.tm_min)
+        };
+    }
+#endif
     return TPC_Task::RtcTimePod{false, 0U, 0U};
 }
 

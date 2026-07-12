@@ -1,5 +1,26 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:24:08+07:00]
+- **Task ID**: E1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [sensors.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/sensors.h)
+  - [MODIFY] [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+- **Giải trình ngắn gọn**:
+  - Tái cấu trúc hàm `setup()` trong `main.cpp` để thực hiện khởi tạo phần cứng theo quy trình Fail-Safe: Khởi tạo GPIO cho 4 Relay (Mist, Fan, Heater 1, Heater 2) ở mức `LOW` (OFF) ngay từ đầu để tránh nhảy chattering khi ESP32 reboot.
+  - Sau khi khởi tạo Relay an toàn, tiến hành khởi tạo bus I2C & cảm biến SHT30 (`sensors::init_sensors_placeholder()`), tiếp theo là NVS, load cấu hình, khởi tạo Serial mutex, event groups, và hàng đợi FreeRTOS.
+  - Kích hoạt WiFi sớm bằng cách gọi `wifi::init_wifi()` trực tiếp trong `setup()`, trước khi khởi tạo các FreeRTOS tasks.
+  - Cấu hình lại kích thước vùng nhớ stack an toàn cho Core 0 Task từ `12288` bytes xuống còn `8192` bytes theo đúng Technical Directives của Task E1.
+  - Tích hợp dịch vụ đồng bộ thời gian NTP: Gọi `configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov")` ngay khi WiFi Station kết nối thành công (`WL_CONNECTED`).
+  - Viết lại hàm `readRtcTimeFailSafe()` trên Core 1 sử dụng các hàm standard C time (`time()`, `localtime_r()`) để kiểm tra trạng thái đồng bộ NTP (năm >= 2026). Nếu chưa đồng bộ hoặc rớt mạng, hàm trả về trạng thái `valid = false` để kích hoạt cơ chế bảo vệ sinh học (biosafety override) ép tắt Heater 2 và Mist.
+  - Bổ sung hàm tiện ích `reset_sensors_initialized_for_test()` trong `sensors.cpp`/`sensors.h` phục vụ cho việc reset trạng thái tĩnh giữa các bộ kiểm thử unit test.
+  - Tự kiểm tra: Biên dịch thành công 100% và tất cả 20+ unit test offline qua file `run_tests` đều PASS hoàn hảo.
+
 ## [2026-07-12T12:21:04+07:00]
 - **Task ID**: D5
 - **Trạng thái hiện tại**: Đang chờ QA Review
