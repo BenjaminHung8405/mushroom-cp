@@ -1,4 +1,5 @@
 #include "wifi_manager.h"
+#include "NetworkTask.h"
 #include "config.h"
 #include "storage.h"
 #include "definitions.h"
@@ -856,25 +857,31 @@ setInterval(function(){
         // Đọc cấu hình WiFi STA từ NVS thông qua cấu hình hệ thống
         bool has_config = config::network::load_runtime_config();
 
-        if (has_config)
+        // Thiết lập chế độ WIFI_AP_STA, khởi động SoftAP và kết nối router không chặn
+        network::initWiFiModes();
+
+        if (has_config && !config::network::STA_SSID.isEmpty())
         {
             softap_forced = false;
-            Serial.printf("[WIFI] Found WiFi credentials in NVS (SSID: %s). Transitioning to STA_CONNECTING.\n",
-                          config::network::STA_SSID.c_str());
-            WiFi.persistent(false);
-            WiFi.setAutoReconnect(false);
-            WiFi.disconnect(false, false);
-            delay(100);
-            WiFi.mode(WIFI_STA);
-            WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
             last_auth_attempt = 0;
             set_state(WifiState::STA_CONNECTING);
         }
         else
         {
-            Serial.println("[WIFI] No WiFi credentials found in NVS. Activating SoftAP Mode...");
-            start_softap();
+            Serial.println("[WIFI] No WiFi credentials found in NVS. Activating Captive Portal...");
+            softap_forced = true;
+            set_state(WifiState::SOFTAP_ACTIVE);
+#ifndef UNIT_TEST
+            // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
+            dnsServer.stop();
+            dnsServer.start(53, "*", WiFi.softAPIP());
+
+            // Khởi động WebServer
+            webServer.stop();
+            setup_web_server();
+            webServer.begin();
+#endif
         }
 
         return current_state;

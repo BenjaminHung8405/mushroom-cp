@@ -139,7 +139,9 @@ public:
     }
 
     bool softAP(const char* ssid, const char* pass = nullptr, int channel = 1, int ssid_hidden = 0, int max_connection = 4) {
-        mock_mode = WIFI_AP;
+        if (mock_mode != WIFI_AP_STA) {
+            mock_mode = WIFI_AP;
+        }
         return true;
     }
 

@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include "NetworkTask.h"
 #include "mqtt_client.h"
 #include "definitions.h"
 #include "models.h"
@@ -448,7 +449,13 @@ int main() {
     WiFi.mock_status = WL_IDLE_STATUS;
     PubSubClient::mock_connected = false;
 
-    // Run task once
+    // Test network::initWiFiModes() directly
+    WiFi.mode(WIFI_OFF);
+    network::initWiFiModes();
+    assert(WiFi.getMode() == WIFI_AP_STA);
+
+    // Reset and run task once
+    WiFi.mock_status = WL_IDLE_STATUS;
     task_core0_communication(nullptr);
 
     // Check that WiFi transitioned to SOFTAP_ACTIVE (since NVS credentials are empty)

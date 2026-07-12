@@ -1,5 +1,23 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:08:00+07:00]
+- **Task ID**: D1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [NetworkTask.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/NetworkTask.h)
+  - [NEW] [NetworkTask.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/NetworkTask.cpp)
+  - [MODIFY] [wifi_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/wifi_manager.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Triển khai hàm `initWiFiModes()` trong `NetworkTask.h` / `NetworkTask.cpp` để thiết lập chế độ WiFi song song `WIFI_AP_STA`, khởi động SoftAP nội bộ cho cấu hình và bắt đầu quá trình kết nối không chặn (non-blocking) đến router ngoài khi có cấu hình STA trong NVS.
+  - Tích hợp `network::initWiFiModes()` vào `wifi::init_wifi()` trong `wifi_manager.cpp` để thống nhất luồng cấu hình WiFi phần cứng.
+  - Sửa đổi mock `WiFi.softAP` trong `test/Arduino.h` để duy trì chính xác chế độ `WIFI_AP_STA` khi cấu hình SoftAP trên môi trường kiểm thử.
+  - Bổ sung unit tests cho `network::initWiFiModes()` trực tiếp trong `test/run_tests.cpp` để xác nhận chế độ `WIFI_AP_STA` được kích hoạt chính xác.
+  - Tự kiểm tra: Chạy bộ thử nghiệm offline `./run_tests` thành công 100% vượt qua toàn bộ assertions mà không phát sinh lỗi hay ảnh hưởng tính năng cũ.
+
 ## [2026-07-12T12:05:00+07:00]
 - **Task ID**: C3
 - **Trạng thái hiện tại**: Đang chờ QA Review
