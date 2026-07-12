@@ -16,6 +16,7 @@
 #include "FuzzyController.h"
 #include "TPC_Task.h"
 #include "Telemetry.h"
+#include "WebInterface.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -1572,6 +1573,33 @@ int main() {
             assert(doc.containsKey("tC"));
             assert(std::fabs(doc["tC"].as<float>() - 400.0f) < 0.01f);
         }
+    }
+
+    // 31. Test Task D4 - Shared System State and WebInterface stubs
+    Serial.println("[TEST] Starting Task D4 - Shared System State Unit Tests...");
+    {
+        // 31.1 Test update_shared_system_state and get_shared_system_state
+        SharedSystemState state = { 24.5f, 85.0f, 600.0f, 25.0f, 80.0f, 1000.0f, 0.45f, 0.0f, 0.12f, 0.0f };
+        update_shared_system_state(state);
+        
+        SharedSystemState loaded = get_shared_system_state();
+        assert(std::fabs(loaded.temp_air - 24.5f) < 0.01f);
+        assert(std::fabs(loaded.humidity_air - 85.0f) < 0.01f);
+        assert(std::fabs(loaded.co2_level - 600.0f) < 0.01f);
+        assert(std::fabs(loaded.temp_target - 25.0f) < 0.01f);
+        assert(std::fabs(loaded.humidity_target - 80.0f) < 0.01f);
+        assert(std::fabs(loaded.co2_target - 1000.0f) < 0.01f);
+        assert(std::fabs(loaded.h_air_duty - 0.45f) < 0.01f);
+        assert(std::fabs(loaded.h_wat_duty - 0.0f) < 0.01f);
+        assert(std::fabs(loaded.mist_duty - 0.12f) < 0.01f);
+        assert(std::fabs(loaded.exhaust_duty - 0.0f) < 0.01f);
+        
+        // 31.2 Test WebInterface stubs
+        web_interface::init_server();
+        assert(web_interface::is_server_running() == false); // False under UNIT_TEST
+        web_interface::handle_client();
+        web_interface::serveDashboardHTML();
+        web_interface::stop_server();
     }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

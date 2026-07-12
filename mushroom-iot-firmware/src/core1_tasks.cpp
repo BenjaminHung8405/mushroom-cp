@@ -65,6 +65,44 @@ void set_shared_force_full_publish(bool val)
     shared_forceFullPublish = val;
 }
 
+#ifndef UNIT_TEST
+SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f};
+#else
+static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f};
+#endif
+
+void update_shared_system_state(const SharedSystemState& state)
+{
+#ifndef UNIT_TEST
+    if (xTelemetryMutex != nullptr)
+    {
+        if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
+        {
+            shared_systemState = state;
+            xSemaphoreGive(xTelemetryMutex);
+        }
+        return;
+    }
+#endif
+    shared_systemState = state;
+}
+
+SharedSystemState get_shared_system_state()
+{
+#ifndef UNIT_TEST
+    if (xTelemetryMutex != nullptr)
+    {
+        if (xSemaphoreTake(xTelemetryMutex, portMAX_DELAY) == pdTRUE)
+        {
+            SharedSystemState state = shared_systemState;
+            xSemaphoreGive(xTelemetryMutex);
+            return state;
+        }
+    }
+#endif
+    return shared_systemState;
+}
+
 
 // ---------------------------------------------------------------------------
 // Local constants — no heap allocation inside the infinite loop
@@ -329,6 +367,20 @@ void task_core1_control(void* /*pvParameters*/)
             MIST_TPC_CONFIG,
             EXHAUST_TPC_CONFIG,
             tpcState);
+
+        // Cập nhật trạng thái chia sẻ cho WebInterface
+        SharedSystemState localState;
+        localState.temp_air = telemetry.temp_air;
+        localState.humidity_air = telemetry.humidity_air;
+        localState.co2_level = telemetry.co2_level;
+        localState.temp_target = setpoints.temp_target;
+        localState.humidity_target = setpoints.humidity_target;
+        localState.co2_target = setpoints.co2_target;
+        localState.h_air_duty = outputs.HAir;
+        localState.h_wat_duty = outputs.HWat;
+        localState.mist_duty = outputs.Mist;
+        localState.exhaust_duty = outputs.Exh;
+        update_shared_system_state(localState);
 
         drain_legacy_actuator_queue();
 

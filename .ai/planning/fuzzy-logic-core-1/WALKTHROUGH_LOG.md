@@ -1,5 +1,25 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-12T12:18:00+07:00]
+- **Task ID**: D4
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [WebInterface.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/WebInterface.h)
+  - [NEW] [WebInterface.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Tạo file `WebInterface.h` / `WebInterface.cpp` để đóng vai trò làm Local WebServer phục vụ giao diện điều khiển và trạng thái nhà nấm trên mạng cục bộ.
+  - Triển khai hàm `serveDashboardHTML()` phục vụ phương thức HTTP GET `/` với HTML/CSS/JS được nhúng hoàn toàn dưới dạng Inline và lưu trữ trực tiếp trong bộ nhớ Flash tĩnh (`PROGMEM`) thay vì RAM để bảo vệ Heap.
+  - Thiết kế giao diện Dashboard cục bộ tối ưu hóa UI: mang phong cách Glassmorphism cao cấp, chế độ tối dịu mắt, các thẻ hiển thị thông số (nhiệt độ, độ ẩm, CO2, trạng thái relay TPC) trực quan và tự động đồng bộ qua AJAX/fetch định kỳ 2 giây, không sử dụng tài nguyên CDN ngoài để chạy tốt offline 100% trong LAN.
+  - Đồng thời đặt nền móng và triển khai cho hàm API `apiGetRealtimeData()` (phục vụ GET `/data`) trả về JSON trạng thái hệ thống đầy đủ của dự án, tích hợp cơ chế Rate-limiting (tối đa 1 request mỗi giây) trả về mã lỗi 429 quá tải để bảo vệ tài nguyên ESP32.
+  - Triển khai cấu trúc dữ liệu chia sẻ thread-safe `SharedSystemState` cùng các helper `update_shared_system_state()` / `get_shared_system_state()` được bảo vệ bởi `xTelemetryMutex` trong FreeRTOS đa nhân, cập nhật dữ liệu liên tục từ Core 1 Control loop để Core 0 Web Server đọc.
+  - Bổ dung unit test (Case 31) trong `test/run_tests.cpp` để kiểm chứng quá trình cập nhật/truy xuất `SharedSystemState` thread-safe và chạy thử nghiệm stub WebInterface dưới môi trường host PC (`UNIT_TEST`).
+  - Tự kiểm tra: PlatformIO build thành công cho target ESP32-S3 `otg` không có lỗi liên kết; biên dịch và chạy bộ test offline thành công tốt đẹp 100% (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-12T12:15:00+07:00]
 - **Task ID**: D3
 - **Trạng thái hiện tại**: Đang chờ QA Review

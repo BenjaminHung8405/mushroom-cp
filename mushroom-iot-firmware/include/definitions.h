@@ -37,6 +37,26 @@ extern SemaphoreHandle_t xTelemetryMutex;
 bool get_shared_force_full_publish();
 void set_shared_force_full_publish(bool val);
 
+struct SharedSystemState {
+    float temp_air;
+    float humidity_air;
+    float co2_level;
+    float temp_target;
+    float humidity_target;
+    float co2_target;
+    float h_air_duty;
+    float h_wat_duty;
+    float mist_duty;
+    float exhaust_duty;
+};
+
+#ifndef UNIT_TEST
+extern SharedSystemState shared_systemState;
+#endif
+
+void update_shared_system_state(const SharedSystemState& state);
+SharedSystemState get_shared_system_state();
+
 #include "models.h"
 
 /**
