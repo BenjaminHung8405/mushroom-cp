@@ -1,5 +1,21 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:36:00+07:00] Sửa lỗi & Refactor theo Feedback của QA (Task A4, B2, B4)
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2)
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
+  - [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts) (Sửa đổi)
+  - [batch-context.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/lib/batch-context.tsx) (Sửa đổi)
+  - [fuzzy-logic-equalizer.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/fuzzy-logic-equalizer.tsx) (Sửa đổi)
+  - [app/page.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/app/page.tsx) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - **Sửa lỗ hổng Race Condition (TOCTOU)**: Đưa truy vấn kiểm tra trạng thái batch và validation vào bên trong database transaction và sử dụng khóa bi quan pessimistic write (`pessimistic_write`) để khóa bản ghi `CropBatch`.
+  - **Sửa lỗi biên**: Bổ sung chặn dưới `cropDay < 1` trong logic validate checkpoints của backend, đồng thời viết bổ sung unit test case tương ứng.
+  - **Tối ưu hóa Coding Conventions**: Phân rã hàm `validateCheckpointsList` (trong `batch.service.ts`) và `updateTotalCropDaysAndScale` (trong `batch-context.tsx`) thành các helper function nhỏ hơn, đảm bảo tất cả các hàm đều có độ dài dưới 50 dòng theo tiêu chuẩn.
+  - **Tối ưu UI & API Calls**: Loại bỏ hoàn toàn việc gọi API fetch dư thừa cho dirty check tại component `FuzzyLogicEqualizer`. Dữ liệu checkpoints ban đầu được sao chép trực tiếp từ state đồng bộ của Context khi trang dashboard được tải xong lần đầu tiên.
+  - **Sửa lỗi biên dịch Frontend**: Sửa kiểu dữ liệu actuatorActive của component `SensorDataCard` trong `app/page.tsx` từ `boolean | null` thành `boolean | undefined` bằng toán tử `?? undefined` giúp build thành công.
+  - Đã chạy thành công 97/97 tests ở Backend và Next.js production build ở Frontend thành công 100%.
+
 ## [2026-07-13T17:31:00+07:00] Task A4: Triển khai hàm lưu/cập nhật danh sách checkpoints trong một Transaction
 - **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2)
 - **Danh sách file tạo mới/sửa đổi**:

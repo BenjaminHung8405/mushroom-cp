@@ -691,6 +691,28 @@ describe('BatchService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('should throw BadRequestException if a checkpoint has cropDay less than 1', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const invalidCheckpoints = [
+        { metricType: MetricType.TEMPERATURE, cropDay: 0, targetValue: 30 },
+        { metricType: MetricType.TEMPERATURE, cropDay: 30, targetValue: 28 },
+        { metricType: MetricType.HUMIDITY, cropDay: 1, targetValue: 80 },
+        { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+      ];
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: invalidCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('should successfully delete old checkpoints and save new ones in transaction', async () => {
       const mockBatch = {
         id: 'batch-1',
@@ -700,6 +722,9 @@ describe('BatchService', () => {
       cropBatchRepo.findOne.mockResolvedValue(mockBatch);
 
       const mockManager = {
+        findOne: jest.fn().mockImplementation((entityClass, options) => {
+          return cropBatchRepo.findOne(options);
+        }),
         delete: jest.fn().mockResolvedValue({}),
         create: jest.fn().mockImplementation((entityClass, data) => data),
         save: jest

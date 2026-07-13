@@ -120,6 +120,50 @@ function interpolateValue(day: number, checkpoints: Checkpoint[]): number {
   return sorted[0].value
 }
 
+// Helper: Scale checkpoints array to fit a new total number of crop days
+function scaleCheckpointsHelper(
+  checkpoints: Checkpoint[],
+  oldTotalDays: number,
+  clampedTotalDays: number
+): Checkpoint[] {
+  const sorted = [...checkpoints].sort((a, b) => a.day - b.day)
+  if (sorted.length === 0) return []
+
+  const scaled = sorted.map((cp) => {
+    if (cp.day === 1) return cp
+    if (cp.day === oldTotalDays) return { ...cp, day: clampedTotalDays }
+
+    const newDay = 1 + Math.round(((cp.day - 1) * (clampedTotalDays - 1)) / (oldTotalDays - 1))
+    const finalDay = Math.max(2, Math.min(clampedTotalDays - 1, newDay))
+    return { ...cp, day: finalDay }
+  })
+
+  // Deduplicate by grouping by day and keeping the max value for safety (e.g., thermal stress warning)
+  const result: Checkpoint[] = []
+  scaled.forEach((current) => {
+    const existing = result.find((item) => item.day === current.day)
+    if (!existing) {
+      result.push({ ...current })
+    } else {
+      existing.value = Math.max(existing.value, current.value)
+    }
+  })
+
+  result.sort((a, b) => a.day - b.day)
+
+  if (!result.some((cp) => cp.day === 1)) {
+    result.unshift({ day: 1, value: checkpoints[0]?.value ?? 30 })
+  }
+  if (!result.some((cp) => cp.day === clampedTotalDays)) {
+    result.push({
+      day: clampedTotalDays,
+      value: checkpoints[checkpoints.length - 1]?.value ?? 28,
+    })
+  }
+
+  return result
+}
+
 export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [profileKey, setProfileKey] = useState('dry_season')
   const [profileName, setProfileName] = useState('Tối ưu mùa khô')
@@ -244,44 +288,12 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
 
     setTotalCropDays(clampedTotalDays)
 
-    const scaleCheckpoints = (checkpoints: Checkpoint[]) => {
-      const sorted = [...checkpoints].sort((a, b) => a.day - b.day)
-      if (sorted.length === 0) return []
-
-      const scaled = sorted.map((cp) => {
-        if (cp.day === 1) return cp
-        if (cp.day === oldTotalDays) return { ...cp, day: clampedTotalDays }
-
-        const newDay = 1 + Math.round(((cp.day - 1) * (clampedTotalDays - 1)) / (oldTotalDays - 1))
-        const finalDay = Math.max(2, Math.min(clampedTotalDays - 1, newDay))
-        return { ...cp, day: finalDay }
-      })
-
-      // Deduplicate by grouping by day and keeping the max value for safety (e.g., thermal stress warning)
-      const result: Checkpoint[] = []
-      scaled.forEach((current) => {
-        const existing = result.find((item) => item.day === current.day)
-        if (!existing) {
-          result.push({ ...current })
-        } else {
-          existing.value = Math.max(existing.value, current.value)
-        }
-      })
-
-      result.sort((a, b) => a.day - b.day)
-
-      if (!result.some((cp) => cp.day === 1)) {
-        result.unshift({ day: 1, value: checkpoints[0]?.value ?? 30 })
-      }
-      if (!result.some((cp) => cp.day === clampedTotalDays)) {
-        result.push({ day: clampedTotalDays, value: checkpoints[checkpoints.length - 1]?.value ?? 28 })
-      }
-
-      return result
-    }
-
-    setTemperatureCheckpoints((prev) => scaleCheckpoints(prev))
-    setHumidityCheckpoints((prev) => scaleCheckpoints(prev))
+    setTemperatureCheckpoints((prev) =>
+      scaleCheckpointsHelper(prev, oldTotalDays, clampedTotalDays),
+    )
+    setHumidityCheckpoints((prev) =>
+      scaleCheckpointsHelper(prev, oldTotalDays, clampedTotalDays),
+    )
 
     setLightDayStates((prev) => {
       return Array.from({ length: clampedTotalDays }, (_, i) => {

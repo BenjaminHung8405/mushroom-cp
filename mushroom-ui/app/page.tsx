@@ -190,7 +190,7 @@ function DashboardContent() {
           unit="%"
           status={humidityStatus}
           trend={humidityTrend}
-          actuatorActive={mistActive}
+          actuatorActive={mistActive ?? undefined}
           lastUpdated={snapshot?.time ?? null}
         />
       </div>
@@ -203,7 +203,7 @@ function DashboardContent() {
           unit="°C"
           status={temperatureStatus}
           trend={temperatureTrend}
-          actuatorActive={heaterAirActive}
+          actuatorActive={heaterAirActive ?? undefined}
           lastUpdated={snapshot?.time ?? null}
         />
       </div>
@@ -216,7 +216,7 @@ function DashboardContent() {
           unit="ppm"
           status={co2Status}
           trend={co2Trend}
-          actuatorActive={fanActive}
+          actuatorActive={fanActive ?? undefined}
           lastUpdated={snapshot?.time ?? null}
         />
       </div>

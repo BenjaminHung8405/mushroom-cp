@@ -7,8 +7,6 @@ import { LightTimelineBlock } from '@/lib/types'
 import { AlertCircle, Lightbulb, Lock, Unlock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  fetchDeviceMapping,
-  fetchActiveBatch,
   updateBatchCheckpoints,
   type CheckpointInput,
 } from '@/lib/batch-api'
@@ -707,42 +705,20 @@ export function FuzzyLogicEqualizer() {
   const [isSaving, setIsSaving] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
-  // Fetch initial active batch checkpoints to compare against for Dirty Check
+  // Reset initial checkpoints when active batch ID changes
   useEffect(() => {
-    let active = true
-    async function loadInitial() {
-      if (!activeBatchId) {
-        setInitialCheckpoints(null)
-        return
-      }
-      try {
-        const device = await fetchDeviceMapping()
-        const fetchedBatch = await fetchActiveBatch(device.houseId)
-        if (fetchedBatch && active) {
-          const tempCps = (fetchedBatch.checkpoints || [])
-            .filter((cp) => cp.metricType === 'TEMPERATURE')
-            .sort((a, b) => a.cropDay - b.cropDay)
-            .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
-
-          const humCps = (fetchedBatch.checkpoints || [])
-            .filter((cp) => cp.metricType === 'HUMIDITY')
-            .sort((a, b) => a.cropDay - b.cropDay)
-            .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
-
-          setInitialCheckpoints({
-            temperature: tempCps,
-            humidity: humCps,
-          })
-        }
-      } catch (err) {
-        console.error('Failed to load initial checkpoints for dirty check:', err)
-      }
-    }
-    void loadInitial()
-    return () => {
-      active = false
-    }
+    setInitialCheckpoints(null)
   }, [activeBatchId])
+
+  // Synchronize initial checkpoints from Context state on first load
+  useEffect(() => {
+    if (activeBatchId && !initialCheckpoints) {
+      setInitialCheckpoints({
+        temperature: [...temperatureCheckpoints],
+        humidity: [...humidityCheckpoints],
+      })
+    }
+  }, [activeBatchId, temperatureCheckpoints, humidityCheckpoints, initialCheckpoints])
 
   // Automatically dismiss toast after 3 seconds
   useEffect(() => {
