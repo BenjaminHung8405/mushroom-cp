@@ -287,7 +287,8 @@ namespace mqtt
         if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
             doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
             doc.containsKey("humidity") || doc.containsKey("co2") ||
-            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec"))
+            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec") ||
+            doc.containsKey("clearHardwareOverride"))
         {
             processSetpoints(doc);
         }
@@ -399,96 +400,108 @@ namespace mqtt
 
     void MqttClient::processSetpoints(StaticJsonDocument<768>& doc)
     {
-        local_control::LocalSetpoints setpoints = local_control::get_active_setpoints();
-        bool changed = false;
-
-        extractSetpoints(doc, setpoints, changed);
-
-        if (changed)
+        if (doc.containsKey("clearHardwareOverride") && doc["clearHardwareOverride"].as<bool>())
         {
-            setpoints.received_at_ms = millis();
-            setpoints.valid = true;
-            local_control::update_setpoints(setpoints);
+            storage::StorageManager::get_instance().clear_hardware_override();
+            ControlSetpointCommand clearCmd = { NAN, NAN, NAN, false, {0, 0, 0} };
+            if (xOverrideQueue != nullptr)
+            {
+                xQueueOverwrite(xOverrideQueue, &clearCmd);
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] Cleared hardware override and queued clear command.");
+                }
+            }
         }
-        else if (doc.containsKey("mist_generator_active") ||
-                 doc.containsKey("convection_fan_active") ||
-                 doc.containsKey("heating_lamp_active"))
+
+        parseAndPersistBaseline(doc);
+
+        if (doc.containsKey("mist_generator_active") ||
+            doc.containsKey("convection_fan_active") ||
+            doc.containsKey("heating_lamp_active"))
         {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+        }
+    }
+
+    void MqttClient::parseAndPersistBaseline(StaticJsonDocument<768>& doc)
+    {
+        bool has_temp = doc.containsKey("temperatureSetpoint") || doc.containsKey("temperature");
+        bool has_humi = doc.containsKey("humiditySetpoint") || doc.containsKey("humidity");
+        bool has_co2 = doc.containsKey("co2Setpoint") || doc.containsKey("co2");
+
+        if (!has_temp && !has_humi && !has_co2)
+        {
+            return;
+        }
+
+        float val_temp = NAN;
+        float val_humi = NAN;
+        float val_co2 = NAN;
+        bool valid = validateSetpointPayload(doc, val_temp, val_humi, val_co2);
+        if (!valid)
+        {
+            return;
+        }
+
+        storage::BackendSetpointSnapshot snapshot;
+        if (!storage::StorageManager::get_instance().load_backend_snapshot(snapshot) || !snapshot.valid)
+        {
+            snapshot.temp_target = 24.0f;
+            snapshot.humidity_target = 90.0f;
+            snapshot.co2_target = 1000.0f;
+            snapshot.valid = true;
+        }
+
+        if (has_temp) snapshot.temp_target = val_temp;
+        if (has_humi) snapshot.humidity_target = val_humi;
+        if (has_co2) snapshot.co2_target = val_co2;
+        snapshot.valid = true;
+
+        storage::StorageManager::get_instance().save_backend_snapshot(snapshot);
+        queueBaselineCommand(snapshot);
+    }
+
+    bool MqttClient::validateSetpointPayload(StaticJsonDocument<768>& doc, float& val_temp, float& val_humi, float& val_co2)
+    {
+        bool valid = true;
+        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("temperature"))
+        {
+            val_temp = doc.containsKey("temperatureSetpoint") ? doc["temperatureSetpoint"].as<float>() : doc["temperature"].as<float>();
+            if (!validateSingleSetpoint("temperature", val_temp, 10.0f, 45.0f)) valid = false;
+        }
+        if (doc.containsKey("humiditySetpoint") || doc.containsKey("humidity"))
+        {
+            val_humi = doc.containsKey("humiditySetpoint") ? doc["humiditySetpoint"].as<float>() : doc["humidity"].as<float>();
+            if (!validateSingleSetpoint("humidity", val_humi, 30.0f, 95.0f)) valid = false;
+        }
+        if (doc.containsKey("co2Setpoint") || doc.containsKey("co2"))
+        {
+            val_co2 = doc.containsKey("co2Setpoint") ? doc["co2Setpoint"].as<float>() : doc["co2"].as<float>();
+            if (!validateSingleSetpoint("co2", val_co2, 400.0f, 10000.0f)) valid = false;
+        }
+        return valid;
+    }
+
+    void MqttClient::queueBaselineCommand(const storage::BackendSetpointSnapshot& snapshot)
+    {
+        ControlSetpointCommand baselineCmd;
+        baselineCmd.temp_target = snapshot.temp_target;
+        baselineCmd.humidity_target = snapshot.humidity_target;
+        baselineCmd.co2_target = snapshot.co2_target;
+        baselineCmd.active = true;
+        memset(baselineCmd.padding, 0, sizeof(baselineCmd.padding));
+
+        if (xBaselineQueue != nullptr)
+        {
+            xQueueOverwrite(xBaselineQueue, &baselineCmd);
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+                Serial.printf("[MQTT] Queued baseline (T:%.2f, H:%.2f, CO2:%.2f)\n",
+                              baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
             }
         }
-        else
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
-            }
-        }
-    }
-
-    void MqttClient::extractEnvironmentSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
-    {
-        constexpr float MIN_SAFE_TEMP = 10.0f;
-        constexpr float MAX_SAFE_TEMP = 45.0f;
-        constexpr float MIN_SAFE_HUMI = 30.0f;
-        constexpr float MAX_SAFE_HUMI = 95.0f;
-        constexpr float MIN_SAFE_CO2 = 400.0f;
-        constexpr float MAX_SAFE_CO2 = 10000.0f;
-
-        if (doc.containsKey("temperatureSetpoint"))
-        {
-            float value = doc["temperatureSetpoint"].as<float>();
-            if (validateSingleSetpoint("temperature", value, MIN_SAFE_TEMP, MAX_SAFE_TEMP))
-            {
-                setpoints.temperature_setpoint = value;
-                changed = true;
-            }
-        }
-        if (doc.containsKey("humiditySetpoint"))
-        {
-            float value = doc["humiditySetpoint"].as<float>();
-            if (validateSingleSetpoint("humidity", value, MIN_SAFE_HUMI, MAX_SAFE_HUMI))
-            {
-                setpoints.humidity_setpoint = value;
-                changed = true;
-            }
-        }
-        if (doc.containsKey("co2Setpoint"))
-        {
-            float value = doc["co2Setpoint"].as<float>();
-            if (validateSingleSetpoint("co2", value, MIN_SAFE_CO2, MAX_SAFE_CO2))
-            {
-                setpoints.co2_setpoint = value;
-                changed = true;
-            }
-        }
-    }
-
-    void MqttClient::extractTtlAndProtection(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
-    {
-        if (doc.containsKey("thermal_shock_protection"))
-        {
-            setpoints.thermal_shock_protection = doc["thermal_shock_protection"].as<bool>();
-            changed = true;
-        }
-        if (doc.containsKey("setpoint_ttl_sec"))
-        {
-            uint32_t ttl_sec = doc["setpoint_ttl_sec"].as<uint32_t>();
-            if (ttl_sec >= 30 && ttl_sec <= 3600)
-            {
-                setpoints.setpoint_ttl_ms = ttl_sec * 1000UL;
-                changed = true;
-            }
-        }
-    }
-
-    bool MqttClient::extractSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
-    {
-        extractEnvironmentSetpoints(doc, setpoints, changed);
-        extractTtlAndProtection(doc, setpoints, changed);
-        return changed;
     }
 
 

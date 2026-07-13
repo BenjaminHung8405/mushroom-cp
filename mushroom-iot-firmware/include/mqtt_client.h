@@ -9,6 +9,7 @@
 
 #include <ArduinoJson.h>
 #include "local_control.h"
+#include "storage.h"
 
 namespace mqtt
 {
@@ -142,11 +143,6 @@ namespace mqtt
         bool handleMqttCommand(StaticJsonDocument<768>& doc);
 
         /**
-         * @brief Internal helper to extract and validate setpoint fields.
-         */
-        bool extractSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
-
-        /**
          * @brief Internal helper to validate MQTT credentials before connecting.
          */
         bool validateConnectionConfig(const String& client_id);
@@ -186,8 +182,9 @@ namespace mqtt
         void initializeMutex();
         bool validateIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length);
         void routeSetpointMessage(StaticJsonDocument<768>& doc, bool is_command);
-        void extractEnvironmentSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
-        void extractTtlAndProtection(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
+        void parseAndPersistBaseline(StaticJsonDocument<768>& doc);
+        bool validateSetpointPayload(StaticJsonDocument<768>& doc, float& val_temp, float& val_humi, float& val_co2);
+        void queueBaselineCommand(const storage::BackendSetpointSnapshot& snapshot);
         void handleMqttConnectionSuccess();
         void handleMqttConnectionFailure();
 

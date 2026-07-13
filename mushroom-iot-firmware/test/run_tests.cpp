@@ -2006,6 +2006,69 @@ int main() {
         vQueueDelete(testOverrideQ);
     }
 
+    // 33. Test Task F3 - MQTT setpoint callback, NVS baseline and queues
+    Serial.println("[TEST] Starting Task F3 - MQTT callback & Queue update Unit Tests...");
+    {
+        // 33.1 Setup queues and clear storage
+        if (xBaselineQueue == nullptr) {
+            xBaselineQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        } else {
+            ControlSetpointCommand discard;
+            while (xQueueReceive(xBaselineQueue, &discard, 0) == pdTRUE);
+        }
+        if (xOverrideQueue == nullptr) {
+            xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        } else {
+            ControlSetpointCommand discard;
+            while (xQueueReceive(xOverrideQueue, &discard, 0) == pdTRUE);
+        }
+        storage.factory_reset();
+
+        // 33.2 Mock incoming baseline setpoint update
+        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+        char setpoint_topic[100];
+        strcpy(setpoint_topic, topics.setpoint.c_str());
+
+        std::string payload = "{\"temperatureSetpoint\":28.50,\"humiditySetpoint\":80.00,\"co2Setpoint\":900.00}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+
+        // 33.3 Verify baseline saved to NVS
+        storage::BackendSetpointSnapshot snapshot;
+        assert(storage.load_backend_snapshot(snapshot) == true);
+        assert(std::fabs(snapshot.temp_target - 28.50f) < 0.01f);
+        assert(std::fabs(snapshot.humidity_target - 80.0f) < 0.01f);
+        assert(std::fabs(snapshot.co2_target - 900.0f) < 0.01f);
+        assert(snapshot.valid == true);
+
+        // 33.4 Verify baseline queued to xBaselineQueue
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
+        ControlSetpointCommand baselineCmd;
+        assert(xQueueReceive(xBaselineQueue, &baselineCmd, 0) == pdTRUE);
+        assert(std::fabs(baselineCmd.temp_target - 28.50f) < 0.01f);
+        assert(std::fabs(baselineCmd.humidity_target - 80.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.co2_target - 900.0f) < 0.01f);
+        assert(baselineCmd.active == true);
+
+        // 33.5 Setup active hardware override in NVS
+        storage::HardwareOverrideSnapshot hw_snap = { 25.0f, 75.0f, true };
+        assert(storage.save_hardware_override(hw_snap) == true);
+        assert(storage.load_hardware_override(hw_snap) == true);
+
+        // 33.6 Mock clearHardwareOverride payload
+        std::string clear_payload = "{\"clearHardwareOverride\":true}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)clear_payload.c_str(), clear_payload.length());
+
+        // 33.7 Verify hardware override cleared from NVS
+        storage::HardwareOverrideSnapshot loaded_hw;
+        assert(storage.load_hardware_override(loaded_hw) == false);
+
+        // 33.8 Verify clear command queued to xOverrideQueue
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
+        ControlSetpointCommand overrideCmd;
+        assert(xQueueReceive(xOverrideQueue, &overrideCmd, 0) == pdTRUE);
+        assert(overrideCmd.active == false);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

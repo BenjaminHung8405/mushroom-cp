@@ -1,3 +1,18 @@
+## [2026-07-13T11:17:58+07:00]
+- **Task ID**: F3
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Tách và loại bỏ legacy local_control trong MqttClient**: Cập nhật hàm `processSetpoints` để không gọi `local_control` nữa. Xóa các hàm phụ trợ cũ như `extractSetpoints`, `extractEnvironmentSetpoints`, `extractTtlAndProtection` để tuân thủ thiết kế lưu trữ mới.
+  - **Hành vi xử lý Setpoints và Baseline**: Hàm `processSetpoints` tự động nạp `BackendSetpointSnapshot` từ NVS nếu có, cập nhật các setpoint mới nhận được sau khi validate thành công, ghi đè lưu trữ NVS và gửi struct `ControlSetpointCommand` (active=true) vào hàng FreeRTOS Queue `xBaselineQueue`.
+  - **Fallback Trajectory Day 0**: Nếu NVS baseline trống hoặc không hợp lệ, setpoint sẽ fallback về trajectory Day 0 (T: 24.0°C, H: 90%, CO2: 1000 ppm) làm mặc định trước khi merge setpoint mới nhận được.
+  - **Hỗ trợ clearHardwareOverride**: Khi nhận payload JSON chứa cờ `"clearHardwareOverride": true`, hệ thống sẽ xóa khóa `hw_ovr` trong NVS (gọi `StorageManager::clear_hardware_override()`), đồng thời đẩy lệnh clear (`ControlSetpointCommand` với `active=false`) vào hàng FreeRTOS Queue `xOverrideQueue` để báo hiệu Core 1 điều khiển quay lại dùng baseline.
+  - **Tách hàm tuân thủ Coding Conventions (<50 dòng)**: Phân rã luồng xử lý setpoint thành các helper nhỏ dưới 50 dòng: `processSetpoints`, `parseAndPersistBaseline`, `validateSetpointPayload`, và `queueBaselineCommand`.
+  - **Bổ sung và Chạy Unit Tests**: Thêm kịch bản kiểm thử tự động toàn diện trong `test/run_tests.cpp` (Case 33) để giả lập MQTT callback với setpoint hợp lệ (kiểm chứng NVS & xBaselineQueue) và lệnh clear (kiểm chứng NVS & xOverrideQueue). Chạy `./run_tests` thành công 100% test case pass.
+
 ## [2026-07-13T11:17:00+07:00]
 - **Task ID**: F2
 - **Trạng thái hiện tại**: Đang chờ QA Review
