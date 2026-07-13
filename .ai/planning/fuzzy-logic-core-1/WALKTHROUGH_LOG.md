@@ -1,3 +1,24 @@
+## [2026-07-13T13:00:00+07:00]
+- **Task ID**: F8
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2).
+- **Danh sách file**:
+  - [MODIFY] [storage.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/storage.cpp)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [encoder.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/encoder.cpp)
+  - [MODIFY] [encoder.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/encoder.h)
+  - [MODIFY] [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [MODIFY] [Preferences.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Preferences.h)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - **[CRITICAL] NVS corrupt/NaN/Inf được chấp nhận khi load**: `is_valid_backend()` và `is_valid_hardware()` giờ luôn kiểm tra `std::isfinite()` cho toàn bộ trường float, loại bỏ ngoại lệ "inactive snapshot không validate". `load_backend_snapshot()` và `load_hardware_override()` chỉ trả `true` khi blob đúng kích thước **và** vượt validation strict; blob lỗi gây reject + log, hydration fallback về Trajectory Day 0 hoặc inactive override.
+  - **[HIGH] MQTT vẫn queue baseline dù persist NVS thất bại**: `parseAndPersistBaseline()` giờ kiểm tra kết quả `save_backend_snapshot()`. Nếu ghi NVS fail → log lỗi an toàn, hàm return sớm mà không gọi `queueBaselineCommand()`, giữ nguyên baseline runtime hiện tại.
+  - **[HIGH] Encoder không khởi tạo edit buffer từ effective target**: Hàm `initializeEditBufferFromEffectiveTarget()` đọc `getSharedSystemState()` thread-safe, copy temp/humidity vào edit buffer khi double-click chuyển sang EDIT_TEMP_MODE. Không còn dùng default `{24.0, 90.0}`.
+  - **[HIGH] Race condition ISR encoder**: Biến `pending_rotation` và `last_edge_ms` chuyển từ `volatile` sang dùng `portMUX_TYPE` với `portENTER_CRITICAL_ISR` trong ISR và `portENTER_CRITICAL` trong task. Mock `portMUX_TYPE` + macros no-op được thêm vào `Arduino.h` test.
+  - **Tests bổ sung**: Blob NVS đúng size chứa NaN/Inf/raw garbage → `load_* == false`; MQTT mock NVS write failure → không enqueue command; Encoder double-click từ effective target 31/77 → save → NVS ghi đúng 31.5/77.
+  - Tự kiểm tra PASS: biên dịch và chạy host test suite với toàn bộ source + ArduinoJson include; kết quả `--- All Unit Tests Passed Successfully! ---`. `git diff --check` sạch.
+
 ## [2026-07-13T12:30:00+07:00]
 - **Task ID**: F8
 - **Trạng thái hiện tại**: Đang chờ QA Review

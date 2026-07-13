@@ -350,17 +350,15 @@ namespace storage
 
     static bool is_valid_backend(const BackendSetpointSnapshot &snapshot)
     {
-        if (!snapshot.valid) return true;
-        return (snapshot.temp_target >= 10.0f && snapshot.temp_target <= 45.0f &&
-                snapshot.humidity_target >= 30.0f && snapshot.humidity_target <= 95.0f &&
-                snapshot.co2_target >= 400.0f && snapshot.co2_target <= 10000.0f);
+        return (std::isfinite(snapshot.temp_target) && snapshot.temp_target >= 10.0f && snapshot.temp_target <= 45.0f &&
+                std::isfinite(snapshot.humidity_target) && snapshot.humidity_target >= 30.0f && snapshot.humidity_target <= 95.0f &&
+                std::isfinite(snapshot.co2_target) && snapshot.co2_target >= 400.0f && snapshot.co2_target <= 10000.0f);
     }
 
     static bool is_valid_hardware(const HardwareOverrideSnapshot &snapshot)
     {
-        if (!snapshot.active) return true;
-        return (snapshot.temp_target >= 20.0f && snapshot.temp_target <= 40.0f &&
-                snapshot.humidity_target >= 50.0f && snapshot.humidity_target <= 95.0f);
+        return (std::isfinite(snapshot.temp_target) && snapshot.temp_target >= 20.0f && snapshot.temp_target <= 40.0f &&
+                std::isfinite(snapshot.humidity_target) && snapshot.humidity_target >= 50.0f && snapshot.humidity_target <= 95.0f);
     }
 
     bool StorageManager::save_backend_snapshot(const BackendSetpointSnapshot &snapshot)
@@ -423,9 +421,13 @@ namespace storage
         size_t bytes = prefs.getBytes(config::network::KEY_LAST_SP, &snapshot, sizeof(snapshot));
         prefs.end();
 
-        if (bytes == sizeof(snapshot))
+        if (bytes == sizeof(snapshot) && is_valid_backend(snapshot))
         {
             return true;
+        }
+        if (bytes == sizeof(snapshot))
+        {
+            Serial.println("[STORAGE] Error: Corrupt backend snapshot rejected.");
         }
         return false;
     }
@@ -502,9 +504,13 @@ namespace storage
         size_t bytes = prefs.getBytes(config::network::KEY_HW_OVR, &snapshot, sizeof(snapshot));
         prefs.end();
 
+        if (bytes == sizeof(snapshot) && is_valid_hardware(snapshot))
+        {
+            return snapshot.active;
+        }
         if (bytes == sizeof(snapshot))
         {
-            return true;
+            Serial.println("[STORAGE] Error: Corrupt hardware override rejected.");
         }
         return false;
     }

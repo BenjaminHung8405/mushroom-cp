@@ -24,8 +24,9 @@ constexpr float MAX_HUMIDITY = 95.0f;
 constexpr float TEMP_STEP = 0.5f;
 constexpr float HUMIDITY_STEP = 1.0f;
 
-volatile int8_t pending_rotation = 0;
-volatile unsigned long last_edge_ms = 0;
+portMUX_TYPE encoder_mux = portMUX_INITIALIZER_UNLOCKED;
+int8_t pending_rotation = 0;
+unsigned long last_edge_ms = 0;
 EncoderState state = {24.0f, 90.0f, false, false, EditField::Temperature};
 bool initialized = false;
 bool raw_button_pressed = false;
@@ -81,6 +82,17 @@ void applyRotation(int8_t rotation)
     }
 }
 
+void initializeEditBufferFromEffectiveTarget()
+{
+    const SharedSystemState effective = getSharedSystemState();
+    if (std::isfinite(effective.temp_target)) {
+        state.temp_target = clamp(effective.temp_target, MIN_TEMP, MAX_TEMP);
+    }
+    if (std::isfinite(effective.humidity_target)) {
+        state.humidity_target = clamp(effective.humidity_target, MIN_HUMIDITY, MAX_HUMIDITY);
+    }
+}
+
 void handleShortClick(unsigned long now)
 {
     if (!pending_click) {
@@ -91,6 +103,7 @@ void handleShortClick(unsigned long now)
     if (now - first_click_ms <= DOUBLE_CLICK_MS) {
         pending_click = false;
         if (!state.editing) {
+            initializeEditBufferFromEffectiveTarget();
             state.editing = true;
             state.field = EditField::Temperature;
         }
@@ -136,7 +149,9 @@ void processButton(unsigned long now)
 void IRAM_ATTR onClockEdge()
 {
     const unsigned long now = millis();
+    portENTER_CRITICAL_ISR(&encoder_mux);
     if (now - last_edge_ms < EDGE_REJECT_MS) {
+        portEXIT_CRITICAL_ISR(&encoder_mux);
         return;
     }
     last_edge_ms = now;
@@ -144,6 +159,7 @@ void IRAM_ATTR onClockEdge()
     if ((direction > 0 && pending_rotation < 20) || (direction < 0 && pending_rotation > -20)) {
         pending_rotation += direction;
     }
+    portEXIT_CRITICAL_ISR(&encoder_mux);
 }
 #endif
 
@@ -167,8 +183,11 @@ void process(unsigned long now)
     if (!initialized) {
         init();
     }
-    const int8_t rotation = pending_rotation;
+    int8_t rotation = 0;
+    portENTER_CRITICAL(&encoder_mux);
+    rotation = pending_rotation;
     pending_rotation = 0;
+    portEXIT_CRITICAL(&encoder_mux);
     applyRotation(rotation);
     processButton(now);
 }
@@ -181,7 +200,9 @@ EncoderState getState()
 #ifdef UNIT_TEST
 void simulateClockEdgeForTest(bool dt_high, unsigned long now)
 {
+    portENTER_CRITICAL(&encoder_mux);
     if (now - last_edge_ms < EDGE_REJECT_MS) {
+        portEXIT_CRITICAL(&encoder_mux);
         return;
     }
     last_edge_ms = now;
@@ -189,6 +210,7 @@ void simulateClockEdgeForTest(bool dt_high, unsigned long now)
     if ((direction > 0 && pending_rotation < 20) || (direction < 0 && pending_rotation > -20)) {
         pending_rotation += direction;
     }
+    portEXIT_CRITICAL(&encoder_mux);
 }
 #endif
 

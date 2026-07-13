@@ -228,6 +228,12 @@ typedef uint32_t UBaseType_t;
 typedef uint32_t TickType_t;
 typedef void* EventGroupHandle_t;
 typedef uint32_t EventBits_t;
+struct portMUX_TYPE {};
+#define portMUX_INITIALIZER_UNLOCKED portMUX_TYPE{}
+#define portENTER_CRITICAL(mux) do { (void)(mux); } while (0)
+#define portEXIT_CRITICAL(mux) do { (void)(mux); } while (0)
+#define portENTER_CRITICAL_ISR(mux) do { (void)(mux); } while (0)
+#define portEXIT_CRITICAL_ISR(mux) do { (void)(mux); } while (0)
 
 extern EventBits_t mock_event_group_bits;
 

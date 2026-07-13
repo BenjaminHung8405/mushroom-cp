@@ -25,6 +25,7 @@
 
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
+bool Preferences::mock_fail_put_bytes = false;
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
 wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
@@ -181,11 +182,9 @@ int main() {
         assert(storage.save_backend_snapshot(invalid_back_c1) == false);
         assert(storage.save_backend_snapshot(invalid_back_c2) == false);
 
-        // Invalid snapshot but with valid=false should be savable without range validation
+        // Inactive snapshots are not persisted with unchecked values.
         storage::BackendSetpointSnapshot inactive_back = { 9.0f, 9.0f, 99.0f, false };
-        assert(storage.save_backend_snapshot(inactive_back) == true);
-        assert(storage.load_backend_snapshot(loaded_back) == true);
-        assert(loaded_back.valid == false);
+        assert(storage.save_backend_snapshot(inactive_back) == false);
 
         // Restore to valid
         assert(storage.save_backend_snapshot(valid_back) == true);
@@ -245,11 +244,9 @@ int main() {
         assert(storage.save_hardware_override(invalid_hw_h1) == false);
         assert(storage.save_hardware_override(invalid_hw_h2) == false);
 
-        // Inactive HW override allows bypass of range check
+        // Inactive overrides are cleared rather than persisted with unchecked values.
         storage::HardwareOverrideSnapshot inactive_hw = { 99.0f, 99.0f, false };
-        assert(storage.save_hardware_override(inactive_hw) == true);
-        assert(storage.load_hardware_override(loaded_hw) == true);
-        assert(loaded_hw.active == false);
+        assert(storage.save_hardware_override(inactive_hw) == false);
 
         // Restore valid HW
         assert(storage.save_hardware_override(valid_hw) == true);
@@ -2252,6 +2249,50 @@ int main() {
         assert(storage.load_backend_snapshot(storedBaseline) == true);
         assert(std::fabs(storedBaseline.temp_target - 30.10f) < 0.001f);
 
+        // Correct-size corrupt NVS blobs (NaN, Inf, out-of-range, raw bytes) are rejected.
+        Preferences prefs;
+        assert(prefs.begin(config::network::NVS_NAMESPACE, false));
+        storage::BackendSetpointSnapshot corruptBackend = {NAN, 80.0f, 900.0f, true};
+        assert(prefs.putBytes(config::network::KEY_LAST_SP, &corruptBackend, sizeof(corruptBackend)) == sizeof(corruptBackend));
+        prefs.end();
+        assert(storage.load_backend_snapshot(storedBaseline) == false);
+        hydrateSetpointsFromNVS();
+        ControlSetpointCommand hydratedBaseline;
+        assert(xQueueReceive(xBaselineQueue, &hydratedBaseline, 0) == pdTRUE);
+        assert(std::fabs(hydratedBaseline.temp_target - 24.0f) < 0.001f);
+
+        assert(prefs.begin(config::network::NVS_NAMESPACE, false));
+        storage::HardwareOverrideSnapshot corruptOverride = {INFINITY, 75.0f, true};
+        assert(prefs.putBytes(config::network::KEY_HW_OVR, &corruptOverride, sizeof(corruptOverride)) == sizeof(corruptOverride));
+        prefs.end();
+        storage::HardwareOverrideSnapshot loadedOverride;
+        assert(storage.load_hardware_override(loadedOverride) == false);
+        hydrateSetpointsFromNVS();
+        ControlSetpointCommand hydratedOverride;
+        assert(xQueueReceive(xOverrideQueue, &hydratedOverride, 0) == pdTRUE);
+        assert(hydratedOverride.active == false);
+
+        assert(prefs.begin(config::network::NVS_NAMESPACE, false));
+        const unsigned char corruptBytes[sizeof(storage::BackendSetpointSnapshot)] = {0xFF};
+        assert(prefs.putBytes(config::network::KEY_LAST_SP, corruptBytes, sizeof(corruptBytes)) == sizeof(corruptBytes));
+        prefs.end();
+        assert(storage.load_backend_snapshot(storedBaseline) == false);
+
+        // A baseline must be persisted before MQTT may publish it to Core 1.
+        const storage::BackendSetpointSnapshot retainedBaseline = {27.0f, 72.0f, 850.0f, true};
+        assert(storage.save_backend_snapshot(retainedBaseline) == true);
+        clearQueue(xBaselineQueue);
+        Preferences::mock_fail_put_bytes = true;
+        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+        char setpointTopic[100];
+        strcpy(setpointTopic, topics.setpoint.c_str());
+        std::string failedPersistPayload = "{\"temperatureSetpoint\":29.0}";
+        PubSubClient::mock_callback(setpointTopic, reinterpret_cast<uint8_t*>(failedPersistPayload.data()), failedPersistPayload.length());
+        Preferences::mock_fail_put_bytes = false;
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 0);
+        assert(storage.load_backend_snapshot(storedBaseline) == true);
+        assert(std::fabs(storedBaseline.temp_target - retainedBaseline.temp_target) < 0.001f);
+
         // Rapid Core 0 updates retain only the latest depth-one baseline command.
         const ControlSetpointCommand staleBaseline = {26.0f, 75.0f, 800.0f, true, {0, 0, 0}};
         const ControlSetpointCommand latestBaseline = {30.0f, 85.0f, 950.0f, true, {0, 0, 0}};
@@ -2280,6 +2321,37 @@ int main() {
         assert(std::fabs(state.temp_target - latestBaseline.temp_target) < 0.001f);
         assert(std::fabs(state.humidity_target - latestBaseline.humidity_target) < 0.001f);
         assert(std::fabs(state.co2_target - latestBaseline.co2_target) < 0.001f);
+
+        // Editing starts from the thread-safe effective target, not stale 24/90 defaults.
+        encoder::resetForTest();
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        updateSharedSystemState({NAN, NAN, NAN, 31.0f, 77.0f, 950.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+        clearQueue(xOverrideQueue);
+        encoder::init();
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(100UL);
+        encoder::process(130UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(160UL);
+        encoder::process(190UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(220UL);
+        encoder::process(250UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(280UL);
+        encoder::process(310UL);
+        assert(encoder::getState().editing == true);
+        assert(std::fabs(encoder::getState().temp_target - 31.0f) < 0.001f);
+        assert(std::fabs(encoder::getState().humidity_target - 77.0f) < 0.001f);
+        encoder::simulateClockEdgeForTest(false, 400UL);
+        encoder::process(402UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(500UL);
+        encoder::process(530UL);
+        encoder::process(3530UL);
+        assert(storage.load_hardware_override(persistedOverride) == true);
+        assert(std::fabs(persistedOverride.temp_target - 31.5f) < 0.001f);
+        assert(std::fabs(persistedOverride.humidity_target - 77.0f) < 0.001f);
 
         // An active manual override cannot bypass the invalid-RTC TPC safety shutdown.
         assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);

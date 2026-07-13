@@ -448,7 +448,12 @@ namespace mqtt
         if (has_co2) snapshot.co2_target = val_co2;
         snapshot.valid = true;
 
-        storage::StorageManager::get_instance().save_backend_snapshot(snapshot);
+        if (!storage::StorageManager::get_instance().save_backend_snapshot(snapshot))
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Error: baseline persistence failed; retaining current runtime baseline.");
+            return;
+        }
         queueBaselineCommand(snapshot);
     }
 
