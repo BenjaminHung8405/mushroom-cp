@@ -1,3 +1,23 @@
+## [2026-07-13T11:15:00+07:00]
+- **Task ID**: F1
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+  - [MODIFY] [storage.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/storage.h)
+  - [MODIFY] [storage.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/storage.cpp)
+  - [MODIFY] [Preferences.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Preferences.h)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Tạo Snapshot POD Typed cho Setpoint NVS**: Định nghĩa các struct `BackendSetpointSnapshot` (gồm `temp_target`, `humidity_target`, `co2_target`, và `valid` flag) và `HardwareOverrideSnapshot` (gồm `temp_target`, `humidity_target`, và `active` flag) căn lề 4 bytes an toàn để lưu trữ dữ liệu setpoint dạng nhị phân thô, giúp tối ưu hiệu năng ghi/đọc flash.
+  - **Triển khai APIs Snapshots trong StorageManager**: Phát triển các hàm `save_backend_snapshot`, `load_backend_snapshot`, `clear_backend_snapshot`, `save_hardware_override`, `load_hardware_override`, và `clear_hardware_override`.
+  - **Ràng buộc Khoảng và Bảo vệ Độ bền Flash (Wear-leveling)**:
+    - Áp dụng kiểm duyệt dữ liệu nghiêm ngặt trước khi ghi: Backend (T: `[10.0, 45.0]`, H: `[30.0, 95.0]`, CO2: `[400.0, 10000.0]`) và Hardware Override (T: `[20.0, 40.0]`, H: `[50.0, 95.0]`).
+    - Hỗ trợ lưu trữ trạng thái bypass validation khi flag `valid=false` hoặc `active=false` để đánh dấu vô hiệu hóa setpoint snapshot.
+    - So sánh với giá trị cũ đã lưu và chỉ ghi khi chênh lệch của ít nhất một float lớn hơn hoặc bằng `0.099f` (ngưỡng an toàn thực tế tương đương `0.1f` tránh sai số dấu phẩy động của float) hoặc khi trạng thái boolean thay đổi.
+  - **Cập nhật Mock Preferences và Unit Tests**:
+    - Thêm triển khai cho `putBytes` và `getBytes` trong mock `Preferences.h` sử dụng chuỗi nhị phân thô của `std::string` để giả lập NVS chính xác trên máy chủ kiểm thử.
+    - Viết các test case kiểm thử toàn diện cho Task F1 tại `test/run_tests.cpp` xác minh thành công 100% logic validation, wear-leveling epsilon, clear snapshot, và fallback. Biên dịch offline và chạy test suite pass thành công.
+
 ## [2026-07-13T11:06:00+07:00]
 - **Task ID**: Refactoring & Quality Audit Compliance (Coding Conventions)
 - **Trạng thái hiện tại**: Completed & All Tests Passed

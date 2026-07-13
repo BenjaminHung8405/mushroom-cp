@@ -6,6 +6,25 @@
 namespace storage
 {
     /**
+     * @brief Snapshot POD structures for setpoints persistence in NVS.
+     * Aligned to 4 bytes for ESP32 memory efficiency.
+     */
+    struct BackendSetpointSnapshot
+    {
+        float temp_target;
+        float humidity_target;
+        float co2_target;
+        bool valid;
+    } __attribute__((aligned(4)));
+
+    struct HardwareOverrideSnapshot
+    {
+        float temp_target;
+        float humidity_target;
+        bool active;
+    } __attribute__((aligned(4)));
+
+    /**
      * @brief Manager class for handling non-volatile storage (NVS) using ESP32 Preferences library.
      * Enforces type safety, centralized namespace/keys, and proper error/log tracing.
      */
@@ -132,6 +151,36 @@ namespace storage
          * @brief Clears provisioned device identity from NVS.
          */
         bool clear_device_id();
+
+        /**
+         * @brief Saves backend setpoint snapshot to NVS.
+         */
+        bool save_backend_snapshot(const BackendSetpointSnapshot &snapshot);
+
+        /**
+         * @brief Loads backend setpoint snapshot from NVS.
+         */
+        bool load_backend_snapshot(BackendSetpointSnapshot &snapshot);
+
+        /**
+         * @brief Clears backend setpoint snapshot from NVS.
+         */
+        bool clear_backend_snapshot();
+
+        /**
+         * @brief Saves hardware override snapshot to NVS.
+         */
+        bool save_hardware_override(const HardwareOverrideSnapshot &snapshot);
+
+        /**
+         * @brief Loads hardware override snapshot from NVS.
+         */
+        bool load_hardware_override(HardwareOverrideSnapshot &snapshot);
+
+        /**
+         * @brief Clears hardware override snapshot from NVS.
+         */
+        bool clear_hardware_override();
 
         /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.

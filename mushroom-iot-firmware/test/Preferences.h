@@ -3,6 +3,7 @@
 #include "Arduino.h"
 #include <map>
 #include <string>
+#include <cstring>
 
 class Preferences {
 public:
@@ -56,6 +57,27 @@ public:
             }
         }
         return defaultValue;
+    }
+
+    size_t putBytes(const char* key, const void* value, size_t len) {
+        if (!_opened || _read_only) return 0;
+        _global_storage[_current_namespace][key] = std::string(static_cast<const char*>(value), len);
+        return len;
+    }
+
+    size_t getBytes(const char* key, void* buf, size_t len) {
+        if (!_opened) return 0;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                const std::string& stored = key_it->second;
+                size_t to_copy = (stored.size() < len) ? stored.size() : len;
+                memcpy(buf, stored.data(), to_copy);
+                return to_copy;
+            }
+        }
+        return 0;
     }
 
     bool remove(const char* key) {

@@ -1,5 +1,6 @@
 #include "storage.h"
 #include <Preferences.h>
+#include <cmath>
 
 namespace storage
 {
@@ -344,6 +345,180 @@ namespace storage
         bool result = prefs.remove(config::network::KEY_DEVICE_ID);
         prefs.end();
         Serial.println("[STORAGE] Cleared device_id from NVS.");
+        return result;
+    }
+
+    static bool is_valid_backend(const BackendSetpointSnapshot &snapshot)
+    {
+        if (!snapshot.valid) return true;
+        return (snapshot.temp_target >= 10.0f && snapshot.temp_target <= 45.0f &&
+                snapshot.humidity_target >= 30.0f && snapshot.humidity_target <= 95.0f &&
+                snapshot.co2_target >= 400.0f && snapshot.co2_target <= 10000.0f);
+    }
+
+    static bool is_valid_hardware(const HardwareOverrideSnapshot &snapshot)
+    {
+        if (!snapshot.active) return true;
+        return (snapshot.temp_target >= 20.0f && snapshot.temp_target <= 40.0f &&
+                snapshot.humidity_target >= 50.0f && snapshot.humidity_target <= 95.0f);
+    }
+
+    bool StorageManager::save_backend_snapshot(const BackendSetpointSnapshot &snapshot)
+    {
+        if (!is_valid_backend(snapshot))
+        {
+            Serial.println("[STORAGE] Error: Invalid backend snapshot data range.");
+            return false;
+        }
+
+        BackendSetpointSnapshot old;
+        bool has_old = load_backend_snapshot(old);
+        bool should_write = !has_old;
+        if (has_old)
+        {
+            if (std::abs(snapshot.temp_target - old.temp_target) >= 0.099f ||
+                std::abs(snapshot.humidity_target - old.humidity_target) >= 0.099f ||
+                std::abs(snapshot.co2_target - old.co2_target) >= 0.099f ||
+                snapshot.valid != old.valid)
+            {
+                should_write = true;
+            }
+        }
+
+        if (!should_write)
+        {
+            Serial.println("[STORAGE] Skip saving backend snapshot (change < 0.1 delta).");
+            return true;
+        }
+
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing backend snapshot.");
+            return false;
+        }
+
+        size_t bytes = prefs.putBytes(config::network::KEY_LAST_SP, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            Serial.printf("[STORAGE] Saved backend snapshot (T:%.2f, H:%.2f, CO2:%.2f, V:%d) successfully.\n",
+                          snapshot.temp_target, snapshot.humidity_target, snapshot.co2_target, snapshot.valid);
+            return true;
+        }
+        Serial.println("[STORAGE] Error: Failed to save backend snapshot.");
+        return false;
+    }
+
+    bool StorageManager::load_backend_snapshot(BackendSetpointSnapshot &snapshot)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading backend snapshot.");
+            return false;
+        }
+
+        size_t bytes = prefs.getBytes(config::network::KEY_LAST_SP, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    bool StorageManager::clear_backend_snapshot()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.remove(config::network::KEY_LAST_SP);
+        prefs.end();
+        Serial.println("[STORAGE] Cleared backend snapshot from NVS.");
+        return result;
+    }
+
+    bool StorageManager::save_hardware_override(const HardwareOverrideSnapshot &snapshot)
+    {
+        if (!is_valid_hardware(snapshot))
+        {
+            Serial.println("[STORAGE] Error: Invalid hardware override data range.");
+            return false;
+        }
+
+        HardwareOverrideSnapshot old;
+        bool has_old = load_hardware_override(old);
+        bool should_write = !has_old;
+        if (has_old)
+        {
+            if (std::abs(snapshot.temp_target - old.temp_target) >= 0.099f ||
+                std::abs(snapshot.humidity_target - old.humidity_target) >= 0.099f ||
+                snapshot.active != old.active)
+            {
+                should_write = true;
+            }
+        }
+
+        if (!should_write)
+        {
+            Serial.println("[STORAGE] Skip saving hardware override (change < 0.1 delta).");
+            return true;
+        }
+
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing hardware override.");
+            return false;
+        }
+
+        size_t bytes = prefs.putBytes(config::network::KEY_HW_OVR, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            Serial.printf("[STORAGE] Saved hardware override (T:%.2f, H:%.2f, A:%d) successfully.\n",
+                          snapshot.temp_target, snapshot.humidity_target, snapshot.active);
+            return true;
+        }
+        Serial.println("[STORAGE] Error: Failed to save hardware override.");
+        return false;
+    }
+
+    bool StorageManager::load_hardware_override(HardwareOverrideSnapshot &snapshot)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading hardware override.");
+            return false;
+        }
+
+        size_t bytes = prefs.getBytes(config::network::KEY_HW_OVR, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    bool StorageManager::clear_hardware_override()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.remove(config::network::KEY_HW_OVR);
+        prefs.end();
+        Serial.println("[STORAGE] Cleared hardware override from NVS.");
         return result;
     }
 

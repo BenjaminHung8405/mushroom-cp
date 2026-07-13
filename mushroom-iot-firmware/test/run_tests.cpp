@@ -145,6 +145,150 @@ int main() {
     // Clean up
     assert(storage.factory_reset() == true);
 
+    // --- F1: StorageManager Snapshots Unit Tests ---
+    Serial.println("[TEST] Starting Task F1 - StorageManager Snapshots Unit Tests...");
+    {
+        // 1. Initial empty checks
+        storage::BackendSetpointSnapshot back_sp;
+        storage::HardwareOverrideSnapshot hw_sp;
+        assert(storage.load_backend_snapshot(back_sp) == false);
+        assert(storage.load_hardware_override(hw_sp) == false);
+
+        // 2. Save and load valid Backend Snapshot
+        storage::BackendSetpointSnapshot valid_back = { 25.5f, 80.0f, 1200.0f, true };
+        assert(storage.save_backend_snapshot(valid_back) == true);
+        
+        storage::BackendSetpointSnapshot loaded_back;
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.temp_target == 25.5f);
+        assert(loaded_back.humidity_target == 80.0f);
+        assert(loaded_back.co2_target == 1200.0f);
+        assert(loaded_back.valid == true);
+
+        // 3. Validation bounds for Backend Snapshot (T: [10, 45], H: [30, 95], CO2: [400, 10000])
+        storage::BackendSetpointSnapshot invalid_back_t1 = { 9.9f, 80.0f, 1200.0f, true };
+        storage::BackendSetpointSnapshot invalid_back_t2 = { 45.1f, 80.0f, 1200.0f, true };
+        storage::BackendSetpointSnapshot invalid_back_h1 = { 25.0f, 29.9f, 1200.0f, true };
+        storage::BackendSetpointSnapshot invalid_back_h2 = { 25.0f, 95.1f, 1200.0f, true };
+        storage::BackendSetpointSnapshot invalid_back_c1 = { 25.0f, 80.0f, 399.0f, true };
+        storage::BackendSetpointSnapshot invalid_back_c2 = { 25.0f, 80.0f, 10001.0f, true };
+
+        assert(storage.save_backend_snapshot(invalid_back_t1) == false);
+        assert(storage.save_backend_snapshot(invalid_back_t2) == false);
+        assert(storage.save_backend_snapshot(invalid_back_h1) == false);
+        assert(storage.save_backend_snapshot(invalid_back_h2) == false);
+        assert(storage.save_backend_snapshot(invalid_back_c1) == false);
+        assert(storage.save_backend_snapshot(invalid_back_c2) == false);
+
+        // Invalid snapshot but with valid=false should be savable without range validation
+        storage::BackendSetpointSnapshot inactive_back = { 9.0f, 9.0f, 99.0f, false };
+        assert(storage.save_backend_snapshot(inactive_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.valid == false);
+
+        // Restore to valid
+        assert(storage.save_backend_snapshot(valid_back) == true);
+
+        // 4. Wear / Epsilon checks for Backend Snapshot (delta >= 0.1f)
+        // 4.1. Small change < 0.1f (T changes by 0.05f) -> should skip writing, old value remains
+        storage::BackendSetpointSnapshot small_change_back = { 25.55f, 80.0f, 1200.0f, true };
+        assert(storage.save_backend_snapshot(small_change_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.temp_target == 25.5f); // Still old value
+
+        // 4.2. Large change >= 0.1f (T changes by 0.1f) -> should write
+        storage::BackendSetpointSnapshot large_change_back = { 25.6f, 80.0f, 1200.0f, true };
+        assert(storage.save_backend_snapshot(large_change_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.temp_target == 25.6f); // Updated
+
+        // 4.3. Change humidity >= 0.1f -> should write
+        storage::BackendSetpointSnapshot hum_change_back = { 25.6f, 80.1f, 1200.0f, true };
+        assert(storage.save_backend_snapshot(hum_change_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.humidity_target == 80.1f);
+
+        // 4.4. Change CO2 >= 0.1f -> should write
+        storage::BackendSetpointSnapshot co2_change_back = { 25.6f, 80.1f, 1201.0f, true };
+        assert(storage.save_backend_snapshot(co2_change_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.co2_target == 1201.0f);
+
+        // 4.5. Change valid flag -> should write immediately
+        storage::BackendSetpointSnapshot valid_toggle_back = { 25.6f, 80.1f, 1201.0f, false };
+        assert(storage.save_backend_snapshot(valid_toggle_back) == true);
+        assert(storage.load_backend_snapshot(loaded_back) == true);
+        assert(loaded_back.valid == false);
+
+        // Restore valid_back for subsequent tests
+        assert(storage.save_backend_snapshot(valid_back) == true);
+
+        // 5. Hardware Override Snapshot
+        storage::HardwareOverrideSnapshot valid_hw = { 25.5f, 80.0f, true };
+        assert(storage.save_hardware_override(valid_hw) == true);
+        
+        storage::HardwareOverrideSnapshot loaded_hw;
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.temp_target == 25.5f);
+        assert(loaded_hw.humidity_target == 80.0f);
+        assert(loaded_hw.active == true);
+
+        // 5.1. Validation bounds for HW (T: [20, 40], H: [50, 95])
+        storage::HardwareOverrideSnapshot invalid_hw_t1 = { 19.9f, 80.0f, true };
+        storage::HardwareOverrideSnapshot invalid_hw_t2 = { 40.1f, 80.0f, true };
+        storage::HardwareOverrideSnapshot invalid_hw_h1 = { 25.0f, 49.9f, true };
+        storage::HardwareOverrideSnapshot invalid_hw_h2 = { 25.0f, 95.1f, true };
+
+        assert(storage.save_hardware_override(invalid_hw_t1) == false);
+        assert(storage.save_hardware_override(invalid_hw_t2) == false);
+        assert(storage.save_hardware_override(invalid_hw_h1) == false);
+        assert(storage.save_hardware_override(invalid_hw_h2) == false);
+
+        // Inactive HW override allows bypass of range check
+        storage::HardwareOverrideSnapshot inactive_hw = { 99.0f, 99.0f, false };
+        assert(storage.save_hardware_override(inactive_hw) == true);
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.active == false);
+
+        // Restore valid HW
+        assert(storage.save_hardware_override(valid_hw) == true);
+
+        // 5.2. Epsilon checks for HW (delta >= 0.1f)
+        storage::HardwareOverrideSnapshot small_change_hw = { 25.55f, 80.0f, true };
+        assert(storage.save_hardware_override(small_change_hw) == true);
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.temp_target == 25.5f); // Unchanged
+
+        storage::HardwareOverrideSnapshot large_change_hw = { 25.6f, 80.0f, true };
+        assert(storage.save_hardware_override(large_change_hw) == true);
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.temp_target == 25.6f); // Updated
+
+        storage::HardwareOverrideSnapshot hum_change_hw = { 25.6f, 80.1f, true };
+        assert(storage.save_hardware_override(hum_change_hw) == true);
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.humidity_target == 80.1f);
+
+        storage::HardwareOverrideSnapshot active_toggle_hw = { 25.6f, 80.1f, false };
+        assert(storage.save_hardware_override(active_toggle_hw) == true);
+        assert(storage.load_hardware_override(loaded_hw) == true);
+        assert(loaded_hw.active == false);
+
+        // 6. Clear Snapshots
+        assert(storage.save_backend_snapshot(valid_back) == true);
+        assert(storage.save_hardware_override(valid_hw) == true);
+
+        assert(storage.clear_backend_snapshot() == true);
+        assert(storage.load_backend_snapshot(loaded_back) == false);
+
+        assert(storage.clear_hardware_override() == true);
+        assert(storage.load_hardware_override(loaded_hw) == false);
+
+        // Clean up NVS
+        assert(storage.factory_reset() == true);
+    }
+    Serial.println("[TEST] Task F1 - Snapshots Unit Tests Passed!");
+
     // 11b. Verify compiled MQTT default host port and init diagnostics settings
     assert(config::network::DEFAULT_MQTT_PORT == 18883);
     config::network::MQTT_BROKER_VAL = "192.168.1.164";

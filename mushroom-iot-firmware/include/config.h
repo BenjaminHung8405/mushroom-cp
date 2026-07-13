@@ -54,6 +54,8 @@ namespace config
         constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
         constexpr const char *KEY_DEVICE_ID = "device_id";
         constexpr const char *KEY_BACKEND_URL = "backend_url";
+        constexpr const char *KEY_LAST_SP = "last_sp";
+        constexpr const char *KEY_HW_OVR = "hw_ovr";
 
         // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
         extern String STA_SSID;
