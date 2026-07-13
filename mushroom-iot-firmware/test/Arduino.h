@@ -332,3 +332,8 @@ inline UBaseType_t uxTaskGetStackHighWaterMark(void* /*xTask*/) {
     return 4096;
 }
 
+#define FALLING 2
+inline int digitalPinToInterrupt(uint8_t pin) { return pin; }
+inline void attachInterrupt(int /*interrupt*/, void (*/*callback*/)(), int /*mode*/) {}
+inline void detachInterrupt(int /*interrupt*/) {}
+

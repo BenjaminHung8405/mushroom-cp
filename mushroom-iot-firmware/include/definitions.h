@@ -84,6 +84,11 @@ void taskCore1Control(void* pvParameters);
 void taskHardwareButton(void* pvParameters);
 
 /**
+ * @brief FreeRTOS task on Core 0 that processes KY-040 encoder input.
+ */
+void taskEncoderInput(void* pvParameters);
+
+/**
  * @brief Handle for the FreeRTOS queue carrying ActuatorCommand from Core 0 to Core 1.
  * Created during setup(); destroyed on shutdown.
  */

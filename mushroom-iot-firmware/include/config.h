@@ -30,6 +30,11 @@ namespace config
         // Hold 5 seconds during runtime to force SoftAP config portal.
         constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
+        // KY-040 rotary encoder. Supply the module at 3.3 V only.
+        constexpr uint8_t PIN_ENCODER_CLK = 5;
+        constexpr uint8_t PIN_ENCODER_DT = 6;
+        constexpr uint8_t PIN_ENCODER_SW = 7;
+
     } // namespace pins
 
     namespace network

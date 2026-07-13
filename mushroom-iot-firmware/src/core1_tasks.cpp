@@ -344,21 +344,81 @@ static void drainLegacyActuatorQueue()
 // ---------------------------------------------------------------------------
 // Helpers to decompose runControlPipelineStep (<50 lines)
 // ---------------------------------------------------------------------------
+static bool isValidBaselineCommand(const ControlSetpointCommand& cmd)
+{
+    if (!cmd.active) return true;
+    return (std::isfinite(cmd.temp_target) && cmd.temp_target >= 10.0f && cmd.temp_target <= 45.0f &&
+            std::isfinite(cmd.humidity_target) && cmd.humidity_target >= 30.0f && cmd.humidity_target <= 95.0f &&
+            std::isfinite(cmd.co2_target) && cmd.co2_target >= 400.0f && cmd.co2_target <= 10000.0f);
+}
+
+static bool isValidOverrideCommand(const ControlSetpointCommand& cmd)
+{
+    if (!cmd.active) return true;
+    return (std::isfinite(cmd.temp_target) && cmd.temp_target >= 20.0f && cmd.temp_target <= 40.0f &&
+            std::isfinite(cmd.humidity_target) && cmd.humidity_target >= 50.0f && cmd.humidity_target <= 95.0f);
+}
+
 static Trajectory::SetpointPod getControlSetpointsAndErrors(
     const TelemetryData& telemetry,
+    const ControlSetpointCommand& baselineCmd,
+    const ControlSetpointCommand& overrideCmd,
     float& errorTemp,
     float& errorHumid,
     float& errorCO2)
 {
-    // The growth-day source is not yet provisioned. Day 0 is an explicit,
-    // deterministic safe default rather than inventing time-derived state.
-    const Trajectory::SetpointPod setpoints =
+    const Trajectory::SetpointPod trajectory =
         Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
-    errorTemp = isFinite(telemetry.temp_air)
+
+    Trajectory::SetpointPod setpoints;
+
+    // Temperature Target Priority: override > baseline > trajectory Day 0
+    if (overrideCmd.active && std::isfinite(overrideCmd.temp_target))
+    {
+        setpoints.temp_target = overrideCmd.temp_target;
+    }
+    else if (baselineCmd.active && std::isfinite(baselineCmd.temp_target))
+    {
+        setpoints.temp_target = baselineCmd.temp_target;
+    }
+    else
+    {
+        setpoints.temp_target = trajectory.temp_target;
+    }
+
+    // Humidity Target Priority: override > baseline > trajectory Day 0
+    if (overrideCmd.active && std::isfinite(overrideCmd.humidity_target))
+    {
+        setpoints.humidity_target = overrideCmd.humidity_target;
+    }
+    else if (baselineCmd.active && std::isfinite(baselineCmd.humidity_target))
+    {
+        setpoints.humidity_target = baselineCmd.humidity_target;
+    }
+    else
+    {
+        setpoints.humidity_target = trajectory.humidity_target;
+    }
+
+    // CO2 Target Priority: override > baseline > trajectory Day 0
+    if (overrideCmd.active && std::isfinite(overrideCmd.co2_target))
+    {
+        setpoints.co2_target = overrideCmd.co2_target;
+    }
+    else if (baselineCmd.active && std::isfinite(baselineCmd.co2_target))
+    {
+        setpoints.co2_target = baselineCmd.co2_target;
+    }
+    else
+    {
+        setpoints.co2_target = trajectory.co2_target;
+    }
+
+    errorTemp = std::isfinite(telemetry.temp_air)
         ? setpoints.temp_target - telemetry.temp_air : NAN;
-    errorHumid = isFinite(telemetry.humidity_air)
+    errorHumid = std::isfinite(telemetry.humidity_air)
         ? setpoints.humidity_target - telemetry.humidity_air : NAN;
-    errorCO2 = isFinite(telemetry.co2_level)
+    errorCO2 = std::isfinite(telemetry.co2_level)
         ? setpoints.co2_target - telemetry.co2_level : NAN;
     return setpoints;
 }
@@ -402,7 +462,16 @@ static void runControlPipelineStep(
         ControlSetpointCommand temp;
         while (xQueueReceive(xBaselineQueue, &temp, 0) == pdTRUE)
         {
-            baselineCmd = temp;
+            if (isValidBaselineCommand(temp))
+            {
+                baselineCmd = temp;
+            }
+            else
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[CORE1_TASK] ERROR: Rejected invalid baseline command: T=%.2f, H=%.2f, CO2=%.2f\n",
+                              temp.temp_target, temp.humidity_target, temp.co2_target);
+            }
         }
     }
     if (xOverrideQueue != nullptr)
@@ -410,7 +479,16 @@ static void runControlPipelineStep(
         ControlSetpointCommand temp;
         while (xQueueReceive(xOverrideQueue, &temp, 0) == pdTRUE)
         {
-            overrideCmd = temp;
+            if (isValidOverrideCommand(temp))
+            {
+                overrideCmd = temp;
+            }
+            else
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[CORE1_TASK] ERROR: Rejected invalid override command: T=%.2f, H=%.2f, CO2=%.2f\n",
+                              temp.temp_target, temp.humidity_target, temp.co2_target);
+            }
         }
     }
 
@@ -425,7 +503,7 @@ static void runControlPipelineStep(
     float errorHumid = NAN;
     float errorCO2 = NAN;
     const Trajectory::SetpointPod setpoints =
-        getControlSetpointsAndErrors(telemetry, errorTemp, errorHumid, errorCO2);
+        getControlSetpointsAndErrors(telemetry, baselineCmd, overrideCmd, errorTemp, errorHumid, errorCO2);
 
     const unsigned long elapsedMs = now - lastControlMs;
     lastControlMs = now;

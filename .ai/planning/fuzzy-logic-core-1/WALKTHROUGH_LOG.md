@@ -1,3 +1,22 @@
+## [2026-07-13T11:43:25+07:00]
+- **Task ID**: F6
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [NEW] [encoder.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/encoder.h)
+  - [NEW] [encoder.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/encoder.cpp)
+  - [MODIFY] [config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Triển khai module encoder** (`encoder.h` / `encoder.cpp`): Đóng gói KY-040 với CLK ISR (FALLING) ghi nhận bước xoay, đọc DT để xác định chiều CW/CCW; reject cạnh <2 ms chống bounce cơ học. Task Core 0 (`taskEncoderInput`) poll 20 ms, xử lý debounce 30 ms cho nút SW, phát hiện double-click (≤300 ms), long-press (≥3 s).
+  - **Gestures**: Double-click trong monitor mode → bật edit mode (chỉnh Temp); single-click trong edit mode → chuyển giữa Temp/Hum; xoay → +/-0.5°C hoặc +/-1%; long-press trong edit mode → ghi NVS + queue `xOverrideQueue(active=true)`; long-press trong monitor mode → xóa NVS + queue `xOverrideQueue(active=false)`. Clamp T:[20,40], H:[50,95].
+  - **Tích hợp task**: Đăng ký `taskEncoderInput` trong `createCoreTasks()` — pin Core 0, stack 2048 B, priority CORE0_TASK_PRIORITY.
+  - **Test hook host**: `simulateClockEdgeForTest(dt_high, now)` giả lập ISR trên host; stub `attachInterrupt`/`digitalPinToInterrupt` trong Arduino.h mock.
+  - **Unit tests Case 35**: Init INPUT_PULLUP, double-click → editing Temp, CLK edge CW/CCW ±0.5°C, edge <2 ms rejected, single-click switch Humidity, long-press save → NVS + queue active, long-press clear → NVS cleared + queue inactive. Toàn bộ 35+ test cases PASS.
+  - **Kiểm tra diff**: `git diff --check` sạch, không whitespace error.
+
 ## [2026-07-13T11:23:30+07:00]
 - **Task ID**: F4
 - **Trạng thái hiện tại**: Đang chờ QA Review

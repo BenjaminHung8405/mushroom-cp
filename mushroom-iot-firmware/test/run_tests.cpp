@@ -18,6 +18,7 @@
 #include "Telemetry.h"
 #include "CryptoUtils.h"
 #include "WebInterface.h"
+#include "encoder.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -2131,6 +2132,90 @@ int main() {
         assert(std::fabs(overrideCmd.humidity_target - 75.0f) < 0.01f);
         assert(std::isnan(overrideCmd.co2_target));
         assert(overrideCmd.active == true);
+    }
+
+    // 35. Test Task F6 - KY-040 rotary encoder override input
+    Serial.println("[TEST] Starting Task F6 - KY-040 Encoder Unit Tests...");
+    {
+        storage.factory_reset();
+        if (xOverrideQueue == nullptr) {
+            xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        }
+        ControlSetpointCommand discarded;
+        while (xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE) {}
+
+        mock_pin_values[config::pins::PIN_ENCODER_CLK] = HIGH;
+        mock_pin_values[config::pins::PIN_ENCODER_DT] = HIGH;
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::resetForTest();
+        encoder::init();
+        assert(mock_pin_modes[config::pins::PIN_ENCODER_CLK] == INPUT_PULLUP);
+        assert(mock_pin_modes[config::pins::PIN_ENCODER_DT] == INPUT_PULLUP);
+        assert(mock_pin_modes[config::pins::PIN_ENCODER_SW] == INPUT_PULLUP);
+
+        // Monitor double-click starts temperature editing.
+        mock_millis_offset = 100UL;
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(100UL);
+        encoder::process(130UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(160UL);
+        encoder::process(190UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(220UL);
+        encoder::process(250UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(280UL);
+        encoder::process(310UL);
+        assert(encoder::getState().editing == true);
+        assert(encoder::getState().field == encoder::EditField::Temperature);
+
+        // CLK edges read DT direction; an edge under 2 ms is rejected.
+        encoder::simulateClockEdgeForTest(false, 400UL);
+        encoder::simulateClockEdgeForTest(false, 401UL);
+        encoder::process(402UL);
+        assert(std::fabs(encoder::getState().temp_target - 24.5f) < 0.01f);
+        encoder::simulateClockEdgeForTest(true, 405UL);
+        encoder::process(406UL);
+        assert(std::fabs(encoder::getState().temp_target - 24.0f) < 0.01f);
+
+        // One click in edit mode switches to humidity after the double-click window.
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(500UL);
+        encoder::process(530UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(560UL);
+        encoder::process(590UL);
+        encoder::process(900UL);
+        assert(encoder::getState().field == encoder::EditField::Humidity);
+        encoder::simulateClockEdgeForTest(true, 905UL);
+        encoder::process(906UL);
+        assert(std::fabs(encoder::getState().humidity_target - 89.0f) < 0.01f);
+
+        // Long press in edit mode persists and queues the override.
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(1000UL);
+        encoder::process(1030UL);
+        encoder::process(4030UL);
+        storage::HardwareOverrideSnapshot saved;
+        assert(storage.load_hardware_override(saved) == true);
+        assert(saved.active == true);
+        assert(std::fabs(saved.temp_target - 24.0f) < 0.01f);
+        assert(std::fabs(saved.humidity_target - 89.0f) < 0.01f);
+        assert(xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE);
+        assert(discarded.active == true);
+
+        // Long press in monitor mode clears the persisted override and queues inactive.
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
+        encoder::process(4060UL);
+        encoder::process(4090UL);
+        mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
+        encoder::process(5000UL);
+        encoder::process(5030UL);
+        encoder::process(8030UL);
+        assert(storage.load_hardware_override(saved) == false);
+        assert(xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE);
+        assert(discarded.active == false);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

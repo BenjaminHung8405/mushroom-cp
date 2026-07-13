@@ -10,6 +10,7 @@
 #include "Telemetry.h"
 #include "CryptoUtils.h"
 #include "Trajectory.h"
+#include "encoder.h"
 
 // Queue depth constants — sized for the expected inter-core message rate.
 // Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
@@ -150,6 +151,23 @@ void createCoreTasks()
         {
             Serial.printf("[MAIN] ERROR: Failed to create taskCore1Control (code: %d)!\n",
                           static_cast<int>(result));
+        }
+    }
+
+    // Create KY-040 input task on Core 0.
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            taskEncoderInput,
+            "TaskEncoder",
+            2048,
+            nullptr,
+            CORE0_TASK_PRIORITY,
+            nullptr,
+            0
+        );
+        if (result != pdPASS)
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create taskEncoderInput (code: %d)!\n", static_cast<int>(result));
         }
     }
 
