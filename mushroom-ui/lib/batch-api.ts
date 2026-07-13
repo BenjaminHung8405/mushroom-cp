@@ -33,6 +33,14 @@ export interface CreateBatchInput {
   houseId: string
   profileName: string
   totalCropDays: number
+  spawnRunningEndDay?: number
+  tempOptimalMin?: number
+  tempOptimalMax?: number
+  humidityOptimalMin?: number
+  humidityOptimalMax?: number
+  thermalShockProtection?: boolean
+  thermalShockStart?: string
+  thermalShockEnd?: string
 }
 
 export interface CheckpointInput {

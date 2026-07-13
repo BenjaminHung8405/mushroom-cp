@@ -10,6 +10,7 @@ import {
   endBatch,
   fetchActiveBatch,
   fetchDeviceMapping,
+  updateBatchCheckpoints,
   type ActiveBatch,
   type EndBatchStatus,
 } from '@/lib/batch-api'
@@ -41,7 +42,23 @@ function millisecondsUntilVietnamMidnight(): number {
 }
 
 export function BatchStatusPanel() {
-  const { profileKey, profileName, loadProfilePreset, totalCropDays, updateTotalCropDaysAndScale, syncFromActiveBatch } = useBatch()
+  const {
+    profileKey,
+    profileName,
+    loadProfilePreset,
+    totalCropDays,
+    updateTotalCropDaysAndScale,
+    syncFromActiveBatch,
+    customProfiles,
+    temperatureCheckpoints,
+    humidityCheckpoints,
+    spawnRunningEndDay,
+    tempOptimalRange,
+    humidityOptimalRange,
+    thermalShockProtection,
+    thermalShockStart,
+    thermalShockEnd,
+  } = useBatch()
   const [batch, setBatch] = useState<ActiveBatch | null>(null)
   const [houseName, setHouseName] = useState<string | null>(null)
   const [houseId, setHouseId] = useState<string | null>(null)
@@ -99,7 +116,34 @@ export function BatchStatusPanel() {
     setActionLoading(true)
     setError(null)
     try {
-      await createBatch({ houseId, profileName, totalCropDays })
+      // 1. Create the batch with all parameters
+      const newBatch = await createBatch({
+        houseId,
+        profileName,
+        totalCropDays,
+        spawnRunningEndDay,
+        tempOptimalMin: tempOptimalRange[0],
+        tempOptimalMax: tempOptimalRange[1],
+        humidityOptimalMin: humidityOptimalRange[0],
+        humidityOptimalMax: humidityOptimalRange[1],
+        thermalShockProtection,
+        thermalShockStart: thermalShockStart.length === 5 ? `${thermalShockStart}:00` : thermalShockStart,
+        thermalShockEnd: thermalShockEnd.length === 5 ? `${thermalShockEnd}:00` : thermalShockEnd,
+      })
+
+      // 2. Immediately update checkpoints for the newly created batch
+      const tempInputs = temperatureCheckpoints.map((cp) => ({
+        metricType: 'TEMPERATURE' as const,
+        cropDay: cp.day,
+        targetValue: cp.value,
+      }))
+      const humInputs = humidityCheckpoints.map((cp) => ({
+        metricType: 'HUMIDITY' as const,
+        cropDay: cp.day,
+        targetValue: cp.value,
+      }))
+      await updateBatchCheckpoints(newBatch.id, [...tempInputs, ...humInputs])
+
       await refresh()
       setNotice('Đã bắt đầu vụ. Hôm nay được tính là Ngày 1.')
       setDialog(null)
@@ -164,7 +208,18 @@ export function BatchStatusPanel() {
           <div className="mb-5 rounded-lg border border-dashed border-slate-700 p-3 text-sm text-slate-400">Chưa có vụ đang chạy cho nhà nấm này.</div>
           <label className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Chọn điều kiện trồng</label>
           <select value={profileKey} onChange={(event) => loadProfilePreset(event.target.value)} className="mb-4 w-full rounded border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-emerald-300 focus:outline-none">
-            <option value="dry_season">Phù hợp mùa khô</option><option value="rainy_season">Phù hợp mùa mưa</option><option value="quick_fruiting">Ra nấm sớm</option>
+            <optgroup label="Hồ sơ mặc định" className="bg-slate-900 text-slate-300">
+              <option value="dry_season">Phù hợp mùa khô</option>
+              <option value="rainy_season">Phù hợp mùa mưa</option>
+              <option value="quick_fruiting">Ra nấm sớm</option>
+            </optgroup>
+            {Object.keys(customProfiles).length > 0 && (
+              <optgroup label="Hồ sơ tùy chỉnh" className="bg-slate-900 text-slate-300">
+                {Object.entries(customProfiles).map(([key, profile]: [string, any]) => (
+                  <option key={key} value={key}>{profile.name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500"><CalendarRange className="size-3" />Tổng số ngày</label>
           <input type="number" min="10" max="45" value={totalCropDays} onChange={(event) => {

@@ -693,6 +693,7 @@ export function FuzzyLogicEqualizer() {
     spawnRunningEndDay,
     totalCropDays,
     activeBatchId,
+    saveAsNewProfile,
   } = useBatch()
 
   const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
@@ -874,7 +875,7 @@ export function FuzzyLogicEqualizer() {
           Thiết lập điều kiện trồng (chu kỳ {lightDayStates.length} ngày)
         </h2>
 
-        {/* Profile Name — informational only; saved via BatchStatusPanel */}
+        {/* Profile Name & Saving Options */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
           <input
             type="text"
@@ -883,26 +884,41 @@ export function FuzzyLogicEqualizer() {
             placeholder="Tên hồ sơ"
             className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-xs sm:text-sm"
           />
-          {activeBatchId ? (
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
             <Button
-              onClick={handleSaveChanges}
-              disabled={!isDirty || isSaving}
-              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold transition-all shadow-md shadow-emerald-950/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm h-9 md:h-10 rounded-md shrink-0"
+              onClick={() => {
+                if (!profileName.trim()) {
+                  setToast({ message: 'Vui lòng điền tên hồ sơ trước khi lưu!', type: 'error' })
+                  return
+                }
+                saveAsNewProfile(profileName)
+                setToast({ message: `Đã lưu hồ sơ "${profileName}" thành công!`, type: 'success' })
+              }}
+              className="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-semibold transition-all px-4 py-2 text-xs sm:text-sm h-9 md:h-10 rounded-md flex items-center justify-center gap-2"
             >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Đang lưu...</span>
-                </>
-              ) : (
-                <span>Lưu thay đổi vụ đang chạy</span>
-              )}
+              <span>Lưu thành hồ sơ mới</span>
             </Button>
-          ) : (
-            <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-              Các thay đổi sẽ áp dụng khi bắt đầu vụ mới
-            </span>
-          )}
+            {activeBatchId ? (
+              <Button
+                onClick={handleSaveChanges}
+                disabled={!isDirty || isSaving}
+                className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold transition-all shadow-md shadow-emerald-950/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm h-9 md:h-10 rounded-md"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Đang lưu...</span>
+                  </>
+                ) : (
+                  <span>Lưu thay đổi vụ đang chạy</span>
+                )}
+              </Button>
+            ) : (
+              <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider px-2">
+                Các thay đổi sẽ áp dụng khi bắt đầu vụ mới
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Intraday Thermal Shock Protection */}

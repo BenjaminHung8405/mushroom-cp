@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useMemo, useCallback } from 'react'
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import type { ActiveBatch } from './batch-api'
 
 export interface Checkpoint {
@@ -97,6 +97,8 @@ interface BatchContextType {
   getIsLightActive: (day: number) => boolean
   activeBatchId: string | null
   syncFromActiveBatch: (batch: ActiveBatch | null) => void
+  customProfiles: Record<string, any>
+  saveAsNewProfile: (name: string) => void
 }
 
 const BatchContext = createContext<BatchContextType | undefined>(undefined)
@@ -169,6 +171,19 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState('Tối ưu mùa khô')
   const [totalCropDays, setTotalCropDays] = useState(21)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
+  const [customProfiles, setCustomProfiles] = useState<Record<string, any>>({})
+
+  // Load custom profiles from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('custom_mushroom_profiles')
+    if (saved) {
+      try {
+        setCustomProfiles(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to parse custom profiles from localStorage:', e)
+      }
+    }
+  }, [])
 
   const syncFromActiveBatch = useCallback((batch: ActiveBatch | null) => {
     if (!batch) {
@@ -229,19 +244,35 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [tempOptimalRange, setTempOptimalRange] = useState<[number, number]>([28, 35])
   const [humidityOptimalRange, setHumidityOptimalRange] = useState<[number, number]>([70, 90])
 
+  // Derive biological spawnRunningEndDay (end of the first active phase / block)
+  const spawnRunningEndDay = useMemo(() => {
+    const firstOffIndex = lightDayStates.findIndex((state) => !state.active)
+    if (firstOffIndex === -1) return totalCropDays
+    if (firstOffIndex === 0) {
+      const firstOnIndex = lightDayStates.findIndex((state) => state.active)
+      return firstOnIndex !== -1 ? firstOnIndex : 8
+    }
+    return firstOffIndex
+  }, [lightDayStates, totalCropDays])
+
   // Loads a preset profile and scales it to current totalCropDays
   const loadProfilePreset = (key: string) => {
-    const preset = PROFILE_PRESETS[key as keyof typeof PROFILE_PRESETS]
+    const preset = PROFILE_PRESETS[key as keyof typeof PROFILE_PRESETS] || customProfiles[key]
     if (!preset) return
     setProfileKey(key)
     setProfileName(preset.name)
 
+    const targetDays = preset.totalCropDays || 21
+    setTotalCropDays(targetDays)
+
+    const presetTotalDays = preset.totalCropDays || 21
+
     const scale = (checkpoints: Checkpoint[]) => {
       const scaled = checkpoints.map(cp => {
         if (cp.day === 1) return cp
-        if (cp.day === 21) return { ...cp, day: totalCropDays }
-        const newDay = 1 + Math.round((cp.day - 1) * (totalCropDays - 1) / 20)
-        return { ...cp, day: Math.max(2, Math.min(totalCropDays - 1, newDay)) }
+        if (cp.day === presetTotalDays) return { ...cp, day: targetDays }
+        const newDay = 1 + Math.round((cp.day - 1) * (targetDays - 1) / (presetTotalDays - 1))
+        return { ...cp, day: Math.max(2, Math.min(targetDays - 1, newDay)) }
       })
 
       // Deduplicate by grouping by day and keeping the max value for safety (e.g., thermal stress warning)
@@ -260,8 +291,8 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
       if (!result.some((cp) => cp.day === 1)) {
         result.unshift({ day: 1, value: checkpoints[0]?.value ?? 30 })
       }
-      if (!result.some((cp) => cp.day === totalCropDays)) {
-        result.push({ day: totalCropDays, value: checkpoints[checkpoints.length - 1]?.value ?? 28 })
+      if (!result.some((cp) => cp.day === targetDays)) {
+        result.push({ day: targetDays, value: checkpoints[checkpoints.length - 1]?.value ?? 28 })
       }
 
       return result
@@ -270,14 +301,21 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
     setTemperatureCheckpoints(scale(preset.tempCheckpoints))
     setHumidityCheckpoints(scale(preset.humidityCheckpoints))
 
-    setLightDayStates(Array.from({ length: totalCropDays }, (_, i) => {
+    const lightDaysActive = preset.lightDaysActive || 8
+    setLightDayStates(Array.from({ length: targetDays }, (_, i) => {
       const day = i + 1
-      const oldDay = 1 + Math.round((day - 1) * 20 / (totalCropDays - 1))
+      const oldDay = 1 + Math.round((day - 1) * (presetTotalDays - 1) / (targetDays - 1))
       return {
         day,
-        active: oldDay <= preset.lightDaysActive,
+        active: oldDay <= lightDaysActive,
       }
     }))
+
+    if (preset.tempOptimalRange) setTempOptimalRange(preset.tempOptimalRange)
+    if (preset.humidityOptimalRange) setHumidityOptimalRange(preset.humidityOptimalRange)
+    if (preset.thermalShockProtection !== undefined) setThermalShockProtection(preset.thermalShockProtection)
+    if (preset.thermalShockStart) setThermalShockStart(preset.thermalShockStart)
+    if (preset.thermalShockEnd) setThermalShockEnd(preset.thermalShockEnd)
   }
 
   // Transactionally scale total crop days and all checkpoints/schedules
@@ -308,16 +346,37 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
     })
   }
 
-  // Derive biological spawnRunningEndDay (end of the first active phase / block)
-  const spawnRunningEndDay = useMemo(() => {
-    const firstOffIndex = lightDayStates.findIndex((state) => !state.active)
-    if (firstOffIndex === -1) return totalCropDays
-    if (firstOffIndex === 0) {
-      const firstOnIndex = lightDayStates.findIndex((state) => state.active)
-      return firstOnIndex !== -1 ? firstOnIndex : 8
+  const saveAsNewProfile = useCallback((name: string) => {
+    const key = `custom_${Date.now()}`
+    const newPreset = {
+      name,
+      tempCheckpoints: [...temperatureCheckpoints],
+      humidityCheckpoints: [...humidityCheckpoints],
+      lightDaysActive: spawnRunningEndDay,
+      totalCropDays,
+      tempOptimalRange,
+      humidityOptimalRange,
+      thermalShockProtection,
+      thermalShockStart,
+      thermalShockEnd,
     }
-    return firstOffIndex
-  }, [lightDayStates, totalCropDays])
+    const updated = { ...customProfiles, [key]: newPreset }
+    setCustomProfiles(updated)
+    localStorage.setItem('custom_mushroom_profiles', JSON.stringify(updated))
+    setProfileKey(key)
+    setProfileName(name)
+  }, [
+    temperatureCheckpoints,
+    humidityCheckpoints,
+    spawnRunningEndDay,
+    totalCropDays,
+    tempOptimalRange,
+    humidityOptimalRange,
+    thermalShockProtection,
+    thermalShockStart,
+    thermalShockEnd,
+    customProfiles,
+  ])
 
   const getTemperatureSetpoint = (day: number) => {
     return interpolateValue(day, temperatureCheckpoints)
@@ -363,6 +422,8 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
         getIsLightActive,
         activeBatchId,
         syncFromActiveBatch,
+        customProfiles,
+        saveAsNewProfile,
       }}
     >
       {children}

@@ -19,6 +19,8 @@ typedef void* EventGroupHandle_t;
 #endif
 #endif
 
+#include "models.h"
+
 // Wifi Event Bits for multi-core synchronization
 #define WIFI_CONNECTED_BIT          (1 << 0)
 #define WIFI_SOFTAP_BIT             (1 << 1)
