@@ -1,5 +1,16 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:25:00+07:00] Task B3: Đồng bộ dữ liệu vụ nuôi khi load trang Dashboard
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch-status-panel.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/batch-status-panel.tsx) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Nhập khẩu biểu tượng `Loader2` từ `lucide-react` và destructure phương thức `syncFromActiveBatch` từ hook `useBatch()`.
+  - Cập nhật hàm `refresh` trong `BatchStatusPanel` để gọi `syncFromActiveBatch` với dữ liệu của batch tải về thành công (hoặc `null` trong trường hợp lỗi/không tồn tại batch), duy trì nguyên tắc Single Source of Truth cho toàn bộ ứng dụng.
+  - Tối ưu hóa UI tải trang bằng việc thêm trạng thái loading spinner xoay với biểu tượng `Loader2` từ Lucide, ngăn chặn tình trạng hiển thị nhấp nháy dữ liệu mặc định (preset) trước khi đồng bộ.
+  - Đảm bảo an toàn bằng khối try-catch bọc quanh quá trình fetch và xử lý fallback UI nếu API lỗi, tránh làm sập Dashboard.
+  - Kiểm tra cú pháp TypeScript của client bằng `npx tsc --noEmit` và chạy toàn bộ unit tests ở backend bằng `pnpm test` thành công hoàn hảo (94/94 test cases pass).
+
 ## [2026-07-13T17:23:45+07:00] Task B2: Bổ sung hàm đồng bộ dữ liệu vụ nuôi thực tế vào Context State
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:

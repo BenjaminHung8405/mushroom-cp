@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarRange, Check, CircleAlert, Clock3, Play, Sprout, X } from 'lucide-react'
+import { CalendarRange, Check, CircleAlert, Clock3, Loader2, Play, Sprout, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch } from '@/lib/batch-context'
@@ -41,7 +41,7 @@ function millisecondsUntilVietnamMidnight(): number {
 }
 
 export function BatchStatusPanel() {
-  const { profileKey, profileName, loadProfilePreset, totalCropDays, updateTotalCropDaysAndScale } = useBatch()
+  const { profileKey, profileName, loadProfilePreset, totalCropDays, updateTotalCropDaysAndScale, syncFromActiveBatch } = useBatch()
   const [batch, setBatch] = useState<ActiveBatch | null>(null)
   const [houseName, setHouseName] = useState<string | null>(null)
   const [houseId, setHouseId] = useState<string | null>(null)
@@ -59,15 +59,18 @@ export function BatchStatusPanel() {
       const device = await fetchDeviceMapping()
       setHouseId(device.houseId)
       setHouseName(device.displayName)
-      setBatch(await fetchActiveBatch(device.houseId))
+      const fetchedBatch = await fetchActiveBatch(device.houseId)
+      setBatch(fetchedBatch)
+      syncFromActiveBatch(fetchedBatch)
     } catch (cause) {
       setBatch(null)
       setHouseId(null)
+      syncFromActiveBatch(null)
       setError(cause instanceof Error ? cause.message : 'Không thể tải trạng thái vụ.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [syncFromActiveBatch])
 
   useEffect(() => {
     void refresh()
@@ -140,7 +143,10 @@ export function BatchStatusPanel() {
       {error && <div className="mb-4 flex gap-2 rounded border border-red-500/30 bg-red-950/20 p-2 text-xs text-red-300"><CircleAlert className="size-4 shrink-0" />{error}</div>}
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-slate-500">Đang tải trạng thái vụ...</div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+          <span>Đang tải trạng thái vụ...</span>
+        </div>
       ) : !houseId ? (
         <div className="flex flex-1 flex-col items-start justify-center gap-3 text-sm text-slate-400"><span>Chưa xác định được khu trồng. Vui lòng thử lại.</span><Button variant="outline" size="sm" onClick={() => void refresh()}>Thử lại</Button></div>
       ) : batch ? (
