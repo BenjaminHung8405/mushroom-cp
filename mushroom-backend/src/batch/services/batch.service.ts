@@ -14,7 +14,7 @@ import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
 import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { CreateBatchDto } from '../dto/create-batch.dto';
-import { UpdateCheckpointsDto, MetricType } from '../dto/update-checkpoints.dto';
+import { UpdateCheckpointsDto, CheckpointDto, MetricType } from '../dto/update-checkpoints.dto';
 
 export interface BatchContext {
   batchId: string | null;
@@ -435,34 +435,8 @@ export class BatchService {
       );
     }
 
-    const { checkpoints } = dto;
-    const tempCheckpoints = checkpoints.filter(
-      (c) => c.metricType === 'TEMPERATURE',
-    );
-    const humidityCheckpoints = checkpoints.filter(
-      (c) => c.metricType === 'HUMIDITY',
-    );
-
-    const hasTempDay1 = tempCheckpoints.some((c) => c.cropDay === 1);
-    const hasTempDayN = tempCheckpoints.some(
-      (c) => c.cropDay === batch.totalCropDays,
-    );
-    const hasHumidDay1 = humidityCheckpoints.some((c) => c.cropDay === 1);
-    const hasHumidDayN = humidityCheckpoints.some(
-      (c) => c.cropDay === batch.totalCropDays,
-    );
-
-    if (tempCheckpoints.length < 2 || !hasTempDay1 || !hasTempDayN) {
-      throw new BadRequestException(
-        `Temperature checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
-      );
-    }
-
-    if (humidityCheckpoints.length < 2 || !hasHumidDay1 || !hasHumidDayN) {
-      throw new BadRequestException(
-        `Humidity checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
-      );
-    }
+    // Tách logic validation ra ngoài để giữ hàm ngắn gọn (< 50 dòng)
+    this.validateCheckpointsList(batch, dto.checkpoints);
 
     return await this.cropBatchRepository.manager.transaction(
       async (transactionalEntityManager) => {
@@ -472,7 +446,7 @@ export class BatchService {
         });
 
         // Create new CurveCheckpoint entities
-        const newCheckpoints = checkpoints.map((cp) =>
+        const newCheckpoints = dto.checkpoints.map((cp) =>
           transactionalEntityManager.create(CurveCheckpoint, {
             batchId: id,
             metricType: cp.metricType,
@@ -488,5 +462,59 @@ export class BatchService {
         );
       },
     );
+  }
+
+  private validateCheckpointsList(
+    batch: CropBatch,
+    checkpoints: CheckpointDto[],
+  ): void {
+    const tempCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'TEMPERATURE',
+    );
+    const humidityCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'HUMIDITY',
+    );
+
+    // 1. Chặn ngày vượt giới hạn của vụ
+    const outOfBounds = checkpoints.find((c) => c.cropDay > batch.totalCropDays);
+    if (outOfBounds) {
+      throw new BadRequestException(
+        `Checkpoint day ${outOfBounds.cropDay} exceeds the total crop days of the batch (${batch.totalCropDays}).`,
+      );
+    }
+
+    // 2. Chặn trùng lặp ngày cho cùng metricType
+    const checkDuplicates = (cps: CheckpointDto[], type: string) => {
+      const days = cps.map((c) => c.cropDay);
+      const duplicateDay = days.find((day, index) => days.indexOf(day) !== index);
+      if (duplicateDay) {
+        throw new BadRequestException(
+          `Duplicate cropDay ${duplicateDay} found in ${type} checkpoints.`,
+        );
+      }
+    };
+    checkDuplicates(tempCheckpoints, 'Temperature');
+    checkDuplicates(humidityCheckpoints, 'Humidity');
+
+    // 3. Kiểm tra các điểm biên (Day 1 và Day N)
+    const hasTempDay1 = tempCheckpoints.some((c) => c.cropDay === 1);
+    const hasTempDayN = tempCheckpoints.some(
+      (c) => c.cropDay === batch.totalCropDays,
+    );
+    const hasHumidDay1 = humidityCheckpoints.some((c) => c.cropDay === 1);
+    const hasHumidDayN = humidityCheckpoints.some(
+      (c) => c.cropDay === batch.totalCropDays,
+    );
+
+    if (tempCheckpoints.length < 2 || !hasTempDay1 || !hasTempDayN) {
+      throw new BadRequestException(
+        `Temperature checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
+      );
+    }
+    if (humidityCheckpoints.length < 2 || !hasHumidDay1 || !hasHumidDayN) {
+      throw new BadRequestException(
+        `Humidity checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
+      );
+    }
   }
 }

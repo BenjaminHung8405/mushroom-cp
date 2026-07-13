@@ -1,5 +1,16 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:31:00+07:00] Task A4: Triển khai hàm lưu/cập nhật danh sách checkpoints trong một Transaction
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2)
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
+  - [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Tách logic validation trong `updateBatchCheckpoints` ra helper private method `validateCheckpointsList` để rút ngắn hàm, đáp ứng quy chuẩn Coding Conventions dưới 50 dòng.
+  - Bổ sung logic kiểm tra chặn các checkpoint có `cropDay` vượt quá giới hạn tổng số ngày của vụ (`batch.totalCropDays`) và ném ra `BadRequestException`.
+  - Bổ sung logic kiểm tra và chặn các checkpoint có ngày trùng lặp (`cropDay`) trong cùng một loại chỉ số (`metricType`), ném ra `BadRequestException`.
+  - Viết thêm 2 unit test cases trong `batch.service.spec.ts` để xác thực 2 trường hợp ném lỗi trên, chạy `pnpm test` pass toàn bộ 96/96 test cases.
+
 ## [2026-07-13T17:26:00+07:00] Task B4: Thiết kế nút bấm và viết handler lưu checkpoints tại đồ thị
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:
