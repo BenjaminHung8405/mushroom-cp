@@ -1,3 +1,19 @@
+## [2026-07-13T12:57:53+07:00]
+- **Task ID**: F8
+- **Trạng thái hiện tại**: QA Approved — LGTM / Done
+- **Agent rà soát**: Security Auditor & Senior Code Reviewer
+- **Kết quả tổng hợp**:
+  - **F1/F8** `is_valid_backend()` / `is_valid_hardware()`: PASS — Loại bỏ ngoại lệ "inactive snapshot không validate"; giờ luôn kiểm `std::isfinite()` cho toàn bộ trường float trước khi so sánh range. `load_backend_snapshot()` và `load_hardware_override()` chỉ trả `true` khi blob đúng kích thước **và** vượt validation strict; blob corrupt (NaN/Inf/raw garbage) gây reject + log, hydration fallback về Trajectory Day 0 hoặc inactive override.
+  - **F3/F8** `parseAndPersistBaseline()`: PASS — Kiểm tra kết quả `save_backend_snapshot()`. Nếu ghi NVS fail → log lỗi an toàn, hàm return sớm mà không gọi `queueBaselineCommand()`, giữ nguyên baseline runtime hiện tại. Không còn risk enqueue command với dữ liệu chưa được persist.
+  - **F6/F8** `initializeEditBufferFromEffectiveTarget()`: PASS — Đọc `getSharedSystemState()` thread-safe (bảo vệ bởi `xTelemetryMutex`), copy temp/humidity vào edit buffer khi double-click chuyển sang EDIT_TEMP_MODE. Không còn dùng default `{24.0, 90.0}`. Clamp đúng MIN/MAX theo config.
+  - **F6/F8** Race condition ISR encoder: PASS — Biến `pending_rotation` và `last_edge_ms` chuyển từ `volatile` sang dùng `portMUX_TYPE` với `portENTER_CRITICAL_ISR` trong ISR và `portENTER_CRITICAL` trong task. Mock `portMUX_TYPE` + macros no-op được thêm vào `Arduino.h` test. Không còn data race giữa ISR và polling task.
+  - **Tests bổ sung**: Blob NVS đúng size chứa NaN/Inf/raw garbage → `load_* == false`; MQTT mock NVS write failure → không enqueue command; Encoder double-click từ effective target 31/77 → save → NVS ghi đúng 31.5/77. Tổng cộng 35+ test cases PASS.
+  - **Kiến trúc & Conventions**: Namespace `storage::`, `mqtt::`, `encoder::` phân tách rõ ràng. Hàm ngắn gọn (<50 dòng). Không `delay()`, không `malloc/new/String` trong loop. PascalCase/CamelCase đúng quy ước.
+  - **Bảo mật**: Không hardcode secret/.env. Validate NaN/Inf tại mọi entry point NVS. Clamp mọi output range. Không raw pointer/heap.
+  - **Logic & Edge-cases**: Corrupt NVS → reject + fallback. MQTT persist fail → retain current. Encoder ISR → critical section. RTC invalid → SSR safety giữ nguyên.
+  - **Tối ưu**: O(1) cho validation. Không vòng lồng. Không N+1. Không cấp phát động.
+- **Xác minh độc lập**: `./run_tests` → `--- All Unit Tests Passed Successfully! ---`. `git diff --check` sạch.
+- **Quyết định**: **LGTM**. Chuyển Task F8 sang `[x] Done`.
 ## [2026-07-13T13:00:00+07:00]
 - **Task ID**: F8
 - **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2).
