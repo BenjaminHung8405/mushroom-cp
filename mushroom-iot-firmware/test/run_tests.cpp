@@ -155,13 +155,13 @@ int main() {
     PubSubClient::mock_server_host = "";
     PubSubClient::mock_server_port = 0;
     {
-        mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
+        mqtt::MqttClient& mqtt_client = mqtt::MqttClient::getInstance();
         assert(mqtt_client.init() == true);
         assert(PubSubClient::mock_buffer_size == 1024);
         assert(PubSubClient::mock_keep_alive == 60);
         assert(PubSubClient::mock_server_host == "192.168.1.164");
         assert(PubSubClient::mock_server_port == 18883);
-        assert(mqtt_client.get_state() == mqtt::MqttState::IDLE);
+        assert(mqtt_client.getState() == mqtt::MqttState::IDLE);
     }
 
     // 12. Test WiFi Manager Connection Logic
@@ -286,12 +286,12 @@ int main() {
 
     // 12. Test MQTT Client Initialization and Topic Resolution
     Serial.println("[TEST] Starting MQTT Client Unit Tests...");
-    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
+    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::getInstance();
 
     // 12.1 Test initialization failure when MQTT broker is empty
     config::network::MQTT_BROKER_VAL = "";
     assert(mqtt_client.init() == false);
-    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_CONFIG);
+    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_CONFIG);
 
     // 12.2 Test successful initialization and dynamic topic resolution
     config::network::MQTT_BROKER_VAL = "192.168.1.50";
@@ -301,10 +301,10 @@ int main() {
     config::network::MQTT_PASSWORD_VAL = "test_pass";
     
     assert(mqtt_client.init() == true);
-    assert(mqtt_client.get_state() == mqtt::MqttState::IDLE);
+    assert(mqtt_client.getState() == mqtt::MqttState::IDLE);
     
     {
-        const mqtt::MqttTopics& topics = mqtt_client.get_resolved_topics();
+        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
         assert(topics.status == "mushroom/device/esp32_mushroom_test_client/status");
         assert(topics.telemetry == "mushroom/device/esp32_mushroom_test_client/telemetry");
         assert(topics.setpoint == "mushroom/device/esp32_mushroom_test_client/setpoint");
@@ -313,7 +313,7 @@ int main() {
     // 12.3 Test loop behavior when WiFi is disconnected (no connection)
     // WiFiManager is currently in STA_DISCONNECTED (from step 11)
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 12.4 Test loop behavior when WiFi becomes connected
     // WiFiManager is currently in STA_DISCONNECTED, with last reconnect attempt at t=27000.
@@ -329,8 +329,8 @@ int main() {
     
     // Call loop, it should transition state when reconnect_mqtt is called in UNIT_TEST mock
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.is_connected() == true);
+    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.isConnected() == true);
 
     // 12.4b Test connection failure path and state diagnostics
     PubSubClient::mock_connected = false;
@@ -341,20 +341,20 @@ int main() {
     mqtt_client.loop();  // detects connection loss -> DISCONNECTED
     mock_millis_offset += 5000;
     mqtt_client.loop();  // attempts reconnect, fails with state=4
-    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
     assert(PubSubClient::mock_state == 4);
     PubSubClient::mock_connect_result = true;
     mock_millis_offset += 9000;
     mqtt_client.loop();  // reconnect succeeds
-    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.is_connected() == true);
+    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.isConnected() == true);
 
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
     
     // Ensure client is currently CONNECTED and interval is reset to 2000 ms
-    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.get_reconnect_interval() == 2000);
+    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.getReconnectInterval() == 2000);
 
     // 1. Sudden WiFi disconnection
     WiFi.mock_status = WL_DISCONNECTED;
@@ -364,12 +364,12 @@ int main() {
     // Call loop to detect WiFi loss, transition to ERROR_NO_WIFI, and disconnect MQTT
     PubSubClient::mock_connected = false;
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 2. Attempt to reconnect during WiFi outage. WiFi Safeguard must prevent this, state remains ERROR_NO_WIFI
     mock_millis_offset += 3000;
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 3. Restore WiFi connection
     // WiFiManager is in STA_DISCONNECTED. We must advance time to exceed the 10-second reconnect interval.
@@ -389,8 +389,8 @@ int main() {
     // It also immediately attempts reconnect because mock_millis_offset has advanced by 11000 ms (> 2000 ms).
     // The reconnect fails, so interval increases from 2000 to 4000 ms.
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
-    assert(mqtt_client.get_reconnect_interval() == 4000);
+    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_client.getReconnectInterval() == 4000);
 
     // 4. Begin reconnection attempts and Exponential Backoff
 
@@ -398,26 +398,26 @@ int main() {
     mock_millis_offset += 2000;
     mqtt_client.loop();
     // Reconnect should NOT trigger, interval remains 4000 ms
-    assert(mqtt_client.get_reconnect_interval() == 4000);
+    assert(mqtt_client.getReconnectInterval() == 4000);
 
     // Retry 2: triggered after waiting another 2500 ms (total elapsed since retry 1 is 4500 ms > 4000 ms)
     mock_millis_offset += 2500;
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
     // Interval must double: 4000 -> 8000 ms
-    assert(mqtt_client.get_reconnect_interval() == 8000);
+    assert(mqtt_client.getReconnectInterval() == 8000);
 
     // Loop after 5000 ms (less than 8000 ms)
     mock_millis_offset += 5000;
     mqtt_client.loop();
-    assert(mqtt_client.get_reconnect_interval() == 8000);
+    assert(mqtt_client.getReconnectInterval() == 8000);
 
     // Retry 3: triggered after waiting another 4000 ms (total elapsed since retry 2 is 9000 ms > 8000 ms)
     mock_millis_offset += 4000;
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
     // Interval must double: 8000 -> 16000 ms
-    assert(mqtt_client.get_reconnect_interval() == 16000);
+    assert(mqtt_client.getReconnectInterval() == 16000);
 
     // 5. Restore connection success
     PubSubClient::mock_connect_result = true;
@@ -426,20 +426,20 @@ int main() {
     // Trigger retry 4: after waiting > 16000 ms (+17000 ms)
     mock_millis_offset += 17000;
     mqtt_client.loop();
-    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.is_connected() == true);
+    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.isConnected() == true);
     // Interval must reset back to 2000 ms
-    assert(mqtt_client.get_reconnect_interval() == 2000);
+    assert(mqtt_client.getReconnectInterval() == 2000);
 
     // 12.5 Test publish functions return value under connected state
-    assert(mqtt_client.publish_status(true) == true);
-    assert(mqtt_client.publish_telemetry("{\"temp\":25.5}") == true);
+    assert(mqtt_client.publishStatus(true) == true);
+    assert(mqtt_client.publishTelemetry("{\"temp\":25.5}") == true);
 
     // 12.6 Test incoming message parsing (Task C3)
     Serial.println("[TEST] Testing Task C3 - MQTT message parsing...");
     assert(PubSubClient::mock_callback != nullptr);
 
-    const mqtt::MqttTopics& topics = mqtt_client.get_resolved_topics();
+    const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
     char setpoint_topic[100];
     strcpy(setpoint_topic, topics.setpoint.c_str());
 
@@ -530,28 +530,28 @@ int main() {
     // Case J: Command "full_sync" (Task D2)
     {
         Serial.println("--- Case J: Command full_sync ---");
-        set_shared_force_full_publish(false);
-        assert(get_shared_force_full_publish() == false);
+        setSharedForceFullPublish(false);
+        assert(getSharedForceFullPublish() == false);
 
         std::string payload = "{\"cmd\":\"full_sync\"}";
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
         
-        assert(get_shared_force_full_publish() == true);
+        assert(getSharedForceFullPublish() == true);
 
         // Reset it back
-        set_shared_force_full_publish(false);
-        assert(get_shared_force_full_publish() == false);
+        setSharedForceFullPublish(false);
+        assert(getSharedForceFullPublish() == false);
     }
 
     // Case K: Atomic consume of full_sync flag (Task E2 regression)
     {
         Serial.println("--- Case K: Atomic consume_shared_force_full_publish ---");
-        set_shared_force_full_publish(false);
-        assert(consume_shared_force_full_publish() == false);
-        set_shared_force_full_publish(true);
-        assert(consume_shared_force_full_publish() == true);
-        assert(get_shared_force_full_publish() == false);
-        assert(consume_shared_force_full_publish() == false);
+        setSharedForceFullPublish(false);
+        assert(consumeSharedForceFullPublish() == false);
+        setSharedForceFullPublish(true);
+        assert(consumeSharedForceFullPublish() == true);
+        assert(getSharedForceFullPublish() == false);
+        assert(consumeSharedForceFullPublish() == false);
     }
 
     // 13. Test Task D1 - Core 0 Communication Task
@@ -568,12 +568,12 @@ int main() {
 
     // Reset and run task once
     WiFi.mock_status = WL_IDLE_STATUS;
-    task_core0_communication(nullptr);
+    taskCore0Communication(nullptr);
 
     // Check that WiFi transitioned to SOFTAP_ACTIVE (since NVS credentials are empty)
     assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
     // Check that MQTT client is in ERROR_NO_WIFI (since WiFi is not connected STA_CONNECTED)
-    assert(mqtt_client.get_state() == mqtt::MqttState::ERROR_NO_WIFI);
+    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // Save mock credentials and MQTT config to NVS to test successful initialization path
     assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
@@ -584,11 +584,11 @@ int main() {
     PubSubClient::mock_connected = true;   // Mock MQTT as connected
 
     // Run task once again
-    task_core0_communication(nullptr);
+    taskCore0Communication(nullptr);
 
     // Because NVS credentials are saved, it should load config and transition to STA_CONNECTED
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
-    assert(mqtt_client.get_state() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
 
     // Clean up
     assert(storage.factory_reset() == true);
@@ -825,7 +825,7 @@ int main() {
     mock_millis_offset = 0;
 
     // Execute a single iteration of the TPC control pipeline
-    task_core1_control(nullptr);
+    taskCore1Control(nullptr);
 
     // Verify sensors and relays were initialized
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) > 0);
@@ -1540,7 +1540,7 @@ int main() {
         mock_millis_offset = 0;
 
         // Execute one full pipeline iteration
-        task_core1_control(nullptr);
+        taskCore1Control(nullptr);
 
         // Verify all SSR relay pins were initialized as OUTPUT
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_1) == 1);
@@ -1712,7 +1712,7 @@ int main() {
             TelemetryData mock_tel = {25.0f, 80.0f, NAN};
 
             // 1. full_sync + publish failed -> next scan remains FULL
-            set_shared_force_full_publish(true);
+            setSharedForceFullPublish(true);
             PubSubClient::mock_publish_result = false;
             
             unsigned long now = 1000UL;
@@ -1722,45 +1722,45 @@ int main() {
             // Since publish failed, telemetryState.lastPubTimeMs must still be 0 (no commit)
             assert(telemetryState.lastPubTimeMs == 0UL);
             // Since publish failed, the shared_forceFullPublish flag must have been restored to true
-            assert(get_shared_force_full_publish() == true);
+            assert(getSharedForceFullPublish() == true);
             
             // 2. full_sync + encode failed -> next scan remains FULL
             // Clear shared first
-            consume_shared_force_full_publish();
-            set_shared_force_full_publish(true);
+            consumeSharedForceFullPublish();
+            setSharedForceFullPublish(true);
             PubSubClient::mock_publish_result = true;
             CryptoUtils::mock_base64_fail = true;
             
             processTelemetryPublication(2000UL, mock_tel, telemetryState);
             assert(telemetryState.lastPubTimeMs == 0UL);
-            assert(get_shared_force_full_publish() == true);
+            assert(getSharedForceFullPublish() == true);
 
             // 3. Callback receives full_sync during publish -> subsequent request remains pending
             // Reset state
             telemetryState = Telemetry::makeInitialState();
             CryptoUtils::mock_base64_fail = false;
-            set_shared_force_full_publish(true);
+            setSharedForceFullPublish(true);
             
             // Consume the flag manually (simulate starting processTelemetryPublication):
-            bool consumed = consume_shared_force_full_publish();
+            bool consumed = consumeSharedForceFullPublish();
             assert(consumed == true);
-            assert(get_shared_force_full_publish() == false);
+            assert(getSharedForceFullPublish() == false);
             
             // Simulate callback setting it to true during publication:
-            set_shared_force_full_publish(true);
+            setSharedForceFullPublish(true);
             
             // Complete successful publish:
             Telemetry::commitSuccessfulPublish(telemetryState, mock_tel, 3000UL);
             
             // Assert that the new request was NOT cleared:
-            assert(get_shared_force_full_publish() == true);
+            assert(getSharedForceFullPublish() == true);
             
             // 4. Reconnect and publish successfully -> new flag is cleared
             // First, consume the flag and publish
             PubSubClient::mock_publish_result = true;
             processTelemetryPublication(4000UL, mock_tel, telemetryState);
             assert(telemetryState.lastPubTimeMs == 4000UL);
-            assert(get_shared_force_full_publish() == false);
+            assert(getSharedForceFullPublish() == false);
         }
     }
 
@@ -1769,9 +1769,9 @@ int main() {
     {
         // 31.1 Test update_shared_system_state and get_shared_system_state
         SharedSystemState state = { 24.5f, 85.0f, 600.0f, 25.0f, 80.0f, 1000.0f, 0.45f, 0.0f, 0.12f, 0.0f };
-        update_shared_system_state(state);
+        updateSharedSystemState(state);
         
-        SharedSystemState loaded = get_shared_system_state();
+        SharedSystemState loaded = getSharedSystemState();
         assert(std::fabs(loaded.temp_air - 24.5f) < 0.01f);
         assert(std::fabs(loaded.humidity_air - 85.0f) < 0.01f);
         assert(std::fabs(loaded.co2_level - 600.0f) < 0.01f);
@@ -1784,22 +1784,22 @@ int main() {
         assert(std::fabs(loaded.exhaust_duty - 0.0f) < 0.01f);
         
         // 31.2 Test WebInterface stubs and rate-limiting
-        web_interface::init_server();
-        assert(web_interface::is_server_running() == false); // False under UNIT_TEST
-        web_interface::handle_client();
+        web_interface::initServer();
+        assert(web_interface::isServerRunning() == false); // False under UNIT_TEST
+        web_interface::handleClient();
         web_interface::serveDashboardHTML();
         web_interface::apiGetRealtimeData(); // Should not crash
-        web_interface::stop_server();
+        web_interface::stopServer();
 
         // 31.3 Test check_rate_limit logic
         // First call should succeed
-        assert(web_interface::check_rate_limit(10000UL) == true);
+        assert(web_interface::checkRateLimit(10000UL) == true);
         // Call within 1s (e.g. at 10500ms) should fail (be throttled)
-        assert(web_interface::check_rate_limit(10500UL) == false);
+        assert(web_interface::checkRateLimit(10500UL) == false);
         // Call at exactly 1s delta (11000ms) should succeed
-        assert(web_interface::check_rate_limit(11000UL) == true);
+        assert(web_interface::checkRateLimit(11000UL) == true);
         // Call after 2s delta (13000ms) should succeed
-        assert(web_interface::check_rate_limit(13000UL) == true);
+        assert(web_interface::checkRateLimit(13000UL) == true);
     }
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

@@ -31,22 +31,22 @@ static void processWebServer()
 #ifndef UNIT_TEST
     if (wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED)
     {
-        web_interface::init_server();
-        web_interface::handle_client();
+        web_interface::initServer();
+        web_interface::handleClient();
     }
     else
     {
-        web_interface::stop_server();
+        web_interface::stopServer();
     }
 #endif
 }
 
 void processTelemetryPublication(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
 {
-    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::get_instance();
-    if (mqtt_client.is_connected())
+    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::getInstance();
+    if (mqtt_client.isConnected())
     {
-        const bool consumed_force = consume_shared_force_full_publish();
+        const bool consumed_force = consumeSharedForceFullPublish();
         if (consumed_force)
         {
             telemetryState.forceFullPublish = true;
@@ -65,7 +65,7 @@ void processTelemetryPublication(unsigned long now, const TelemetryData& last_kn
                 String base64_payload = CryptoUtils::encodeBase64String(json_payload);
                 if (base64_payload.length() > 0)
                 {
-                    if (mqtt_client.publish_telemetry(base64_payload))
+                    if (mqtt_client.publishTelemetry(base64_payload))
                     {
                         Telemetry::commitSuccessfulPublish(
                             telemetryState, last_known_telemetry, now);
@@ -86,7 +86,7 @@ void processTelemetryPublication(unsigned long now, const TelemetryData& last_kn
 
             if (!success && consumed_force)
             {
-                set_shared_force_full_publish(true);
+                setSharedForceFullPublish(true);
             }
         }
     }
@@ -130,18 +130,18 @@ static void delayCore0Task()
     #endif
 }
 
-void task_core0_communication(void* /*pvParameters*/)
+void taskCore0Communication(void* /*pvParameters*/)
 {
     {
         ScopedSerialLock guard(SerialLock::get_instance());
-        Serial.println("[CORE0_TASK] Starting task_core0_communication...");
+        Serial.println("[CORE0_TASK] Starting taskCore0Communication...");
     }
 
     // Initialize WiFi
     wifi::init_wifi();
 
     // Initialize MQTT
-    mqtt::MqttClient::get_instance().init();
+    mqtt::MqttClient::getInstance().init();
 
     static TelemetryData last_known_telemetry = {NAN, NAN, NAN};
     static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
@@ -156,7 +156,7 @@ void task_core0_communication(void* /*pvParameters*/)
         wifi::check_wifi_connection();
 
         // 2. Process MQTT loop (non-blocking)
-        mqtt::MqttClient::get_instance().loop();
+        mqtt::MqttClient::getInstance().loop();
 
         // 3. Maintain HTTP local Webserver based on WiFi state
         processWebServer();

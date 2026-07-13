@@ -52,6 +52,23 @@ void writeOutput(const TpcChannelConfig& config, TpcChannelState& state, bool hi
     state.output_high = high;
 }
 
+void initTpcChannelState(TpcChannelState& state, uint32_t now, uint32_t minOffMs) {
+    state.initialized = true;
+    state.output_high = false;
+    state.window_started_ms = now;
+    state.last_transition_ms = now - minOffMs;
+}
+
+uint32_t wrapTpcWindow(TpcChannelState& state, uint32_t now, uint32_t windowMs) {
+    uint32_t elapsedInWindow = static_cast<uint32_t>(now - state.window_started_ms);
+    if (elapsedInWindow >= windowMs) {
+        const uint32_t completedWindows = elapsedInWindow / windowMs;
+        state.window_started_ms += completedWindows * windowMs;
+        elapsedInWindow = static_cast<uint32_t>(now - state.window_started_ms);
+    }
+    return elapsedInWindow;
+}
+
 } // namespace
 
 TpcSchedulerState makeInitialSchedulerState() {
@@ -87,19 +104,11 @@ void updateTpcChannel(
         // Start from an OFF phase but make the first valid ON request eligible
         // immediately. This prevents boot-time demand from being delayed while
         // retaining minimum-off enforcement for subsequent transitions.
-        state.initialized = true;
-        state.output_high = false;
-        state.window_started_ms = now;
-        state.last_transition_ms = now - config.min_off_ms;
+        initTpcChannelState(state, now, config.min_off_ms);
         digitalWrite(config.pin, LOW);
     }
 
-    uint32_t elapsedInWindow = static_cast<uint32_t>(now - state.window_started_ms);
-    if (elapsedInWindow >= config.window_ms) {
-        const uint32_t completedWindows = elapsedInWindow / config.window_ms;
-        state.window_started_ms += completedWindows * config.window_ms;
-        elapsedInWindow = static_cast<uint32_t>(now - state.window_started_ms);
-    }
+    const uint32_t elapsedInWindow = wrapTpcWindow(state, now, config.window_ms);
 
     const float safeDuty = clampUnit(dutyDemand);
     const bool requestedHigh = requestedOutputHigh(

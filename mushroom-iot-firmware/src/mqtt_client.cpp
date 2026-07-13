@@ -13,10 +13,41 @@
 
 namespace mqtt
 {
-    MqttClient& MqttClient::get_instance()
+    MqttClient& MqttClient::getInstance()
     {
         static MqttClient instance;
         return instance;
+    }
+
+    void MqttClient::configurePubSubClient(const String& client_id)
+    {
+        if (!mqtt_client.setBufferSize(1024))
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
+            }
+            current_state = MqttState::DISCONNECTED;
+            return;
+        }
+
+#ifndef UNIT_TEST
+        wifi_client.setTimeout(2);
+#endif
+
+        mqtt_client.setKeepAlive(60);
+        mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
+        mqtt_client.setCallback(MqttClient::handleMQTTCallback);
+    }
+
+    void MqttClient::initializeMutex()
+    {
+#ifndef UNIT_TEST
+        if (mqtt_mutex == nullptr)
+        {
+            mqtt_mutex = xSemaphoreCreateMutex();
+        }
+#endif
     }
 
     bool MqttClient::init()
@@ -38,7 +69,7 @@ namespace mqtt
         }
 
         // 2. Resolve topics dynamically based on Client ID
-        String client_id = get_effective_client_id();
+        String client_id = getEffectiveClientId();
 
         resolved_topics.status = "mushroom/device/" + client_id + "/status";
         resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
@@ -53,25 +84,11 @@ namespace mqtt
         }
 
         // 3. Configure PubSubClient server, buffer, keepalive, and callback.
-        // Buffer must exceed JWT/password + LWT + telemetry JSON size (default 128 is too small).
-        if (!mqtt_client.setBufferSize(1024))
+        configurePubSubClient(client_id);
+        if (current_state == MqttState::DISCONNECTED)
         {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
-            }
-            current_state = MqttState::DISCONNECTED;
             return false;
         }
-        
-        // Cấu hình TCP timeout 2s tránh bị treo WiFiClient lâu hơn TWDT (5s)
-#ifndef UNIT_TEST
-        wifi_client.setTimeout(2);
-#endif
-        
-        mqtt_client.setKeepAlive(60);
-        mqtt_client.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
-        mqtt_client.setCallback(MqttClient::handleMQTTCallback);
 
         {
             ScopedSerialLock guard(SerialLock::get_instance());
@@ -81,12 +98,7 @@ namespace mqtt
                           client_id.c_str());
         }
 
-#ifndef UNIT_TEST
-        if (mqtt_mutex == nullptr)
-        {
-            mqtt_mutex = xSemaphoreCreateMutex();
-        }
-#endif
+        initializeMutex();
 
         current_state = MqttState::IDLE;
         return true;
@@ -94,7 +106,7 @@ namespace mqtt
 
     void MqttClient::loop()
     {
-        if (!check_wifi_for_mqtt())
+        if (!checkWifiForMqtt())
         {
             return;
         }
@@ -104,10 +116,10 @@ namespace mqtt
             return;
         }
 
-        maintain_mqtt_connection();
+        maintainMqttConnection();
     }
 
-    bool MqttClient::check_wifi_for_mqtt()
+    bool MqttClient::checkWifiForMqtt()
     {
         wifi::WifiState wifi_state = wifi::get_wifi_state();
         
@@ -139,7 +151,7 @@ namespace mqtt
         return true;
     }
 
-    void MqttClient::maintain_mqtt_connection()
+    void MqttClient::maintainMqttConnection()
     {
         if (mqtt_client.connected())
         {
@@ -163,14 +175,14 @@ namespace mqtt
             unsigned long now = millis();
             if (now - last_reconnect_attempt >= current_reconnect_interval)
             {
-                reconnect_mqtt();
+                reconnectMqtt();
             }
         }
     }
 
-    bool MqttClient::publish_telemetry(const String& payload)
+    bool MqttClient::publishTelemetry(const String& payload)
     {
-        if (!is_connected())
+        if (!isConnected())
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
@@ -188,9 +200,9 @@ namespace mqtt
         return mqtt_client.publish(resolved_topics.telemetry.c_str(), payload.c_str());
     }
 
-    bool MqttClient::publish_status(bool is_online)
+    bool MqttClient::publishStatus(bool is_online)
     {
-        if (!is_connected())
+        if (!isConnected())
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
@@ -209,42 +221,41 @@ namespace mqtt
         return mqtt_client.publish(resolved_topics.status.c_str(), (const uint8_t*)payload.c_str(), payload.length(), true);
     }
 
-    bool MqttClient::is_connected()
+    bool MqttClient::isConnected()
     {
         return mqtt_client.connected();
     }
 
-    MqttState MqttClient::get_state() const
+    MqttState MqttClient::getState() const
     {
         return current_state;
     }
 
-    const MqttTopics& MqttClient::get_resolved_topics() const
+    const MqttTopics& MqttClient::getResolvedTopics() const
     {
         return resolved_topics;
     }
 
-    void MqttClient::mqtt_callback_static(char* topic, uint8_t* payload, unsigned int length)
+    void MqttClient::mqttCallbackStatic(char* topic, uint8_t* payload, unsigned int length)
     {
         // Route message to instance handler
-        get_instance().handle_message(topic, payload, length);
+        getInstance().handleMessage(topic, payload, length);
     }
 
     void MqttClient::handleMQTTCallback(char* topic, uint8_t* payload, unsigned int length)
     {
-        get_instance().handle_message(topic, payload, length);
+        getInstance().handleMessage(topic, payload, length);
     }
 
-    void MqttClient::handle_message(char* topic, uint8_t* payload, unsigned int length)
+    bool MqttClient::validateIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length)
     {
-        // 1. Sanity Check / Null Pointer Safeguards
         if (topic == nullptr)
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
                 Serial.println("[MQTT] Error: Received message with null topic pointer.");
             }
-            return;
+            return false;
         }
         if (payload == nullptr && length > 0)
         {
@@ -252,7 +263,7 @@ namespace mqtt
                 ScopedSerialLock guard(SerialLock::get_instance());
                 Serial.println("[MQTT] Error: Received message with null payload pointer but non-zero length.");
             }
-            return;
+            return false;
         }
 
         {
@@ -266,11 +277,35 @@ namespace mqtt
                 ScopedSerialLock guard(SerialLock::get_instance());
                 Serial.println("[MQTT] Warning: Received message on unexpected topic.");
             }
+            return false;
+        }
+        return true;
+    }
+
+    void MqttClient::routeSetpointMessage(StaticJsonDocument<768>& doc, bool is_command)
+    {
+        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
+            doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
+            doc.containsKey("humidity") || doc.containsKey("co2") ||
+            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec"))
+        {
+            processSetpoints(doc);
+        }
+        else if (!is_command)
+        {
+            processSetpoints(doc);
+        }
+    }
+
+    void MqttClient::handleMessage(char* topic, uint8_t* payload, unsigned int length)
+    {
+        if (!validateIncomingMessage(topic, payload, length))
+        {
             return;
         }
 
         StaticJsonDocument<768> doc;
-        if (!parse_json_payload(payload, length, doc))
+        if (!parseJsonPayload(payload, length, doc))
         {
             return;
         }
@@ -287,23 +322,17 @@ namespace mqtt
             Serial.printf("[DEBUG] handle_message doc serialized: %s\n", s.c_str());
         }
 
-        bool is_command = handle_mqtt_command(doc);
-
-        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
-            doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
-            doc.containsKey("humidity") || doc.containsKey("co2") ||
-            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec"))
-        {
-            process_setpoints(doc);
-        }
-        else if (!is_command)
-        {
-            process_setpoints(doc);
-        }
+        bool is_command = handleMqttCommand(doc);
+        routeSetpointMessage(doc, is_command);
     }
 
-    bool MqttClient::parse_json_payload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc)
+    bool MqttClient::parseJsonPayload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc)
     {
+        if (payload == nullptr && length > 0)
+        {
+            return false;
+        }
+
         constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
         if (length > MAX_PAYLOAD_SIZE)
         {
@@ -338,7 +367,7 @@ namespace mqtt
         return true;
     }
 
-    bool MqttClient::handle_mqtt_command(StaticJsonDocument<768>& doc)
+    bool MqttClient::handleMqttCommand(StaticJsonDocument<768>& doc)
     {
         bool is_command = false;
         {
@@ -357,7 +386,7 @@ namespace mqtt
             const char* cmd_val = doc["cmd"].as<const char*>();
             if (cmd_val != nullptr && strcmp(cmd_val, "full_sync") == 0)
             {
-                set_shared_force_full_publish(true);
+                setSharedForceFullPublish(true);
                 is_command = true;
                 {
                     ScopedSerialLock guard(SerialLock::get_instance());
@@ -368,12 +397,12 @@ namespace mqtt
         return is_command;
     }
 
-    void MqttClient::process_setpoints(StaticJsonDocument<768>& doc)
+    void MqttClient::processSetpoints(StaticJsonDocument<768>& doc)
     {
         local_control::LocalSetpoints setpoints = local_control::get_active_setpoints();
         bool changed = false;
 
-        extract_setpoints(doc, setpoints, changed);
+        extractSetpoints(doc, setpoints, changed);
 
         if (changed)
         {
@@ -399,7 +428,7 @@ namespace mqtt
         }
     }
 
-    bool MqttClient::extract_setpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
+    void MqttClient::extractEnvironmentSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
     {
         constexpr float MIN_SAFE_TEMP = 10.0f;
         constexpr float MAX_SAFE_TEMP = 45.0f;
@@ -411,7 +440,7 @@ namespace mqtt
         if (doc.containsKey("temperatureSetpoint"))
         {
             float value = doc["temperatureSetpoint"].as<float>();
-            if (validate_single_setpoint("temperature", value, MIN_SAFE_TEMP, MAX_SAFE_TEMP))
+            if (validateSingleSetpoint("temperature", value, MIN_SAFE_TEMP, MAX_SAFE_TEMP))
             {
                 setpoints.temperature_setpoint = value;
                 changed = true;
@@ -420,7 +449,7 @@ namespace mqtt
         if (doc.containsKey("humiditySetpoint"))
         {
             float value = doc["humiditySetpoint"].as<float>();
-            if (validate_single_setpoint("humidity", value, MIN_SAFE_HUMI, MAX_SAFE_HUMI))
+            if (validateSingleSetpoint("humidity", value, MIN_SAFE_HUMI, MAX_SAFE_HUMI))
             {
                 setpoints.humidity_setpoint = value;
                 changed = true;
@@ -429,12 +458,16 @@ namespace mqtt
         if (doc.containsKey("co2Setpoint"))
         {
             float value = doc["co2Setpoint"].as<float>();
-            if (validate_single_setpoint("co2", value, MIN_SAFE_CO2, MAX_SAFE_CO2))
+            if (validateSingleSetpoint("co2", value, MIN_SAFE_CO2, MAX_SAFE_CO2))
             {
                 setpoints.co2_setpoint = value;
                 changed = true;
             }
         }
+    }
+
+    void MqttClient::extractTtlAndProtection(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
+    {
         if (doc.containsKey("thermal_shock_protection"))
         {
             setpoints.thermal_shock_protection = doc["thermal_shock_protection"].as<bool>();
@@ -449,11 +482,17 @@ namespace mqtt
                 changed = true;
             }
         }
+    }
+
+    bool MqttClient::extractSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
+    {
+        extractEnvironmentSetpoints(doc, setpoints, changed);
+        extractTtlAndProtection(doc, setpoints, changed);
         return changed;
     }
 
 
-    bool MqttClient::validate_single_setpoint(const char* name, float val, float min_val, float max_val)
+    bool MqttClient::validateSingleSetpoint(const char* name, float val, float min_val, float max_val)
     {
         if (!isnan(val) && val >= min_val && val <= max_val) {
             {
@@ -470,7 +509,7 @@ namespace mqtt
         return false;
     }
 
-    void MqttClient::reconnect_mqtt()
+    void MqttClient::reconnectMqtt()
     {
         // 1. Safeguard against calling reconnect when WiFi is not ready or SoftAP mode is active
         wifi::WifiState wifi_state = wifi::get_wifi_state();
@@ -505,7 +544,7 @@ namespace mqtt
         is_reconnecting = true;
         last_reconnect_attempt = millis();
 
-        perform_mqtt_connection();
+        performMqttConnection();
         
         is_reconnecting = false;
 
@@ -517,22 +556,64 @@ namespace mqtt
 #endif
     }
 
-    bool MqttClient::perform_mqtt_connection()
+    void MqttClient::handleMqttConnectionSuccess()
+    {
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Connected to broker successfully.");
+        }
+        current_state = MqttState::CONNECTED;
+        current_reconnect_interval = 2000; // Reset backoff interval on success
+        
+        // Subscribe to the incoming control setpoint commands
+        mqtt_client.subscribe(resolved_topics.setpoint.c_str(), 1);
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
+        }
+        
+        // Publish online status
+        publishStatus(true);
+    }
+
+    void MqttClient::handleMqttConnectionFailure()
+    {
+        const int mqtt_state = mqtt_client.state();
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
+        }
+        if (mqtt_state == 4)
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
+            }
+        }
+        current_state = MqttState::DISCONNECTED;
+        current_reconnect_interval = std::min(current_reconnect_interval * 2, 60000UL); // Double and limit to 60s
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Reconnect interval increased to %lu ms (exponential backoff).\n", current_reconnect_interval);
+        }
+    }
+
+    bool MqttClient::performMqttConnection()
     {
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.println("[MQTT] Attempting connection to MQTT broker...");
         }
 
-        String client_id = get_effective_client_id();
-        if (!validate_connection_config(client_id))
+        String client_id = getEffectiveClientId();
+        if (!validateConnectionConfig(client_id))
         {
             return false;
         }
 
         String lwt_topic;
         String lwt_payload;
-        get_lwt_config(lwt_topic, lwt_payload);
+        getLwtConfig(lwt_topic, lwt_payload);
 
         // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
         {
@@ -557,48 +638,16 @@ namespace mqtt
         
         if (connected)
         {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Connected to broker successfully.");
-            }
-            current_state = MqttState::CONNECTED;
-            current_reconnect_interval = 2000; // Reset backoff interval on success
-            
-            // Subscribe to the incoming control setpoint commands
-            mqtt_client.subscribe(resolved_topics.setpoint.c_str(), 1);
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
-            }
-            
-            // Publish online status
-            publish_status(true);
+            handleMqttConnectionSuccess();
         }
         else
         {
-            const int mqtt_state = mqtt_client.state();
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
-            }
-            if (mqtt_state == 4)
-            {
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
-                }
-            }
-            current_state = MqttState::DISCONNECTED;
-            current_reconnect_interval = std::min(current_reconnect_interval * 2, 60000UL); // Double and limit to 60s
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Reconnect interval increased to %lu ms (exponential backoff).\n", current_reconnect_interval);
-            }
+            handleMqttConnectionFailure();
         }
         return connected;
     }
 
-    bool MqttClient::validate_connection_config(const String& client_id)
+    bool MqttClient::validateConnectionConfig(const String& client_id)
     {
         if (config::network::MQTT_PASSWORD_VAL.length() == 0)
         {
@@ -622,13 +671,13 @@ namespace mqtt
         return true;
     }
 
-    void MqttClient::get_lwt_config(String& lwt_topic, String& lwt_payload)
+    void MqttClient::getLwtConfig(String& lwt_topic, String& lwt_payload)
     {
         lwt_topic = resolved_topics.status;
         lwt_payload = "{\"status\":\"offline\"}";
     }
 
-    String MqttClient::get_effective_client_id() const
+    String MqttClient::getEffectiveClientId() const
     {
         String client_id = config::network::MQTT_CLIENT_ID_VAL;
         if (client_id.length() == 0)
@@ -638,7 +687,7 @@ namespace mqtt
         return client_id;
     }
 
-    unsigned long MqttClient::get_reconnect_interval() const
+    unsigned long MqttClient::getReconnectInterval() const
     {
         return current_reconnect_interval;
     }

@@ -34,7 +34,7 @@ volatile bool shared_forceFullPublish = false;
 SemaphoreHandle_t xTelemetryMutex = nullptr;
 #endif
 
-bool get_shared_force_full_publish()
+bool getSharedForceFullPublish()
 {
 #ifndef UNIT_TEST
     if (xTelemetryMutex != nullptr)
@@ -50,7 +50,7 @@ bool get_shared_force_full_publish()
     return shared_forceFullPublish;
 }
 
-bool consume_shared_force_full_publish()
+bool consumeSharedForceFullPublish()
 {
 #ifndef UNIT_TEST
     if (xTelemetryMutex != nullptr)
@@ -69,7 +69,7 @@ bool consume_shared_force_full_publish()
     return val;
 }
 
-void set_shared_force_full_publish(bool val)
+void setSharedForceFullPublish(bool val)
 {
 #ifndef UNIT_TEST
     if (xTelemetryMutex != nullptr)
@@ -91,7 +91,7 @@ SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f
 static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f};
 #endif
 
-void update_shared_system_state(const SharedSystemState& state)
+void updateSharedSystemState(const SharedSystemState& state)
 {
 #ifndef UNIT_TEST
     if (xTelemetryMutex != nullptr)
@@ -107,7 +107,7 @@ void update_shared_system_state(const SharedSystemState& state)
     shared_systemState = state;
 }
 
-SharedSystemState get_shared_system_state()
+SharedSystemState getSharedSystemState()
 {
 #ifndef UNIT_TEST
     if (xTelemetryMutex != nullptr)
@@ -153,7 +153,7 @@ static constexpr unsigned long BUTTON_HOLD_FACTORY_MS  = 10000UL;
  *   • Hold ≥ 10 s → set WIFI_FACTORY_RESET_BIT (clears all NVS + restart).
  *   • Release before thresholds → cancel, no action taken.
  */
-static void handle_button_press(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
+static void handleButtonPress(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
 {
     press_start_ms = millis();
     softap_triggered = false;
@@ -164,7 +164,7 @@ static void handle_button_press(unsigned long& press_start_ms, bool& softap_trig
     }
 }
 
-static void handle_button_release(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
+static void handleButtonRelease(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
 {
     press_start_ms = 0;
     if (!softap_triggered && !factory_triggered) {
@@ -175,7 +175,7 @@ static void handle_button_release(unsigned long& press_start_ms, bool& softap_tr
     factory_triggered = false;
 }
 
-static void handle_button_hold(unsigned long press_start_ms, bool& softap_triggered, bool& factory_triggered)
+static void handleButtonHold(unsigned long press_start_ms, bool& softap_triggered, bool& factory_triggered)
 {
     unsigned long held_ms = millis() - press_start_ms;
 
@@ -205,7 +205,7 @@ static void handle_button_hold(unsigned long press_start_ms, bool& softap_trigge
     }
 }
 
-void task_hardware_button(void* /*pvParameters*/)
+void taskHardwareButton(void* /*pvParameters*/)
 {
     {
         ScopedSerialLock guard(SerialLock::get_instance());
@@ -228,15 +228,15 @@ void task_hardware_button(void* /*pvParameters*/)
 
         if (!prev_pressed && now_pressed)
         {
-            handle_button_press(press_start_ms, softap_triggered, factory_triggered);
+            handleButtonPress(press_start_ms, softap_triggered, factory_triggered);
         }
         else if (prev_pressed && !now_pressed)
         {
-            handle_button_release(press_start_ms, softap_triggered, factory_triggered);
+            handleButtonRelease(press_start_ms, softap_triggered, factory_triggered);
         }
         else if (prev_pressed && now_pressed && press_start_ms != 0)
         {
-            handle_button_hold(press_start_ms, softap_triggered, factory_triggered);
+            handleButtonHold(press_start_ms, softap_triggered, factory_triggered);
         }
 
         prev_pressed = now_pressed;
@@ -293,7 +293,7 @@ TPC_Task::RtcTimePod readRtcTimeFailSafe()
 // ---------------------------------------------------------------------------
 // Helper: sample sensors and enqueue telemetry without changing GPIO state.
 // ---------------------------------------------------------------------------
-static void sample_and_enqueue_telemetry(TelemetryData& data)
+static void sampleAndEnqueueTelemetry(TelemetryData& data)
 {
     const bool ok = sensors::read_all_telemetry(data);
 
@@ -322,7 +322,7 @@ static void sample_and_enqueue_telemetry(TelemetryData& data)
 // ---------------------------------------------------------------------------
 // Helper: drain legacy commands without allowing them to bypass the pipeline.
 // ---------------------------------------------------------------------------
-static void drain_legacy_actuator_queue()
+static void drainLegacyActuatorQueue()
 {
     if (xActuatorQueue == nullptr)
     {
@@ -340,6 +340,48 @@ static void drain_legacy_actuator_queue()
 }
 
 // ---------------------------------------------------------------------------
+// Helpers to decompose runControlPipelineStep (<50 lines)
+// ---------------------------------------------------------------------------
+static Trajectory::SetpointPod getControlSetpointsAndErrors(
+    const TelemetryData& telemetry,
+    float& errorTemp,
+    float& errorHumid,
+    float& errorCO2)
+{
+    // The growth-day source is not yet provisioned. Day 0 is an explicit,
+    // deterministic safe default rather than inventing time-derived state.
+    const Trajectory::SetpointPod setpoints =
+        Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
+    errorTemp = isFinite(telemetry.temp_air)
+        ? setpoints.temp_target - telemetry.temp_air : NAN;
+    errorHumid = isFinite(telemetry.humidity_air)
+        ? setpoints.humidity_target - telemetry.humidity_air : NAN;
+    errorCO2 = isFinite(telemetry.co2_level)
+        ? setpoints.co2_target - telemetry.co2_level : NAN;
+    return setpoints;
+}
+
+static void updateWebInterfaceState(
+    const TelemetryData& telemetry,
+    const Trajectory::SetpointPod& setpoints,
+    const FuzzyController::ArbitratedOutputsPod& outputs)
+{
+    // Cập nhật trạng thái chia sẻ cho WebInterface
+    SharedSystemState localState;
+    localState.temp_air = telemetry.temp_air;
+    localState.humidity_air = telemetry.humidity_air;
+    localState.co2_level = telemetry.co2_level;
+    localState.temp_target = setpoints.temp_target;
+    localState.humidity_target = setpoints.humidity_target;
+    localState.co2_target = setpoints.co2_target;
+    localState.h_air_duty = outputs.HAir;
+    localState.h_wat_duty = outputs.HWat;
+    localState.mist_duty = outputs.Mist;
+    localState.exhaust_duty = outputs.Exh;
+    updateSharedSystemState(localState);
+}
+
+// ---------------------------------------------------------------------------
 // FreeRTOS task entry point — pinned to Core 1
 // ---------------------------------------------------------------------------
 static void runControlPipelineStep(
@@ -354,19 +396,14 @@ static void runControlPipelineStep(
     if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
     {
         lastSensorMs = now;
-        sample_and_enqueue_telemetry(telemetry);
+        sampleAndEnqueueTelemetry(telemetry);
     }
 
-    // The growth-day source is not yet provisioned. Day 0 is an explicit,
-    // deterministic safe default rather than inventing time-derived state.
+    float errorTemp = NAN;
+    float errorHumid = NAN;
+    float errorCO2 = NAN;
     const Trajectory::SetpointPod setpoints =
-        Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
-    const float errorTemp = isFinite(telemetry.temp_air)
-        ? setpoints.temp_target - telemetry.temp_air : NAN;
-    const float errorHumid = isFinite(telemetry.humidity_air)
-        ? setpoints.humidity_target - telemetry.humidity_air : NAN;
-    const float errorCO2 = isFinite(telemetry.co2_level)
-        ? setpoints.co2_target - telemetry.co2_level : NAN;
+        getControlSetpointsAndErrors(telemetry, errorTemp, errorHumid, errorCO2);
 
     const unsigned long elapsedMs = now - lastControlMs;
     lastControlMs = now;
@@ -392,24 +429,12 @@ static void runControlPipelineStep(
         EXHAUST_TPC_CONFIG,
         tpcState);
 
-    // Cập nhật trạng thái chia sẻ cho WebInterface
-    SharedSystemState localState;
-    localState.temp_air = telemetry.temp_air;
-    localState.humidity_air = telemetry.humidity_air;
-    localState.co2_level = telemetry.co2_level;
-    localState.temp_target = setpoints.temp_target;
-    localState.humidity_target = setpoints.humidity_target;
-    localState.co2_target = setpoints.co2_target;
-    localState.h_air_duty = outputs.HAir;
-    localState.h_wat_duty = outputs.HWat;
-    localState.mist_duty = outputs.Mist;
-    localState.exhaust_duty = outputs.Exh;
-    update_shared_system_state(localState);
+    updateWebInterfaceState(telemetry, setpoints, outputs);
 
-    drain_legacy_actuator_queue();
+    drainLegacyActuatorQueue();
 }
 
-void task_core1_control(void* /*pvParameters*/)
+void taskCore1Control(void* /*pvParameters*/)
 {
     {
         ScopedSerialLock guard(SerialLock::get_instance());

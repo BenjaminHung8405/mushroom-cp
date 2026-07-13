@@ -9,22 +9,22 @@ namespace web_interface
     /**
      * @brief Khởi tạo WebServer nội bộ phục vụ giao diện Dashboard cục bộ.
      */
-    void init_server();
+    void initServer();
 
     /**
      * @brief Duy trì hoạt động WebServer, cần gọi trong loop Core 0.
      */
-    void handle_client();
+    void handleClient();
 
     /**
      * @brief Dừng WebServer để giải phóng port 80 (khi chuyển qua SoftAP).
      */
-    void stop_server();
+    void stopServer();
 
     /**
      * @brief Kiểm tra xem WebServer cục bộ có đang chạy hay không.
      */
-    bool is_server_running();
+    bool isServerRunning();
 
     /**
      * @brief Phục vụ trang HTML Dashboard (phương thức GET /) lưu trong Flash.
@@ -41,5 +41,5 @@ namespace web_interface
      * @param now Thời gian hiện tại tính bằng mili-giây (millis()).
      * @return true nếu request được chấp nhận, false nếu bị giới hạn (429).
      */
-    bool check_rate_limit(unsigned long now);
+    bool checkRateLimit(unsigned long now);
 }

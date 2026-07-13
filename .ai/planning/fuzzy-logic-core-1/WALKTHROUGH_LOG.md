@@ -1,3 +1,29 @@
+## [2026-07-13T11:06:00+07:00]
+- **Task ID**: Refactoring & Quality Audit Compliance (Coding Conventions)
+- **Trạng thái hiện tại**: Completed & All Tests Passed
+- **Danh sách file**:
+  - [MODIFY] [WebInterface.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/WebInterface.h)
+  - [MODIFY] [WebInterface.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp)
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Áp dụng camelCase & Định chuẩn Đặt tên**: Tái cấu trúc toàn bộ API và tên hàm của lớp `WebInterface`, `MqttClient`, các FreeRTOS Task callback (`taskCore0Communication`, `taskCore1Control`, `taskHardwareButton`), các hàm chia sẻ trạng thái đa nhân (`getSharedForceFullPublish`, `updateSharedSystemState`, vv.) từ snake_case sang camelCase theo quy chuẩn Coding Conventions của dự án.
+  - **Tối ưu hóa & Phân rã mã nguồn (<50 dòng/hàm)**:
+    - Phân tách `WebInterface::apiGetRealtimeData` thành `buildRealtimeDataPayload`.
+    - Phân tách `MqttClient::init` thành `configurePubSubClient` và `validateConnectionConfig`.
+    - Phân tách `MqttClient::handleMessage` thành `processPayload` và `handleMqttCommand`.
+    - Phân tách `MqttClient::extractSetpoints` thành `processSetpoints`.
+    - Phân tách `MqttClient::performMqttConnection` thành `maintainMqttConnection`.
+    - Phân tách `core1_tasks.cpp::runControlPipelineStep` thành `getControlSetpointsAndErrors` và `updateWebInterfaceState`.
+    - Phân tách `main.cpp::setup` thành các helper `initQueues`, `initSemaphores`, và `createCoreTasks`.
+  - **Thêm cơ chế kiểm tra an toàn JSON**: Cải tiến `MqttClient::parseJsonPayload` để trả về cờ kiểm lỗi an toàn nếu quá trình parse JSON thất bại.
+  - **Kiểm thử Đồng bộ**: Cập nhật toàn bộ các xác nhận (assertions) trong `test/run_tests.cpp` để khớp với API mới. Biên dịch và thực thi test suite thành công 100% không phát sinh cảnh báo.
+
 ## [2026-07-13T10:41:00+07:00]
 - **Task ID**: B4/B5
 - **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2 - Đã sửa lỗi theo phản hồi từ QA)

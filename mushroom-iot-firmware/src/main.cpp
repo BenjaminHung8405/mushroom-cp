@@ -26,6 +26,137 @@ static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
 static constexpr uint32_t CORE0_STACK_BYTES = 8192;
 static constexpr uint32_t CORE1_STACK_BYTES = 4096;
 
+void initQueues()
+{
+    // Create FreeRTOS Queues for inter-core communication
+    // Must be created BEFORE either task starts so both cores see valid handles.
+    xActuatorQueue = xQueueCreate(ACTUATOR_QUEUE_DEPTH, sizeof(ActuatorCommand));
+    if (xActuatorQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xActuatorQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xActuatorQueue created (depth=%u, item=%u bytes).\n",
+                      static_cast<unsigned>(ACTUATOR_QUEUE_DEPTH),
+                      static_cast<unsigned>(sizeof(ActuatorCommand)));
+    }
+
+    xTelemetryQueue = xQueueCreate(TELEMETRY_QUEUE_DEPTH, sizeof(TelemetryData));
+    if (xTelemetryQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xTelemetryQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xTelemetryQueue created (depth=%u, item=%u bytes).\n",
+                      static_cast<unsigned>(TELEMETRY_QUEUE_DEPTH),
+                      static_cast<unsigned>(sizeof(TelemetryData)));
+    }
+}
+
+void initSemaphores()
+{
+    xWifiEventGroup = xEventGroupCreate();
+    if (xWifiEventGroup == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xWifiEventGroup!");
+    }
+    else
+    {
+        Serial.println("[MAIN] xWifiEventGroup created successfully.");
+    }
+
+#ifndef UNIT_TEST
+    xTelemetryMutex = xSemaphoreCreateMutex();
+    if (xTelemetryMutex == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xTelemetryMutex!");
+    }
+    else
+    {
+        Serial.println("[MAIN] xTelemetryMutex created successfully.");
+    }
+#endif
+}
+
+void createCoreTasks()
+{
+#ifndef UNIT_TEST
+    // Create and pin Task Core 0 Communication to Core 0
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            taskCore0Communication, // Task function
+            "TaskCore0Comm",          // Name of task
+            CORE0_STACK_BYTES,        // Stack size in bytes
+            nullptr,                  // Parameter to pass
+            CORE0_TASK_PRIORITY,      // Task priority
+            nullptr,                  // Task handle
+            0                         // Pin to Core 0
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned taskCore0Communication to Core 0 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create taskCore0Communication (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
+
+    // Create and pin Task Core 1 Control to Core 1
+    // Higher priority than Core 0 ensures real-time sensor/actuator response.
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            taskCore1Control,  // Task function
+            "TaskCore1Ctrl",     // Name of task
+            CORE1_STACK_BYTES,   // Stack size in bytes
+            nullptr,             // Parameter to pass
+            CORE1_TASK_PRIORITY, // Task priority (higher than Core 0)
+            nullptr,             // Task handle
+            1                    // Pin to Core 1
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned taskCore1Control to Core 1 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create taskCore1Control (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
+
+    // Create Hardware Button Task (Core 1) — Track I
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            taskHardwareButton,  // Task function
+            "TaskHWButton",        // Name of task
+            2048,                  // Stack size in bytes
+            nullptr,               // Parameter to pass
+            CORE1_TASK_PRIORITY,   // Priority (same as Core 1 control)
+            nullptr,               // Task handle
+            1                      // Pin to Core 1
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned taskHardwareButton to Core 1 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create taskHardwareButton (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
+#else
+    Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
+#endif
+}
+
 void setup()
 {
     // Initialize Serial interface
@@ -55,129 +186,15 @@ void setup()
     // 5. Create Serial mutex (protects UART from concurrent Core 0/Core 1 writes)
     init_serial_mutex();
 
-    // 6. Create FreeRTOS Queues for inter-core communication
-    //    Must be created BEFORE either task starts so both cores see valid handles.
-    xActuatorQueue = xQueueCreate(ACTUATOR_QUEUE_DEPTH, sizeof(ActuatorCommand));
-    if (xActuatorQueue == nullptr)
-    {
-        Serial.println("[MAIN] FATAL: Failed to create xActuatorQueue!");
-    }
-    else
-    {
-        Serial.printf("[MAIN] xActuatorQueue created (depth=%u, item=%u bytes).\n",
-                      static_cast<unsigned>(ACTUATOR_QUEUE_DEPTH),
-                      static_cast<unsigned>(sizeof(ActuatorCommand)));
-    }
-
-    xTelemetryQueue = xQueueCreate(TELEMETRY_QUEUE_DEPTH, sizeof(TelemetryData));
-    if (xTelemetryQueue == nullptr)
-    {
-        Serial.println("[MAIN] FATAL: Failed to create xTelemetryQueue!");
-    }
-    else
-    {
-        Serial.printf("[MAIN] xTelemetryQueue created (depth=%u, item=%u bytes).\n",
-                      static_cast<unsigned>(TELEMETRY_QUEUE_DEPTH),
-                      static_cast<unsigned>(sizeof(TelemetryData)));
-    }
-
-    xWifiEventGroup = xEventGroupCreate();
-    if (xWifiEventGroup == nullptr)
-    {
-        Serial.println("[MAIN] FATAL: Failed to create xWifiEventGroup!");
-    }
-    else
-    {
-        Serial.println("[MAIN] xWifiEventGroup created successfully.");
-    }
-
-#ifndef UNIT_TEST
-    xTelemetryMutex = xSemaphoreCreateMutex();
-    if (xTelemetryMutex == nullptr)
-    {
-        Serial.println("[MAIN] FATAL: Failed to create xTelemetryMutex!");
-    }
-    else
-    {
-        Serial.println("[MAIN] xTelemetryMutex created successfully.");
-    }
-#endif
+    // 6. Create queues and semaphores
+    initQueues();
+    initSemaphores();
 
     // 7. Initialize and activate WiFi
     wifi::init_wifi();
 
-    #ifndef UNIT_TEST
-    // 8. Create and pin Task Core 0 Communication to Core 0
-    {
-        BaseType_t result = xTaskCreatePinnedToCore(
-            task_core0_communication, // Task function
-            "TaskCore0Comm",          // Name of task
-            CORE0_STACK_BYTES,        // Stack size in bytes
-            nullptr,                  // Parameter to pass
-            CORE0_TASK_PRIORITY,      // Task priority
-            nullptr,                  // Task handle
-            0                         // Pin to Core 0
-        );
-
-        if (result == pdPASS)
-        {
-            Serial.println("[MAIN] Pinned task_core0_communication to Core 0 successfully.");
-        }
-        else
-        {
-            Serial.printf("[MAIN] ERROR: Failed to create task_core0_communication (code: %d)!\n",
-                          static_cast<int>(result));
-        }
-    }
-
-    // 5. Create and pin Task Core 1 Control to Core 1
-    //    Higher priority than Core 0 ensures real-time sensor/actuator response.
-    {
-        BaseType_t result = xTaskCreatePinnedToCore(
-            task_core1_control,  // Task function
-            "TaskCore1Ctrl",     // Name of task
-            CORE1_STACK_BYTES,   // Stack size in bytes
-            nullptr,             // Parameter to pass
-            CORE1_TASK_PRIORITY, // Task priority (higher than Core 0)
-            nullptr,             // Task handle
-            1                    // Pin to Core 1
-        );
-
-        if (result == pdPASS)
-        {
-            Serial.println("[MAIN] Pinned task_core1_control to Core 1 successfully.");
-        }
-        else
-        {
-            Serial.printf("[MAIN] ERROR: Failed to create task_core1_control (code: %d)!\n",
-                          static_cast<int>(result));
-        }
-    }
-    // 6. Create Hardware Button Task (Core 1) — Track I
-    {
-        BaseType_t result = xTaskCreatePinnedToCore(
-            task_hardware_button,  // Task function
-            "TaskHWButton",        // Name of task
-            2048,                  // Stack size in bytes
-            nullptr,               // Parameter to pass
-            CORE1_TASK_PRIORITY,   // Priority (same as Core 1 control)
-            nullptr,               // Task handle
-            1                      // Pin to Core 1
-        );
-
-        if (result == pdPASS)
-        {
-            Serial.println("[MAIN] Pinned task_hardware_button to Core 1 successfully.");
-        }
-        else
-        {
-            Serial.printf("[MAIN] ERROR: Failed to create task_hardware_button (code: %d)!\n",
-                          static_cast<int>(result));
-        }
-    }
-    #else
-    Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
-    #endif
+    // 8. Create tasks
+    createCoreTasks();
 }
 
 void loop()
@@ -191,7 +208,7 @@ void loop()
     // (như duy trì Webserver, MQTT loop, check delta telemetry)
     // Điều này đảm bảo biên dịch thành công và kiểm chứng được các luồng logic trong test suite.
     wifi::check_wifi_connection();
-    mqtt::MqttClient::get_instance().loop();
+    mqtt::MqttClient::getInstance().loop();
 
     static unsigned long last_delta_scan = 0;
     unsigned long now = millis();

@@ -34,11 +34,11 @@ extern SemaphoreHandle_t xTelemetryMutex;
 #endif
 
 // Safe helper functions for thread-safe access to shared_forceFullPublish.
-// consume_shared_force_full_publish() reads and clears the request in one
+// consumeSharedForceFullPublish() reads and clears the request in one
 // critical section, so a concurrent MQTT callback cannot be overwritten.
-bool get_shared_force_full_publish();
-bool consume_shared_force_full_publish();
-void set_shared_force_full_publish(bool val);
+bool getSharedForceFullPublish();
+bool consumeSharedForceFullPublish();
+void setSharedForceFullPublish(bool val);
 
 struct SharedSystemState {
     float temp_air;
@@ -57,8 +57,8 @@ struct SharedSystemState {
 extern SharedSystemState shared_systemState;
 #endif
 
-void update_shared_system_state(const SharedSystemState& state);
-SharedSystemState get_shared_system_state();
+void updateSharedSystemState(const SharedSystemState& state);
+SharedSystemState getSharedSystemState();
 
 #include "Telemetry.h"
 
@@ -68,20 +68,20 @@ void processTelemetryPublication(unsigned long now, const TelemetryData& last_kn
  * @brief FreeRTOS task running on Core 0 to handle WiFi and MQTT communication.
  * @param pvParameters Parameter pointer passed to the task (not used, can be nullptr).
  */
-void task_core0_communication(void* pvParameters);
+void taskCore0Communication(void* pvParameters);
 
 /**
  * @brief FreeRTOS task running on Core 1 to handle sensor reading and actuator control.
  * @param pvParameters Parameter pointer passed to the task (not used, can be nullptr).
  */
-void task_core1_control(void* pvParameters);
+void taskCore1Control(void* pvParameters);
 
 /**
  * @brief FreeRTOS task running on Core 1 to poll the hardware WiFi-reset button.
  * @param pvParameters Parameter pointer passed to the task (not used, can be nullptr).
  * @details Active-LOW BOOT/GPIO0. 5s hold forces SoftAP provisioning; 10s hold factory-resets NVS.
  */
-void task_hardware_button(void* pvParameters);
+void taskHardwareButton(void* pvParameters);
 
 /**
  * @brief Handle for the FreeRTOS queue carrying ActuatorCommand from Core 0 to Core 1.

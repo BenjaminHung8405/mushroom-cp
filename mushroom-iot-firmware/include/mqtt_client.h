@@ -49,7 +49,7 @@ namespace mqtt
         /**
          * @brief Access the Singleton instance of the MQTT client.
          */
-        static MqttClient& get_instance();
+        static MqttClient& getInstance();
 
         // Prevent copying and assignment
         MqttClient(const MqttClient&) = delete;
@@ -73,34 +73,34 @@ namespace mqtt
          * @param payload JSON formatted telemetry payload string.
          * @return true if publish request was sent to client buffer.
          */
-        bool publish_telemetry(const String& payload);
+        bool publishTelemetry(const String& payload);
 
         /**
          * @brief Publishes online/offline status to the resolved status topic.
          * @param is_online true for "online" state, false for "offline" state.
          * @return true if publication succeeded.
          */
-        bool publish_status(bool is_online);
+        bool publishStatus(bool is_online);
 
         /**
          * @brief Checks if the client is currently connected to the broker.
          */
-        bool is_connected();
+        bool isConnected();
 
         /**
          * @brief Gets the current client state.
          */
-        MqttState get_state() const;
+        MqttState getState() const;
 
         /**
          * @brief Returns the resolved topics struct containing runtime topic names.
          */
-        const MqttTopics& get_resolved_topics() const;
+        const MqttTopics& getResolvedTopics() const;
 
         /**
          * @brief Returns the current reconnect interval (for unit testing backoff).
          */
-        unsigned long get_reconnect_interval() const;
+        unsigned long getReconnectInterval() const;
 
     private:
         MqttClient() = default;
@@ -109,7 +109,7 @@ namespace mqtt
         /**
          * @brief Static wrapper callback hook registered into PubSubClient.
          */
-        static void mqtt_callback_static(char* topic, uint8_t* payload, unsigned int length);
+        static void mqttCallbackStatic(char* topic, uint8_t* payload, unsigned int length);
 
         /**
          * @brief Static callback hook that handles incoming MQTT messages.
@@ -119,67 +119,77 @@ namespace mqtt
         /**
          * @brief Internal message handler to process incoming payloads on subscribed topics.
          */
-        void handle_message(char* topic, uint8_t* payload, unsigned int length);
+        void handleMessage(char* topic, uint8_t* payload, unsigned int length);
 
         /**
          * @brief Internal helper to process setpoint JSON fields.
          */
-        void process_setpoints(StaticJsonDocument<768>& doc);
+        void processSetpoints(StaticJsonDocument<768>& doc);
 
         /**
          * @brief Internal helper to validate a single setpoint value.
          */
-        bool validate_single_setpoint(const char* name, float val, float min_val, float max_val);
+        bool validateSingleSetpoint(const char* name, float val, float min_val, float max_val);
 
         /**
          * @brief Internal helper to parse and validate JSON payload.
          */
-        bool parse_json_payload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc);
+        bool parseJsonPayload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc);
 
         /**
          * @brief Internal helper to handle MQTT control commands.
          */
-        bool handle_mqtt_command(StaticJsonDocument<768>& doc);
+        bool handleMqttCommand(StaticJsonDocument<768>& doc);
 
         /**
          * @brief Internal helper to extract and validate setpoint fields.
          */
-        bool extract_setpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
+        bool extractSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
 
         /**
          * @brief Internal helper to validate MQTT credentials before connecting.
          */
-        bool validate_connection_config(const String& client_id);
+        bool validateConnectionConfig(const String& client_id);
 
         /**
          * @brief Internal helper to retrieve Last Will and Testament configuration.
          */
-        void get_lwt_config(String& lwt_topic, String& lwt_payload);
+        void getLwtConfig(String& lwt_topic, String& lwt_payload);
 
         /**
          * @brief Non-blocking reconnect strategy method.
          */
-        void reconnect_mqtt();
+        void reconnectMqtt();
 
         /**
          * @brief Internal helper to execute the connection to the MQTT broker.
          */
-        bool perform_mqtt_connection();
+        bool performMqttConnection();
 
         /**
          * @brief Internal helper to check WiFi state for MQTT.
          */
-        bool check_wifi_for_mqtt();
+        bool checkWifiForMqtt();
 
         /**
          * @brief Internal helper to maintain MQTT connection.
          */
-        void maintain_mqtt_connection();
+        void maintainMqttConnection();
 
         /**
          * @brief Get effective Client ID, returning default if empty.
          */
-        String get_effective_client_id() const;
+        String getEffectiveClientId() const;
+
+        // --- Private helpers to decompose long methods (<50 lines) ---
+        void configurePubSubClient(const String& client_id);
+        void initializeMutex();
+        bool validateIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length);
+        void routeSetpointMessage(StaticJsonDocument<768>& doc, bool is_command);
+        void extractEnvironmentSetpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
+        void extractTtlAndProtection(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
+        void handleMqttConnectionSuccess();
+        void handleMqttConnectionFailure();
 
         // Network clients
 #ifndef UNIT_TEST

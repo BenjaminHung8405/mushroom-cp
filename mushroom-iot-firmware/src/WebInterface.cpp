@@ -374,7 +374,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 
 namespace web_interface
 {
-    bool check_rate_limit(unsigned long now)
+    bool checkRateLimit(unsigned long now)
     {
         static unsigned long last_request_time = 0;
         static bool has_last_request = false;
@@ -387,22 +387,8 @@ namespace web_interface
         return true;
     }
 
-    void apiGetRealtimeData()
+    void mapSystemStateToJson(const SharedSystemState& state, StaticJsonDocument<512>& doc)
     {
-#ifndef UNIT_TEST
-        if (!check_rate_limit(millis()))
-        {
-            localWebServer.sendHeader("Retry-After", "1");
-            localWebServer.sendHeader("Cache-Control", "no-store");
-            localWebServer.send(429, "application/json", "{\"error\":\"Too Many Requests\"}");
-            return;
-        }
-
-        // Lấy trạng thái hệ thống thread-safe
-        SharedSystemState state = get_shared_system_state();
-
-        StaticJsonDocument<512> doc;
-        
         if (std::isnan(state.temp_air)) doc["temp_air"] = nullptr;
         else doc["temp_air"] = state.temp_air;
 
@@ -425,9 +411,27 @@ namespace web_interface
         doc["h_wat_duty"] = state.h_wat_duty;
         doc["mist_duty"] = state.mist_duty;
         doc["exhaust_duty"] = state.exhaust_duty;
+    }
+
+    void apiGetRealtimeData()
+    {
+#ifndef UNIT_TEST
+        if (!checkRateLimit(millis()))
+        {
+            localWebServer.sendHeader("Retry-After", "1");
+            localWebServer.sendHeader("Cache-Control", "no-store");
+            localWebServer.send(429, "application/json", "{\"error\":\"Too Many Requests\"}");
+            return;
+        }
+
+        // Lấy trạng thái hệ thống thread-safe
+        SharedSystemState state = getSharedSystemState();
+
+        StaticJsonDocument<512> doc;
+        mapSystemStateToJson(state, doc);
 
         doc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
-        doc["mqtt_connected"] = mqtt::MqttClient::get_instance().is_connected();
+        doc["mqtt_connected"] = mqtt::MqttClient::getInstance().isConnected();
         doc["uptime"] = millis() / 1000;
         doc["free_heap"] = ESP.getFreeHeap();
 
@@ -440,7 +444,7 @@ namespace web_interface
 #endif
     }
 
-    void init_server()
+    void initServer()
     {
 #ifndef UNIT_TEST
         if (server_running) return;
@@ -456,7 +460,7 @@ namespace web_interface
 #endif
     }
 
-    void handle_client()
+    void handleClient()
     {
 #ifndef UNIT_TEST
         if (server_running)
@@ -466,7 +470,7 @@ namespace web_interface
 #endif
     }
 
-    void stop_server()
+    void stopServer()
     {
 #ifndef UNIT_TEST
         if (!server_running) return;
@@ -479,7 +483,7 @@ namespace web_interface
 #endif
     }
 
-    bool is_server_running()
+    bool isServerRunning()
     {
 #ifndef UNIT_TEST
         return server_running;
