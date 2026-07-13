@@ -2217,6 +2217,82 @@ int main() {
         assert(discarded.active == false);
     }
 
+    // 36. Test Task F8 - Persistence, queue priority, encoder, and TPC regression
+    Serial.println("[TEST] Starting Task F8 - Offline Setpoint Integration Tests...");
+    {
+        auto clearQueue = [](QueueHandle_t queue) {
+            ControlSetpointCommand discarded;
+            while (xQueueReceive(queue, &discarded, 0) == pdTRUE) {}
+        };
+
+        if (xBaselineQueue == nullptr) {
+            xBaselineQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        }
+        if (xOverrideQueue == nullptr) {
+            xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        }
+        clearQueue(xBaselineQueue);
+        clearQueue(xOverrideQueue);
+        assert(storage.factory_reset() == true);
+
+        // The 0.1 NVS write threshold prevents flash wear for insignificant updates.
+        const storage::BackendSetpointSnapshot initialBaseline = {30.0f, 80.0f, 900.0f, true};
+        assert(storage.save_backend_snapshot(initialBaseline) == true);
+        const storage::BackendSetpointSnapshot change00001 = {30.00001f, 80.0f, 900.0f, true};
+        const storage::BackendSetpointSnapshot change009 = {30.09f, 80.0f, 900.0f, true};
+        const storage::BackendSetpointSnapshot change010 = {30.10f, 80.0f, 900.0f, true};
+        storage::BackendSetpointSnapshot storedBaseline;
+        assert(storage.save_backend_snapshot(change00001) == true);
+        assert(storage.load_backend_snapshot(storedBaseline) == true);
+        assert(std::fabs(storedBaseline.temp_target - 30.0f) < 0.001f);
+        assert(storage.save_backend_snapshot(change009) == true);
+        assert(storage.load_backend_snapshot(storedBaseline) == true);
+        assert(std::fabs(storedBaseline.temp_target - 30.0f) < 0.001f);
+        assert(storage.save_backend_snapshot(change010) == true);
+        assert(storage.load_backend_snapshot(storedBaseline) == true);
+        assert(std::fabs(storedBaseline.temp_target - 30.10f) < 0.001f);
+
+        // Rapid Core 0 updates retain only the latest depth-one baseline command.
+        const ControlSetpointCommand staleBaseline = {26.0f, 75.0f, 800.0f, true, {0, 0, 0}};
+        const ControlSetpointCommand latestBaseline = {30.0f, 85.0f, 950.0f, true, {0, 0, 0}};
+        const ControlSetpointCommand activeOverride = {22.0f, 60.0f, NAN, true, {0, 0, 0}};
+        assert(xQueueOverwrite(xBaselineQueue, &staleBaseline) == pdTRUE);
+        assert(xQueueOverwrite(xBaselineQueue, &latestBaseline) == pdTRUE);
+        assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
+
+        // A manual override wins temperature/humidity while preserving backend CO2.
+        taskCore1Control(nullptr);
+        SharedSystemState state = getSharedSystemState();
+        assert(std::fabs(state.temp_target - activeOverride.temp_target) < 0.001f);
+        assert(std::fabs(state.humidity_target - activeOverride.humidity_target) < 0.001f);
+        assert(std::fabs(state.co2_target - latestBaseline.co2_target) < 0.001f);
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 0);
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 0);
+
+        // An inactive override clears only the overlay and restores the latest baseline.
+        const ControlSetpointCommand clearOverride = {NAN, NAN, NAN, false, {0, 0, 0}};
+        assert(xQueueOverwrite(xBaselineQueue, &latestBaseline) == pdTRUE);
+        assert(xQueueOverwrite(xOverrideQueue, &clearOverride) == pdTRUE);
+        taskCore1Control(nullptr);
+        state = getSharedSystemState();
+        assert(std::fabs(state.temp_target - latestBaseline.temp_target) < 0.001f);
+        assert(std::fabs(state.humidity_target - latestBaseline.humidity_target) < 0.001f);
+        assert(std::fabs(state.co2_target - latestBaseline.co2_target) < 0.001f);
+
+        // An active manual override cannot bypass the invalid-RTC TPC safety shutdown.
+        assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);
+        taskCore1Control(nullptr);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_2] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+
+        // Existing F6 gesture tests exercise edit/save/clear; the test cleanup leaves no override.
+        storage::HardwareOverrideSnapshot persistedOverride;
+        assert(storage.load_hardware_override(persistedOverride) == false);
+        assert(storage.factory_reset() == true);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

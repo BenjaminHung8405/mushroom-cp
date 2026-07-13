@@ -1,3 +1,16 @@
+## [2026-07-13T12:30:00+07:00]
+- **Task ID**: F8
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - Bổ sung Test Case F8 độc lập trong host harness để kiểm tra chính xác ngưỡng NVS epsilon: `30.00000→30.00001` và `30.09` không ghi Flash, còn `30.10` được persist.
+  - Kiểm tra queue depth-1 giữ command baseline mới nhất; Core 1 áp dụng ưu tiên manual override cho nhiệt độ/độ ẩm, duy trì CO2 baseline, và khi clear overlay sẽ quay về baseline mới nhất.
+  - Regression safety xác nhận RTC không hợp lệ vẫn ép SSR HWat/Mist LOW dù manual override đang active. Các gesture encoder save/clear đã được kiểm thử trong F6 và F8 xác nhận NVS sạch sau luồng này.
+  - Tự kiểm tra PASS: biên dịch và chạy firmware host test suite với toàn bộ source + ArduinoJson include; kết quả `--- All Unit Tests Passed Successfully! ---`. Có một warning hiện hữu trong mock `HardwareSerial::printf` về format string không literal, không phát sinh từ F8.
+
 ## [2026-07-13T12:08:52+07:00]
 - **Task ID**: F7
 - **Trạng thái hiện tại**: Đang chờ QA Review
