@@ -1,5 +1,20 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:18:00+07:00] Task A5: Định nghĩa endpoint PUT để cập nhật checkpoints
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.ts) (Sửa đổi)
+  - [batch.controller.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/controllers/batch.controller.spec.ts) (Sửa đổi)
+  - [checkpoint-owner.guard.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/guards/checkpoint-owner.guard.ts) (Tạo mới)
+  - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
+  - [active-batch-response.dto.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/dto/active-batch-response.dto.ts) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Định nghĩa endpoint `PUT /batches/:id/checkpoints` trong `BatchController`, sử dụng các decorators NestJS chuẩn (`@Put(':id/checkpoints')`, `@Param() params: BatchIdParamsDto`, `@Body()`).
+  - Triển khai `CheckpointOwnerGuard` để mô phỏng và ghi log kiểm tra phân quyền sở hữu nhà nấm chứa vụ nuôi. Do cơ sở dữ liệu hiện tại chưa tích hợp bảng Users/Roles, guard sẽ đóng vai trò logging và ghi nhận quyền truy cập thành công cho các giai đoạn phát triển tiếp theo.
+  - Tích hợp ghi log hệ thống bằng NestJS `Logger` trong controller và guard.
+  - Khắc phục lỗi tương thích kiểu dữ liệu bằng cách cập nhật `CheckpointResponseDto` (thêm `batchId` và `@Expose()`) và ánh xạ mảng checkpoints trong `batch.service.ts` nhằm đảm bảo biên dịch thành công.
+  - Bổ sung unit test trong `batch.controller.spec.ts` kiểm thử endpoint `updateCheckpoints` mới. Chạy thành công 94/94 test cases và build dự án NestJS thành công 100%.
+
 ## [2026-07-13T17:16:00+07:00] Task A4: Triển khai hàm lưu/cập nhật danh sách checkpoints trong một Transaction
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:

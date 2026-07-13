@@ -14,7 +14,7 @@ import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
 import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { CreateBatchDto } from '../dto/create-batch.dto';
-import { UpdateCheckpointsDto } from '../dto/update-checkpoints.dto';
+import { UpdateCheckpointsDto, MetricType } from '../dto/update-checkpoints.dto';
 
 export interface BatchContext {
   batchId: string | null;
@@ -109,7 +109,13 @@ export class BatchService {
       ...activeBatch,
       cropDay,
       crop_day: cropDay,
-      checkpoints: checkpoints || [],
+      checkpoints: (checkpoints || []).map((cp) => ({
+        id: cp.id,
+        batchId: cp.batchId as string,
+        metricType: cp.metricType as MetricType,
+        cropDay: cp.cropDay,
+        targetValue: cp.targetValue,
+      })),
     };
   }
 

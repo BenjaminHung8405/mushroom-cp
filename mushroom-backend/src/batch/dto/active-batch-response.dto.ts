@@ -7,6 +7,9 @@ export class CheckpointResponseDto {
   id: string;
 
   @Expose()
+  batchId: string;
+
+  @Expose()
   metricType: MetricType;
 
   @Expose()

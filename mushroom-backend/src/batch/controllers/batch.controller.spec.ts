@@ -12,6 +12,7 @@ describe('BatchController', () => {
     createBatch: jest.fn(),
     endBatch: jest.fn(),
     getActiveBatchStatusByHouseId: jest.fn(),
+    updateBatchCheckpoints: jest.fn(),
   });
 
   beforeEach(async () => {
@@ -88,6 +89,25 @@ describe('BatchController', () => {
       expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith(
         'house-2',
       );
+    });
+  });
+
+  describe('updateCheckpoints', () => {
+    it('should call service.updateBatchCheckpoints and return the updated checkpoints', async () => {
+      const mockCheckpoints = [
+        { id: 1, batchId: 'batch-1', metricType: 'TEMPERATURE', cropDay: 1, targetValue: 30 },
+      ] as any[];
+      service.updateBatchCheckpoints.mockResolvedValue(mockCheckpoints);
+
+      const dto = {
+        checkpoints: [
+          { metricType: 'TEMPERATURE' as any, cropDay: 1, targetValue: 30 },
+        ],
+      };
+
+      const result = await controller.updateCheckpoints({ id: 'batch-1' }, dto);
+      expect(result).toEqual(mockCheckpoints);
+      expect(service.updateBatchCheckpoints).toHaveBeenCalledWith('batch-1', dto);
     });
   });
 });
