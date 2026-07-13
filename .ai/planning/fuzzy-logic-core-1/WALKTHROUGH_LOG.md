@@ -1,3 +1,32 @@
+## [2026-07-13T12:08:52+07:00]
+- **Task ID**: F7
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [DELETE] [local_control.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/local_control.h)
+  - [DELETE] [local_control.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/local_control.cpp)
+  - [MODIFY] [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [sensors.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/sensors.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [HARDWARE_DEPLOYMENT.md](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/HARDWARE_DEPLOYMENT.md)
+  - [MODIFY] [mqtt.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.ts)
+  - [MODIFY] [mqtt.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/mqtt/mqtt.service.spec.ts)
+  - [MODIFY] [device.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/device/device.controller.ts)
+  - [MODIFY] [telemetry.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/telemetry/services/telemetry.service.ts)
+  - [MODIFY] [header.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/header.tsx)
+  - [MODIFY] [sensor-data-card.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/sensor-data-card.tsx)
+  - [MODIFY] [standard-actuators-control.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/standard-actuators-control.tsx)
+  - [MODIFY] [CONTEXT_HANDOFF_PHASE2.md](file:///Users/benjaminhung8405/Code/mushroom-cp/CONTEXT_HANDOFF_PHASE2.md)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+- **Giải trình ngắn gọn**:
+  - Xóa toàn bộ legacy `local_control` cùng direct-relay compatibility shim (`ActuatorCommand`/`xActuatorQueue`), không để compatibility API. Core 1 chỉ nhận typed baseline/override commands và duy trì pipeline fuzzy → arbitration → hardware protection → TPC → GPIO SSR.
+  - MQTT routing không còn nhận các field TTL/thermal-shock legacy hoặc raw relay command branch; hợp đồng backend, UI và tài liệu active được đổi từ `edge_hysteresis` sang `fuzzy_tpc`.
+  - Unit tests thay coverage direct actuator queue bằng kiểm thử `ControlSetpointCommand` depth-1/overwrite, manual override độc lập và clear overlay. Tự kiểm tra PASS: firmware host unit suite, PlatformIO `otg`, MQTT service spec (9/9), backend build, UI build; `git diff --check` sạch và quét active source không còn legacy symbol.
+
 ## [2026-07-13T11:43:25+07:00]
 - **Task ID**: F6
 - **Trạng thái hiện tại**: Đang chờ QA Review

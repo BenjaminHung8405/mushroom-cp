@@ -10,10 +10,10 @@ The pull-down is mandatory hardware protection; firmware setting GPIO LOW after 
 
 ## Edge control safety
 
-- Core 1 owns relay state using local hysteresis and max-on timers.
-- MQTT/backend targets are advisory only.
-- A failed humidity reading immediately forces mist OFF.
-- SHT30 defog heater state holds the last relay outputs while heater is active and for a 30-second cooldown, because heater-biased measurements are not environmental truth.
+- Core 1 owns SSR state through fuzzy control, output arbitration, hardware protection, and TPC scheduling.
+- MQTT/backend targets are advisory inputs; persisted baseline and manual override commands are validated before they affect Core 1 state.
+- Invalid sensor values produce fail-safe fuzzy demands and the biosafety interlock forces HWat/Mist OFF when RTC time is invalid or during the blackout window.
+- TPC is the only SSR GPIO writer: it uses non-blocking windows with configured minimum ON/OFF periods, never high-frequency PWM.
 - Core 1 registers with the explicit Task Watchdog and resets it after a completed control iteration.
 
 ## Time integrity

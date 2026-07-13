@@ -115,7 +115,7 @@ export function Header() {
 
   const notifications = [
     { id: 1, message: 'Dashboard đang hiển thị telemetry thật từ backend', time: 'Vừa xong' },
-    { id: 2, message: 'Edge hysteresis sở hữu quyền an toàn relay', time: '1 giờ trước' },
+    { id: 2, message: 'Pipeline fuzzy/TPC trên Core 1 kiểm soát SSR an toàn', time: '1 giờ trước' },
   ]
 
   const getAlertBg = (type: string) =>

@@ -85,9 +85,9 @@ interface StandardActuatorsControlProps {
 }
 
 /**
- * Read-only edge actuator observation panel.
+ * Read-only actuator observation panel.
  * Production MVP does not allow browser-side relay toggles —
- * edge hysteresis owns safety control.
+ * the Core 1 fuzzy/TPC pipeline owns SSR safety control.
  */
 export function StandardActuatorsControl({
   fanActive = false,
@@ -121,13 +121,13 @@ export function StandardActuatorsControl({
 
         <ActuatorStatusRow
           name="Máy tạo ẩm siêu âm"
-          description="Phun sương ON/OFF theo hysteresis độ ẩm"
+          description="Phun sương ON/OFF theo fuzzy/TPC pipeline"
           icon={<CloudFog className="w-5 h-5 text-teal-400" />}
           isActive={mistActive}
           locked={blackoutActive}
           lockReason={
             blackoutActive
-              ? 'Midday blackout đang bật — edge chặn mist'
+              ? 'Midday blackout đang bật — TPC khóa mist'
               : undefined
           }
         />

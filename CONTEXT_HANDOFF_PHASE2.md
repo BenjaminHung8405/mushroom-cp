@@ -62,18 +62,12 @@ git log --oneline -5
 
 ### 3.2 Firmware: Edge safety controller
 
-- New [local_control.h](mushroom-iot-firmware/include/local_control.h)
-- New [local_control.cpp](mushroom-iot-firmware/src/local_control.cpp)
+> **Note**: The legacy `local_control` module was removed in Task F7. The active control path is now the Core 1 fuzzy controller → arbitration → hardware protection → TPC scheduler → SSR GPIO pipeline.
 
-Có:
-
-- advisory setpoint TTL (`120s` default);
-- fallback local target: temp `30°C`, RH `80%`, CO₂ `1000 ppm`, min temp `28°C`;
-- mist hysteresis `±2%`, `MIST_MAX_ON_MS=120s`, `MIST_MIN_OFF_MS=60s`;
-- heater hysteresis `±0.5°C`, max-on `300s`;
-- fan dùng temp / CO₂, fail-safe fan ON khi không có cả temp + CO₂;
-- current humidity invalid → mist OFF ngay (không reuse stale humidity để tiếp tục phun);
-- MQTT raw boolean actuator command bị ignore: Core 1 là authority.
+- Advisory setpoint via MQTT with NVS persistence (backend baseline queue).
+- Manual override via rotary encoder or MQTT (`clearHardwareOverride`) with NVS snapshot (override queue).
+- Priority: manual override > backend/NVS baseline > trajectory Day 0.
+- MQTT raw boolean actuator commands are ignored — Core 1 fuzzy/TPC pipeline owns SSR control.
 
 ### 3.3 SHT30 defog + WDT
 
@@ -111,7 +105,7 @@ Có:
   - không còn `houseId = deviceId`;
   - cache/SSE key theo `deviceId`;
   - log TimescaleDB bằng mapped `houseId`;
-  - backend publish advisory MQTT setpoint target (`control_mode: edge_hysteresis`, TTL) thay vì direct relay authority.
+  - backend publish advisory MQTT setpoint target (`control_mode: fuzzy_tpc`) to the Core 1 fuzzy/TPC pipeline.
 - [acl.conf](emqx/acl.conf): backend ACL username đã sửa `backend` → `nestjs_backend`.
 
 ### 3.6 History API

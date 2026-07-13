@@ -207,7 +207,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       thermal_shock_protection?: boolean;
       thermal_shock_start?: string;
       thermal_shock_end?: string;
-      control_mode: 'edge_hysteresis';
+      control_mode: 'fuzzy_tpc';
       setpoint_ttl_sec: number;
     },
   ): Promise<void> {

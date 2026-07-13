@@ -159,7 +159,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Critical error processing telemetry for device ${deviceId}: ${errMsg}`,
       );
-      // Observed emergency recommendation only — edge still owns relays.
+      // Observed emergency recommendation only — the Core 1 fuzzy/TPC pipeline owns SSRs.
       controlActions = {
         mist_generator_active: false,
         convection_fan_active: true,
@@ -177,7 +177,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           thermal_shock_protection: context?.thermalShockProtection ?? true,
           thermal_shock_start: context?.thermalShockStart?.slice(0, 5) ?? '11:00',
           thermal_shock_end: context?.thermalShockEnd?.slice(0, 5) ?? '13:30',
-          control_mode: 'edge_hysteresis',
+          control_mode: 'fuzzy_tpc',
           setpoint_ttl_sec: 120,
         });
       } catch (dispatchError: unknown) {

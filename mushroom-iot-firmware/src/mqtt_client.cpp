@@ -2,7 +2,6 @@
 #include "config.h"
 #include "wifi_manager.h"
 #include "definitions.h"
-#include "local_control.h"
 #include "serial_mutex.h"
 #include <ArduinoJson.h>
 
@@ -167,7 +166,6 @@ namespace mqtt
                     ScopedSerialLock guard(SerialLock::get_instance());
                     Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
                 }
-                local_control::on_backend_link_lost();
                 current_state = MqttState::DISCONNECTED;
                 current_reconnect_interval = 2000; // Reset backoff interval on connection loss
             }
@@ -287,7 +285,6 @@ namespace mqtt
         if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
             doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
             doc.containsKey("humidity") || doc.containsKey("co2") ||
-            doc.containsKey("thermal_shock_protection") || doc.containsKey("setpoint_ttl_sec") ||
             doc.containsKey("clearHardwareOverride"))
         {
             processSetpoints(doc);
@@ -415,14 +412,6 @@ namespace mqtt
         }
 
         parseAndPersistBaseline(doc);
-
-        if (doc.containsKey("mist_generator_active") ||
-            doc.containsKey("convection_fan_active") ||
-            doc.containsKey("heating_lamp_active"))
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
-        }
     }
 
     void MqttClient::parseAndPersistBaseline(StaticJsonDocument<768>& doc)

@@ -89,12 +89,6 @@ void taskHardwareButton(void* pvParameters);
 void taskEncoderInput(void* pvParameters);
 
 /**
- * @brief Handle for the FreeRTOS queue carrying ActuatorCommand from Core 0 to Core 1.
- * Created during setup(); destroyed on shutdown.
- */
-extern QueueHandle_t xActuatorQueue;
-
-/**
  * @brief Handle for the FreeRTOS queue carrying TelemetryData from Core 1 to Core 0.
  * Created during setup(); destroyed on shutdown.
  */

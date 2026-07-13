@@ -115,7 +115,7 @@ namespace sensors
         // --- Heater State Machine (Task D2) ---
         // NOTE: SHT30 heater does NOT return NAN. It returns biased finite values
         // (temp +1..3°C, RH drops). We mark defogging and blank temp for telemetry
-        // consumers that still check isnan; local_control uses is_sht30_defogging().
+        // consumers that still check isnan; the Core 1 TPC pipeline owns SSR safety.
         static unsigned long humidity_saturated_start = 0;
         static unsigned long heat_start_time = 0;
 

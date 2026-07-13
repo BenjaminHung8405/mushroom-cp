@@ -25,7 +25,6 @@
 // ---------------------------------------------------------------------------
 // FreeRTOS Queue and Event Group handles (defined here, declared in definitions.h)
 // ---------------------------------------------------------------------------
-QueueHandle_t xActuatorQueue  = nullptr;
 QueueHandle_t xTelemetryQueue = nullptr;
 QueueHandle_t xBaselineQueue  = nullptr;
 QueueHandle_t xOverrideQueue  = nullptr;
@@ -133,10 +132,6 @@ SharedSystemState getSharedSystemState()
 // interval so console output is observable during development; production will
 // raise this to 5 minutes.
 static constexpr unsigned long SENSOR_READ_INTERVAL_MS = 5000UL;
-
-// How long to wait when draining the actuator command queue each tick.
-// Non-blocking (0) so the task never stalls waiting for Core 0.
-static constexpr TickType_t ACTUATOR_QUEUE_WAIT_TICKS = 0;
 
 // ===========================================================================
 // Track I: Hardware Button Task (BOOT/GPIO0) — runs on Core 1
@@ -318,26 +313,6 @@ static void sampleAndEnqueueTelemetry(TelemetryData& data)
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.println("[CORE1_TASK] WARNING: Telemetry queue full — sample dropped.");
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: drain legacy commands without allowing them to bypass the pipeline.
-// ---------------------------------------------------------------------------
-static void drainLegacyActuatorQueue()
-{
-    if (xActuatorQueue == nullptr)
-    {
-        return;
-    }
-
-    ActuatorCommand cmd;
-    while (xQueueReceive(xActuatorQueue, &cmd, ACTUATOR_QUEUE_WAIT_TICKS) == pdTRUE)
-    {
-        ScopedSerialLock guard(SerialLock::get_instance());
-        Serial.printf(
-            "[CORE1_TASK] Dropped legacy ActuatorCommand pin=%u; TPC pipeline owns SSRs.\n",
-            static_cast<unsigned>(cmd.relay_id));
     }
 }
 
@@ -530,8 +505,6 @@ static void runControlPipelineStep(
         tpcState);
 
     updateWebInterfaceState(telemetry, setpoints, outputs);
-
-    drainLegacyActuatorQueue();
 }
 
 void taskCore1Control(void* /*pvParameters*/)

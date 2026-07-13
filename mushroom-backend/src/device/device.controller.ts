@@ -162,7 +162,7 @@ export class DeviceController {
     await this.mqttService.dispatchSetpoint(id, {
       temperatureSetpoint,
       humiditySetpoint,
-      control_mode: 'edge_hysteresis',
+      control_mode: 'fuzzy_tpc',
       setpoint_ttl_sec: 120,
     });
     return {
@@ -170,7 +170,7 @@ export class DeviceController {
       payload: {
         temperatureSetpoint,
         humiditySetpoint,
-        control_mode: 'edge_hysteresis',
+        control_mode: 'fuzzy_tpc',
         setpoint_ttl_sec: 120,
       },
     };

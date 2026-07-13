@@ -17,7 +17,7 @@ interface SensorDataCardProps {
   unit: string
   status: 'optimal' | 'warning' | 'critical' | 'empty'
   trend?: number | null
-  /** Optional boolean actuator state (ON/OFF) — replaces PWM for edge-hysteresis */
+  /** Optional SSR ON/OFF observation from the fuzzy/TPC control pipeline. */
   actuatorActive?: boolean
   lastUpdated?: string | null
 }

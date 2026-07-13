@@ -95,7 +95,7 @@
 | F4 | Hydrate NVS trong `setup()` trước khi start task và đẩy snapshot vào queue. | [ ] QA Review | - Startup queue creation + NVS hydration phải xong trước Core 0/Core 1.<br>- Core 1 nhận POD duy nhất qua queue, fallback trajectory khi không có baseline. |
 | F5 | Cập nhật `task_core1_control()` với priority `manual override > backend baseline > trajectory Day 0`. | [ ] In Progress | - Validate lại command trước mutate state; command lỗi reject/log.<br>- Clear chỉ bỏ overlay và quay về baseline mới nhất.<br>- Interlock sensor/blackout/TPC vẫn ưu tiên trên setpoint. |
 | F6 | Tạo `encoder.h/.cpp` + Core 0 encoder input task cho KY-040 GPIO5/6/7. | [ ] QA Review | - KY-040 bắt buộc cấp 3.3V, `INPUT_PULLUP`.<br>- CLK ISR + DT quadrature, reject edge <2ms; SW stable 30ms, double click 300ms, long-press ≥3s.<br>- Monitor double-click → Edit Temp; Edit click đổi Temp/Humi; Edit long-press save; Monitor long-press khi override active → clear.<br>- Step T 0.5°C/RH 1%, clamp T:[20,40] H:[50,95]. |
-| F7 | Xóa hoàn toàn `local_control` legacy module và mọi reference/test/comment liên quan. | [ ] Pending | - Không compatibility shim.<br>- Core 1 TPC/fuzzy là control path duy nhất. |
+| F7 | Xóa hoàn toàn `local_control` legacy module và mọi reference/test/comment liên quan. | [ ] QA Review | - Không compatibility shim.<br>- Core 1 TPC/fuzzy là control path duy nhất. |
 | F8 | Unit/integration tests cho NVS epsilon, Queue priority, encoder gestures và regression TPC. | [ ] Pending | - Test 30.00000→30.00001/30.09 không ghi, →30.10 ghi.<br>- Manual thắng MQTT baseline; local/MQTT clear trả về latest baseline.<br>- Verify Core 1 runtime không NVS access; SSR safety vẫn giữ khi override active. |
 
 ## Addition Plan — Sprint 3 (2026-07-12)

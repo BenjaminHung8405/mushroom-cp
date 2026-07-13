@@ -8,7 +8,6 @@
 #endif
 
 #include <ArduinoJson.h>
-#include "local_control.h"
 #include "storage.h"
 
 namespace mqtt

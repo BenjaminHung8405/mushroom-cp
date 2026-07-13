@@ -648,30 +648,6 @@ int main() {
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload_nan.c_str(), payload_nan.length());
     }
 
-    // Case I: Valid JSON with actuator controls (Should be ignored by design)
-    {
-        Serial.println("--- Case I: Valid JSON with actuator controls ---");
-        bool created_temp_queue = false;
-        if (xActuatorQueue == nullptr) {
-            xActuatorQueue = xQueueCreate(8, sizeof(ActuatorCommand));
-            created_temp_queue = true;
-        } else {
-            ActuatorCommand discard;
-            while (xQueueReceive(xActuatorQueue, &discard, 0) == pdTRUE);
-        }
-
-        std::string payload = "{\"mist_generator_active\":true,\"convection_fan_active\":false,\"heating_lamp_active\":true}";
-        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
-        
-        assert(xActuatorQueue != nullptr);
-        assert(uxQueueMessagesWaiting(xActuatorQueue) == 0); // Ignored - edge hysteresis safety controller owns relays.
-
-        if (created_temp_queue) {
-            vQueueDelete(xActuatorQueue);
-            xActuatorQueue = nullptr;
-        }
-    }
-
     // Case J: Command "full_sync" (Task D2)
     {
         Serial.println("--- Case J: Command full_sync ---");
@@ -746,11 +722,11 @@ int main() {
     // 15. Test Task E1/E2 - Models and Data Structures POD and Alignment properties
     Serial.println("[TEST] Starting Task E1/E2 - Models and Data Structures Unit Tests...");
     assert(std::is_pod<TelemetryData>::value == true);
-    assert(std::is_pod<ActuatorCommand>::value == true);
+    assert(std::is_pod<ControlSetpointCommand>::value == true);
     assert(sizeof(TelemetryData) == 12);  // 3 floats × 4 bytes (temp_air, humidity_air, co2_level)
-    assert(sizeof(ActuatorCommand) == 4);
+    assert(sizeof(ControlSetpointCommand) == 16);
     assert(alignof(TelemetryData) == 4);
-    assert(alignof(ActuatorCommand) == 4);
+    assert(alignof(ControlSetpointCommand) == 4);
 
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
@@ -885,66 +861,88 @@ int main() {
     // 19. Test Task H1 - Core 1 Control Task with FreeRTOS Queue Integration
     Serial.println("[TEST] Starting Task H1 - Core 1 Control Task Unit Tests...");
 
-    // 19.1 Verify queue creation
-    QueueHandle_t test_act_queue = xQueueCreate(8, sizeof(ActuatorCommand));
-    QueueHandle_t test_tel_queue = xQueueCreate(4, sizeof(TelemetryData));
-    assert(test_act_queue != nullptr);
+    // 19.1 Verify baseline and override queue creation (depth=1, overwrite semantics)
+    QueueHandle_t test_baseline_q = xQueueCreate(1, sizeof(ControlSetpointCommand));
+    QueueHandle_t test_override_q = xQueueCreate(1, sizeof(ControlSetpointCommand));
+    QueueHandle_t test_tel_queue  = xQueueCreate(4, sizeof(TelemetryData));
+    assert(test_baseline_q != nullptr);
+    assert(test_override_q != nullptr);
     assert(test_tel_queue != nullptr);
-    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+    assert(uxQueueMessagesWaiting(test_baseline_q) == 0);
+    assert(uxQueueMessagesWaiting(test_override_q) == 0);
     assert(uxQueueMessagesWaiting(test_tel_queue) == 0);
 
-    // 19.2 Send an ActuatorCommand through the queue and verify it arrives intact
-    ActuatorCommand cmd;
-    cmd.relay_id = config::pins::PIN_RELAY_MIST;
-    cmd.state    = true;
-    memset(cmd.padding, 0, sizeof(cmd.padding));
+    // 19.2 Send a valid ControlSetpointCommand via baseline queue and verify fields
+    ControlSetpointCommand baselineCmd;
+    baselineCmd.temp_target   = 28.0f;
+    baselineCmd.humidity_target = 85.0f;
+    baselineCmd.co2_target    = 800.0f;
+    baselineCmd.active        = true;
+    memset(baselineCmd.padding, 0, sizeof(baselineCmd.padding));
 
-    assert(xQueueSend(test_act_queue, &cmd, 0) == pdTRUE);
-    assert(uxQueueMessagesWaiting(test_act_queue) == 1);
+    assert(xQueueOverwrite(test_baseline_q, &baselineCmd) == pdTRUE);
+    assert(uxQueueMessagesWaiting(test_baseline_q) == 1);
 
-    ActuatorCommand received_cmd;
-    assert(xQueueReceive(test_act_queue, &received_cmd, 0) == pdTRUE);
-    assert(received_cmd.relay_id == config::pins::PIN_RELAY_MIST);
-    assert(received_cmd.state == true);
-    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+    ControlSetpointCommand received_baseline;
+    assert(xQueueReceive(test_baseline_q, &received_baseline, 0) == pdTRUE);
+    assert(received_baseline.temp_target   == 28.0f);
+    assert(received_baseline.humidity_target == 85.0f);
+    assert(received_baseline.co2_target    == 800.0f);
+    assert(received_baseline.active        == true);
+    assert(uxQueueMessagesWaiting(test_baseline_q) == 0);
 
-    // 19.3 Send a second command (different relay) to verify FIFO ordering
-    cmd.relay_id = config::pins::PIN_RELAY_HEATER_1;
-    cmd.state    = false;
-    memset(cmd.padding, 0, sizeof(cmd.padding));
-    assert(xQueueSend(test_act_queue, &cmd, 0) == pdTRUE);
+    // 19.3 Overwrite semantics: latest value wins on depth-1 queue
+    ControlSetpointCommand newBaseline;
+    newBaseline.temp_target   = 30.0f;
+    newBaseline.humidity_target = 80.0f;
+    newBaseline.co2_target    = 1000.0f;
+    newBaseline.active        = true;
+    memset(newBaseline.padding, 0, sizeof(newBaseline.padding));
 
-    ActuatorCommand received_cmd2;
-    assert(xQueueReceive(test_act_queue, &received_cmd2, 0) == pdTRUE);
-    assert(received_cmd2.relay_id == config::pins::PIN_RELAY_HEATER_1);
-    assert(received_cmd2.state == false);
+    ControlSetpointCommand staleCmd;
+    staleCmd.temp_target   = 28.0f;
+    staleCmd.humidity_target = 85.0f;
+    staleCmd.co2_target    = 800.0f;
+    staleCmd.active        = true;
+    memset(staleCmd.padding, 0, sizeof(staleCmd.padding));
 
-    // 19.4 Overflow guard: fill queue to capacity, then verify rejection
-    for (UBaseType_t i = 0; i < 8; ++i)
-    {
-        ActuatorCommand overflow_cmd;
-        overflow_cmd.relay_id = static_cast<uint8_t>(10 + i);
-        overflow_cmd.state    = true;
-        memset(overflow_cmd.padding, 0, sizeof(overflow_cmd.padding));
-        assert(xQueueSend(test_act_queue, &overflow_cmd, 0) == pdTRUE);
-    }
-    // Queue is now full — next send must fail
-    ActuatorCommand overflow_cmd;
-    overflow_cmd.relay_id = 99;
-    overflow_cmd.state    = true;
-    memset(overflow_cmd.padding, 0, sizeof(overflow_cmd.padding));
-    assert(xQueueSend(test_act_queue, &overflow_cmd, 0) == pdFALSE);
-    assert(uxQueueMessagesWaiting(test_act_queue) == 8);
+    xQueueOverwrite(test_baseline_q, &staleCmd);
+    xQueueOverwrite(test_baseline_q, &newBaseline);
+    assert(uxQueueMessagesWaiting(test_baseline_q) == 1);
 
-    // Drain all items
-    ActuatorCommand drain_cmd;
-    for (int i = 0; i < 8; ++i)
-    {
-        assert(xQueueReceive(test_act_queue, &drain_cmd, 0) == pdTRUE);
-    }
-    assert(uxQueueMessagesWaiting(test_act_queue) == 0);
+    ControlSetpointCommand finalReceived;
+    xQueueReceive(test_baseline_q, &finalReceived, 0);
+    assert(finalReceived.temp_target   == 30.0f);
+    assert(finalReceived.humidity_target == 80.0f);
+    assert(finalReceived.co2_target    == 1000.0f);
 
-    // 19.5 Send TelemetryData through telemetry queue
+    // 19.4 Override queue carries manual setpoints independently
+    ControlSetpointCommand overrideCmd;
+    overrideCmd.temp_target   = 32.0f;
+    overrideCmd.humidity_target = 90.0f;
+    overrideCmd.co2_target    = NAN;
+    overrideCmd.active        = true;
+    memset(overrideCmd.padding, 0, sizeof(overrideCmd.padding));
+
+    assert(xQueueOverwrite(test_override_q, &overrideCmd) == pdTRUE);
+    ControlSetpointCommand receivedOverride;
+    xQueueReceive(test_override_q, &receivedOverride, 0);
+    assert(receivedOverride.temp_target   == 32.0f);
+    assert(receivedOverride.humidity_target == 90.0f);
+
+    // 19.5 Inactive override clears overlay
+    ControlSetpointCommand clearOverride;
+    clearOverride.temp_target   = NAN;
+    clearOverride.humidity_target = NAN;
+    clearOverride.co2_target    = NAN;
+    clearOverride.active        = false;
+    memset(clearOverride.padding, 0, sizeof(clearOverride.padding));
+    xQueueOverwrite(test_override_q, &clearOverride);
+    ControlSetpointCommand cleared;
+    xQueueReceive(test_override_q, &cleared, 0);
+    assert(cleared.active == false);
+
+    // 19.6 Send TelemetryData through telemetry queue
     TelemetryData tel_data;
     tel_data.temp_air       = 25.0f;
     tel_data.humidity_air   = 80.0f;
@@ -960,7 +958,7 @@ int main() {
     assert(received_tel.co2_level      == 600.0f);
     assert(uxQueueMessagesWaiting(test_tel_queue) == 0);
 
-    // 19.6 Test task_core1_control single iteration (UNIT_TEST path)
+    // 19.7 Test task_core1_control single iteration (UNIT_TEST path)
     // Reset sensor state so init succeeds
     sensors::init_sensors_placeholder();
     mock_pin_modes.clear();
@@ -982,8 +980,9 @@ int main() {
     assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
     assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
-    // 19.7 Cleanup queues
-    vQueueDelete(test_act_queue);
+    // 19.8 Cleanup queues
+    vQueueDelete(test_baseline_q);
+    vQueueDelete(test_override_q);
     vQueueDelete(test_tel_queue);
 
     // 20. Test Task H2 - Serial Mutex for cross-core race-condition protection
