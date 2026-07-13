@@ -1,6 +1,7 @@
 'use client'
 
-import React, { createContext, useContext, useState, useMemo } from 'react'
+import React, { createContext, useContext, useState, useMemo, useCallback } from 'react'
+import type { ActiveBatch } from './batch-api'
 
 export interface Checkpoint {
   day: number
@@ -94,6 +95,8 @@ interface BatchContextType {
   getTemperatureSetpoint: (day: number) => number
   getHumiditySetpoint: (day: number) => number
   getIsLightActive: (day: number) => boolean
+  activeBatchId: string | null
+  syncFromActiveBatch: (batch: ActiveBatch | null) => void
 }
 
 const BatchContext = createContext<BatchContextType | undefined>(undefined)
@@ -121,6 +124,38 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [profileKey, setProfileKey] = useState('dry_season')
   const [profileName, setProfileName] = useState('Tối ưu mùa khô')
   const [totalCropDays, setTotalCropDays] = useState(21)
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
+
+  const syncFromActiveBatch = useCallback((batch: ActiveBatch | null) => {
+    if (!batch) {
+      setActiveBatchId(null)
+      return
+    }
+
+    setActiveBatchId(batch.id)
+    setProfileName(batch.profileName)
+    setTotalCropDays(batch.totalCropDays)
+
+    setLightDayStates(
+      Array.from({ length: batch.totalCropDays }, (_, i) => ({
+        day: i + 1,
+        active: i < batch.spawnRunningEndDay,
+      }))
+    )
+
+    const tempCps = (batch.checkpoints || [])
+      .filter((cp) => cp.metricType === 'TEMPERATURE')
+      .sort((a, b) => a.cropDay - b.cropDay)
+      .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
+
+    const humCps = (batch.checkpoints || [])
+      .filter((cp) => cp.metricType === 'HUMIDITY')
+      .sort((a, b) => a.cropDay - b.cropDay)
+      .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
+
+    setTemperatureCheckpoints(tempCps)
+    setHumidityCheckpoints(humCps)
+  }, [])
 
   const [temperatureCheckpoints, setTemperatureCheckpoints] = useState<Checkpoint[]>([
     { day: 1, value: 30 },
@@ -314,6 +349,8 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
         getTemperatureSetpoint,
         getHumiditySetpoint,
         getIsLightActive,
+        activeBatchId,
+        syncFromActiveBatch,
       }}
     >
       {children}

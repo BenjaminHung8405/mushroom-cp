@@ -1,5 +1,16 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:23:45+07:00] Task B2: Bổ sung hàm đồng bộ dữ liệu vụ nuôi thực tế vào Context State
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch-context.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/lib/batch-context.tsx) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Khai báo thêm thuộc tính `activeBatchId` (kiểu `string | null`) và phương thức `syncFromActiveBatch` (nhận vào `ActiveBatch | null`) trong interface `BatchContextType` và export từ `batch-context.tsx`.
+  - Triển khai `activeBatchId` state và logic `syncFromActiveBatch` bằng `useCallback` trong component `BatchProvider` để tránh re-render vô tận khi truyền context.
+  - Khi có vụ nuôi active (`batch` khác null), cập nhật `activeBatchId`, `profileName`, `totalCropDays` và thiết lập lại `lightDayStates` dựa trên `spawnRunningEndDay`. Lọc và sắp xếp `temperatureCheckpoints` và `humidityCheckpoints` theo thứ tự ngày tăng dần (`.sort((a, b) => a.cropDay - b.cropDay)`) để đảm bảo Chart render chính xác.
+  - Khi không có vụ nuôi active, reset `activeBatchId` về `null` theo nguyên lý Single Source of Truth.
+  - Kiểm tra cú pháp và build TypeScript tĩnh của frontend bằng `pnpm exec tsc --noEmit` thành công (không có lỗi biên dịch mới).
+
 ## [2026-07-13T17:22:00+07:00] Task B1: Cập nhật kiểu dữ liệu ActiveBatch và khai báo API caller để cập nhật checkpoints
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:
