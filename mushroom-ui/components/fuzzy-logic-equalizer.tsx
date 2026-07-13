@@ -4,8 +4,14 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
 import { LightTimelineBlock } from '@/lib/types'
-import { AlertCircle, Lightbulb, Lock, Unlock } from 'lucide-react'
+import { AlertCircle, Lightbulb, Lock, Unlock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  fetchDeviceMapping,
+  fetchActiveBatch,
+  updateBatchCheckpoints,
+  type CheckpointInput,
+} from '@/lib/batch-api'
 
 interface TimelineProps {
   title: string
@@ -688,10 +694,124 @@ export function FuzzyLogicEqualizer() {
     setHumidityOptimalRange,
     spawnRunningEndDay,
     totalCropDays,
+    activeBatchId,
   } = useBatch()
 
   const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
   const [localShockEnd, setLocalShockEnd] = useState(thermalShockEnd)
+
+  const [initialCheckpoints, setInitialCheckpoints] = useState<{
+    temperature: Checkpoint[]
+    humidity: Checkpoint[]
+  } | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
+  // Fetch initial active batch checkpoints to compare against for Dirty Check
+  useEffect(() => {
+    let active = true
+    async function loadInitial() {
+      if (!activeBatchId) {
+        setInitialCheckpoints(null)
+        return
+      }
+      try {
+        const device = await fetchDeviceMapping()
+        const fetchedBatch = await fetchActiveBatch(device.houseId)
+        if (fetchedBatch && active) {
+          const tempCps = (fetchedBatch.checkpoints || [])
+            .filter((cp) => cp.metricType === 'TEMPERATURE')
+            .sort((a, b) => a.cropDay - b.cropDay)
+            .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
+
+          const humCps = (fetchedBatch.checkpoints || [])
+            .filter((cp) => cp.metricType === 'HUMIDITY')
+            .sort((a, b) => a.cropDay - b.cropDay)
+            .map((cp) => ({ day: cp.cropDay, value: cp.targetValue }))
+
+          setInitialCheckpoints({
+            temperature: tempCps,
+            humidity: humCps,
+          })
+        }
+      } catch (err) {
+        console.error('Failed to load initial checkpoints for dirty check:', err)
+      }
+    }
+    void loadInitial()
+    return () => {
+      active = false
+    }
+  }, [activeBatchId])
+
+  // Automatically dismiss toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3500)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
+
+  const isDirty = useMemo(() => {
+    if (!initialCheckpoints) return false
+
+    // Compare temperatureCheckpoints length and values
+    if (temperatureCheckpoints.length !== initialCheckpoints.temperature.length) return true
+    for (let i = 0; i < temperatureCheckpoints.length; i++) {
+      if (
+        temperatureCheckpoints[i].day !== initialCheckpoints.temperature[i].day ||
+        temperatureCheckpoints[i].value !== initialCheckpoints.temperature[i].value
+      ) {
+        return true
+      }
+    }
+
+    // Compare humidityCheckpoints length and values
+    if (humidityCheckpoints.length !== initialCheckpoints.humidity.length) return true
+    for (let i = 0; i < humidityCheckpoints.length; i++) {
+      if (
+        humidityCheckpoints[i].day !== initialCheckpoints.humidity[i].day ||
+        humidityCheckpoints[i].value !== initialCheckpoints.humidity[i].value
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }, [temperatureCheckpoints, humidityCheckpoints, initialCheckpoints])
+
+  const handleSaveChanges = async () => {
+    if (!activeBatchId || isSaving || !isDirty) return
+    setIsSaving(true)
+    try {
+      const tempInputs: CheckpointInput[] = temperatureCheckpoints.map((cp) => ({
+        metricType: 'TEMPERATURE',
+        cropDay: cp.day,
+        targetValue: cp.value,
+      }))
+      const humInputs: CheckpointInput[] = humidityCheckpoints.map((cp) => ({
+        metricType: 'HUMIDITY',
+        cropDay: cp.day,
+        targetValue: cp.value,
+      }))
+      const allCheckpoints = [...tempInputs, ...humInputs]
+
+      await updateBatchCheckpoints(activeBatchId, allCheckpoints)
+
+      setInitialCheckpoints({
+        temperature: [...temperatureCheckpoints],
+        humidity: [...humidityCheckpoints],
+      })
+      setToast({ message: 'Lưu thay đổi checkpoints thành công!', type: 'success' })
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : 'Không thể lưu thay đổi checkpoints.',
+        type: 'error',
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   useEffect(() => {
     setLocalShockStart(thermalShockStart)
@@ -779,7 +899,7 @@ export function FuzzyLogicEqualizer() {
         </h2>
 
         {/* Profile Name — informational only; saved via BatchStatusPanel */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
           <input
             type="text"
             value={profileName}
@@ -787,9 +907,26 @@ export function FuzzyLogicEqualizer() {
             placeholder="Tên hồ sơ"
             className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-xs sm:text-sm"
           />
-          <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-            Các thay đổi sẽ áp dụng khi bắt đầu vụ mới
-          </span>
+          {activeBatchId ? (
+            <Button
+              onClick={handleSaveChanges}
+              disabled={!isDirty || isSaving}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold transition-all shadow-md shadow-emerald-950/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm h-9 md:h-10 rounded-md shrink-0"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Đang lưu...</span>
+                </>
+              ) : (
+                <span>Lưu thay đổi vụ đang chạy</span>
+              )}
+            </Button>
+          ) : (
+            <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+              Các thay đổi sẽ áp dụng khi bắt đầu vụ mới
+            </span>
+          )}
         </div>
 
         {/* Intraday Thermal Shock Protection */}
@@ -883,6 +1020,24 @@ export function FuzzyLogicEqualizer() {
           Từ ngày {spawnRunningEndDay + 1}, nấm chuyển sang giai đoạn ra nấm. Bạn có thể điều chỉnh nhiệt độ, độ ẩm và lịch bật đèn phù hợp với thực tế nhà nấm.
         </p>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-md transition-all duration-300 ${
+            toast.type === 'success'
+              ? 'bg-gradient-to-r from-emerald-900/80 to-teal-900/80 border-emerald-500/30 text-emerald-200'
+              : 'bg-gradient-to-r from-red-950/80 to-pink-950/80 border-red-500/30 text-red-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          ) : (
+            <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+          )}
+          <span className="text-xs sm:text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
     </Card>
   )
 }

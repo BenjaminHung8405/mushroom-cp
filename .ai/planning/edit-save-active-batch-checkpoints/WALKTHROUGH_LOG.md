@@ -1,5 +1,17 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:26:00+07:00] Task B4: Thiết kế nút bấm và viết handler lưu checkpoints tại đồ thị
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [fuzzy-logic-equalizer.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/fuzzy-logic-equalizer.tsx) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Nhập khẩu API helper `updateBatchCheckpoints`, interface `CheckpointInput`, các hàm fetch `fetchDeviceMapping`, `fetchActiveBatch` từ `@/lib/batch-api`, và các icons `Loader2`, `CheckCircle2`, `XCircle` từ `lucide-react`.
+  - Khai báo state `initialCheckpoints` để lưu giữ checkpoints ban đầu từ database của active batch (truy vấn thông qua hook và API), phục vụ cho quá trình Dirty Checking.
+  - Xây dựng thuộc tính `isDirty` thông qua `useMemo` để so sánh sâu (về độ dài và giá trị từng phần tử) giữa checkpoints hiện tại trong Context (`temperatureCheckpoints`, `humidityCheckpoints`) với `initialCheckpoints`. Nút "Lưu thay đổi vụ đang chạy" chỉ khả dụng khi có sự khác biệt thực sự.
+  - Triển khai `handleSaveChanges` gọi tới API `updateBatchCheckpoints` với mảng checkpoints đã được map từ state, kèm theo cơ chế **Double-Click Prevention** (disabled nút lưu và hiển thị trạng thái loading spinner "Đang lưu..."). Sau khi lưu thành công, cập nhật lại `initialCheckpoints` để reset trạng thái `isDirty`.
+  - Thiết kế UI nút lưu sang kiểu emerald gradient (`bg-gradient-to-r from-emerald-500 to-teal-600`) bo góc chuẩn Shadcn UI (`rounded-md`), tự động ẩn/hiện dựa trên việc có `activeBatchId` hay không. Thêm thông báo dạng Toast bay tuyệt đẹp góc dưới phải màn hình hiển thị trạng thái thành công/thất bại và biến mất sau 3.5 giây.
+  - Tự kiểm tra cú pháp và build TypeScript tĩnh bằng lệnh `pnpm tsc --noEmit` và chạy production build `pnpm build` của Next.js thành công. Chạy toàn bộ 94 unit tests backend bằng `pnpm test` pass 100%.
+
 ## [2026-07-13T17:25:00+07:00] Task B3: Đồng bộ dữ liệu vụ nuôi khi load trang Dashboard
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:
