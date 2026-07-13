@@ -8,7 +8,6 @@
 #include "wifi_manager.h"
 #include "mqtt_client.h"
 #include "Telemetry.h"
-#include "CryptoUtils.h"
 #include "Trajectory.h"
 #include "encoder.h"
 

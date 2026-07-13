@@ -1,5 +1,5 @@
 #include "wifi_manager.h"
-#include "NetworkTask.h"
+#include "WebInterface.h"
 #include "config.h"
 #include "storage.h"
 #include "definitions.h"
@@ -20,9 +20,13 @@ namespace wifi
 #ifndef UNIT_TEST
     static DNSServer dnsServer;
     static WebServer webServer(80);
+    static bool captive_server_running = false;
+    static bool captive_routes_registered = false;
     static void setup_web_server();
+    static void start_captive_portal_server();
+    static void stop_captive_portal_server();
 #endif
-    static bool start_softap();
+    static bool start_softap(bool allow_sta_reconnect = false);
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
@@ -34,6 +38,10 @@ namespace wifi
     // Once the user forces the captive portal, never auto-return to STA
     // until the portal idle-timeout expires or config is saved/rebooted.
     static bool softap_forced = false;
+    // True only when SoftAP is a fallback from configured STA credentials.
+    // It allows periodic STA reconnect attempts while the provisioning portal stays up.
+    static bool softap_auto_reconnect = false;
+    static unsigned long last_softap_sta_attempt = 0;
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
@@ -95,9 +103,19 @@ namespace wifi
         }
     }
 
-    static bool start_softap()
+    static bool start_softap(bool allow_sta_reconnect)
     {
         Serial.println("[WIFI] Activating SoftAP Mode...");
+
+#ifndef UNIT_TEST
+        // The dashboard owns port 80 while STA is connected. Stop it before the
+        // captive portal binds the same port, then let lwIP release old sockets.
+        if (web_interface::isServerRunning())
+        {
+            web_interface::stopServer();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+#endif
 
         // Stop any previous STA attempt so the radio is fully dedicated to AP.
         // WIFI_AP_STA + background STA reconnect is a common cause of phones
@@ -132,7 +150,9 @@ namespace wifi
 
         if (ap_started)
         {
-            softap_forced = true;
+            softap_forced = !allow_sta_reconnect;
+            softap_auto_reconnect = allow_sta_reconnect;
+            last_softap_sta_attempt = millis();
             Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
             Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
             Serial.printf("[WIFI] SoftAP mode bits: 0x%X (expect WIFI_AP=0x%X)\n",
@@ -141,14 +161,7 @@ namespace wifi
             set_state(WifiState::SOFTAP_ACTIVE);
 
 #ifndef UNIT_TEST
-            // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
-            dnsServer.stop();
-            dnsServer.start(53, "*", WiFi.softAPIP());
-
-            // Khởi động WebServer
-            webServer.stop();
-            setup_web_server();
-            webServer.begin();
+            start_captive_portal_server();
 #endif
             return true;
         }
@@ -803,16 +816,18 @@ setInterval(function(){
 
     static void handle_not_found()
     {
-        mark_softap_activity();
+        const bool captive_active = current_state == WifiState::SOFTAP_ACTIVE &&
+                                    (WiFi.getMode() & WIFI_AP) != 0;
 
-        // Do not 302 POST/PUT bodies away — that silently drops save attempts.
-        if (webServer.method() == HTTP_POST || webServer.method() == HTTP_PUT)
+        // Requests outside the active captive portal must not redirect to a
+        // missing SoftAP address such as 0.0.0.0.
+        if (!captive_active || webServer.method() == HTTP_POST || webServer.method() == HTTP_PUT)
         {
             send_json(404, "{\"ok\":false,\"error\":\"Endpoint khong ton tai\"}");
             return;
         }
 
-        // Captive portal redirect for browser probes / random hosts.
+        mark_softap_activity();
         webServer.sendHeader("Location", String("http://") + WiFi.softAPIP().toString() + "/", true);
         webServer.sendHeader("Cache-Control", "no-store");
         webServer.sendHeader("Connection", "close");
@@ -842,6 +857,38 @@ setInterval(function(){
 
         webServer.onNotFound(handle_not_found);
     }
+
+    static void start_captive_portal_server()
+    {
+        if (captive_server_running)
+        {
+            return;
+        }
+
+        dnsServer.stop();
+        dnsServer.start(53, "*", WiFi.softAPIP());
+        if (!captive_routes_registered)
+        {
+            setup_web_server();
+            captive_routes_registered = true;
+        }
+        webServer.begin();
+        captive_server_running = true;
+        Serial.println("[WIFI] Captive portal server started on port 80.");
+    }
+
+    static void stop_captive_portal_server()
+    {
+        dnsServer.stop();
+        if (!captive_server_running)
+        {
+            return;
+        }
+
+        webServer.stop();
+        captive_server_running = false;
+        Serial.println("[WIFI] Captive portal server stopped.");
+    }
 #endif
 
     WifiState init_wifi()
@@ -857,12 +904,17 @@ setInterval(function(){
         // Đọc cấu hình WiFi STA từ NVS thông qua cấu hình hệ thống
         bool has_config = config::network::load_runtime_config();
 
-        // Thiết lập chế độ WIFI_AP_STA, khởi động SoftAP và kết nối router không chặn
-        network::initWiFiModes();
-
         if (has_config && !config::network::STA_SSID.isEmpty())
         {
+            // Credentialed devices boot STA-only. Captive portal is a fallback,
+            // never a parallel listener on port 80.
             softap_forced = false;
+            softap_auto_reconnect = false;
+            WiFi.persistent(false);
+            WiFi.disconnect(false, false);
+            WiFi.mode(WIFI_STA);
+            WiFi.setAutoReconnect(false);
+            WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
             last_auth_attempt = 0;
             set_state(WifiState::STA_CONNECTING);
@@ -870,18 +922,7 @@ setInterval(function(){
         else
         {
             Serial.println("[WIFI] No WiFi credentials found in NVS. Activating Captive Portal...");
-            softap_forced = true;
-            set_state(WifiState::SOFTAP_ACTIVE);
-#ifndef UNIT_TEST
-            // Khởi động DNS Server để chuyển hướng mọi domain về IP SoftAP
-            dnsServer.stop();
-            dnsServer.start(53, "*", WiFi.softAPIP());
-
-            // Khởi động WebServer
-            webServer.stop();
-            setup_web_server();
-            webServer.begin();
-#endif
+            start_softap(false);
         }
 
         return current_state;
@@ -919,11 +960,7 @@ setInterval(function(){
                 reconnect_attempts = 0;
                 xEventGroupClearBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
 
-#ifndef UNIT_TEST
-                dnsServer.stop();
-                webServer.stop();
-#endif
-                start_softap();
+                start_softap(false);
                 return; // SoftAP started, exit check early
             }
         }
@@ -951,7 +988,7 @@ setInterval(function(){
                 if (reconnect_attempts >= MAX_RECONNECT_ATTEMPTS)
                 {
                     Serial.println("[WIFI] Max reconnection attempts reached. Falling back to SoftAP mode...");
-                    start_softap();
+                    start_softap(true);
                 }
                 else
                 {
@@ -983,45 +1020,73 @@ setInterval(function(){
         case WifiState::SOFTAP_ACTIVE:
         {
 #ifndef UNIT_TEST
-            // Drain multiple clients/packets per tick so form typing/submit
-            // is responsive even under captive-portal probe spam.
+            // Drain multiple packets per tick while captive portal is the sole
+            // port-80 owner in SoftAP mode.
             for (int i = 0; i < 4; ++i)
             {
                 dnsServer.processNextRequest();
                 webServer.handleClient();
             }
 #endif
-            // If the radio silently left pure AP mode (common after AP/STA bounce),
-            // re-assert SoftAP instead of letting STA auto-reclaim the link.
+            // Fallback portal: keep serving clients, but periodically restore
+            // STA in AP_STA mode so a recovered router can be detected.
+            if (softap_auto_reconnect && now - last_softap_sta_attempt >= WIFI_RECONNECT_INTERVAL_MS)
+            {
+                last_softap_sta_attempt = now;
+                Serial.println("[WIFI] Captive fallback retrying STA connection...");
+                WiFi.mode(WIFI_AP_STA);
+                WiFi.setAutoReconnect(false);
+                WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
+            }
+
+            if (softap_auto_reconnect && WiFi.status() == WL_CONNECTED)
+            {
+                Serial.printf("[WIFI] STA recovered while SoftAP active. IP: %s\n", WiFi.localIP().toString().c_str());
+#ifndef UNIT_TEST
+                stop_captive_portal_server();
+                // Give lwIP time to release port 80 before Core 0 starts dashboard.
+                vTaskDelay(pdMS_TO_TICKS(50));
+#endif
+                WiFi.softAPdisconnect(true);
+                WiFi.mode(WIFI_STA);
+                softap_auto_reconnect = false;
+                softap_forced = false;
+                reconnect_attempts = 0;
+                last_auth_attempt = 0;
+                set_state(WifiState::STA_CONNECTED);
+                break;
+            }
+
             if (softap_forced && (WiFi.getMode() & WIFI_AP) == 0)
             {
                 Serial.println("[WIFI] SoftAP mode lost unexpectedly. Re-asserting captive portal...");
-                start_softap();
+                start_softap(false);
                 break;
             }
+
+            // Manual/no-credential provisioning remains AP-only and does not
+            // start background STA activity.
             if (softap_forced)
             {
                 WiFi.enableSTA(false);
                 WiFi.setAutoReconnect(false);
             }
 
-            // Idle timeout: only shut AP when there are NO clients.
-            // If a phone/laptop is still associated, keep portal alive indefinitely.
             if (has_softap_clients())
             {
                 softap_last_activity_ms = now;
             }
-            else if (now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
+            else if (softap_forced && now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
             {
-                Serial.println("[WIFI] SoftAP idle timeout (15 minutes, no clients). Shutting down SoftAP and reverting to STA_DISCONNECTED.");
+                Serial.println("[WIFI] SoftAP idle timeout. Reverting to STA reconnect.");
 #ifndef UNIT_TEST
-                dnsServer.stop();
-                webServer.stop();
+                stop_captive_portal_server();
 #endif
                 softap_forced = false;
+                softap_auto_reconnect = false;
                 WiFi.softAPdisconnect(true);
                 WiFi.mode(WIFI_STA);
-                reconnect_attempts = 0; // Reset attempts to try connecting again
+                reconnect_attempts = 0;
                 set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
             }

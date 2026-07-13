@@ -4,7 +4,6 @@
 #include "serial_mutex.h"
 #include "WebInterface.h"
 #include "Telemetry.h"
-#include "CryptoUtils.h"
 #include <ArduinoJson.h>
 #include <cmath>
 
@@ -29,7 +28,8 @@ static void drainTelemetryQueue(TelemetryData& last_known_telemetry)
 static void processWebServer()
 {
 #ifndef UNIT_TEST
-    if (wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED)
+    auto state = wifi::get_wifi_state();
+    if (state == wifi::WifiState::STA_CONNECTED)
     {
         web_interface::initServer();
         web_interface::handleClient();
@@ -39,6 +39,8 @@ static void processWebServer()
         web_interface::stopServer();
     }
 #endif
+    // CPU Yield Guard: Prevent Core 0 starvation by yielding to RTOS every cycle.
+    vTaskDelay(pdMS_TO_TICKS(1));
 }
 
 void processTelemetryPublication(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
@@ -62,25 +64,16 @@ void processTelemetryPublication(unsigned long now, const TelemetryData& last_kn
 
             if (json_payload.length() > 0)
             {
-                String base64_payload = CryptoUtils::encodeBase64String(json_payload);
-                if (base64_payload.length() > 0)
+                if (mqtt_client.publishTelemetry(json_payload))
                 {
-                    if (mqtt_client.publishTelemetry(base64_payload))
-                    {
-                        Telemetry::commitSuccessfulPublish(
-                            telemetryState, last_known_telemetry, now);
-                        success = true;
-                    }
-                    else
-                    {
-                        ScopedSerialLock guard(SerialLock::get_instance());
-                        Serial.println("[CORE0_TASK] WARNING: Failed to publish delta telemetry.");
-                    }
+                    Telemetry::commitSuccessfulPublish(
+                        telemetryState, last_known_telemetry, now);
+                    success = true;
                 }
                 else
                 {
                     ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[CORE0_TASK] WARNING: Failed to encode delta telemetry.");
+                    Serial.println("[CORE0_TASK] WARNING: Failed to publish delta telemetry.");
                 }
             }
 
@@ -121,13 +114,8 @@ static void logStackWatermark(unsigned long now)
 
 static void delayCore0Task()
 {
-    #ifndef UNIT_TEST
-    if (wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    } else {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    #endif
+    // processWebServer() already yields once per communication cycle. Keeping
+    // this task delay at zero avoids delaying DNS/HTTP and MQTT by 10-100 ms.
 }
 
 void taskCore0Communication(void* /*pvParameters*/)
@@ -137,8 +125,6 @@ void taskCore0Communication(void* /*pvParameters*/)
         Serial.println("[CORE0_TASK] Starting taskCore0Communication...");
     }
 
-    // Initialize WiFi
-    wifi::init_wifi();
 
     // Initialize MQTT
     mqtt::MqttClient::getInstance().init();

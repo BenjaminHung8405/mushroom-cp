@@ -11,6 +11,7 @@
 
 static WebServer localWebServer(80);
 static bool server_running = false;
+static bool routes_registered = false;
 
 // HTML Dashboard stored in Flash memory to protect Heap RAM (PROGMEM)
 const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
@@ -449,8 +450,20 @@ namespace web_interface
 #ifndef UNIT_TEST
         if (server_running) return;
 
-        localWebServer.on("/", HTTP_GET, serveDashboardHTML);
-        localWebServer.on("/data", HTTP_GET, apiGetRealtimeData);
+        // Register callbacks only once. Re-registering them after every
+        // STA/SoftAP transition grows WebServer's route list and fragments heap.
+        if (!routes_registered)
+        {
+            localWebServer.on("/", HTTP_GET, serveDashboardHTML);
+            localWebServer.on("/data", HTTP_GET, apiGetRealtimeData);
+            localWebServer.onNotFound([]()
+            {
+                localWebServer.sendHeader("Cache-Control", "no-store");
+                localWebServer.send(404, "application/json; charset=utf-8",
+                                    "{\"error\":\"Not Found\"}");
+            });
+            routes_registered = true;
+        }
 
         localWebServer.begin();
         server_running = true;

@@ -33,7 +33,7 @@ bool isDeltaExceeded(float val1, float val2, float threshold)
 
 PublishType evaluateDeltaThresholds(const TelemetryData& current, const TelemetryState& state, unsigned long nowMs)
 {
-    constexpr unsigned long KEEPALIVE_INTERVAL_MS = 300000UL; // 5 minutes
+    constexpr unsigned long KEEPALIVE_INTERVAL_MS = 10000UL; // 10 seconds; must stay below the UI stale threshold.
 
     const bool is_first = (state.lastPubTimeMs == 0UL);
     const bool keepalive_expired = is_first || (nowMs - state.lastPubTimeMs >= KEEPALIVE_INTERVAL_MS);
@@ -69,21 +69,21 @@ namespace {
 void buildFullPayload(const TelemetryData& current, JsonObject& root)
 {
     if (std::isnan(current.temp_air)) {
-        root["rT"] = nullptr;
+        root["temp_air"] = nullptr;
     } else {
-        root["rT"] = current.temp_air;
+        root["temp_air"] = current.temp_air;
     }
 
     if (std::isnan(current.humidity_air)) {
-        root["rH"] = nullptr;
+        root["humidity_air"] = nullptr;
     } else {
-        root["rH"] = current.humidity_air;
+        root["humidity_air"] = current.humidity_air;
     }
 
     if (std::isnan(current.co2_level)) {
-        root["tC"] = nullptr;
+        root["co2_level"] = nullptr;
     } else {
-        root["tC"] = current.co2_level;
+        root["co2_level"] = current.co2_level;
     }
 }
 
@@ -92,27 +92,27 @@ void buildChangedDeltaPayload(const TelemetryData& current, const TelemetryData&
     if (isDeltaExceeded(current.temp_air, lastPubState.temp_air, 0.2f))
     {
         if (std::isnan(current.temp_air)) {
-            root["rT"] = nullptr;
+            root["temp_air"] = nullptr;
         } else {
-            root["rT"] = current.temp_air;
+            root["temp_air"] = current.temp_air;
         }
     }
 
     if (isDeltaExceeded(current.humidity_air, lastPubState.humidity_air, 1.0f))
     {
         if (std::isnan(current.humidity_air)) {
-            root["rH"] = nullptr;
+            root["humidity_air"] = nullptr;
         } else {
-            root["rH"] = current.humidity_air;
+            root["humidity_air"] = current.humidity_air;
         }
     }
 
     if (isDeltaExceeded(current.co2_level, lastPubState.co2_level, 10.0f))
     {
         if (std::isnan(current.co2_level)) {
-            root["tC"] = nullptr;
+            root["co2_level"] = nullptr;
         } else {
-            root["tC"] = current.co2_level;
+            root["co2_level"] = current.co2_level;
         }
     }
 }

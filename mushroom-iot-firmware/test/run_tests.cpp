@@ -3,7 +3,6 @@
 #include "storage.h"
 #include "config.h"
 #include "wifi_manager.h"
-#include "NetworkTask.h"
 #include "mqtt_client.h"
 #include "definitions.h"
 #include "models.h"
@@ -16,7 +15,6 @@
 #include "FuzzyController.h"
 #include "TPC_Task.h"
 #include "Telemetry.h"
-#include "CryptoUtils.h"
 #include "WebInterface.h"
 #include "encoder.h"
 #include <cassert>
@@ -679,13 +677,10 @@ int main() {
     WiFi.mock_status = WL_IDLE_STATUS;
     PubSubClient::mock_connected = false;
 
-    // Test network::initWiFiModes() directly
-    WiFi.mode(WIFI_OFF);
-    network::initWiFiModes();
-    assert(WiFi.getMode() == WIFI_AP_STA);
-
-    // Reset and run task once
-    WiFi.mock_status = WL_IDLE_STATUS;
+    // Wi-Fi is initialized once by setup() in production; exercise the same
+    // bootstrap before running one Core 0 iteration.
+    wifi::init_wifi();
+    assert(WiFi.getMode() == WIFI_AP);
     taskCore0Communication(nullptr);
 
     // Check that WiFi transitioned to SOFTAP_ACTIVE (since NVS credentials are empty)
@@ -697,9 +692,11 @@ int main() {
     assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
     assert(storage.save_mqtt_config("192.168.1.50", 1883, "admin", "adminpass") == true);
 
-    // Re-initialize WiFi & MQTT via next task invocation
+    // Re-initialize Wi-Fi once after configuration changes, as a reboot would.
     WiFi.mock_status = WL_CONNECTED;      // Mock WiFi as connected
     PubSubClient::mock_connected = true;   // Mock MQTT as connected
+    wifi::init_wifi();
+    assert(WiFi.getMode() == WIFI_STA);
 
     // Run task once again
     taskCore0Communication(nullptr);
@@ -1711,11 +1708,6 @@ int main() {
         // Check POD status of state
         assert(std::is_pod<Telemetry::TelemetryState>::value == true);
 
-        // 30.0 Regression: oversize Base64 input must fail with an empty payload.
-        uint8_t oversizedBase64Input[CryptoUtils::kMaxBase64InputBytes + 1U] = {};
-        assert(CryptoUtils::encodeBase64String(
-            oversizedBase64Input, sizeof(oversizedBase64Input)).length() == 0U);
-
         // 30.1 Test isDeltaExceeded
         // Float deviations
         assert(Telemetry::isDeltaExceeded(25.0f, 25.1f, 0.2f) == false);
@@ -1754,12 +1746,12 @@ int main() {
         assert(state.lastPubState.temp_air == 25.25f);
         assert(state.lastPubTimeMs == 5000UL);
 
-        // 30.5 Regression: encoding/oversize failure must not clear full_sync.
+        // 30.5 Regression: an uncommitted full publish must remain pending.
         state.forceFullPublish = true;
         assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 6000UL) == Telemetry::PublishType::FULL);
         assert(state.forceFullPublish == true);
         assert(state.lastPubTimeMs == 5000UL);
-        // Simulate failed encode by deliberately not committing; next scan retries FULL.
+        // Simulate a failed publication by deliberately not committing; next scan retries FULL.
         assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 7000UL) == Telemetry::PublishType::FULL);
         assert(state.forceFullPublish == true);
         Telemetry::commitSuccessfulPublish(state, temp_exceeded, 7000UL);
@@ -1773,11 +1765,11 @@ int main() {
         TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f };
         assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL) == Telemetry::PublishType::DELTA);
         Telemetry::commitSuccessfulPublish(state, co2_connected, 9000UL);
-        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 299999UL) == Telemetry::PublishType::NONE);
-        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 300000UL) == Telemetry::PublishType::FULL);
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 9999UL) == Telemetry::PublishType::NONE);
+        assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 10000UL) == Telemetry::PublishType::FULL);
         assert(state.lastPubTimeMs == 9000UL);
-        Telemetry::commitSuccessfulPublish(state, co2_connected, 309000UL);
-        assert(state.lastPubTimeMs == 309000UL);
+        Telemetry::commitSuccessfulPublish(state, co2_connected, 19000UL);
+        assert(state.lastPubTimeMs == 19000UL);
 
         // 30.11 Test buildDeltaPayload
         TelemetryData baseline = { 25.0f, 80.0f, NAN };
@@ -1791,12 +1783,12 @@ int main() {
             StaticJsonDocument<256> doc;
             DeserializationError err = deserializeJson(doc, full_payload);
             assert(!err);
-            assert(doc.containsKey("rT"));
-            assert(std::fabs(doc["rT"].as<float>() - 25.0f) < 0.01f);
-            assert(doc.containsKey("rH"));
-            assert(std::fabs(doc["rH"].as<float>() - 80.0f) < 0.01f);
-            assert(doc.containsKey("tC"));
-            assert(doc["tC"].isNull());
+            assert(doc.containsKey("temp_air"));
+            assert(std::fabs(doc["temp_air"].as<float>() - 25.0f) < 0.01f);
+            assert(doc.containsKey("humidity_air"));
+            assert(std::fabs(doc["humidity_air"].as<float>() - 80.0f) < 0.01f);
+            assert(doc.containsKey("co2_level"));
+            assert(doc["co2_level"].isNull());
         }
 
         // 30.11.3 DELTA publish type - no changes
@@ -1809,10 +1801,10 @@ int main() {
             StaticJsonDocument<256> doc;
             DeserializationError err = deserializeJson(doc, temp_delta_payload);
             assert(!err);
-            assert(doc.containsKey("rT"));
-            assert(std::fabs(doc["rT"].as<float>() - 25.3f) < 0.01f);
-            assert(!doc.containsKey("rH"));
-            assert(!doc.containsKey("tC"));
+            assert(doc.containsKey("temp_air"));
+            assert(std::fabs(doc["temp_air"].as<float>() - 25.3f) < 0.01f);
+            assert(!doc.containsKey("humidity_air"));
+            assert(!doc.containsKey("co2_level"));
         }
 
         // 30.11.5 DELTA publish type - temperature and humidity changed
@@ -1822,11 +1814,11 @@ int main() {
             StaticJsonDocument<256> doc;
             DeserializationError err = deserializeJson(doc, multi_delta_payload);
             assert(!err);
-            assert(doc.containsKey("rT"));
-            assert(std::fabs(doc["rT"].as<float>() - 25.3f) < 0.01f);
-            assert(doc.containsKey("rH"));
-            assert(std::fabs(doc["rH"].as<float>() - 81.5f) < 0.01f);
-            assert(!doc.containsKey("tC"));
+            assert(doc.containsKey("temp_air"));
+            assert(std::fabs(doc["temp_air"].as<float>() - 25.3f) < 0.01f);
+            assert(doc.containsKey("humidity_air"));
+            assert(std::fabs(doc["humidity_air"].as<float>() - 81.5f) < 0.01f);
+            assert(!doc.containsKey("co2_level"));
         }
 
         // 30.11.6 DELTA publish type - CO2 becomes valid
@@ -1836,10 +1828,10 @@ int main() {
             StaticJsonDocument<256> doc;
             DeserializationError err = deserializeJson(doc, co2_delta_payload);
             assert(!err);
-            assert(!doc.containsKey("rT"));
-            assert(!doc.containsKey("rH"));
-            assert(doc.containsKey("tC"));
-            assert(std::fabs(doc["tC"].as<float>() - 400.0f) < 0.01f);
+            assert(!doc.containsKey("temp_air"));
+            assert(!doc.containsKey("humidity_air"));
+            assert(doc.containsKey("co2_level"));
+            assert(std::fabs(doc["co2_level"].as<float>() - 400.0f) < 0.01f);
         }
 
         // 30.12 Regression: processTelemetryPublication and full_sync persistence
@@ -1847,7 +1839,6 @@ int main() {
             // Set up connected state
             PubSubClient::mock_connected = true;
             PubSubClient::mock_publish_result = true;
-            CryptoUtils::mock_base64_fail = false;
 
             Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
             TelemetryData mock_tel = {25.0f, 80.0f, NAN};
@@ -1865,21 +1856,9 @@ int main() {
             // Since publish failed, the shared_forceFullPublish flag must have been restored to true
             assert(getSharedForceFullPublish() == true);
             
-            // 2. full_sync + encode failed -> next scan remains FULL
-            // Clear shared first
-            consumeSharedForceFullPublish();
-            setSharedForceFullPublish(true);
-            PubSubClient::mock_publish_result = true;
-            CryptoUtils::mock_base64_fail = true;
-            
-            processTelemetryPublication(2000UL, mock_tel, telemetryState);
-            assert(telemetryState.lastPubTimeMs == 0UL);
-            assert(getSharedForceFullPublish() == true);
-
             // 3. Callback receives full_sync during publish -> subsequent request remains pending
             // Reset state
             telemetryState = Telemetry::makeInitialState();
-            CryptoUtils::mock_base64_fail = false;
             setSharedForceFullPublish(true);
             
             // Consume the flag manually (simulate starting processTelemetryPublication):

@@ -58,7 +58,7 @@ bool isDeltaExceeded(float val1, float val2, float threshold);
  * Triggers a FULL publish if:
  *   - It is the very first publish.
  *   - The forceFullPublish flag is set.
- *   - The 5-minute heartbeat keepalive has elapsed since the last publish.
+ *   - The 10-second heartbeat keepalive has elapsed since the last publish.
  *
  * Triggers a DELTA publish if:
  *   - Temperature has drifted by > 0.2°C.
@@ -66,8 +66,8 @@ bool isDeltaExceeded(float val1, float val2, float threshold);
  *   - CO2 level has drifted by > 10 ppm.
  *
  * This function is side-effect free: it only evaluates whether a publish is
- * needed. Call commitSuccessfulPublish() only after JSON construction, Base64
- * encoding, and MQTT publication have all succeeded.
+ * needed. Call commitSuccessfulPublish() only after JSON construction
+ * and MQTT publication have all succeeded.
  *
  * @param current Latest telemetry sample read from Core 1 queue.
  * @param state Persistent state from the last successful publication.
@@ -80,7 +80,7 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, const Telemetr
  * @brief Commits a telemetry sample after its MQTT publication succeeds.
  *
  * Updates the last-published cache/time and clears a pending full-publish
- * request. Failed serialization, encoding, or MQTT publication must not call
+ * request. Failed serialization or MQTT publication must not call
  * this function so the exact same work is retried on the next scan.
  */
 void commitSuccessfulPublish(TelemetryState& state,
