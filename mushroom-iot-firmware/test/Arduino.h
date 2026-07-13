@@ -282,6 +282,18 @@ inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, Ti
     return pdTRUE;
 }
 
+inline BaseType_t xQueueOverwrite(QueueHandle_t xQueue, const void* pvItemToQueue) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q == nullptr) return pdFALSE;
+    while (!q->items.empty()) {
+        q->items.pop();
+    }
+    std::vector<uint8_t> buf(q->item_size);
+    std::memcpy(buf.data(), pvItemToQueue, q->item_size);
+    q->items.push(std::move(buf));
+    return pdTRUE;
+}
+
 inline BaseType_t xQueueReceive(QueueHandle_t xQueue, void* pvBuffer, TickType_t /*xTicksToWait*/) {
     MockQueue* q = static_cast<MockQueue*>(xQueue);
     if (q == nullptr || q->items.empty()) return pdFALSE;

@@ -53,6 +53,28 @@ void initQueues()
                       static_cast<unsigned>(TELEMETRY_QUEUE_DEPTH),
                       static_cast<unsigned>(sizeof(TelemetryData)));
     }
+
+    xBaselineQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+    if (xBaselineQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xBaselineQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xBaselineQueue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ControlSetpointCommand)));
+    }
+
+    xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+    if (xOverrideQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xOverrideQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xOverrideQueue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ControlSetpointCommand)));
+    }
 }
 
 void initSemaphores()

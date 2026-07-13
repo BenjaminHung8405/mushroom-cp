@@ -39,3 +39,16 @@ struct RelayOutputsPod {
     bool heater_active;
     bool midday_blackout_active;
 } __attribute__((aligned(4)));
+
+/**
+ * @brief Plain Old Data (POD) structure for setpoint control commands.
+ * Transmitted from Core 0/NVS/Encoder to Core 1 control loop via FreeRTOS queue.
+ */
+struct ControlSetpointCommand {
+    float temp_target;
+    float humidity_target;
+    float co2_target;
+    bool active;
+    uint8_t padding[3];    ///< Explicit padding to align to 32-bit boundary (16 bytes total)
+} __attribute__((aligned(4)));
+

@@ -1,3 +1,20 @@
+## [2026-07-13T11:17:00+07:00]
+- **Task ID**: F2
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h)
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Định nghĩa ControlSetpointCommand**: Thiết lập cấu trúc dữ liệu POD `ControlSetpointCommand` căn lề 4 bytes tối ưu (gồm `temp_target`, `humidity_target`, `co2_target`, `active` flag và 3 bytes padding) để truyền Setpoint qua hàng đợi liên nhân Core 0 -> Core 1.
+  - **Thiết lập hai hàng FreeRTOS Queue**: Khai báo và khởi tạo hai hàng đợi FreeRTOS `xBaselineQueue` và `xOverrideQueue` độ sâu 1 (depth 1) chuyên biệt chứa `ControlSetpointCommand`. Hàng đợi baseline lưu Setpoint backend chính, hàng đợi override lưu Setpoint ghi đè thủ công từ nút vặn KY-040 hoặc MQTT, giúp cô lập hai tầng độc lập.
+  - **Đọc và Dọn hàng đợi không chặn (Non-blocking Draining)**: Bổ sung logic kiểm tra và dọn hàng đợi ở đầu chu kỳ tick 50 ms tại hàm `runControlPipelineStep` sử dụng `xQueueReceive(..., 0)` không chặn để cập nhật Setpoint tức thời vào các trạng thái lưu giữ cục bộ `baselineCmd` và `overrideCmd` của Core 1.
+  - **Cập nhật Mock Hàng đợi**: Bổ sung hàm mock `xQueueOverwrite` cho FreeRTOS stub ở file `test/Arduino.h` để hỗ trợ ghi đè hàng đợi sâu 1 trên môi trường host.
+  - **Bổ sung và Chạy Unit Tests**: Viết các trường hợp kiểm thử tự động tại `test/run_tests.cpp` (Case 32) nhằm kiểm định kích thước căn lề 16 bytes của struct, cơ chế ghi đè hàng đợi và việc dọn hàng đợi chính xác trong Core 1 control loop. Thực hiện chạy thành công 100% test case pass thành công.
+
 ## [2026-07-13T11:15:00+07:00]
 - **Task ID**: F1
 - **Trạng thái hiện tại**: Đang chờ QA Review

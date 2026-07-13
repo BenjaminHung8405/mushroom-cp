@@ -94,3 +94,16 @@ extern QueueHandle_t xActuatorQueue;
  * Created during setup(); destroyed on shutdown.
  */
 extern QueueHandle_t xTelemetryQueue;
+
+/**
+ * @brief Handle for the FreeRTOS queue carrying baseline setpoints (Backend baseline) from Core 0/NVS to Core 1.
+ * Created during setup(); destroyed on shutdown.
+ */
+extern QueueHandle_t xBaselineQueue;
+
+/**
+ * @brief Handle for the FreeRTOS queue carrying hardware override setpoints from Core 0/NVS/Encoder to Core 1.
+ * Created during setup(); destroyed on shutdown.
+ */
+extern QueueHandle_t xOverrideQueue;
+

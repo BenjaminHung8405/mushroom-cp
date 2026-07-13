@@ -27,6 +27,8 @@
 // ---------------------------------------------------------------------------
 QueueHandle_t xActuatorQueue  = nullptr;
 QueueHandle_t xTelemetryQueue = nullptr;
+QueueHandle_t xBaselineQueue  = nullptr;
+QueueHandle_t xOverrideQueue  = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 volatile bool shared_forceFullPublish = false;
@@ -389,9 +391,29 @@ static void runControlPipelineStep(
     FuzzyController::CO2RuleState& co2State,
     AdaptiveTuner::IntegralState& tunerState,
     TPC_Task::TpcSchedulerState& tpcState,
+    ControlSetpointCommand& baselineCmd,
+    ControlSetpointCommand& overrideCmd,
     unsigned long& lastSensorMs,
     unsigned long& lastControlMs)
 {
+    // Non-blocking drain baseline and override queues at the beginning of tick 50 ms
+    if (xBaselineQueue != nullptr)
+    {
+        ControlSetpointCommand temp;
+        while (xQueueReceive(xBaselineQueue, &temp, 0) == pdTRUE)
+        {
+            baselineCmd = temp;
+        }
+    }
+    if (xOverrideQueue != nullptr)
+    {
+        ControlSetpointCommand temp;
+        while (xQueueReceive(xOverrideQueue, &temp, 0) == pdTRUE)
+        {
+            overrideCmd = temp;
+        }
+    }
+
     const unsigned long now = millis();
     if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
     {
@@ -456,6 +478,8 @@ void taskCore1Control(void* /*pvParameters*/)
     FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
     AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
     TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();
+    ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
+    ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     unsigned long lastSensorMs = 0U;
     unsigned long lastControlMs = millis();
 
@@ -471,6 +495,8 @@ void taskCore1Control(void* /*pvParameters*/)
             co2State,
             tunerState,
             tpcState,
+            baselineCmd,
+            overrideCmd,
             lastSensorMs,
             lastControlMs);
 

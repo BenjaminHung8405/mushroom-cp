@@ -1945,6 +1945,67 @@ int main() {
         // Call after 2s delta (13000ms) should succeed
         assert(web_interface::checkRateLimit(13000UL) == true);
     }
+    // 32. Test Task F2 - ControlSetpointCommand and FreeRTOS depth-1 queues
+    Serial.println("[TEST] Starting Task F2 - Setpoint Queues and Command Draining Unit Tests...");
+    {
+        // 32.1 Test alignment and size of ControlSetpointCommand
+        static_assert(sizeof(ControlSetpointCommand) == 16, "ControlSetpointCommand size should be exactly 16 bytes");
+        static_assert(alignof(ControlSetpointCommand) == 4, "ControlSetpointCommand alignment should be 4 bytes");
+
+        // 32.2 Test queue creation
+        QueueHandle_t testBaselineQ = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        QueueHandle_t testOverrideQ = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        assert(testBaselineQ != nullptr);
+        assert(testOverrideQ != nullptr);
+
+        // 32.3 Test queue overwrite (depth 1)
+        ControlSetpointCommand cmd1 = { 25.0f, 80.0f, 600.0f, true, {0, 0, 0} };
+        ControlSetpointCommand cmd2 = { 26.0f, 85.0f, 700.0f, true, {0, 0, 0} };
+
+        // Send cmd1
+        assert(xQueueOverwrite(testBaselineQ, &cmd1) == pdTRUE);
+        assert(uxQueueMessagesWaiting(testBaselineQ) == 1);
+
+        // Overwrite with cmd2 (should still have depth 1 but new values)
+        assert(xQueueOverwrite(testBaselineQ, &cmd2) == pdTRUE);
+        assert(uxQueueMessagesWaiting(testBaselineQ) == 1);
+
+        ControlSetpointCommand received;
+        assert(xQueueReceive(testBaselineQ, &received, 0) == pdTRUE);
+        assert(uxQueueMessagesWaiting(testBaselineQ) == 0);
+        assert(std::fabs(received.temp_target - 26.0f) < 0.01f);
+        assert(std::fabs(received.humidity_target - 85.0f) < 0.01f);
+        assert(std::fabs(received.co2_target - 700.0f) < 0.01f);
+        assert(received.active == true);
+
+        // 32.4 Test draining setpoint queues in taskCore1Control context
+        // Ensure globals are set
+        if (xBaselineQueue == nullptr) {
+            xBaselineQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        }
+        if (xOverrideQueue == nullptr) {
+            xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        }
+
+        ControlSetpointCommand baseCmd = { 22.0f, 75.0f, 500.0f, true, {0, 0, 0} };
+        ControlSetpointCommand overCmd = { 23.0f, 70.0f, NAN, true, {0, 0, 0} };
+
+        assert(xQueueOverwrite(xBaselineQueue, &baseCmd) == pdTRUE);
+        assert(xQueueOverwrite(xOverrideQueue, &overCmd) == pdTRUE);
+
+        // Run taskCore1Control which executes one iteration on host mock.
+        // It will call runControlPipelineStep which drains these queues.
+        taskCore1Control(nullptr);
+
+        // Verify queues are empty (drained)
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 0);
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 0);
+
+        // Clean up locally created queues for this test
+        vQueueDelete(testBaselineQ);
+        vQueueDelete(testOverrideQ);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }
