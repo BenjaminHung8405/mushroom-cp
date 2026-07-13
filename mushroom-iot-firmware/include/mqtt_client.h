@@ -8,6 +8,7 @@
 #endif
 
 #include <ArduinoJson.h>
+#include "local_control.h"
 
 namespace mqtt
 {
@@ -123,12 +124,37 @@ namespace mqtt
         /**
          * @brief Internal helper to process setpoint JSON fields.
          */
-        void process_setpoints(const StaticJsonDocument<768>& doc);
+        void process_setpoints(StaticJsonDocument<768>& doc);
 
         /**
          * @brief Internal helper to validate a single setpoint value.
          */
         bool validate_single_setpoint(const char* name, float val, float min_val, float max_val);
+
+        /**
+         * @brief Internal helper to parse and validate JSON payload.
+         */
+        bool parse_json_payload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc);
+
+        /**
+         * @brief Internal helper to handle MQTT control commands.
+         */
+        bool handle_mqtt_command(StaticJsonDocument<768>& doc);
+
+        /**
+         * @brief Internal helper to extract and validate setpoint fields.
+         */
+        bool extract_setpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed);
+
+        /**
+         * @brief Internal helper to validate MQTT credentials before connecting.
+         */
+        bool validate_connection_config(const String& client_id);
+
+        /**
+         * @brief Internal helper to retrieve Last Will and Testament configuration.
+         */
+        void get_lwt_config(String& lwt_topic, String& lwt_payload);
 
         /**
          * @brief Non-blocking reconnect strategy method.

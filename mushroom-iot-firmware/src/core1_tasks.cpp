@@ -153,6 +153,58 @@ static constexpr unsigned long BUTTON_HOLD_FACTORY_MS  = 10000UL;
  *   • Hold ≥ 10 s → set WIFI_FACTORY_RESET_BIT (clears all NVS + restart).
  *   • Release before thresholds → cancel, no action taken.
  */
+static void handle_button_press(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
+{
+    press_start_ms = millis();
+    softap_triggered = false;
+    factory_triggered = false;
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[BUTTON_TASK] BOOT button pressed. Hold 5s for SoftAP, 10s for Factory Reset.");
+    }
+}
+
+static void handle_button_release(unsigned long& press_start_ms, bool& softap_triggered, bool& factory_triggered)
+{
+    press_start_ms = 0;
+    if (!softap_triggered && !factory_triggered) {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[BUTTON_TASK] BOOT button released — cancelled.");
+    }
+    softap_triggered = false;
+    factory_triggered = false;
+}
+
+static void handle_button_hold(unsigned long press_start_ms, bool& softap_triggered, bool& factory_triggered)
+{
+    unsigned long held_ms = millis() - press_start_ms;
+
+    if (!factory_triggered && held_ms >= BUTTON_HOLD_FACTORY_MS)
+    {
+        factory_triggered = true;
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[BUTTON_TASK] >>> HOLD 10s REACHED — FACTORY RESET <<<");
+        }
+        if (xWifiEventGroup)
+        {
+            xEventGroupSetBits(xWifiEventGroup, WIFI_FACTORY_RESET_BIT);
+        }
+    }
+    else if (!softap_triggered && !factory_triggered && held_ms >= BUTTON_HOLD_SOFTAP_MS)
+    {
+        softap_triggered = true;
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[BUTTON_TASK] >>> HOLD 5s REACHED — FORCING SOFTAP <<<");
+        }
+        if (xWifiEventGroup)
+        {
+            xEventGroupSetBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
+        }
+    }
+}
+
 void task_hardware_button(void* /*pvParameters*/)
 {
     {
@@ -160,7 +212,6 @@ void task_hardware_button(void* /*pvParameters*/)
         Serial.println("[BUTTON_TASK] Starting on Core 1...");
     }
 
-    // Pre-read to confirm initial state (avoid false trigger at startup).
     bool prev_pressed = (digitalRead(config::pins::PIN_WIFI_CONFIG_BUTTON) == LOW);
 
 #ifndef UNIT_TEST
@@ -177,55 +228,15 @@ void task_hardware_button(void* /*pvParameters*/)
 
         if (!prev_pressed && now_pressed)
         {
-            // Rising edge — button just pressed. Start timer.
-            press_start_ms = millis();
-            softap_triggered = false;
-            factory_triggered = false;
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[BUTTON_TASK] BOOT button pressed. Hold 5s for SoftAP, 10s for Factory Reset.");
-            }
+            handle_button_press(press_start_ms, softap_triggered, factory_triggered);
         }
         else if (prev_pressed && !now_pressed)
         {
-            // Falling edge — button released. Cancel pending actions.
-            press_start_ms = 0;
-            if (!softap_triggered && !factory_triggered) {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[BUTTON_TASK] BOOT button released — cancelled.");
-            }
-            softap_triggered = false;
-            factory_triggered = false;
+            handle_button_release(press_start_ms, softap_triggered, factory_triggered);
         }
         else if (prev_pressed && now_pressed && press_start_ms != 0)
         {
-            // Button is being held — check durations.
-            unsigned long held_ms = millis() - press_start_ms;
-
-            if (!factory_triggered && held_ms >= BUTTON_HOLD_FACTORY_MS)
-            {
-                factory_triggered = true;
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[BUTTON_TASK] >>> HOLD 10s REACHED — FACTORY RESET <<<");
-                }
-                if (xWifiEventGroup)
-                {
-                    xEventGroupSetBits(xWifiEventGroup, WIFI_FACTORY_RESET_BIT);
-                }
-            }
-            else if (!softap_triggered && !factory_triggered && held_ms >= BUTTON_HOLD_SOFTAP_MS)
-            {
-                softap_triggered = true;
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[BUTTON_TASK] >>> HOLD 5s REACHED — FORCING SOFTAP <<<");
-                }
-                if (xWifiEventGroup)
-                {
-                    xEventGroupSetBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
-                }
-            }
+            handle_button_hold(press_start_ms, softap_triggered, factory_triggered);
         }
 
         prev_pressed = now_pressed;
@@ -238,13 +249,13 @@ void task_hardware_button(void* /*pvParameters*/)
 // Physical SSR assignments. The TPC layer is the exclusive owner of their
 // HIGH/LOW phase; no other Core 1 path writes these output pins after init.
 constexpr TPC_Task::TpcChannelConfig H_AIR_TPC_CONFIG = {
-    config::pins::PIN_RELAY_HEATER_1, 60000U, 2000U, 2000U};
+    config::pins::PIN_RELAY_HEATER_1, 300000U, 10000U, 10000U, 0U};
 constexpr TPC_Task::TpcChannelConfig H_WAT_TPC_CONFIG = {
-    config::pins::PIN_RELAY_HEATER_2, 60000U, 2000U, 2000U};
+    config::pins::PIN_RELAY_HEATER_2, 300000U, 10000U, 10000U, 3000U};
 constexpr TPC_Task::TpcChannelConfig MIST_TPC_CONFIG = {
-    config::pins::PIN_RELAY_MIST, 60000U, 2000U, 2000U};
+    config::pins::PIN_RELAY_MIST, 300000U, 5000U, 10000U, 8000U};
 constexpr TPC_Task::TpcChannelConfig EXHAUST_TPC_CONFIG = {
-    config::pins::PIN_RELAY_FAN, 60000U, 2000U, 2000U};
+    config::pins::PIN_RELAY_FAN, 120000U, 3000U, 3000U, 0U};
 
 constexpr float CONTROL_PERIOD_SECONDS = 0.050f;
 constexpr float SAFE_DEFAULT_CROP_DAY = 0.0f;
@@ -331,6 +342,73 @@ static void drain_legacy_actuator_queue()
 // ---------------------------------------------------------------------------
 // FreeRTOS task entry point — pinned to Core 1
 // ---------------------------------------------------------------------------
+static void runControlPipelineStep(
+    TelemetryData& telemetry,
+    FuzzyController::CO2RuleState& co2State,
+    AdaptiveTuner::IntegralState& tunerState,
+    TPC_Task::TpcSchedulerState& tpcState,
+    unsigned long& lastSensorMs,
+    unsigned long& lastControlMs)
+{
+    const unsigned long now = millis();
+    if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
+    {
+        lastSensorMs = now;
+        sample_and_enqueue_telemetry(telemetry);
+    }
+
+    // The growth-day source is not yet provisioned. Day 0 is an explicit,
+    // deterministic safe default rather than inventing time-derived state.
+    const Trajectory::SetpointPod setpoints =
+        Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
+    const float errorTemp = isFinite(telemetry.temp_air)
+        ? setpoints.temp_target - telemetry.temp_air : NAN;
+    const float errorHumid = isFinite(telemetry.humidity_air)
+        ? setpoints.humidity_target - telemetry.humidity_air : NAN;
+    const float errorCO2 = isFinite(telemetry.co2_level)
+        ? setpoints.co2_target - telemetry.co2_level : NAN;
+
+    const unsigned long elapsedMs = now - lastControlMs;
+    lastControlMs = now;
+    const float dtSeconds = (elapsedMs == 0U)
+        ? CONTROL_PERIOD_SECONDS
+        : static_cast<float>(elapsedMs) / 1000.0f;
+    const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
+        tunerState, errorTemp, errorHumid, dtSeconds);
+    const FuzzyController::DualHeaterOutputsPod thermalDemands =
+        FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
+    const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
+    FuzzyController::ArbitratedOutputsPod outputs =
+        FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
+
+    // Mandatory ordering: all fuzzy/gain work completes before this hard
+    // interlock, then only TPC translates protected duties to GPIO levels.
+    TPC_Task::hardwareProtectionOverride(outputs, readRtcTimeFailSafe());
+    TPC_Task::applyTpcOutputs(
+        outputs,
+        H_AIR_TPC_CONFIG,
+        H_WAT_TPC_CONFIG,
+        MIST_TPC_CONFIG,
+        EXHAUST_TPC_CONFIG,
+        tpcState);
+
+    // Cập nhật trạng thái chia sẻ cho WebInterface
+    SharedSystemState localState;
+    localState.temp_air = telemetry.temp_air;
+    localState.humidity_air = telemetry.humidity_air;
+    localState.co2_level = telemetry.co2_level;
+    localState.temp_target = setpoints.temp_target;
+    localState.humidity_target = setpoints.humidity_target;
+    localState.co2_target = setpoints.co2_target;
+    localState.h_air_duty = outputs.HAir;
+    localState.h_wat_duty = outputs.HWat;
+    localState.mist_duty = outputs.Mist;
+    localState.exhaust_duty = outputs.Exh;
+    update_shared_system_state(localState);
+
+    drain_legacy_actuator_queue();
+}
+
 void task_core1_control(void* /*pvParameters*/)
 {
     {
@@ -363,63 +441,13 @@ void task_core1_control(void* /*pvParameters*/)
     for (int iteration = 0; iteration < 1; ++iteration)
 #endif
     {
-        const unsigned long now = millis();
-        if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
-        {
-            lastSensorMs = now;
-            sample_and_enqueue_telemetry(telemetry);
-        }
-
-        // The growth-day source is not yet provisioned. Day 0 is an explicit,
-        // deterministic safe default rather than inventing time-derived state.
-        const Trajectory::SetpointPod setpoints =
-            Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
-        const float errorTemp = isFinite(telemetry.temp_air)
-            ? setpoints.temp_target - telemetry.temp_air : NAN;
-        const float errorHumid = isFinite(telemetry.humidity_air)
-            ? setpoints.humidity_target - telemetry.humidity_air : NAN;
-        const float errorCO2 = isFinite(telemetry.co2_level)
-            ? setpoints.co2_target - telemetry.co2_level : NAN;
-
-        const unsigned long elapsedMs = now - lastControlMs;
-        lastControlMs = now;
-        const float dtSeconds = (elapsedMs == 0U)
-            ? CONTROL_PERIOD_SECONDS
-            : static_cast<float>(elapsedMs) / 1000.0f;
-        const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
-            tunerState, errorTemp, errorHumid, dtSeconds);
-        const FuzzyController::DualHeaterOutputsPod thermalDemands =
-            FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
-        const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
-        FuzzyController::ArbitratedOutputsPod outputs =
-            FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
-
-        // Mandatory ordering: all fuzzy/gain work completes before this hard
-        // interlock, then only TPC translates protected duties to GPIO levels.
-        TPC_Task::hardwareProtectionOverride(outputs, readRtcTimeFailSafe());
-        TPC_Task::applyTpcOutputs(
-            outputs,
-            H_AIR_TPC_CONFIG,
-            H_WAT_TPC_CONFIG,
-            MIST_TPC_CONFIG,
-            EXHAUST_TPC_CONFIG,
-            tpcState);
-
-        // Cập nhật trạng thái chia sẻ cho WebInterface
-        SharedSystemState localState;
-        localState.temp_air = telemetry.temp_air;
-        localState.humidity_air = telemetry.humidity_air;
-        localState.co2_level = telemetry.co2_level;
-        localState.temp_target = setpoints.temp_target;
-        localState.humidity_target = setpoints.humidity_target;
-        localState.co2_target = setpoints.co2_target;
-        localState.h_air_duty = outputs.HAir;
-        localState.h_wat_duty = outputs.HWat;
-        localState.mist_duty = outputs.Mist;
-        localState.exhaust_duty = outputs.Exh;
-        update_shared_system_state(localState);
-
-        drain_legacy_actuator_queue();
+        runControlPipelineStep(
+            telemetry,
+            co2State,
+            tunerState,
+            tpcState,
+            lastSensorMs,
+            lastControlMs);
 
 #ifndef UNIT_TEST
         esp_task_wdt_reset();

@@ -1371,7 +1371,7 @@ int main() {
         // 28.2 A 100 ms TPC window converts 50% duty into a phase. Minimum
         // ON/OFF times defer normal phase changes, while explicit zero demand
         // remains an immediate fail-safe OFF command.
-        const TpcChannelConfig channel = {42U, 100U, 80U, 60U};
+        const TpcChannelConfig channel = {42U, 100U, 80U, 60U, 0U};
         TpcChannelState state = {};
         mock_millis_offset = 300000UL;
         TPC_Task::updateTpcChannel(channel, state, 0.5f);
@@ -1404,7 +1404,7 @@ int main() {
         // 28.3 Invalid scheduler configuration fails safe LOW. All scheduler
         // state remains POD/caller-owned, avoiding hidden state or heap use.
         TpcChannelState invalidState = {};
-        const TpcChannelConfig invalid = {43U, 0U, 10U, 10U};
+        const TpcChannelConfig invalid = {43U, 0U, 10U, 10U, 0U};
         TPC_Task::updateTpcChannel(invalid, invalidState, 1.0f);
         assert(invalidState.output_high == false);
         assert(mock_pin_values[43U] == LOW);
@@ -1412,6 +1412,119 @@ int main() {
         assert(std::is_pod<TPC_Task::TpcChannelConfig>::value == true);
         assert(std::is_pod<TPC_Task::TpcChannelState>::value == true);
         assert(std::is_pod<TPC_Task::TpcSchedulerState>::value == true);
+
+        // 28.4 Test Staggered Startup Offset and Non-wrapping window limits
+        // Let's configure a channel with window = 1000 ms, min_on = 0 ms, min_off = 0 ms, offset = 300 ms
+        const TpcChannelConfig staggeredChannel = {44U, 1000U, 0U, 0U, 300U};
+        TpcChannelState staggeredState = {};
+        
+        // At start of window (elapsed = 0 ms), demand = 0.5 (500 ms ON)
+        // Since offset is 300 ms, it must remain LOW until elapsed >= 300 ms.
+        mock_millis_offset = 10000UL; // start of window
+        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
+        assert(staggeredState.output_high == false);
+        assert(mock_pin_values[44U] == LOW);
+        
+        // At elapsed = 299 ms, it must still be LOW
+        mock_millis_offset = 10299UL;
+        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
+        assert(staggeredState.output_high == false);
+        assert(mock_pin_values[44U] == LOW);
+        
+        // At elapsed = 300 ms, it must transition to HIGH
+        mock_millis_offset = 10300UL;
+        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
+        assert(staggeredState.output_high == true);
+        assert(mock_pin_values[44U] == HIGH);
+        
+        // At elapsed = 799 ms (within 300 + 500 = 800 ms), it must still be HIGH
+        mock_millis_offset = 10799UL;
+        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
+        assert(staggeredState.output_high == true);
+        assert(mock_pin_values[44U] == HIGH);
+        
+        // At elapsed = 800 ms, it must transition to LOW
+        mock_millis_offset = 10800UL;
+        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
+        assert(staggeredState.output_high == false);
+        assert(mock_pin_values[44U] == LOW);
+
+        // Test non-wrapping rule: if offset + ON duration exceeds window, it must be capped at window boundary
+        // Let's set offset = 800 ms, demand = 0.4 (400 ms ON).
+        // Standard ON interval would be [800 ms, 1200 ms], but window is 1000 ms, so it must be capped at [800 ms, 1000 ms]
+        const TpcChannelConfig wrapChannel = {45U, 1000U, 0U, 0U, 800U};
+        TpcChannelState wrapState = {};
+
+        mock_millis_offset = 20000UL; // start of window
+        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
+        assert(wrapState.output_high == false);
+        assert(mock_pin_values[45U] == LOW);
+
+        mock_millis_offset = 20800UL; // at offset, goes HIGH
+        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
+        assert(wrapState.output_high == true);
+        assert(mock_pin_values[45U] == HIGH);
+
+        mock_millis_offset = 20999UL; // still HIGH before window boundary
+        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
+        assert(wrapState.output_high == true);
+        assert(mock_pin_values[45U] == HIGH);
+
+        mock_millis_offset = 21000UL; // next window, should go LOW (or reset window)
+        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
+        assert(wrapState.output_high == false);
+        assert(mock_pin_values[45U] == LOW);
+
+        // Verify out-of-phase activation of Heater 1, Heater 2, and Mist (offsets 0ms, 3000ms, 8000ms)
+        // Set up configs with 300s window (300000 ms) and demands > 0
+        const TpcChannelConfig hAirTestConfig = {10U, 300000U, 0U, 0U, 0U};      // HAir (offset 0)
+        const TpcChannelConfig hWatTestConfig = {11U, 300000U, 0U, 0U, 3000U};   // HWat (offset 3s)
+        const TpcChannelConfig mistTestConfig = {12U, 300000U, 0U, 0U, 8000U};   // Mist (offset 8s)
+
+        TpcChannelState hAirState = {};
+        TpcChannelState hWatState = {};
+        TpcChannelState mistState = {};
+
+        mock_millis_offset = 400000UL; // Window start
+        // Update all channels with 0.5 duty
+        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
+        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
+        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
+
+        // HAir must be HIGH immediately
+        assert(hAirState.output_high == true);
+        assert(mock_pin_values[10U] == HIGH);
+        // HWat and Mist must be LOW
+        assert(hWatState.output_high == false);
+        assert(mock_pin_values[11U] == LOW);
+        assert(mistState.output_high == false);
+        assert(mock_pin_values[12U] == LOW);
+
+        mock_millis_offset = 403000UL; // At 3 seconds
+        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
+        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
+        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
+
+        // HAir still HIGH, HWat goes HIGH, Mist still LOW
+        assert(hAirState.output_high == true);
+        assert(mock_pin_values[10U] == HIGH);
+        assert(hWatState.output_high == true);
+        assert(mock_pin_values[11U] == HIGH);
+        assert(mistState.output_high == false);
+        assert(mock_pin_values[12U] == LOW);
+
+        mock_millis_offset = 408000UL; // At 8 seconds
+        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
+        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
+        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
+
+        // All three are HIGH now
+        assert(hAirState.output_high == true);
+        assert(mock_pin_values[10U] == HIGH);
+        assert(hWatState.output_high == true);
+        assert(mock_pin_values[11U] == HIGH);
+        assert(mistState.output_high == true);
+        assert(mock_pin_values[12U] == HIGH);
     }
 
 

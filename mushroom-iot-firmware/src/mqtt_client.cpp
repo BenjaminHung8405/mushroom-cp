@@ -269,54 +269,25 @@ namespace mqtt
             return;
         }
 
-        constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
-        if (length > MAX_PAYLOAD_SIZE)
+        StaticJsonDocument<768> doc;
+        if (!parse_json_payload(payload, length, doc))
         {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
-            }
             return;
         }
 
-        char safe_payload[MAX_PAYLOAD_SIZE + 1];
-        if (length > 0)
-        {
-            memcpy(safe_payload, payload, length);
-        }
-        safe_payload[length] = '\0';
         {
             ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
-        }
-
-        // Tăng dung lượng StaticJsonDocument lên 768 bytes để tránh tràn RAM overhead khi parse
-        StaticJsonDocument<768> doc;
-        DeserializationError error = deserializeJson(doc, safe_payload);
-
-        if (error)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
+            Serial.printf("[DEBUG] handle_message contains key 'cmd'? %d, addr=%p\n", doc.containsKey("cmd"), (void*)&doc);
+            if (doc.containsKey("cmd")) {
+                Serial.printf("[DEBUG] cmd raw: %s\n", doc["cmd"].as<String>().c_str());
+                Serial.printf("[DEBUG] cmd isString? %d\n", doc["cmd"].is<const char*>());
             }
-            return;
+            String s;
+            serializeJson(doc, s);
+            Serial.printf("[DEBUG] handle_message doc serialized: %s\n", s.c_str());
         }
 
-        bool is_command = false;
-        if (doc.containsKey("cmd"))
-        {
-            const char* cmd_val = doc["cmd"].as<const char*>();
-            if (cmd_val != nullptr && strcmp(cmd_val, "full_sync") == 0)
-            {
-                set_shared_force_full_publish(true);
-                is_command = true;
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] Command received: full_sync. Flag shared_forceFullPublish set to true.");
-                }
-            }
-        }
+        bool is_command = handle_mqtt_command(doc);
 
         if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
             doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
@@ -331,19 +302,111 @@ namespace mqtt
         }
     }
 
-    void MqttClient::process_setpoints(const StaticJsonDocument<768>& doc)
+    bool MqttClient::parse_json_payload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc)
     {
-        // Backend provides advisory targets. Core 1 computes every relay state locally
-        // so a missed MQTT OFF packet cannot leave mist/heater latched indefinitely.
+        constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
+        if (length > MAX_PAYLOAD_SIZE)
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
+            }
+            return false;
+        }
+
+        char safe_payload[MAX_PAYLOAD_SIZE + 1];
+        if (length > 0)
+        {
+            memcpy(safe_payload, payload, length);
+        }
+        safe_payload[length] = '\0';
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
+        }
+
+        const char* const_payload = safe_payload;
+        DeserializationError error = deserializeJson(doc, const_payload);
+        if (error)
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
+            }
+            return false;
+        }
+        return true;
+    }
+
+    bool MqttClient::handle_mqtt_command(StaticJsonDocument<768>& doc)
+    {
+        bool is_command = false;
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[DEBUG] handle_mqtt_command entered. contains cmd? %d, addr=%p\n", doc.containsKey("cmd"), (void*)&doc);
+            if (doc.containsKey("cmd")) {
+                const char* val = doc["cmd"].as<const char*>();
+                Serial.printf("[DEBUG] cmd value inside: %s\n", val ? val : "null");
+            }
+            String s;
+            serializeJson(doc, s);
+            Serial.printf("[DEBUG] handle_mqtt_command doc serialized: %s\n", s.c_str());
+        }
+        if (doc.containsKey("cmd"))
+        {
+            const char* cmd_val = doc["cmd"].as<const char*>();
+            if (cmd_val != nullptr && strcmp(cmd_val, "full_sync") == 0)
+            {
+                set_shared_force_full_publish(true);
+                is_command = true;
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] Command received: full_sync. Flag shared_forceFullPublish set to true.");
+                }
+            }
+        }
+        return is_command;
+    }
+
+    void MqttClient::process_setpoints(StaticJsonDocument<768>& doc)
+    {
+        local_control::LocalSetpoints setpoints = local_control::get_active_setpoints();
+        bool changed = false;
+
+        extract_setpoints(doc, setpoints, changed);
+
+        if (changed)
+        {
+            setpoints.received_at_ms = millis();
+            setpoints.valid = true;
+            local_control::update_setpoints(setpoints);
+        }
+        else if (doc.containsKey("mist_generator_active") ||
+                 doc.containsKey("convection_fan_active") ||
+                 doc.containsKey("heating_lamp_active"))
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
+            }
+        }
+        else
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
+            }
+        }
+    }
+
+    bool MqttClient::extract_setpoints(StaticJsonDocument<768>& doc, local_control::LocalSetpoints& setpoints, bool& changed)
+    {
         constexpr float MIN_SAFE_TEMP = 10.0f;
         constexpr float MAX_SAFE_TEMP = 45.0f;
         constexpr float MIN_SAFE_HUMI = 30.0f;
         constexpr float MAX_SAFE_HUMI = 95.0f;
         constexpr float MIN_SAFE_CO2 = 400.0f;
         constexpr float MAX_SAFE_CO2 = 10000.0f;
-
-        local_control::LocalSetpoints setpoints = local_control::get_active_setpoints();
-        bool changed = false;
 
         if (doc.containsKey("temperatureSetpoint"))
         {
@@ -386,29 +449,7 @@ namespace mqtt
                 changed = true;
             }
         }
-
-        if (changed)
-        {
-            setpoints.received_at_ms = millis();
-            setpoints.valid = true;
-            local_control::update_setpoints(setpoints);
-        }
-        else if (doc.containsKey("mist_generator_active") ||
-                 doc.containsKey("convection_fan_active") ||
-                 doc.containsKey("heating_lamp_active"))
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Ignoring raw actuator command: Edge hysteresis owns relay safety.");
-            }
-        }
-        else
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Warning: payload contains no valid advisory setpoints.");
-            }
-        }
+        return changed;
     }
 
 
@@ -483,40 +524,25 @@ namespace mqtt
             Serial.println("[MQTT] Attempting connection to MQTT broker...");
         }
 
-        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
-            }
-            current_state = MqttState::DISCONNECTED;
-            return false;
-        }
-
         String client_id = get_effective_client_id();
-        if (config::network::MQTT_USER_VAL != client_id)
+        if (!validate_connection_config(client_id))
         {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
-            }
-            current_state = MqttState::ERROR_NO_CONFIG;
             return false;
         }
 
-        // Define Last Will and Testament (LWT) status offline payload
-        String lwt_topic = resolved_topics.status;
-        String lwt_payload = "{\"status\":\"offline\"}";
+        String lwt_topic;
+        String lwt_payload;
+        get_lwt_config(lwt_topic, lwt_payload);
 
         // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
-                          config::network::MQTT_BROKER_VAL.c_str(),
-                          static_cast<unsigned>(config::network::MQTT_PORT_VAL),
-                          config::network::MQTT_USER_VAL.c_str(),
-                          client_id.c_str(),
-                          lwt_topic.c_str());
+                           config::network::MQTT_BROKER_VAL.c_str(),
+                           static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                           config::network::MQTT_USER_VAL.c_str(),
+                           client_id.c_str(),
+                           lwt_topic.c_str());
         }
 
         bool connected = mqtt_client.connect(
@@ -570,6 +596,36 @@ namespace mqtt
             }
         }
         return connected;
+    }
+
+    bool MqttClient::validate_connection_config(const String& client_id)
+    {
+        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
+            }
+            current_state = MqttState::DISCONNECTED;
+            return false;
+        }
+
+        if (config::network::MQTT_USER_VAL != client_id)
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
+            }
+            current_state = MqttState::ERROR_NO_CONFIG;
+            return false;
+        }
+        return true;
+    }
+
+    void MqttClient::get_lwt_config(String& lwt_topic, String& lwt_payload)
+    {
+        lwt_topic = resolved_topics.status;
+        lwt_payload = "{\"status\":\"offline\"}";
     }
 
     String MqttClient::get_effective_client_id() const

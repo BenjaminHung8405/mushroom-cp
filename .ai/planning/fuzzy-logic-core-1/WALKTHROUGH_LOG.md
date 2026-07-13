@@ -1,3 +1,27 @@
+## [2026-07-13T10:41:00+07:00]
+- **Task ID**: B4/B5
+- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2 - Đã sửa lỗi theo phản hồi từ QA)
+- **Danh sách file**:
+  - [MODIFY] [TPC_Task.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h)
+  - [MODIFY] [TPC_Task.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp)
+  - [MODIFY] [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp)
+  - [MODIFY] [Telemetry.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/Telemetry.cpp)
+  - [MODIFY] [mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h)
+  - [MODIFY] [mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - [MODIFY] [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/PROGRESS.md)
+  - [MODIFY] [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/fuzzy-logic-core-1/WALKTHROUGH_LOG.md)
+- **Giải trình ngắn gọn**:
+  - **Khắc phục lỗi TPC & Staggered Startup**: Thêm tham số `offset_ms` vào `TpcChannelConfig`. Triển khai tính toán timing có staggered startup offset (`offset_ms`) dịch chuyển pha kích hoạt relay, đồng thời đảm bảo khoảng thời gian kích hoạt nằm gọn trong chu kỳ mà không bị wrapping bằng cách sử dụng `onEndMs = std::min(offset_ms + onDuration, window_ms)`.
+  - **Đồng bộ cấu hình Phase 1**: Cập nhật cấu hình TPC của `HAir`, `HWat`, `Mist` và `Exhaust` trong `core1_tasks.cpp` khớp chuẩn xác với thông số Phase 1.
+  - **Tách hàm tuân thủ Coding Conventions (<50 dòng)**:
+    - `task_hardware_button` được tách thành các hàm helper xử lý nhấn (`handle_button_press`), nhả (`handle_button_release`) và giữ nút (`handle_button_hold`).
+    - Vòng lặp điều khiển chính trong `task_core1_control` được trích xuất thành helper `runControlPipelineStep`.
+    - Tách `Telemetry::buildDeltaPayload` thành `buildFullPayload` và `buildChangedDeltaPayload`.
+    - Tách `MqttClient::handle_message` và các phương thức liên quan thành các helper nhỏ chuyên biệt (`parse_json_payload`, `handle_mqtt_command`, `extract_setpoints`, `process_setpoints` và `perform_mqtt_connection`).
+  - **Khắc phục lỗi Đọc/Ghi ArduinoJson (dangling pointers)**: Sửa lỗi sử dụng stack buffer `safe_payload` gây lỗi dùng vùng nhớ rác sau khi thoát hàm do in-place parsing của ArduinoJson bằng cách ép kiểu sang `const char*` trước khi giải tuần tự hóa để buộc copy chuỗi. Khôi phục kiểu dữ liệu tham số của các hàm helper MQTT về `StaticJsonDocument<768>&` loại bỏ các lỗi chuyển đổi base class.
+  - **Bổ sung Unit Tests Case 28**: Thêm kiểm tra chi tiết staggered startup offset cho các kênh HAir (offset 0s), HWat (offset 3s) và Mist (offset 8s) cùng việc giới hạn không wrapping. Chạy `./run_tests` thành công 100%.
+
 ## [2026-07-12T12:55:00+07:00]
 - **Task ID**: E2
 - **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2 - Sửa đổi theo feedback của QA)

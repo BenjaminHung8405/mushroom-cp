@@ -64,6 +64,61 @@ void commitSuccessfulPublish(TelemetryState& state,
     state.forceFullPublish = false;
 }
 
+namespace {
+
+void buildFullPayload(const TelemetryData& current, JsonObject& root)
+{
+    if (std::isnan(current.temp_air)) {
+        root["rT"] = nullptr;
+    } else {
+        root["rT"] = current.temp_air;
+    }
+
+    if (std::isnan(current.humidity_air)) {
+        root["rH"] = nullptr;
+    } else {
+        root["rH"] = current.humidity_air;
+    }
+
+    if (std::isnan(current.co2_level)) {
+        root["tC"] = nullptr;
+    } else {
+        root["tC"] = current.co2_level;
+    }
+}
+
+void buildChangedDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, JsonObject& root)
+{
+    if (isDeltaExceeded(current.temp_air, lastPubState.temp_air, 0.2f))
+    {
+        if (std::isnan(current.temp_air)) {
+            root["rT"] = nullptr;
+        } else {
+            root["rT"] = current.temp_air;
+        }
+    }
+
+    if (isDeltaExceeded(current.humidity_air, lastPubState.humidity_air, 1.0f))
+    {
+        if (std::isnan(current.humidity_air)) {
+            root["rH"] = nullptr;
+        } else {
+            root["rH"] = current.humidity_air;
+        }
+    }
+
+    if (isDeltaExceeded(current.co2_level, lastPubState.co2_level, 10.0f))
+    {
+        if (std::isnan(current.co2_level)) {
+            root["tC"] = nullptr;
+        } else {
+            root["tC"] = current.co2_level;
+        }
+    }
+}
+
+} // namespace
+
 String buildDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, PublishType pubType)
 {
     if (pubType == PublishType::NONE)
@@ -76,52 +131,11 @@ String buildDeltaPayload(const TelemetryData& current, const TelemetryData& last
 
     if (pubType == PublishType::FULL)
     {
-        if (std::isnan(current.temp_air)) {
-            root["rT"] = nullptr;
-        } else {
-            root["rT"] = current.temp_air;
-        }
-
-        if (std::isnan(current.humidity_air)) {
-            root["rH"] = nullptr;
-        } else {
-            root["rH"] = current.humidity_air;
-        }
-
-        if (std::isnan(current.co2_level)) {
-            root["tC"] = nullptr;
-        } else {
-            root["tC"] = current.co2_level;
-        }
+        buildFullPayload(current, root);
     }
     else if (pubType == PublishType::DELTA)
     {
-        if (isDeltaExceeded(current.temp_air, lastPubState.temp_air, 0.2f))
-        {
-            if (std::isnan(current.temp_air)) {
-                root["rT"] = nullptr;
-            } else {
-                root["rT"] = current.temp_air;
-            }
-        }
-
-        if (isDeltaExceeded(current.humidity_air, lastPubState.humidity_air, 1.0f))
-        {
-            if (std::isnan(current.humidity_air)) {
-                root["rH"] = nullptr;
-            } else {
-                root["rH"] = current.humidity_air;
-            }
-        }
-
-        if (isDeltaExceeded(current.co2_level, lastPubState.co2_level, 10.0f))
-        {
-            if (std::isnan(current.co2_level)) {
-                root["tC"] = nullptr;
-            } else {
-                root["tC"] = current.co2_level;
-            }
-        }
+        buildChangedDeltaPayload(current, lastPubState, root);
     }
 
     String output;

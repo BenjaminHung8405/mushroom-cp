@@ -27,6 +27,7 @@ struct TpcChannelConfig {
     uint32_t window_ms;
     uint32_t min_on_ms;
     uint32_t min_off_ms;
+    uint32_t offset_ms;
 } __attribute__((aligned(4)));
 
 /** Explicit, caller-owned scheduler state for one SSR channel. */

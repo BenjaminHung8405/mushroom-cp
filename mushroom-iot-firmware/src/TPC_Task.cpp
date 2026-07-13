@@ -36,17 +36,15 @@ bool elapsedAtLeast(uint32_t now, uint32_t since, uint32_t interval) {
     return static_cast<uint32_t>(now - since) >= interval;
 }
 
-bool requestedOutputHigh(float dutyDemand, uint32_t elapsedInWindow, uint32_t windowMs) {
+bool requestedOutputHigh(float dutyDemand, uint32_t elapsedInWindow, uint32_t windowMs, uint32_t offsetMs) {
     const float duty = clampUnit(dutyDemand);
     if (duty <= 0.0f) {
         return false;
     }
-    if (duty >= 1.0f) {
-        return true;
-    }
 
     const uint32_t onDurationMs = static_cast<uint32_t>(duty * windowMs);
-    return elapsedInWindow < onDurationMs;
+    const uint32_t onEndMs = (offsetMs + onDurationMs > windowMs) ? windowMs : (offsetMs + onDurationMs);
+    return elapsedInWindow >= offsetMs && elapsedInWindow < onEndMs;
 }
 
 void writeOutput(const TpcChannelConfig& config, TpcChannelState& state, bool high) {
@@ -105,7 +103,7 @@ void updateTpcChannel(
 
     const float safeDuty = clampUnit(dutyDemand);
     const bool requestedHigh = requestedOutputHigh(
-        safeDuty, elapsedInWindow, config.window_ms);
+        safeDuty, elapsedInWindow, config.window_ms, config.offset_ms);
     if (requestedHigh == state.output_high) {
         return;
     }
