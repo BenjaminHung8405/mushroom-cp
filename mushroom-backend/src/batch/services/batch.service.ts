@@ -421,25 +421,26 @@ export class BatchService {
     id: string,
     dto: UpdateCheckpointsDto,
   ): Promise<CurveCheckpoint[]> {
-    const batch = await this.cropBatchRepository.findOne({
-      where: { id },
-    });
-
-    if (!batch) {
-      throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
-    }
-
-    if (batch.status !== 'ACTIVE') {
-      throw new BadRequestException(
-        `Cannot update checkpoints for batch '${id}' — current status is '${batch.status}'. Only ACTIVE batches can have checkpoints updated.`,
-      );
-    }
-
-    // Tách logic validation ra ngoài để giữ hàm ngắn gọn (< 50 dòng)
-    this.validateCheckpointsList(batch, dto.checkpoints);
-
     return await this.cropBatchRepository.manager.transaction(
       async (transactionalEntityManager) => {
+        const txBatch = await transactionalEntityManager.findOne(CropBatch, {
+          where: { id },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!txBatch) {
+          throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
+        }
+
+        if (txBatch.status !== 'ACTIVE') {
+          throw new BadRequestException(
+            `Cannot update checkpoints for batch '${id}' — current status is '${txBatch.status}'. Only ACTIVE batches can have checkpoints updated.`,
+          );
+        }
+
+        // Re-validate checkpoints list with locked batch configuration
+        this.validateCheckpointsList(txBatch, dto.checkpoints);
+
         // Delete all existing checkpoints for this batch
         await transactionalEntityManager.delete(CurveCheckpoint, {
           batchId: id,
@@ -464,6 +465,41 @@ export class BatchService {
     );
   }
 
+  private validateBounds(checkpoints: CheckpointDto[], totalDays: number): void {
+    const outOfBounds = checkpoints.find(
+      (c) => c.cropDay < 1 || c.cropDay > totalDays,
+    );
+    if (outOfBounds) {
+      throw new BadRequestException(
+        `Checkpoint day ${outOfBounds.cropDay} is invalid. It must be between 1 and ${totalDays}.`,
+      );
+    }
+  }
+
+  private validateDuplicates(checkpoints: CheckpointDto[], type: string): void {
+    const days = checkpoints.map((c) => c.cropDay);
+    const duplicateDay = days.find((day, index) => days.indexOf(day) !== index);
+    if (duplicateDay) {
+      throw new BadRequestException(
+        `Duplicate cropDay ${duplicateDay} found in ${type} checkpoints.`,
+      );
+    }
+  }
+
+  private validateBoundaryDays(
+    checkpoints: CheckpointDto[],
+    totalDays: number,
+    type: string,
+  ): void {
+    const hasDay1 = checkpoints.some((c) => c.cropDay === 1);
+    const hasDayN = checkpoints.some((c) => c.cropDay === totalDays);
+    if (checkpoints.length < 2 || !hasDay1 || !hasDayN) {
+      throw new BadRequestException(
+        `${type} checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${totalDays})`,
+      );
+    }
+  }
+
   private validateCheckpointsList(
     batch: CropBatch,
     checkpoints: CheckpointDto[],
@@ -475,46 +511,12 @@ export class BatchService {
       (c) => c.metricType === 'HUMIDITY',
     );
 
-    // 1. Chặn ngày vượt giới hạn của vụ
-    const outOfBounds = checkpoints.find((c) => c.cropDay > batch.totalCropDays);
-    if (outOfBounds) {
-      throw new BadRequestException(
-        `Checkpoint day ${outOfBounds.cropDay} exceeds the total crop days of the batch (${batch.totalCropDays}).`,
-      );
-    }
+    this.validateBounds(checkpoints, batch.totalCropDays);
 
-    // 2. Chặn trùng lặp ngày cho cùng metricType
-    const checkDuplicates = (cps: CheckpointDto[], type: string) => {
-      const days = cps.map((c) => c.cropDay);
-      const duplicateDay = days.find((day, index) => days.indexOf(day) !== index);
-      if (duplicateDay) {
-        throw new BadRequestException(
-          `Duplicate cropDay ${duplicateDay} found in ${type} checkpoints.`,
-        );
-      }
-    };
-    checkDuplicates(tempCheckpoints, 'Temperature');
-    checkDuplicates(humidityCheckpoints, 'Humidity');
+    this.validateDuplicates(tempCheckpoints, 'Temperature');
+    this.validateDuplicates(humidityCheckpoints, 'Humidity');
 
-    // 3. Kiểm tra các điểm biên (Day 1 và Day N)
-    const hasTempDay1 = tempCheckpoints.some((c) => c.cropDay === 1);
-    const hasTempDayN = tempCheckpoints.some(
-      (c) => c.cropDay === batch.totalCropDays,
-    );
-    const hasHumidDay1 = humidityCheckpoints.some((c) => c.cropDay === 1);
-    const hasHumidDayN = humidityCheckpoints.some(
-      (c) => c.cropDay === batch.totalCropDays,
-    );
-
-    if (tempCheckpoints.length < 2 || !hasTempDay1 || !hasTempDayN) {
-      throw new BadRequestException(
-        `Temperature checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
-      );
-    }
-    if (humidityCheckpoints.length < 2 || !hasHumidDay1 || !hasHumidDayN) {
-      throw new BadRequestException(
-        `Humidity checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
-      );
-    }
+    this.validateBoundaryDays(tempCheckpoints, batch.totalCropDays, 'Temperature');
+    this.validateBoundaryDays(humidityCheckpoints, batch.totalCropDays, 'Humidity');
   }
 }

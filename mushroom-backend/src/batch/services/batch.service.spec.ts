@@ -57,6 +57,19 @@ describe('BatchService', () => {
     curveCheckpointRepo = module.get(getRepositoryToken(CurveCheckpoint));
     lightScheduleBlockRepo = module.get(getRepositoryToken(LightScheduleBlock));
     mushroomHouseRepo = module.get(getRepositoryToken(MushroomHouse));
+
+    // Mock transactional manager by default so it delegates to cropBatchRepo
+    const mockTxManager = {
+      findOne: jest.fn().mockImplementation((entityClass, options) => {
+        return cropBatchRepo.findOne(options);
+      }),
+      delete: jest.fn().mockResolvedValue({}),
+      create: jest.fn().mockImplementation((entityClass, data) => data),
+      save: jest.fn().mockImplementation((entityClass, entities) => Promise.resolve(entities)),
+    };
+    cropBatchRepo.manager = {
+      transaction: jest.fn().mockImplementation((cb) => cb(mockTxManager)),
+    } as any;
   });
 
   it('should be defined', () => {
