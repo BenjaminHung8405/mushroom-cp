@@ -69,11 +69,15 @@ describe('BatchController', () => {
         houseId: 'house-1',
         status: 'ACTIVE',
       } as CropBatch;
-      service.getActiveBatchStatusByHouseId.mockResolvedValue(mockResult as any);
+      service.getActiveBatchStatusByHouseId.mockResolvedValue(
+        mockResult as any,
+      );
 
       const result = await controller.getActive({ houseId: 'house-1' });
       expect(result).toEqual(mockResult);
-      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith('house-1');
+      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith(
+        'house-1',
+      );
     });
 
     it('should return null if no active batch is found', async () => {
@@ -81,7 +85,9 @@ describe('BatchController', () => {
 
       const result = await controller.getActive({ houseId: 'house-2' });
       expect(result).toBeNull();
-      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith('house-2');
+      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith(
+        'house-2',
+      );
     });
   });
 });

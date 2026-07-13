@@ -75,7 +75,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
 
     const brokerUrl = `mqtt://${host}:${port}`;
-    this.logger.log(`Connecting to EMQX at ${brokerUrl} as user '${username}'...`);
+    this.logger.log(
+      `Connecting to EMQX at ${brokerUrl} as user '${username}'...`,
+    );
 
     this.client = mqtt.connect(brokerUrl, {
       username,
@@ -97,17 +99,25 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`MQTT connection error: ${error.message}`);
     });
     this.client.on('reconnect', () => this.logger.warn('MQTT reconnecting...'));
-    this.client.on('offline', () => this.logger.warn('MQTT client is offline.'));
+    this.client.on('offline', () =>
+      this.logger.warn('MQTT client is offline.'),
+    );
   }
 
   private subscribeToDeviceTopics(): void {
     if (!this.client) return;
     this.client.subscribe('mushroom/device/+/status', { qos: 1 }, (err) => {
-      if (err) this.logger.error(`Failed to subscribe to status topics: ${err.message}`);
+      if (err)
+        this.logger.error(
+          `Failed to subscribe to status topics: ${err.message}`,
+        );
       else this.logger.log("Subscribed to 'mushroom/device/+/status'");
     });
     this.client.subscribe('mushroom/device/+/telemetry', { qos: 1 }, (err) => {
-      if (err) this.logger.error(`Failed to subscribe to telemetry topics: ${err.message}`);
+      if (err)
+        this.logger.error(
+          `Failed to subscribe to telemetry topics: ${err.message}`,
+        );
       else this.logger.log("Subscribed to 'mushroom/device/+/telemetry'");
     });
   }
@@ -119,19 +129,25 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const record = this.registry.getEnabled(parsedTopic.deviceId);
     if (!record) {
       this.refreshUnknownDevice(parsedTopic.deviceId);
-      this.logger.warn(`Dropped ${parsedTopic.action} from unknown or disabled device '${parsedTopic.deviceId}'.`);
+      this.logger.warn(
+        `Dropped ${parsedTopic.action} from unknown or disabled device '${parsedTopic.deviceId}'.`,
+      );
       return;
     }
 
     if (Buffer.byteLength(payload) > 1024) {
-      this.logger.warn(`Dropped oversized MQTT payload from '${record.deviceId}'.`);
+      this.logger.warn(
+        `Dropped oversized MQTT payload from '${record.deviceId}'.`,
+      );
       return;
     }
 
     try {
       const data = JSON.parse(payload.toString()) as unknown;
       if (!data || typeof data !== 'object') {
-        this.logger.warn(`Dropped non-object payload from '${record.deviceId}'.`);
+        this.logger.warn(
+          `Dropped non-object payload from '${record.deviceId}'.`,
+        );
         return;
       }
 
@@ -139,7 +155,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (parsedTopic.action === 'status') {
         const status = (data as { status?: unknown }).status;
         if (status !== 'online' && status !== 'offline') {
-          this.logger.warn(`Received unknown status '${String(status)}' from ${record.deviceId}`);
+          this.logger.warn(
+            `Received unknown status '${String(status)}' from ${record.deviceId}`,
+          );
           return;
         }
         const event: DeviceStatusEvent = {
@@ -159,7 +177,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const humidityAir = this.finiteMetric(payloadObj.humidity_air);
       const co2Level = this.finiteMetric(payloadObj.co2_level);
       if (tempAir === null && humidityAir === null && co2Level === null) {
-        this.logger.warn(`Dropped telemetry without canonical finite metrics from '${record.deviceId}'.`);
+        this.logger.warn(
+          `Dropped telemetry without canonical finite metrics from '${record.deviceId}'.`,
+        );
         return;
       }
 
@@ -177,11 +197,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.telemetry$.next(event);
       void this.registry.touchLastSeen(record.deviceId, receivedAt);
     } catch (err) {
-      this.logger.warn(`Failed to parse MQTT message on topic '${topic}': ${String(err)}`);
+      this.logger.warn(
+        `Failed to parse MQTT message on topic '${topic}': ${String(err)}`,
+      );
     }
   }
 
-  private parseDeviceTopic(topic: string): { deviceId: string; action: 'status' | 'telemetry' } | null {
+  private parseDeviceTopic(
+    topic: string,
+  ): { deviceId: string; action: 'status' | 'telemetry' } | null {
     const parts = topic.split('/');
     if (
       parts.length !== 4 ||
@@ -195,17 +219,34 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return { deviceId: parts[2], action: parts[3] };
   }
 
-  private parseActuators(payload: Record<string, unknown>, deviceId: string): EdgeActuatorState | null {
+  private parseActuators(
+    payload: Record<string, unknown>,
+    deviceId: string,
+  ): EdgeActuatorState | null {
     if (payload.actuators === undefined) return null;
     const candidate = payload.actuators;
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      this.logger.warn(`Actuator state unavailable from '${deviceId}': expected complete object.`);
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      Array.isArray(candidate)
+    ) {
+      this.logger.warn(
+        `Actuator state unavailable from '${deviceId}': expected complete object.`,
+      );
       return null;
     }
     const value = candidate as Record<string, unknown>;
-    const fields = ['mist_active', 'fan_active', 'heater_air_active', 'heater_water_active', 'midday_blackout_active'] as const;
+    const fields = [
+      'mist_active',
+      'fan_active',
+      'heater_air_active',
+      'heater_water_active',
+      'midday_blackout_active',
+    ] as const;
     if (!fields.every((field) => typeof value[field] === 'boolean')) {
-      this.logger.warn(`Actuator state unavailable from '${deviceId}': missing or non-boolean field.`);
+      this.logger.warn(
+        `Actuator state unavailable from '${deviceId}': missing or non-boolean field.`,
+      );
       return null;
     }
     return {
@@ -227,7 +268,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     void this.registry
       .refreshOne(deviceId)
       .catch((err: unknown) => {
-        this.logger.warn(`Registry refresh failed for '${deviceId}': ${String(err)}`);
+        this.logger.warn(
+          `Registry refresh failed for '${deviceId}': ${String(err)}`,
+        );
       })
       .finally(() => this.unknownRefreshes.delete(deviceId));
   }

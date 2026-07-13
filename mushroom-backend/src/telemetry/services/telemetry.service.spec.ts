@@ -119,30 +119,54 @@ describe('TelemetryService', () => {
     });
   });
 
-
   describe('edge-authoritative actuator persistence', () => {
     const event = (actuators: TelemetryEvent['actuators']): TelemetryEvent => ({
-      deviceId: 'device-1', houseId: 'house-1', temp_air: 25, humidity_air: 80,
-      co2_level: 600, actuators, receivedAt: new Date('2026-07-10T10:00:00Z'),
+      deviceId: 'device-1',
+      houseId: 'house-1',
+      temp_air: 25,
+      humidity_air: 80,
+      co2_level: 600,
+      actuators,
+      receivedAt: new Date('2026-07-10T10:00:00Z'),
       timestamp: '2026-07-10T10:00:00Z',
     });
 
     it('stores and streams the complete edge actuator state without deriving outputs', async () => {
       const updates: TelemetrySnapshot[] = [];
       service.telemetryUpdates$.subscribe((snapshot) => updates.push(snapshot));
-      await service.processTelemetry(event({
-        mist_active: true, fan_active: false, heater_air_active: true,
-        heater_water_active: false, midday_blackout_active: true,
-      }));
-      expect(dbService.query).toHaveBeenCalledWith(expect.stringContaining('heater_air_active'), expect.arrayContaining([true, false, true, false, true]));
-      expect(updates[0]).toMatchObject({ mistGeneratorActive: true, convectionFanActive: false, heaterAirActive: true, heaterWaterActive: false, middayBlackoutActive: true });
+      await service.processTelemetry(
+        event({
+          mist_active: true,
+          fan_active: false,
+          heater_air_active: true,
+          heater_water_active: false,
+          midday_blackout_active: true,
+        }),
+      );
+      expect(dbService.query).toHaveBeenCalledWith(
+        expect.stringContaining('heater_air_active'),
+        expect.arrayContaining([true, false, true, false, true]),
+      );
+      expect(updates[0]).toMatchObject({
+        mistGeneratorActive: true,
+        convectionFanActive: false,
+        heaterAirActive: true,
+        heaterWaterActive: false,
+        middayBlackoutActive: true,
+      });
     });
 
     it('keeps legacy or unavailable edge actuator fields null', async () => {
       const updates: TelemetrySnapshot[] = [];
       service.telemetryUpdates$.subscribe((snapshot) => updates.push(snapshot));
       await service.processTelemetry(event(null));
-      expect(updates[0]).toMatchObject({ mistGeneratorActive: null, convectionFanActive: null, heaterAirActive: null, heaterWaterActive: null, middayBlackoutActive: null });
+      expect(updates[0]).toMatchObject({
+        mistGeneratorActive: null,
+        convectionFanActive: null,
+        heaterAirActive: null,
+        heaterWaterActive: null,
+        middayBlackoutActive: null,
+      });
     });
   });
 

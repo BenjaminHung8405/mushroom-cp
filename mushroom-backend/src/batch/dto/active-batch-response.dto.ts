@@ -27,4 +27,3 @@ export class ActiveBatchResponseDto extends CropBatch {
   @Type(() => CheckpointResponseDto)
   checkpoints: CheckpointResponseDto[];
 }
-

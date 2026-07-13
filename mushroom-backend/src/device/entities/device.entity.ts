@@ -28,7 +28,12 @@ export class Device {
   @Column({ name: 'enabled', type: 'boolean', default: true })
   enabled: boolean;
 
-  @Column({ name: 'display_name', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'display_name',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   displayName: string | null;
 
   @Column({ name: 'mqtt_username', type: 'varchar', length: 50, unique: true })

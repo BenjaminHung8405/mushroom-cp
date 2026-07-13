@@ -21,7 +21,10 @@ export interface DeviceRecord {
 export class DeviceRegistryService implements OnModuleInit {
   private readonly logger = new Logger(DeviceRegistryService.name);
   private readonly cache = new Map<string, DeviceRecord>();
-  private readonly inflightMiss = new Map<string, Promise<DeviceRecord | null>>();
+  private readonly inflightMiss = new Map<
+    string,
+    Promise<DeviceRecord | null>
+  >();
 
   constructor(
     @InjectRepository(Device)
@@ -109,7 +112,9 @@ export class DeviceRegistryService implements OnModuleInit {
       .update({ deviceId }, { lastSeenAt: at })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Failed to persist last_seen_at for ${deviceId}: ${msg}`);
+        this.logger.warn(
+          `Failed to persist last_seen_at for ${deviceId}: ${msg}`,
+        );
       });
   }
 

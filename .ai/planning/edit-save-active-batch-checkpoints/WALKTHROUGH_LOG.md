@@ -1,5 +1,16 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:15:00+07:00] Task A3: Cập nhật hàm truy vấn trạng thái vụ để lấy kèm checkpoints của vụ đó
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
+  - [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Cập nhật hàm `getActiveBatchStatusByHouseId` trong `batch.service.ts` để query danh sách checkpoints tương ứng với active crop batch từ `curveCheckpointRepository`.
+  - Sử dụng cơ chế sắp xếp của TypeORM (`order: { cropDay: 'ASC', metricType: 'ASC' }`) để đảm bảo các checkpoints được sắp xếp tăng dần theo ngày vụ nuôi và loại chỉ số ngay từ database.
+  - Sử dụng logic gán fallback mảng rỗng `checkpoints || []` nếu không tìm thấy dữ liệu checkpoints, tránh lỗi runtime khi UI thực hiện render.
+  - Cập nhật/bổ sung unit test trong `batch.service.spec.ts` để kiểm thử chính xác các trường hợp thành công có checkpoints sắp xếp và trường hợp không có checkpoints. Chạy test `npm test` thành công hoàn toàn (86/86 test cases pass).
+
 ## [2026-07-13T17:14:00+07:00] Task A2: Cập nhật DTO phản hồi trạng thái vụ để mang theo danh sách checkpoint
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:

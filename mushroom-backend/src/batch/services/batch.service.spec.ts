@@ -90,7 +90,7 @@ describe('BatchService', () => {
         status: 'ACTIVE',
       } as CropBatch;
       const mockBatch2 = {
-          houseId: 'house-1',
+        houseId: 'house-1',
         status: 'ACTIVE',
       } as CropBatch;
 
@@ -109,21 +109,92 @@ describe('BatchService', () => {
   describe('getActiveBatchStatusByHouseId', () => {
     it('should return null when a house has no active batch', async () => {
       cropBatchRepo.find.mockResolvedValue([]);
-      await expect(service.getActiveBatchStatusByHouseId('house-1')).resolves.toBeNull();
+      await expect(
+        service.getActiveBatchStatusByHouseId('house-1'),
+      ).resolves.toBeNull();
     });
 
-    it('should include the computed crop day for an active batch', async () => {
+    it('should include the computed crop day for an active batch and return empty checkpoints list if none exist', async () => {
       const activeBatch = {
-        id: 'batch-1', houseId: 'house-1', status: 'ACTIVE',
-        startDate: new Date('2026-07-01T23:30:00+07:00'), totalCropDays: 30,
+        id: 'batch-1',
+        houseId: 'house-1',
+        status: 'ACTIVE',
+        startDate: new Date('2026-07-01T23:30:00+07:00'),
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.find.mockResolvedValue([activeBatch]);
+      curveCheckpointRepo.find.mockResolvedValue([]);
+
+      const result = await service.getActiveBatchStatusByHouseId(
+        'house-1',
+        new Date('2026-07-02T00:01:00+07:00'),
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          cropDay: 2,
+          crop_day: 2,
+          checkpoints: [],
+        }),
+      );
+      expect(curveCheckpointRepo.find).toHaveBeenCalledWith({
+        where: { batchId: 'batch-1' },
+        order: {
+          cropDay: 'ASC',
+          metricType: 'ASC',
+        },
+      });
+    });
+
+    it('should retrieve checkpoints sorted by cropDay and metricType', async () => {
+      const activeBatch = {
+        id: 'batch-1',
+        houseId: 'house-1',
+        status: 'ACTIVE',
+        startDate: new Date('2026-07-01T23:30:00+07:00'),
+        totalCropDays: 30,
       } as CropBatch;
       cropBatchRepo.find.mockResolvedValue([activeBatch]);
 
+      const mockCheckpoints = [
+        {
+          id: '1',
+          batchId: 'batch-1',
+          metricType: 'HUMIDITY',
+          cropDay: 5,
+          targetValue: 80.0,
+        },
+        {
+          id: '2',
+          batchId: 'batch-1',
+          metricType: 'TEMPERATURE',
+          cropDay: 2,
+          targetValue: 30.0,
+        },
+        {
+          id: '3',
+          batchId: 'batch-1',
+          metricType: 'TEMPERATURE',
+          cropDay: 5,
+          targetValue: 32.0,
+        },
+      ] as CurveCheckpoint[];
+
+      curveCheckpointRepo.find.mockResolvedValue(mockCheckpoints);
+
       const result = await service.getActiveBatchStatusByHouseId(
-        'house-1', new Date('2026-07-02T00:01:00+07:00'),
+        'house-1',
+        new Date('2026-07-02T00:01:00+07:00'),
       );
 
-      expect(result).toEqual(expect.objectContaining({ cropDay: 2, crop_day: 2 }));
+      expect(result.checkpoints).toEqual(mockCheckpoints);
+      expect(curveCheckpointRepo.find).toHaveBeenCalledWith({
+        where: { batchId: 'batch-1' },
+        order: {
+          cropDay: 'ASC',
+          metricType: 'ASC',
+        },
+      });
     });
   });
 
@@ -178,7 +249,9 @@ describe('BatchService', () => {
         lightScheduleBlockRepo.findOne.mockResolvedValue(null);
 
         const startedAt = new Date('2026-07-01T23:30:00+07:00');
-        cropBatchRepo.find.mockResolvedValue([{ ...mockBatch, startDate: startedAt }]);
+        cropBatchRepo.find.mockResolvedValue([
+          { ...mockBatch, startDate: startedAt },
+        ]);
         const result = await service.getBatchContext(
           'house-1',
           new Date('2026-07-02T00:01:00+07:00'),

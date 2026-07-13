@@ -21,7 +21,9 @@ export class TelemetryController {
   constructor(private readonly telemetryService: TelemetryService) {}
 
   @Get(':id/telemetry')
-  async getLatest(@Param() params: DeviceIdParamsDto): Promise<TelemetrySnapshot> {
+  async getLatest(
+    @Param() params: DeviceIdParamsDto,
+  ): Promise<TelemetrySnapshot> {
     const snapshot = await this.telemetryService.getLatestTelemetry(params.id);
     if (!snapshot) {
       throw new NotFoundException(

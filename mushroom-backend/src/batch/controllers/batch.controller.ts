@@ -28,6 +28,8 @@ export class BatchController {
   async getActive(
     @Param() params: HouseIdParamsDto,
   ): Promise<ActiveBatchResponseDto | null> {
-    return await this.batchService.getActiveBatchStatusByHouseId(params.houseId);
+    return await this.batchService.getActiveBatchStatusByHouseId(
+      params.houseId,
+    );
   }
 }

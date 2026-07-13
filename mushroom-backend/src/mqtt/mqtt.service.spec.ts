@@ -137,15 +137,29 @@ describe('MqttService', () => {
     it('should preserve a complete actuator state from edge telemetry', (done) => {
       service.telemetry$.subscribe((event) => {
         expect(event.actuators).toEqual({
-          mist_active: true, fan_active: false, heater_air_active: true,
-          heater_water_active: false, midday_blackout_active: true,
+          mist_active: true,
+          fan_active: false,
+          heater_air_active: true,
+          heater_water_active: false,
+          midday_blackout_active: true,
         });
         done();
       });
-      messageCallback('mushroom/device/device-1/telemetry', Buffer.from(JSON.stringify({
-        temp_air: 25.5,
-        actuators: { mist_active: true, fan_active: false, heater_air_active: true, heater_water_active: false, midday_blackout_active: true },
-      })));
+      messageCallback(
+        'mushroom/device/device-1/telemetry',
+        Buffer.from(
+          JSON.stringify({
+            temp_air: 25.5,
+            actuators: {
+              mist_active: true,
+              fan_active: false,
+              heater_air_active: true,
+              heater_water_active: false,
+              midday_blackout_active: true,
+            },
+          }),
+        ),
+      );
     });
 
     it('marks partial or malformed actuator state unavailable without dropping sensor telemetry', (done) => {
@@ -153,10 +167,15 @@ describe('MqttService', () => {
         expect(event.actuators).toBeNull();
         done();
       });
-      messageCallback('mushroom/device/device-1/telemetry', Buffer.from(JSON.stringify({
-        temp_air: 25.5,
-        actuators: { mist_active: true },
-      })));
+      messageCallback(
+        'mushroom/device/device-1/telemetry',
+        Buffer.from(
+          JSON.stringify({
+            temp_air: 25.5,
+            actuators: { mist_active: true },
+          }),
+        ),
+      );
     });
 
     it('should reject telemetry with no canonical finite metrics', (done) => {
@@ -191,10 +210,7 @@ describe('MqttService', () => {
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');
       const bigPayload = Buffer.alloc(2048, 'A');
 
-      messageCallback(
-        'mushroom/device/device-1/telemetry',
-        bigPayload,
-      );
+      messageCallback('mushroom/device/device-1/telemetry', bigPayload);
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
       done();

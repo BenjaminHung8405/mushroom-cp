@@ -9,10 +9,7 @@ import { DeviceRegistryService } from './device-registry.service';
  * DeviceModule — registry + HTTP endpoints for device status/control.
  */
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Device]),
-    forwardRef(() => MqttModule),
-  ],
+  imports: [TypeOrmModule.forFeature([Device]), forwardRef(() => MqttModule)],
   controllers: [DeviceController],
   providers: [DeviceRegistryService],
   exports: [DeviceRegistryService, TypeOrmModule],

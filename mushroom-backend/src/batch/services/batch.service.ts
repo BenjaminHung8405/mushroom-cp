@@ -94,10 +94,20 @@ export class BatchService {
     }
 
     const cropDay = this.calculateCropDay(activeBatch, timestamp);
+
+    const checkpoints = await this.curveCheckpointRepository.find({
+      where: { batchId: activeBatch.id },
+      order: {
+        cropDay: 'ASC',
+        metricType: 'ASC',
+      },
+    });
+
     return {
       ...activeBatch,
       cropDay,
       crop_day: cropDay,
+      checkpoints: checkpoints || [],
     };
   }
 

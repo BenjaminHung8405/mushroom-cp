@@ -96,7 +96,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const timestamp = event.receivedAt ?? new Date(event.timestamp);
     const { deviceId, houseId } = event;
     if (!deviceId || !houseId) {
-      this.logger.error(`Received telemetry without deviceId/houseId: ${JSON.stringify(event)}`);
+      this.logger.error(
+        `Received telemetry without deviceId/houseId: ${JSON.stringify(event)}`,
+      );
       return;
     }
 
@@ -107,7 +109,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       this.updateCache(deviceId, houseId, event, context, timestamp);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Critical error processing telemetry for device ${deviceId}: ${errMsg}`);
+      this.logger.error(
+        `Critical error processing telemetry for device ${deviceId}: ${errMsg}`,
+      );
     } finally {
       try {
         await this.mqttService.dispatchSetpoint(deviceId, {
@@ -115,19 +119,27 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           humiditySetpoint: context?.targetHumid ?? 80,
           co2Setpoint: 1000,
           thermal_shock_protection: context?.thermalShockProtection ?? true,
-          thermal_shock_start: context?.thermalShockStart?.slice(0, 5) ?? '11:00',
+          thermal_shock_start:
+            context?.thermalShockStart?.slice(0, 5) ?? '11:00',
           thermal_shock_end: context?.thermalShockEnd?.slice(0, 5) ?? '13:30',
           control_mode: 'fuzzy_tpc',
           setpoint_ttl_sec: 120,
         });
       } catch (dispatchError: unknown) {
-        const dispatchErrMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
-        this.logger.error(`Failed to dispatch advisory setpoint to '${deviceId}': ${dispatchErrMsg}`);
+        const dispatchErrMsg =
+          dispatchError instanceof Error
+            ? dispatchError.message
+            : String(dispatchError);
+        this.logger.error(
+          `Failed to dispatch advisory setpoint to '${deviceId}': ${dispatchErrMsg}`,
+        );
       }
     }
   }
 
-  async getLatestTelemetry(deviceId: string): Promise<TelemetrySnapshot | null> {
+  async getLatestTelemetry(
+    deviceId: string,
+  ): Promise<TelemetrySnapshot | null> {
     const cached = this.latestCache.get(deviceId);
     if (cached) {
       return cached;
@@ -235,7 +247,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
     const actuators = event.actuators;
-    await this.db.query(`
+    await this.db.query(
+      `
       INSERT INTO telemetry_logs (
         time, batch_id, house_id, crop_day_int,
         humidity_measured, temperature_measured, co2_measured,
@@ -245,16 +258,26 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         heater_water_active, midday_blackout_active
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-      );`, [
-      timestamp, context.batchId ?? 'idle', houseId, context.cropDay,
-      event.humidity_air, event.temp_air, event.co2_level,
-      humiditySetpoint, temperatureSetpoint,
-      this.calculateDelta(humiditySetpoint, event.humidity_air),
-      this.calculateDelta(temperatureSetpoint, event.temp_air),
-      actuators?.mist_active ?? null, actuators?.fan_active ?? null,
-      actuators?.heater_air_active ?? null, actuators?.heater_water_active ?? null,
-      actuators?.midday_blackout_active ?? null,
-    ]);
+      );`,
+      [
+        timestamp,
+        context.batchId ?? 'idle',
+        houseId,
+        context.cropDay,
+        event.humidity_air,
+        event.temp_air,
+        event.co2_level,
+        humiditySetpoint,
+        temperatureSetpoint,
+        this.calculateDelta(humiditySetpoint, event.humidity_air),
+        this.calculateDelta(temperatureSetpoint, event.temp_air),
+        actuators?.mist_active ?? null,
+        actuators?.fan_active ?? null,
+        actuators?.heater_air_active ?? null,
+        actuators?.heater_water_active ?? null,
+        actuators?.midday_blackout_active ?? null,
+      ],
+    );
   }
 
   private updateCache(
@@ -268,11 +291,24 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
     const actuators = event.actuators;
     const snapshot: TelemetrySnapshot = {
-      deviceId, houseId, time: timestamp, batchId: context.batchId, cropDayInt: context.cropDay,
-      humidityMeasured: event.humidity_air, temperatureMeasured: event.temp_air, co2Measured: event.co2_level,
-      humiditySetpoint, temperatureSetpoint,
-      humidityErrorDelta: this.calculateDelta(humiditySetpoint, event.humidity_air),
-      temperatureErrorDelta: this.calculateDelta(temperatureSetpoint, event.temp_air),
+      deviceId,
+      houseId,
+      time: timestamp,
+      batchId: context.batchId,
+      cropDayInt: context.cropDay,
+      humidityMeasured: event.humidity_air,
+      temperatureMeasured: event.temp_air,
+      co2Measured: event.co2_level,
+      humiditySetpoint,
+      temperatureSetpoint,
+      humidityErrorDelta: this.calculateDelta(
+        humiditySetpoint,
+        event.humidity_air,
+      ),
+      temperatureErrorDelta: this.calculateDelta(
+        temperatureSetpoint,
+        event.temp_air,
+      ),
       mistGeneratorActive: actuators?.mist_active ?? null,
       convectionFanActive: actuators?.fan_active ?? null,
       heaterAirActive: actuators?.heater_air_active ?? null,
@@ -378,7 +414,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       batchId: null,
       cropDayInt: 0,
       temperatureMeasured:
-        row.temperatureMeasured != null ? Number(row.temperatureMeasured) : null,
+        row.temperatureMeasured != null
+          ? Number(row.temperatureMeasured)
+          : null,
       humidityMeasured:
         row.humidityMeasured != null ? Number(row.humidityMeasured) : null,
       co2Measured: row.co2Measured != null ? Number(row.co2Measured) : null,
