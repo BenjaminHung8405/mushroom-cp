@@ -1,7 +1,7 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
 ## [2026-07-13T17:36:00+07:00] Sửa lỗi & Refactor theo Feedback của QA (Task A4, B2, B4)
-- **Trạng thái hiện tại**: Đang chờ QA Review (Lần 2)
+- **Trạng thái hiện tại**: Đã phê duyệt (Approved / LGTM)
 - **Danh sách file tạo mới/sửa đổi**:
   - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
   - [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts) (Sửa đổi)
