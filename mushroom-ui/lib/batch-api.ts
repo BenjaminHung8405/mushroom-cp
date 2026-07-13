@@ -8,6 +8,14 @@ export interface DeviceMapping {
   displayName: string | null
 }
 
+export interface CheckpointResponse {
+  id: string
+  batchId: string
+  metricType: 'TEMPERATURE' | 'HUMIDITY'
+  cropDay: number
+  targetValue: number
+}
+
 export interface ActiveBatch {
   id: string
   houseId: string
@@ -18,12 +26,19 @@ export interface ActiveBatch {
   spawnRunningEndDay: number
   cropDay: number
   crop_day: number
+  checkpoints: CheckpointResponse[]
 }
 
 export interface CreateBatchInput {
   houseId: string
   profileName: string
   totalCropDays: number
+}
+
+export interface CheckpointInput {
+  metricType: 'TEMPERATURE' | 'HUMIDITY'
+  cropDay: number
+  targetValue: number
 }
 
 export type EndBatchStatus = 'COMPLETED' | 'ABORTED'
@@ -121,5 +136,41 @@ export async function endBatch(id: string, status: EndBatchStatus): Promise<void
   } catch (cause) {
     if (cause instanceof Error) throw cause
     throw new Error('Không thể kết thúc vụ.')
+  }
+}
+
+/**
+ * A fetch wrapper that matches the requirement of simulating Bearer Token integration.
+ * In a production system, we'd retrieve the JWT from localStorage or a Context/State.
+ */
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = 'simulated-jwt-token-placeholder' // simulated token matching CheckpointOwnerGuard check
+  const headers = new Headers(options.headers)
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return fetch(url, { ...options, headers })
+}
+
+export async function updateBatchCheckpoints(
+  batchId: string,
+  checkpoints: CheckpointInput[],
+): Promise<CheckpointResponse[]> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE}/batches/${encodeURIComponent(batchId)}/checkpoints`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkpoints }),
+      },
+    )
+    if (!response.ok) throw new Error(await getErrorMessage(response))
+    const data = await safeJson<CheckpointResponse[]>(response)
+    if (!data) throw new Error('Backend trả về dữ liệu rỗng khi cập nhật checkpoints.')
+    return data
+  } catch (cause) {
+    if (cause instanceof Error) throw cause
+    throw new Error('Không thể cập nhật checkpoints.')
   }
 }

@@ -1,5 +1,17 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:22:00+07:00] Task B1: Cập nhật kiểu dữ liệu ActiveBatch và khai báo API caller để cập nhật checkpoints
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch-api.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/lib/batch-api.ts) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Cập nhật interface `ActiveBatch` trong `batch-api.ts` để bổ sung thuộc tính `checkpoints: CheckpointResponse[]`.
+  - Định nghĩa interface `CheckpointResponse` để ánh xạ cấu trúc checkpoint trả về từ backend (`id`, `batchId`, `metricType`, `cropDay`, `targetValue`).
+  - Định nghĩa interface `CheckpointInput` mô tả dữ liệu đầu vào khi thực hiện cập nhật checkpoint (`metricType`, `cropDay`, `targetValue`).
+  - Xây dựng `fetchWithAuth` helper thực hiện bọc hàm `fetch` gốc để đính kèm tiêu đề Authorization `Bearer simulated-jwt-token-placeholder`, đáp ứng chỉ thị kỹ thuật về phân quyền bảo mật.
+  - Triển khai API caller `updateBatchCheckpoints` gọi endpoint `PUT /batches/:id/checkpoints` bằng phương thức `PUT`, bọc trong khối `try-catch` chuẩn hóa và ném ra lỗi từ frontend toast thân thiện.
+  - Tự kiểm tra cú pháp và build TypeScript tĩnh bằng lệnh `npx tsc --noEmit` ở thư mục `mushroom-ui`. Không phát sinh lỗi biên dịch nào liên quan tới file thay đổi.
+
 ## [2026-07-13T17:18:00+07:00] Task A5: Định nghĩa endpoint PUT để cập nhật checkpoints
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:
