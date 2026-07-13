@@ -1,5 +1,16 @@
 # Walkthrough Log - Edit and Save Active Batch Checkpoints
 
+## [2026-07-13T17:16:00+07:00] Task A4: Triển khai hàm lưu/cập nhật danh sách checkpoints trong một Transaction
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file tạo mới/sửa đổi**:
+  - [batch.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.ts) (Sửa đổi)
+  - [batch.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/batch/services/batch.service.spec.ts) (Sửa đổi)
+- **Giải trình giải pháp & Kết quả tự kiểm tra**:
+  - Triển khai phương thức `updateBatchCheckpoints` trong `BatchService` đảm bảo tính toàn vẹn dữ liệu (ACID Transaction) bằng cách xóa checkpoints cũ và lưu mới qua `EntityManager` của transaction (`transactionalEntityManager.delete` và `transactionalEntityManager.save`).
+  - Ràng buộc an toàn: Chỉ cho phép cập nhật checkpoints đối với vụ nuôi có trạng thái `ACTIVE`, ném ra `BadRequestException` nếu trạng thái không hợp lệ, hoặc `NotFoundException` nếu không tìm thấy vụ nuôi.
+  - Ràng buộc cấu hình tối thiểu: Validate có ít nhất 2 checkpoints cho mỗi metricType (TEMPERATURE và HUMIDITY), trong đó bắt buộc có checkpoint tại ngày bắt đầu `cropDay = 1` và ngày kết thúc `cropDay = totalCropDays` của vụ nuôi để đảm bảo thuật toán nội suy hoạt động chính xác.
+  - Viết bộ unit tests đầy đủ tại `batch.service.spec.ts` kiểm thử mọi trường hợp ngoại lệ (không tìm thấy batch, batch không active, thiếu checkpoint Day 1 hoặc Day N cho từng metricType) cùng trường hợp ghi đè transaction thành công. Chạy `pnpm test` thành công tuyệt đối 93/93 test cases.
+
 ## [2026-07-13T17:15:00+07:00] Task A3: Cập nhật hàm truy vấn trạng thái vụ để lấy kèm checkpoints của vụ đó
 - **Trạng thái hiện tại**: Đang chờ QA Review
 - **Danh sách file tạo mới/sửa đổi**:

@@ -12,7 +12,8 @@ import { CropBatch } from '../entities/crop-batch.entity';
 import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
 import { MushroomHouse } from '../entities/mushroom-house.entity';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { UpdateCheckpointsDto, MetricType } from '../dto/update-checkpoints.dto';
 
 describe('BatchService', () => {
   let service: BatchService;
@@ -512,6 +513,173 @@ describe('BatchService', () => {
       expect(cropBatchRepo.findOne).toHaveBeenCalledWith({
         where: { id: 'batch-1' },
       });
+    });
+  });
+
+  describe('updateBatchCheckpoints', () => {
+    const validCheckpoints = [
+      { metricType: MetricType.TEMPERATURE, cropDay: 1, targetValue: 30 },
+      { metricType: MetricType.TEMPERATURE, cropDay: 30, targetValue: 28 },
+      { metricType: MetricType.HUMIDITY, cropDay: 1, targetValue: 80 },
+      { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+    ];
+
+    it('should throw NotFoundException if crop batch is not found', async () => {
+      cropBatchRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: validCheckpoints,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException if crop batch status is not ACTIVE', async () => {
+      const mockBatch = { id: 'batch-1', status: 'COMPLETED' } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: validCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if TEMPERATURE does not have at least 2 checkpoints', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const invalidCheckpoints = [
+        { metricType: MetricType.TEMPERATURE, cropDay: 1, targetValue: 30 },
+        { metricType: MetricType.HUMIDITY, cropDay: 1, targetValue: 80 },
+        { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+      ];
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: invalidCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if TEMPERATURE does not have day 1 checkpoint', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const invalidCheckpoints = [
+        { metricType: MetricType.TEMPERATURE, cropDay: 5, targetValue: 30 },
+        { metricType: MetricType.TEMPERATURE, cropDay: 30, targetValue: 28 },
+        { metricType: MetricType.HUMIDITY, cropDay: 1, targetValue: 80 },
+        { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+      ];
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: invalidCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if TEMPERATURE does not have day N checkpoint', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const invalidCheckpoints = [
+        { metricType: MetricType.TEMPERATURE, cropDay: 1, targetValue: 30 },
+        { metricType: MetricType.TEMPERATURE, cropDay: 28, targetValue: 28 },
+        { metricType: MetricType.HUMIDITY, cropDay: 1, targetValue: 80 },
+        { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+      ];
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: invalidCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if HUMIDITY does not have day 1 or day N checkpoints', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const invalidCheckpoints = [
+        { metricType: MetricType.TEMPERATURE, cropDay: 1, targetValue: 30 },
+        { metricType: MetricType.TEMPERATURE, cropDay: 30, targetValue: 28 },
+        { metricType: MetricType.HUMIDITY, cropDay: 2, targetValue: 80 },
+        { metricType: MetricType.HUMIDITY, cropDay: 30, targetValue: 90 },
+      ];
+
+      await expect(
+        service.updateBatchCheckpoints('batch-1', {
+          checkpoints: invalidCheckpoints,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should successfully delete old checkpoints and save new ones in transaction', async () => {
+      const mockBatch = {
+        id: 'batch-1',
+        status: 'ACTIVE',
+        totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.findOne.mockResolvedValue(mockBatch);
+
+      const mockManager = {
+        delete: jest.fn().mockResolvedValue({}),
+        create: jest.fn().mockImplementation((entityClass, data) => data),
+        save: jest
+          .fn()
+          .mockImplementation((entityClass, entities) =>
+            Promise.resolve(entities),
+          ),
+      };
+
+      cropBatchRepo.manager = {
+        transaction: jest.fn().mockImplementation((cb) => cb(mockManager)),
+      } as any;
+
+      const result = await service.updateBatchCheckpoints('batch-1', {
+        checkpoints: validCheckpoints,
+      });
+
+      expect(cropBatchRepo.manager.transaction).toHaveBeenCalled();
+      expect(mockManager.delete).toHaveBeenCalledWith(CurveCheckpoint, {
+        batchId: 'batch-1',
+      });
+      expect(mockManager.save).toHaveBeenCalledWith(
+        CurveCheckpoint,
+        expect.arrayContaining([
+          expect.objectContaining({
+            batchId: 'batch-1',
+            metricType: MetricType.TEMPERATURE,
+            cropDay: 1,
+            targetValue: 30,
+          }),
+          expect.objectContaining({
+            batchId: 'batch-1',
+            metricType: MetricType.HUMIDITY,
+            cropDay: 30,
+            targetValue: 90,
+          }),
+        ]),
+      );
+      expect(result).toHaveLength(4);
     });
   });
 });

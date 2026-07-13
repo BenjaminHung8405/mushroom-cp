@@ -3,6 +3,7 @@ import {
   Logger,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
@@ -13,6 +14,7 @@ import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
 import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { CreateBatchDto } from '../dto/create-batch.dto';
+import { UpdateCheckpointsDto } from '../dto/update-checkpoints.dto';
 
 export interface BatchContext {
   batchId: string | null;
@@ -402,5 +404,83 @@ export class BatchService {
 
     batch.status = status;
     return await this.cropBatchRepository.save(batch);
+  }
+
+  /**
+   * Updates/replaces all checkpoints for an active crop batch within a database transaction.
+   * Enforces that the batch must exist and have the 'ACTIVE' status.
+   * Enforces a minimum configuration of 2 checkpoints per metricType (one on Day 1, one on Day N).
+   */
+  async updateBatchCheckpoints(
+    id: string,
+    dto: UpdateCheckpointsDto,
+  ): Promise<CurveCheckpoint[]> {
+    const batch = await this.cropBatchRepository.findOne({
+      where: { id },
+    });
+
+    if (!batch) {
+      throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
+    }
+
+    if (batch.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Cannot update checkpoints for batch '${id}' — current status is '${batch.status}'. Only ACTIVE batches can have checkpoints updated.`,
+      );
+    }
+
+    const { checkpoints } = dto;
+    const tempCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'TEMPERATURE',
+    );
+    const humidityCheckpoints = checkpoints.filter(
+      (c) => c.metricType === 'HUMIDITY',
+    );
+
+    const hasTempDay1 = tempCheckpoints.some((c) => c.cropDay === 1);
+    const hasTempDayN = tempCheckpoints.some(
+      (c) => c.cropDay === batch.totalCropDays,
+    );
+    const hasHumidDay1 = humidityCheckpoints.some((c) => c.cropDay === 1);
+    const hasHumidDayN = humidityCheckpoints.some(
+      (c) => c.cropDay === batch.totalCropDays,
+    );
+
+    if (tempCheckpoints.length < 2 || !hasTempDay1 || !hasTempDayN) {
+      throw new BadRequestException(
+        `Temperature checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
+      );
+    }
+
+    if (humidityCheckpoints.length < 2 || !hasHumidDay1 || !hasHumidDayN) {
+      throw new BadRequestException(
+        `Humidity checkpoints must contain at least 2 checkpoints (one for Day 1 and one for Day ${batch.totalCropDays})`,
+      );
+    }
+
+    return await this.cropBatchRepository.manager.transaction(
+      async (transactionalEntityManager) => {
+        // Delete all existing checkpoints for this batch
+        await transactionalEntityManager.delete(CurveCheckpoint, {
+          batchId: id,
+        });
+
+        // Create new CurveCheckpoint entities
+        const newCheckpoints = checkpoints.map((cp) =>
+          transactionalEntityManager.create(CurveCheckpoint, {
+            batchId: id,
+            metricType: cp.metricType,
+            cropDay: cp.cropDay,
+            targetValue: cp.targetValue,
+          }),
+        );
+
+        // Save and return them
+        return await transactionalEntityManager.save(
+          CurveCheckpoint,
+          newCheckpoints,
+        );
+      },
+    );
   }
 }
