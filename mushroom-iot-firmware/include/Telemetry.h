@@ -64,6 +64,7 @@ bool isDeltaExceeded(float val1, float val2, float threshold);
  *   - Temperature has drifted by > 0.2°C.
  *   - Humidity has drifted by > 1.0%.
  *   - CO2 level has drifted by > 10 ppm.
+ *   - Any edge-authoritative actuator state changed.
  *
  * This function is side-effect free: it only evaluates whether a publish is
  * needed. Call commitSuccessfulPublish() only after JSON construction

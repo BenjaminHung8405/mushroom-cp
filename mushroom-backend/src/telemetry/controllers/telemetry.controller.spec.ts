@@ -37,7 +37,8 @@ describe('TelemetryController', () => {
     temperatureErrorDelta: -1,
     mistGeneratorActive: true,
     convectionFanActive: false,
-    heatingLampActive: false,
+    heaterAirActive: false,
+    heaterWaterActive: false,
     middayBlackoutActive: false,
   });
 

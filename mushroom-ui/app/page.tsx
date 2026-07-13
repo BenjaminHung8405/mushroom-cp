@@ -129,8 +129,10 @@ function DashboardContent() {
     humiditySetpoint,
     temperatureSetpoint,
     fanActive,
-    lampActive,
+    heaterAirActive,
+    heaterWaterActive,
     mistActive,
+    middayBlackoutActive,
     snapshot,
     isLoading,
   } = useRealTelemetry()
@@ -201,7 +203,7 @@ function DashboardContent() {
           unit="°C"
           status={temperatureStatus}
           trend={temperatureTrend}
-          actuatorActive={lampActive}
+          actuatorActive={heaterAirActive}
           lastUpdated={snapshot?.time ?? null}
         />
       </div>
@@ -226,9 +228,10 @@ function DashboardContent() {
       <div className="col-span-1 md:col-span-2 lg:col-span-2">
         <StandardActuatorsControl
           fanActive={fanActive}
-          lampActive={lampActive}
+          heaterAirActive={heaterAirActive}
+          heaterWaterActive={heaterWaterActive}
           mistActive={mistActive}
-          blackoutActive={snapshot?.middayBlackoutActive ?? false}
+          blackoutActive={middayBlackoutActive}
           readOnly
         />
       </div>

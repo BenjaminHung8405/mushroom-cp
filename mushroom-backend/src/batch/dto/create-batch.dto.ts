@@ -15,11 +15,6 @@ export class CreateBatchDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  id: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
   houseId: string;
 
   @IsString()

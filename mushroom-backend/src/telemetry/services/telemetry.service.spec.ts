@@ -108,6 +108,7 @@ describe('TelemetryService', () => {
         temp_air: 25.5,
         humidity_air: 80.0,
         co2_level: 800,
+        actuators: null,
         receivedAt: new Date(),
         timestamp: new Date().toISOString(),
       };
@@ -118,154 +119,30 @@ describe('TelemetryService', () => {
     });
   });
 
-  describe('calculateControlOutputs', () => {
-    it('should activate mist generator when humidity is below target and not blackout', () => {
-      const timestamp = new Date('2026-07-10T10:00:00+07:00');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 24.0,
-        humidity_air: 80.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
 
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.mistGeneratorActive).toBe(true);
-      expect(outputs.middayBlackoutActive).toBe(false);
+  describe('edge-authoritative actuator persistence', () => {
+    const event = (actuators: TelemetryEvent['actuators']): TelemetryEvent => ({
+      deviceId: 'device-1', houseId: 'house-1', temp_air: 25, humidity_air: 80,
+      co2_level: 600, actuators, receivedAt: new Date('2026-07-10T10:00:00Z'),
+      timestamp: '2026-07-10T10:00:00Z',
     });
 
-    it('should NOT activate mist generator when humidity is below target but midday blackout is active', () => {
-      const timestamp = new Date('2026-07-10T12:00:00+07:00');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 24.0,
-        humidity_air: 80.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.mistGeneratorActive).toBe(false);
-      expect(outputs.middayBlackoutActive).toBe(true);
+    it('stores and streams the complete edge actuator state without deriving outputs', async () => {
+      const updates: TelemetrySnapshot[] = [];
+      service.telemetryUpdates$.subscribe((snapshot) => updates.push(snapshot));
+      await service.processTelemetry(event({
+        mist_active: true, fan_active: false, heater_air_active: true,
+        heater_water_active: false, midday_blackout_active: true,
+      }));
+      expect(dbService.query).toHaveBeenCalledWith(expect.stringContaining('heater_air_active'), expect.arrayContaining([true, false, true, false, true]));
+      expect(updates[0]).toMatchObject({ mistGeneratorActive: true, convectionFanActive: false, heaterAirActive: true, heaterWaterActive: false, middayBlackoutActive: true });
     });
 
-    it('should activate fan when temperature is above target', () => {
-      const timestamp = new Date('2026-07-10T10:00:00+07:00');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 26.5,
-        humidity_air: 90.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.convectionFanActive).toBe(true);
-    });
-
-    it('should activate fan when CO2 is above 1000', () => {
-      const timestamp = new Date('2026-07-10T10:00:00+07:00');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 24.0,
-        humidity_air: 90.0,
-        co2_level: 1050,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.convectionFanActive).toBe(true);
-    });
-
-    it('should activate heating lamp when temperature is below tempOptimalMin', () => {
-      const timestamp = new Date('2026-07-10T10:00:00+07:00');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 21.0,
-        humidity_air: 90.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.heatingLampActive).toBe(true);
-    });
-
-    it('should handle timezone-independent calculations for midday blackout (UTC timestamp)', () => {
-      const timestamp = new Date('2026-07-10T04:30:00Z');
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 24.0,
-        humidity_air: 80.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        defaultContext,
-        timestamp,
-      );
-      expect(outputs.middayBlackoutActive).toBe(true);
-      expect(outputs.mistGeneratorActive).toBe(false);
-    });
-
-    it('should NOT trigger midday blackout if thermalShockProtection is disabled', () => {
-      const timestamp = new Date('2026-07-10T12:00:00+07:00');
-      const noProtectionContext = {
-        ...defaultContext,
-        thermalShockProtection: false,
-        thermal_shock_protection: false,
-      };
-      const event: TelemetryEvent = {
-        deviceId: 'device-1',
-        houseId: 'house-1',
-        temp_air: 24.0,
-        humidity_air: 80.0,
-        co2_level: 600,
-        receivedAt: timestamp,
-        timestamp: timestamp.toISOString(),
-      };
-
-      const outputs = service.calculateControlOutputs(
-        event,
-        noProtectionContext,
-        timestamp,
-      );
-      expect(outputs.middayBlackoutActive).toBe(false);
-      expect(outputs.mistGeneratorActive).toBe(true);
+    it('keeps legacy or unavailable edge actuator fields null', async () => {
+      const updates: TelemetrySnapshot[] = [];
+      service.telemetryUpdates$.subscribe((snapshot) => updates.push(snapshot));
+      await service.processTelemetry(event(null));
+      expect(updates[0]).toMatchObject({ mistGeneratorActive: null, convectionFanActive: null, heaterAirActive: null, heaterWaterActive: null, middayBlackoutActive: null });
     });
   });
 
@@ -286,7 +163,8 @@ describe('TelemetryService', () => {
         temperatureErrorDelta: -1,
         mistGeneratorActive: true,
         convectionFanActive: false,
-        heatingLampActive: false,
+        heaterAirActive: false,
+        heaterWaterActive: false,
         middayBlackoutActive: false,
       };
       (service as any).latestCache.set('device-1', snapshot);
@@ -318,7 +196,8 @@ describe('TelemetryService', () => {
         temperatureErrorDelta: -1,
         mistGeneratorActive: true,
         convectionFanActive: false,
-        heatingLampActive: false,
+        heaterAirActive: false,
+        heaterWaterActive: false,
         middayBlackoutActive: false,
       };
 

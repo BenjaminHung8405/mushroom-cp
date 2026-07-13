@@ -8,6 +8,7 @@ import {
   MessageEvent,
   Logger,
   HttpCode,
+  NotFoundException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Observable, merge, of } from 'rxjs';
@@ -21,6 +22,7 @@ import {
   Min,
 } from 'class-validator';
 import { MqttService } from '../mqtt/mqtt.service';
+import { DeviceRegistryService } from './device-registry.service';
 
 /**
  * DTO for validating the device ID route parameter.
@@ -88,7 +90,10 @@ export class DeviceSetpointDto {
 export class DeviceController {
   private readonly logger = new Logger(DeviceController.name);
 
-  constructor(private readonly mqttService: MqttService) {}
+  constructor(
+    private readonly mqttService: MqttService,
+    private readonly deviceRegistryService: DeviceRegistryService,
+  ) {}
 
   /**
    * SSE endpoint: streams real-time device status events to the Next.js UI.
@@ -109,6 +114,26 @@ export class DeviceController {
           }) satisfies MessageEvent,
       ),
     );
+  }
+
+  /**
+   * REST: Get the physical-house mapping for the monitored device.
+   */
+  @Get(':id')
+  async getDevice(@Param() params: DeviceParamsDto) {
+    const device =
+      this.deviceRegistryService.get(params.id) ??
+      (await this.deviceRegistryService.refreshOne(params.id));
+
+    if (!device) {
+      throw new NotFoundException(`Device '${params.id}' not found.`);
+    }
+
+    return {
+      deviceId: device.deviceId,
+      houseId: device.houseId,
+      displayName: device.displayName,
+    };
   }
 
   /**

@@ -122,12 +122,14 @@ CREATE TABLE telemetry_logs (
     temperature_error_delta NUMERIC(4,1),
     
     -- Trạng thái bật/tắt thiết bị chấp hành (ON/OFF)
-    mist_generator_active BOOLEAN DEFAULT FALSE,  -- Máy phun sương siêu âm trung tâm
-    convection_fan_active BOOLEAN DEFAULT FALSE,  -- Quạt đối lưu
-    heating_lamp_active BOOLEAN DEFAULT FALSE,    -- Đèn sưởi
-    
-    -- Trạng thái kích hoạt cơ chế an toàn
-    midday_blackout_active BOOLEAN DEFAULT FALSE -- Báo hiệu kích hoạt khóa sốc nhiệt
+    mist_generator_active BOOLEAN,                -- Edge-authoritative máy phun sương
+    convection_fan_active BOOLEAN,                -- Edge-authoritative quạt đối lưu
+    heating_lamp_active BOOLEAN DEFAULT FALSE,    -- Legacy compatibility only; no longer written/read by new API
+    heater_air_active BOOLEAN,                    -- Edge-authoritative H_AIR SSR state
+    heater_water_active BOOLEAN,                  -- Edge-authoritative H_WAT hardware slot SSR state
+
+    -- Edge-authoritative safety interlock state
+    midday_blackout_active BOOLEAN
 );
 
 -- Biến đổi bảng telemetry_logs thành một Hypertable phân mảnh theo thời gian (7 ngày/chunk)

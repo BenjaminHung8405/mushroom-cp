@@ -194,6 +194,7 @@ namespace sensors
     bool read_all_telemetry(TelemetryData &data)
     {
         bool success = true;
+        data.actuators = RelayOutputsPod{false, false, false, false, false, {0, 0, 0}};
 
         float sht_temp = NAN;
         float sht_hum = NAN;

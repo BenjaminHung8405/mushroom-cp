@@ -63,9 +63,11 @@ interface RealTelemetryContextType {
   snapshot: TelemetrySnapshot | null
   isLoading: boolean
 
-  fanActive: boolean
-  lampActive: boolean
-  mistActive: boolean
+  fanActive: boolean | null
+  heaterAirActive: boolean | null
+  heaterWaterActive: boolean | null
+  mistActive: boolean | null
+  middayBlackoutActive: boolean | null
 
   deviceStatus: DeviceStatus
   lastTelemetryAt: string | null
@@ -177,9 +179,11 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const temperatureSetpoint = snapshot?.temperatureSetpoint ?? null
   const humiditySetpoint = snapshot?.humiditySetpoint ?? null
 
-  const fanActive = snapshot?.convectionFanActive ?? false
-  const lampActive = snapshot?.heatingLampActive ?? false
-  const mistActive = snapshot?.mistGeneratorActive ?? false
+  const fanActive = snapshot?.convectionFanActive ?? null
+  const heaterAirActive = snapshot?.heaterAirActive ?? null
+  const heaterWaterActive = snapshot?.heaterWaterActive ?? null
+  const mistActive = snapshot?.mistGeneratorActive ?? null
+  const middayBlackoutActive = snapshot?.middayBlackoutActive ?? null
 
   return (
     <RealTelemetryContext.Provider
@@ -195,8 +199,10 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         snapshot,
         isLoading,
         fanActive,
-        lampActive,
+        heaterAirActive,
+        heaterWaterActive,
         mistActive,
+        middayBlackoutActive,
         deviceStatus,
         lastTelemetryAt,
         monitoredDeviceId: DEFAULT_DEVICE_ID,

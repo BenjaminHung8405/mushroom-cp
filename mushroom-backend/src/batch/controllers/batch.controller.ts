@@ -3,6 +3,7 @@ import { BatchService } from '../services/batch.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateBatchDto } from '../dto/update-batch.dto';
 import { CropBatch } from '../entities/crop-batch.entity';
+import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 
 import { BatchIdParamsDto, HouseIdParamsDto } from '../dto/batch.params.dto';
 
@@ -26,7 +27,7 @@ export class BatchController {
   @Get('active/:houseId')
   async getActive(
     @Param() params: HouseIdParamsDto,
-  ): Promise<CropBatch | null> {
-    return await this.batchService.getActiveBatchByHouseId(params.houseId);
+  ): Promise<ActiveBatchResponseDto | null> {
+    return await this.batchService.getActiveBatchStatusByHouseId(params.houseId);
   }
 }

@@ -51,6 +51,7 @@ struct SharedSystemState {
     float h_wat_duty;
     float mist_duty;
     float exhaust_duty;
+    RelayOutputsPod actuators;  ///< Final TPC SSR state, shared with local web API.
 };
 
 #ifndef UNIT_TEST

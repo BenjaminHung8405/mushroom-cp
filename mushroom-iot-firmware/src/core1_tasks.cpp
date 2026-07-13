@@ -87,9 +87,9 @@ void setSharedForceFullPublish(bool val)
 }
 
 #ifndef UNIT_TEST
-SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f};
+SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, {0, 0, 0}}};
 #else
-static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f};
+static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, {0, 0, 0}}};
 #endif
 
 void updateSharedSystemState(const SharedSystemState& state)
@@ -290,9 +290,10 @@ TPC_Task::RtcTimePod readRtcTimeFailSafe()
 // ---------------------------------------------------------------------------
 // Helper: sample sensors and enqueue telemetry without changing GPIO state.
 // ---------------------------------------------------------------------------
-static void sampleAndEnqueueTelemetry(TelemetryData& data)
+static void sampleAndEnqueueTelemetry(TelemetryData& data, const RelayOutputsPod& actuators)
 {
     const bool ok = sensors::read_all_telemetry(data);
+    data.actuators = actuators;
 
     {
         ScopedSerialLock guard(SerialLock::get_instance());
@@ -415,6 +416,7 @@ static void updateWebInterfaceState(
     localState.h_wat_duty = outputs.HWat;
     localState.mist_duty = outputs.Mist;
     localState.exhaust_duty = outputs.Exh;
+    localState.actuators = telemetry.actuators;
     updateSharedSystemState(localState);
 }
 
@@ -468,12 +470,6 @@ static void runControlPipelineStep(
     }
 
     const unsigned long now = millis();
-    if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
-    {
-        lastSensorMs = now;
-        sampleAndEnqueueTelemetry(telemetry);
-    }
-
     float errorTemp = NAN;
     float errorHumid = NAN;
     float errorCO2 = NAN;
@@ -495,7 +491,8 @@ static void runControlPipelineStep(
 
     // Mandatory ordering: all fuzzy/gain work completes before this hard
     // interlock, then only TPC translates protected duties to GPIO levels.
-    TPC_Task::hardwareProtectionOverride(outputs, readRtcTimeFailSafe());
+    const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
+    TPC_Task::hardwareProtectionOverride(outputs, rtcTime);
     TPC_Task::applyTpcOutputs(
         outputs,
         H_AIR_TPC_CONFIG,
@@ -503,6 +500,31 @@ static void runControlPipelineStep(
         MIST_TPC_CONFIG,
         EXHAUST_TPC_CONFIG,
         tpcState);
+
+    const RelayOutputsPod actuatorSnapshot = {
+        tpcState.Mist.output_high,
+        tpcState.Exh.output_high,
+        tpcState.HAir.output_high,
+        tpcState.HWat.output_high,
+        !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||
+            (rtcTime.hour == 13U && rtcTime.minute <= 30U)),
+        {0, 0, 0},
+    };
+    telemetry.actuators = actuatorSnapshot;
+
+    static RelayOutputsPod lastEnqueuedActuators = {false, false, false, false, false, {0, 0, 0}};
+    const bool actuatorChanged =
+        actuatorSnapshot.mist_active != lastEnqueuedActuators.mist_active ||
+        actuatorSnapshot.fan_active != lastEnqueuedActuators.fan_active ||
+        actuatorSnapshot.heater_air_active != lastEnqueuedActuators.heater_air_active ||
+        actuatorSnapshot.heater_water_active != lastEnqueuedActuators.heater_water_active ||
+        actuatorSnapshot.midday_blackout_active != lastEnqueuedActuators.midday_blackout_active;
+    if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS || actuatorChanged)
+    {
+        lastSensorMs = now;
+        sampleAndEnqueueTelemetry(telemetry, actuatorSnapshot);
+        lastEnqueuedActuators = actuatorSnapshot;
+    }
 
     updateWebInterfaceState(telemetry, setpoints, outputs);
 }
@@ -525,7 +547,7 @@ void taskCore1Control(void* /*pvParameters*/)
     }
 #endif
 
-    TelemetryData telemetry = {NAN, NAN, NAN};
+    TelemetryData telemetry = {NAN, NAN, NAN, {false, false, false, false, false, {0, 0, 0}}};
     FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
     AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
     TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();

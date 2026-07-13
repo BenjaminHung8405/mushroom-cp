@@ -90,8 +90,7 @@ describe('BatchService', () => {
         status: 'ACTIVE',
       } as CropBatch;
       const mockBatch2 = {
-        id: 'batch-2',
-        houseId: 'house-1',
+          houseId: 'house-1',
         status: 'ACTIVE',
       } as CropBatch;
 
@@ -104,6 +103,27 @@ describe('BatchService', () => {
         ConflictException,
       );
       expect(loggerErrorSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('getActiveBatchStatusByHouseId', () => {
+    it('should return null when a house has no active batch', async () => {
+      cropBatchRepo.find.mockResolvedValue([]);
+      await expect(service.getActiveBatchStatusByHouseId('house-1')).resolves.toBeNull();
+    });
+
+    it('should include the computed crop day for an active batch', async () => {
+      const activeBatch = {
+        id: 'batch-1', houseId: 'house-1', status: 'ACTIVE',
+        startDate: new Date('2026-07-01T23:30:00+07:00'), totalCropDays: 30,
+      } as CropBatch;
+      cropBatchRepo.find.mockResolvedValue([activeBatch]);
+
+      const result = await service.getActiveBatchStatusByHouseId(
+        'house-1', new Date('2026-07-02T00:01:00+07:00'),
+      );
+
+      expect(result).toEqual(expect.objectContaining({ cropDay: 2, crop_day: 2 }));
     });
   });
 
@@ -151,6 +171,20 @@ describe('BatchService', () => {
         const testTime = new Date('2026-07-01T12:00:00+07:00');
         const result = await service.getBatchContext('house-1', testTime);
         expect(result.cropDay).toBe(1);
+      });
+
+      it('should advance to day 2 at midnight in Vietnam even before 24 hours elapse', async () => {
+        curveCheckpointRepo.find.mockResolvedValue([]);
+        lightScheduleBlockRepo.findOne.mockResolvedValue(null);
+
+        const startedAt = new Date('2026-07-01T23:30:00+07:00');
+        cropBatchRepo.find.mockResolvedValue([{ ...mockBatch, startDate: startedAt }]);
+        const result = await service.getBatchContext(
+          'house-1',
+          new Date('2026-07-02T00:01:00+07:00'),
+        );
+
+        expect(result.cropDay).toBe(2);
       });
 
       it('should calculate cropDay = 5 for test time on July 5th', async () => {
@@ -303,7 +337,6 @@ describe('BatchService', () => {
 
   describe('createBatch', () => {
     const mockDto = {
-      id: 'batch-2',
       houseId: 'house-1',
       profileName: 'Dry Season Optimization',
       totalCropDays: 30,
@@ -360,7 +393,13 @@ describe('BatchService', () => {
 
       const result = await service.createBatch(mockDto);
       expect(result).toEqual(mockCreatedBatch);
-      expect(mockManager.create).toHaveBeenCalledWith(CropBatch, mockDto);
+      expect(mockManager.create).toHaveBeenCalledWith(
+        CropBatch,
+        expect.objectContaining({
+          ...mockDto,
+          id: expect.stringMatching(/^batch_[a-z0-9]+_[a-z0-9]+$/),
+        }),
+      );
       expect(mockManager.save).toHaveBeenCalledWith(
         CropBatch,
         mockCreatedBatch,

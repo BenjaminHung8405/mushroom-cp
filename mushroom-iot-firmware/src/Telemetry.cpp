@@ -9,6 +9,7 @@ TelemetryState makeInitialState()
     state.lastPubState.temp_air = NAN;
     state.lastPubState.humidity_air = NAN;
     state.lastPubState.co2_level = NAN;
+    state.lastPubState.actuators = RelayOutputsPod{false, false, false, false, false, {0, 0, 0}};
     state.lastPubTimeMs = 0UL;
     state.forceFullPublish = false;
     return state;
@@ -46,8 +47,16 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, const Telemetr
     const bool temp_changed = isDeltaExceeded(current.temp_air, state.lastPubState.temp_air, 0.2f);
     const bool humid_changed = isDeltaExceeded(current.humidity_air, state.lastPubState.humidity_air, 1.0f);
     const bool co2_changed = isDeltaExceeded(current.co2_level, state.lastPubState.co2_level, 10.0f);
+    const RelayOutputsPod& now = current.actuators;
+    const RelayOutputsPod& previous = state.lastPubState.actuators;
+    const bool actuators_changed =
+        now.mist_active != previous.mist_active ||
+        now.fan_active != previous.fan_active ||
+        now.heater_air_active != previous.heater_air_active ||
+        now.heater_water_active != previous.heater_water_active ||
+        now.midday_blackout_active != previous.midday_blackout_active;
 
-    if (temp_changed || humid_changed || co2_changed)
+    if (temp_changed || humid_changed || co2_changed || actuators_changed)
     {
         return PublishType::DELTA;
     }
@@ -65,6 +74,25 @@ void commitSuccessfulPublish(TelemetryState& state,
 }
 
 namespace {
+
+void addActuatorPayload(const RelayOutputsPod& actuators, JsonObject& root)
+{
+    JsonObject actuatorRoot = root.createNestedObject("actuators");
+    actuatorRoot["mist_active"] = actuators.mist_active;
+    actuatorRoot["fan_active"] = actuators.fan_active;
+    actuatorRoot["heater_air_active"] = actuators.heater_air_active;
+    actuatorRoot["heater_water_active"] = actuators.heater_water_active;
+    actuatorRoot["midday_blackout_active"] = actuators.midday_blackout_active;
+}
+
+bool actuatorStateChanged(const RelayOutputsPod& current, const RelayOutputsPod& previous)
+{
+    return current.mist_active != previous.mist_active ||
+           current.fan_active != previous.fan_active ||
+           current.heater_air_active != previous.heater_air_active ||
+           current.heater_water_active != previous.heater_water_active ||
+           current.midday_blackout_active != previous.midday_blackout_active;
+}
 
 void buildFullPayload(const TelemetryData& current, JsonObject& root)
 {
@@ -85,6 +113,8 @@ void buildFullPayload(const TelemetryData& current, JsonObject& root)
     } else {
         root["co2_level"] = current.co2_level;
     }
+
+    addActuatorPayload(current.actuators, root);
 }
 
 void buildChangedDeltaPayload(const TelemetryData& current, const TelemetryData& lastPubState, JsonObject& root)
@@ -114,6 +144,11 @@ void buildChangedDeltaPayload(const TelemetryData& current, const TelemetryData&
         } else {
             root["co2_level"] = current.co2_level;
         }
+    }
+
+    if (actuatorStateChanged(current.actuators, lastPubState.actuators))
+    {
+        addActuatorPayload(current.actuators, root);
     }
 }
 

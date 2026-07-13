@@ -11,6 +11,7 @@ import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
 import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
+import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 
 export interface BatchContext {
@@ -78,6 +79,26 @@ export class BatchService {
     }
 
     return activeBatches[0] ?? null;
+  }
+
+  /**
+   * Returns the active batch plus its current crop day for dashboard consumers.
+   */
+  async getActiveBatchStatusByHouseId(
+    houseId: string,
+    timestamp = new Date(),
+  ): Promise<ActiveBatchResponseDto | null> {
+    const activeBatch = await this.getActiveBatchByHouseId(houseId);
+    if (!activeBatch) {
+      return null;
+    }
+
+    const cropDay = this.calculateCropDay(activeBatch, timestamp);
+    return {
+      ...activeBatch,
+      cropDay,
+      crop_day: cropDay,
+    };
   }
 
   /**
@@ -156,8 +177,19 @@ export class BatchService {
     const zonedNow = toZonedTime(timestamp, timezone);
     const zonedStart = toZonedTime(new Date(activeBatch.startDate), timezone);
 
-    const diffMs = zonedNow.getTime() - zonedStart.getTime();
-    let cropDay = Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
+    // Compare local calendar dates, not elapsed 24-hour windows. A batch started
+    // at any time today remains on day 1 until the next midnight in Vietnam.
+    const nowDateUtc = Date.UTC(
+      zonedNow.getFullYear(),
+      zonedNow.getMonth(),
+      zonedNow.getDate(),
+    );
+    const startDateUtc = Date.UTC(
+      zonedStart.getFullYear(),
+      zonedStart.getMonth(),
+      zonedStart.getDate(),
+    );
+    let cropDay = Math.floor((nowDateUtc - startDateUtc) / 86_400_000) + 1;
 
     if (cropDay < 1) {
       cropDay = 1;
@@ -327,10 +359,17 @@ export class BatchService {
           );
         }
 
-        const newBatch = transactionalEntityManager.create(CropBatch, dto);
+        const newBatch = transactionalEntityManager.create(CropBatch, {
+          ...dto,
+          id: this.createBatchId(),
+        });
         return await transactionalEntityManager.save(CropBatch, newBatch);
       },
     );
+  }
+
+  private createBatchId(): string {
+    return `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
   /**

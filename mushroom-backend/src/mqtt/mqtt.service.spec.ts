@@ -122,6 +122,7 @@ describe('MqttService', () => {
           expect(event.houseId).toBe('house-1');
           expect(event.temp_air).toBe(25.5);
           expect(event.humidity_air).toBe(80);
+          expect(event.actuators).toBeNull();
           expect(event.receivedAt).toBeInstanceOf(Date);
           done();
         },
@@ -131,6 +132,31 @@ describe('MqttService', () => {
         'mushroom/device/device-1/telemetry',
         Buffer.from(JSON.stringify({ temp_air: 25.5, humidity_air: 80 })),
       );
+    });
+
+    it('should preserve a complete actuator state from edge telemetry', (done) => {
+      service.telemetry$.subscribe((event) => {
+        expect(event.actuators).toEqual({
+          mist_active: true, fan_active: false, heater_air_active: true,
+          heater_water_active: false, midday_blackout_active: true,
+        });
+        done();
+      });
+      messageCallback('mushroom/device/device-1/telemetry', Buffer.from(JSON.stringify({
+        temp_air: 25.5,
+        actuators: { mist_active: true, fan_active: false, heater_air_active: true, heater_water_active: false, midday_blackout_active: true },
+      })));
+    });
+
+    it('marks partial or malformed actuator state unavailable without dropping sensor telemetry', (done) => {
+      service.telemetry$.subscribe((event) => {
+        expect(event.actuators).toBeNull();
+        done();
+      });
+      messageCallback('mushroom/device/device-1/telemetry', Buffer.from(JSON.stringify({
+        temp_air: 25.5,
+        actuators: { mist_active: true },
+      })));
     });
 
     it('should reject telemetry with no canonical finite metrics', (done) => {

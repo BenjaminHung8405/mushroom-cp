@@ -76,15 +76,21 @@ export class TelemetryLog {
   })
   temperatureErrorDelta: number | null;
 
-  @Column({ name: 'mist_generator_active', type: 'boolean', default: false })
-  mistGeneratorActive: boolean;
+  @Column({ name: 'mist_generator_active', type: 'boolean', nullable: true })
+  mistGeneratorActive: boolean | null;
 
-  @Column({ name: 'convection_fan_active', type: 'boolean', default: false })
-  convectionFanActive: boolean;
+  @Column({ name: 'convection_fan_active', type: 'boolean', nullable: true })
+  convectionFanActive: boolean | null;
 
-  @Column({ name: 'heating_lamp_active', type: 'boolean', default: false })
-  heatingLampActive: boolean;
+  @Column({ name: 'heating_lamp_active', type: 'boolean', nullable: true })
+  heatingLampActive: boolean | null;
 
-  @Column({ name: 'midday_blackout_active', type: 'boolean', default: false })
-  middayBlackoutActive: boolean;
+  @Column({ name: 'heater_air_active', type: 'boolean', nullable: true })
+  heaterAirActive: boolean | null;
+
+  @Column({ name: 'heater_water_active', type: 'boolean', nullable: true })
+  heaterWaterActive: boolean | null;
+
+  @Column({ name: 'midday_blackout_active', type: 'boolean', nullable: true })
+  middayBlackoutActive: boolean | null;
 }

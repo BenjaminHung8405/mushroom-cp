@@ -412,6 +412,12 @@ namespace web_interface
         doc["h_wat_duty"] = state.h_wat_duty;
         doc["mist_duty"] = state.mist_duty;
         doc["exhaust_duty"] = state.exhaust_duty;
+        JsonObject actuators = doc.createNestedObject("actuators");
+        actuators["mist_active"] = state.actuators.mist_active;
+        actuators["fan_active"] = state.actuators.fan_active;
+        actuators["heater_air_active"] = state.actuators.heater_air_active;
+        actuators["heater_water_active"] = state.actuators.heater_water_active;
+        actuators["midday_blackout_active"] = state.actuators.midday_blackout_active;
     }
 
     void apiGetRealtimeData()

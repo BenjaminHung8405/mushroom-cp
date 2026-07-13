@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
 import { LightTimelineBlock } from '@/lib/types'
-import { AlertCircle, Copy, Lightbulb, Lock, Save, Unlock } from 'lucide-react'
+import { AlertCircle, Lightbulb, Lock, Unlock } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface TimelineProps {
@@ -769,19 +769,7 @@ export function FuzzyLogicEqualizer() {
     setLightDayStates(newStates)
   }
 
-  const handleSaveProfile = () => {
-    console.log('Profile saved:', {
-      profileName,
-      thermalShockProtection,
-      temperatureCheckpoints,
-      humidityCheckpoints,
-      lightBlocks,
-    })
-  }
 
-  const handleDistributeProfile = () => {
-    console.log('Hồ sơ đã được phân phối đến tất cả nhà trụ')
-  }
 
   return (
     <Card className="p-4 md:p-6 border border-slate-700/50 bg-slate-950/40 col-span-full mt-6">
@@ -790,7 +778,7 @@ export function FuzzyLogicEqualizer() {
           Trình chỉnh hồ sơ logic mờ (chu kỳ {lightDayStates.length} ngày)
         </h2>
 
-        {/* Profile Saver Topbar - Responsive stacked on mobile */}
+        {/* Profile Name — informational only; saved via BatchStatusPanel */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6 p-3 md:p-4 rounded-lg bg-slate-900/30 border border-slate-700/50">
           <input
             type="text"
@@ -799,16 +787,9 @@ export function FuzzyLogicEqualizer() {
             placeholder="Tên hồ sơ"
             className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-xs sm:text-sm"
           />
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button onClick={handleSaveProfile} className="gap-2 flex-1 sm:flex-initial text-xs h-9">
-              <Save className="w-4 h-4" />
-              Lưu cấu hình
-            </Button>
-            <Button onClick={handleDistributeProfile} variant="outline" className="gap-2 flex-1 sm:flex-initial text-xs h-9">
-              <Copy className="w-4 h-4" />
-              Phân phối
-            </Button>
-          </div>
+          <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+            Cấu hình cục bộ · chưa lưu vào vụ
+          </span>
         </div>
 
         {/* Intraday Thermal Shock Protection */}

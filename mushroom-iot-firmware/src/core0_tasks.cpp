@@ -129,7 +129,7 @@ void taskCore0Communication(void* /*pvParameters*/)
     // Initialize MQTT
     mqtt::MqttClient::getInstance().init();
 
-    static TelemetryData last_known_telemetry = {NAN, NAN, NAN};
+    static TelemetryData last_known_telemetry = {NAN, NAN, NAN, {false, false, false, false, false, {0, 0, 0}}};
     static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
 
     #ifndef UNIT_TEST

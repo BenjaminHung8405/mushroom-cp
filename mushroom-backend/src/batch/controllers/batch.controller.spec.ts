@@ -11,7 +11,7 @@ describe('BatchController', () => {
   const mockBatchService = () => ({
     createBatch: jest.fn(),
     endBatch: jest.fn(),
-    getActiveBatchByHouseId: jest.fn(),
+    getActiveBatchStatusByHouseId: jest.fn(),
   });
 
   beforeEach(async () => {
@@ -36,7 +36,6 @@ describe('BatchController', () => {
   describe('create', () => {
     it('should call service.createBatch and return the created batch', async () => {
       const mockDto = {
-        id: 'batch-1',
         houseId: 'house-1',
         profileName: 'Dry Season',
         totalCropDays: 30,
@@ -67,23 +66,22 @@ describe('BatchController', () => {
   describe('getActive', () => {
     it('should call service.getActiveBatchByHouseId and return active batch or null', async () => {
       const mockResult = {
-        id: 'batch-1',
         houseId: 'house-1',
         status: 'ACTIVE',
       } as CropBatch;
-      service.getActiveBatchByHouseId.mockResolvedValue(mockResult);
+      service.getActiveBatchStatusByHouseId.mockResolvedValue(mockResult as any);
 
       const result = await controller.getActive({ houseId: 'house-1' });
       expect(result).toEqual(mockResult);
-      expect(service.getActiveBatchByHouseId).toHaveBeenCalledWith('house-1');
+      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith('house-1');
     });
 
     it('should return null if no active batch is found', async () => {
-      service.getActiveBatchByHouseId.mockResolvedValue(null);
+      service.getActiveBatchStatusByHouseId.mockResolvedValue(null);
 
       const result = await controller.getActive({ houseId: 'house-2' });
       expect(result).toBeNull();
-      expect(service.getActiveBatchByHouseId).toHaveBeenCalledWith('house-2');
+      expect(service.getActiveBatchStatusByHouseId).toHaveBeenCalledWith('house-2');
     });
   });
 });

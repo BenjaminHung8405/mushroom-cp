@@ -6,7 +6,6 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Subscription, Subject } from 'rxjs';
-import { toZonedTime } from 'date-fns-tz';
 import { MqttService, TelemetryEvent } from '../../mqtt/mqtt.service';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
@@ -25,10 +24,11 @@ export interface TelemetrySnapshot {
   temperatureSetpoint: number | null;
   humidityErrorDelta: number | null;
   temperatureErrorDelta: number | null;
-  mistGeneratorActive: boolean;
-  convectionFanActive: boolean;
-  heatingLampActive: boolean;
-  middayBlackoutActive: boolean;
+  mistGeneratorActive: boolean | null;
+  convectionFanActive: boolean | null;
+  heaterAirActive: boolean | null;
+  heaterWaterActive: boolean | null;
+  middayBlackoutActive: boolean | null;
 }
 
 export interface TelemetryLogDbRow {
@@ -43,10 +43,11 @@ export interface TelemetryLogDbRow {
   temperatureSetpoint: string | number | null;
   humidityErrorDelta: string | number | null;
   temperatureErrorDelta: string | number | null;
-  mistGeneratorActive: boolean;
-  convectionFanActive: boolean;
-  heatingLampActive: boolean;
-  middayBlackoutActive: boolean;
+  mistGeneratorActive: boolean | null;
+  convectionFanActive: boolean | null;
+  heaterAirActive: boolean | null;
+  heaterWaterActive: boolean | null;
+  middayBlackoutActive: boolean | null;
 }
 
 @Injectable()
@@ -93,86 +94,25 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
    */
   async processTelemetry(event: TelemetryEvent): Promise<void> {
     const timestamp = event.receivedAt ?? new Date(event.timestamp);
-    const deviceId = event.deviceId;
-    const houseId = event.houseId;
-
+    const { deviceId, houseId } = event;
     if (!deviceId || !houseId) {
-      this.logger.error(
-        `Received telemetry without deviceId/houseId: ${JSON.stringify(event)}`,
-      );
+      this.logger.error(`Received telemetry without deviceId/houseId: ${JSON.stringify(event)}`);
       return;
     }
 
-    let controlActions = {
-      mist_generator_active: false,
-      convection_fan_active: false,
-      heating_lamp_active: false,
-      midday_blackout_active: false,
-    };
     let context: BatchContext | null = null;
-
     try {
       context = await this.batchService.getBatchContext(houseId, timestamp);
-
-      if (context.batchId === null) {
-        await this.saveTelemetryLog(
-          houseId,
-          event,
-          context,
-          controlActions,
-          timestamp,
-        );
-        this.updateCache(
-          deviceId,
-          houseId,
-          event,
-          context,
-          controlActions,
-          timestamp,
-        );
-      } else {
-        const outputs = this.calculateControlOutputs(event, context, timestamp);
-        controlActions = {
-          mist_generator_active: outputs.mistGeneratorActive,
-          convection_fan_active: outputs.convectionFanActive,
-          heating_lamp_active: outputs.heatingLampActive,
-          midday_blackout_active: outputs.middayBlackoutActive,
-        };
-        await this.saveTelemetryLog(
-          houseId,
-          event,
-          context,
-          controlActions,
-          timestamp,
-        );
-        this.updateCache(
-          deviceId,
-          houseId,
-          event,
-          context,
-          controlActions,
-          timestamp,
-        );
-      }
+      await this.saveTelemetryLog(houseId, event, context, timestamp);
+      this.updateCache(deviceId, houseId, event, context, timestamp);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Critical error processing telemetry for device ${deviceId}: ${errMsg}`,
-      );
-      // Observed emergency recommendation only — the Core 1 fuzzy/TPC pipeline owns SSRs.
-      controlActions = {
-        mist_generator_active: false,
-        convection_fan_active: true,
-        heating_lamp_active: false,
-        midday_blackout_active: false,
-      };
+      this.logger.error(`Critical error processing telemetry for device ${deviceId}: ${errMsg}`);
     } finally {
       try {
-        const targetTemp = context?.targetTemp ?? 30;
-        const targetHumid = context?.targetHumid ?? 80;
         await this.mqttService.dispatchSetpoint(deviceId, {
-          temperatureSetpoint: targetTemp,
-          humiditySetpoint: targetHumid,
+          temperatureSetpoint: context?.targetTemp ?? 30,
+          humiditySetpoint: context?.targetHumid ?? 80,
           co2Setpoint: 1000,
           thermal_shock_protection: context?.thermalShockProtection ?? true,
           thermal_shock_start: context?.thermalShockStart?.slice(0, 5) ?? '11:00',
@@ -181,13 +121,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           setpoint_ttl_sec: 120,
         });
       } catch (dispatchError: unknown) {
-        const dispatchErrMsg =
-          dispatchError instanceof Error
-            ? dispatchError.message
-            : String(dispatchError);
-        this.logger.error(
-          `Failed to dispatch advisory setpoint to '${deviceId}': ${dispatchErrMsg}`,
-        );
+        const dispatchErrMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
+        this.logger.error(`Failed to dispatch advisory setpoint to '${deviceId}': ${dispatchErrMsg}`);
       }
     }
   }
@@ -222,7 +157,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           temperature_error_delta AS "temperatureErrorDelta",
           mist_generator_active AS "mistGeneratorActive",
           convection_fan_active AS "convectionFanActive",
-          heating_lamp_active AS "heatingLampActive",
+          heater_air_active AS "heaterAirActive",
+          heater_water_active AS "heaterWaterActive",
           midday_blackout_active AS "middayBlackoutActive"
         FROM telemetry_logs
         WHERE house_id = $1
@@ -264,10 +200,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           row.temperatureErrorDelta != null
             ? Number(row.temperatureErrorDelta)
             : null,
-        mistGeneratorActive: Boolean(row.mistGeneratorActive),
-        convectionFanActive: Boolean(row.convectionFanActive),
-        heatingLampActive: Boolean(row.heatingLampActive),
-        middayBlackoutActive: Boolean(row.middayBlackoutActive),
+        mistGeneratorActive: row.mistGeneratorActive,
+        convectionFanActive: row.convectionFanActive,
+        heaterAirActive: row.heaterAirActive,
+        heaterWaterActive: row.heaterWaterActive,
+        middayBlackoutActive: row.middayBlackoutActive,
       };
 
       this.latestCache.set(deviceId, snapshot);
@@ -279,70 +216,6 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       );
       return null;
     }
-  }
-
-  calculateControlOutputs(
-    event: TelemetryEvent,
-    context: BatchContext,
-    timestamp: Date,
-  ): {
-    mistGeneratorActive: boolean;
-    convectionFanActive: boolean;
-    heatingLampActive: boolean;
-    middayBlackoutActive: boolean;
-  } {
-    const tempAir = event.temp_air;
-    const humidityAir = event.humidity_air;
-    const co2Level = event.co2_level;
-
-    const zonedTime = toZonedTime(timestamp, 'Asia/Ho_Chi_Minh');
-    const minutesSinceMidnight =
-      zonedTime.getHours() * 60 + zonedTime.getMinutes();
-
-    let isBlackoutActive = false;
-    if (context.thermalShockProtection) {
-      const startMin = context.thermalShockStart
-        ? this.parseTimeToMinutes(context.thermalShockStart)
-        : 660;
-      const endMin = context.thermalShockEnd
-        ? this.parseTimeToMinutes(context.thermalShockEnd)
-        : 810;
-      if (minutesSinceMidnight >= startMin && minutesSinceMidnight <= endMin) {
-        isBlackoutActive = true;
-      }
-    }
-
-    let mistGeneratorActive = false;
-    if (!isBlackoutActive && humidityAir !== null && humidityAir !== undefined) {
-      mistGeneratorActive = humidityAir < context.targetHumid;
-    }
-
-    let convectionFanActive = false;
-    if (tempAir !== null && tempAir !== undefined && tempAir > context.targetTemp) {
-      convectionFanActive = true;
-    }
-    if (co2Level !== null && co2Level !== undefined && co2Level > 1000) {
-      convectionFanActive = true;
-    }
-
-    let heatingLampActive = false;
-    if (tempAir !== null && tempAir !== undefined) {
-      heatingLampActive = tempAir < context.tempOptimalMin;
-    }
-
-    return {
-      mistGeneratorActive,
-      convectionFanActive,
-      heatingLampActive,
-      middayBlackoutActive: isBlackoutActive,
-    };
-  }
-
-  private parseTimeToMinutes(timeStr: string): number {
-    const parts = timeStr.split(':');
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
   }
 
   private calculateDelta(
@@ -357,55 +230,31 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     houseId: string,
     event: TelemetryEvent,
     context: BatchContext,
-    controlActions: {
-      mist_generator_active: boolean;
-      convection_fan_active: boolean;
-      heating_lamp_active: boolean;
-      midday_blackout_active: boolean;
-    },
     timestamp: Date,
   ): Promise<void> {
-    const humidityMeasured = event.humidity_air;
-    const temperatureMeasured = event.temp_air;
-    const co2Measured = event.co2_level;
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
-
-    const queryText = `
+    const actuators = event.actuators;
+    await this.db.query(`
       INSERT INTO telemetry_logs (
         time, batch_id, house_id, crop_day_int,
         humidity_measured, temperature_measured, co2_measured,
         humidity_setpoint, temperature_setpoint,
         humidity_error_delta, temperature_error_delta,
-        mist_generator_active, convection_fan_active, heating_lamp_active,
-        midday_blackout_active
+        mist_generator_active, convection_fan_active, heater_air_active,
+        heater_water_active, midday_blackout_active
       ) VALUES (
-        $1, $2, $3, $4,
-        $5, $6, $7,
-        $8, $9,
-        $10, $11,
-        $12, $13, $14,
-        $15
-      );
-    `;
-    const params = [
-      timestamp,
-      context.batchId ?? 'idle',
-      houseId,
-      context.cropDay,
-      humidityMeasured,
-      temperatureMeasured,
-      co2Measured,
-      humiditySetpoint,
-      temperatureSetpoint,
-      this.calculateDelta(humiditySetpoint, humidityMeasured),
-      this.calculateDelta(temperatureSetpoint, temperatureMeasured),
-      controlActions.mist_generator_active,
-      controlActions.convection_fan_active,
-      controlActions.heating_lamp_active,
-      controlActions.midday_blackout_active,
-    ];
-    await this.db.query(queryText, params);
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+      );`, [
+      timestamp, context.batchId ?? 'idle', houseId, context.cropDay,
+      event.humidity_air, event.temp_air, event.co2_level,
+      humiditySetpoint, temperatureSetpoint,
+      this.calculateDelta(humiditySetpoint, event.humidity_air),
+      this.calculateDelta(temperatureSetpoint, event.temp_air),
+      actuators?.mist_active ?? null, actuators?.fan_active ?? null,
+      actuators?.heater_air_active ?? null, actuators?.heater_water_active ?? null,
+      actuators?.midday_blackout_active ?? null,
+    ]);
   }
 
   private updateCache(
@@ -413,42 +262,23 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     houseId: string,
     event: TelemetryEvent,
     context: BatchContext,
-    controlActions: {
-      mist_generator_active: boolean;
-      convection_fan_active: boolean;
-      heating_lamp_active: boolean;
-      midday_blackout_active: boolean;
-    },
     timestamp: Date,
   ): void {
-    const humidityMeasured = event.humidity_air;
-    const temperatureMeasured = event.temp_air;
-    const co2Measured = event.co2_level;
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
-
+    const actuators = event.actuators;
     const snapshot: TelemetrySnapshot = {
-      deviceId,
-      houseId,
-      time: timestamp,
-      batchId: context.batchId,
-      cropDayInt: context.cropDay,
-      humidityMeasured,
-      temperatureMeasured,
-      co2Measured,
-      humiditySetpoint,
-      temperatureSetpoint,
-      humidityErrorDelta: this.calculateDelta(humiditySetpoint, humidityMeasured),
-      temperatureErrorDelta: this.calculateDelta(
-        temperatureSetpoint,
-        temperatureMeasured,
-      ),
-      mistGeneratorActive: controlActions.mist_generator_active,
-      convectionFanActive: controlActions.convection_fan_active,
-      heatingLampActive: controlActions.heating_lamp_active,
-      middayBlackoutActive: controlActions.midday_blackout_active,
+      deviceId, houseId, time: timestamp, batchId: context.batchId, cropDayInt: context.cropDay,
+      humidityMeasured: event.humidity_air, temperatureMeasured: event.temp_air, co2Measured: event.co2_level,
+      humiditySetpoint, temperatureSetpoint,
+      humidityErrorDelta: this.calculateDelta(humiditySetpoint, event.humidity_air),
+      temperatureErrorDelta: this.calculateDelta(temperatureSetpoint, event.temp_air),
+      mistGeneratorActive: actuators?.mist_active ?? null,
+      convectionFanActive: actuators?.fan_active ?? null,
+      heaterAirActive: actuators?.heater_air_active ?? null,
+      heaterWaterActive: actuators?.heater_water_active ?? null,
+      middayBlackoutActive: actuators?.midday_blackout_active ?? null,
     };
-
     this.latestCache.set(deviceId, snapshot);
     this.telemetryUpdates$.next(snapshot);
   }
@@ -517,7 +347,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         AVG(co2_measured)::float AS "co2Measured",
         bool_or(mist_generator_active) AS "mistGeneratorActive",
         bool_or(convection_fan_active) AS "convectionFanActive",
-        bool_or(heating_lamp_active) AS "heatingLampActive",
+        bool_or(heater_air_active) AS "heaterAirActive",
+        bool_or(heater_water_active) AS "heaterWaterActive",
         bool_or(midday_blackout_active) AS "middayBlackoutActive"
       FROM telemetry_logs
       WHERE house_id = $2
@@ -535,7 +366,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       co2Measured: number | null;
       mistGeneratorActive: boolean | null;
       convectionFanActive: boolean | null;
-      heatingLampActive: boolean | null;
+      heaterAirActive: boolean | null;
+      heaterWaterActive: boolean | null;
       middayBlackoutActive: boolean | null;
     }>(queryText, [bucket, houseId, from, to]);
 
@@ -554,10 +386,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       temperatureSetpoint: null,
       humidityErrorDelta: null,
       temperatureErrorDelta: null,
-      mistGeneratorActive: Boolean(row.mistGeneratorActive),
-      convectionFanActive: Boolean(row.convectionFanActive),
-      heatingLampActive: Boolean(row.heatingLampActive),
-      middayBlackoutActive: Boolean(row.middayBlackoutActive),
+      mistGeneratorActive: row.mistGeneratorActive,
+      convectionFanActive: row.convectionFanActive,
+      heaterAirActive: row.heaterAirActive,
+      heaterWaterActive: row.heaterWaterActive,
+      middayBlackoutActive: row.middayBlackoutActive,
     }));
   }
 }

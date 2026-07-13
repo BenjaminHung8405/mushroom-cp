@@ -22,10 +22,11 @@ export interface TelemetrySnapshot {
   temperatureSetpoint: number | null
   humidityErrorDelta: number | null
   temperatureErrorDelta: number | null
-  mistGeneratorActive: boolean
-  convectionFanActive: boolean
-  heatingLampActive: boolean
-  middayBlackoutActive: boolean
+  mistGeneratorActive: boolean | null
+  convectionFanActive: boolean | null
+  heaterAirActive: boolean | null
+  heaterWaterActive: boolean | null
+  middayBlackoutActive: boolean | null
 }
 
 export interface DeviceStatusEvent {

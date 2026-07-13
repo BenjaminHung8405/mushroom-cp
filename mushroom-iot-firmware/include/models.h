@@ -13,20 +13,26 @@
  *   - DS18B20 (substrate temp) — not used; SHT30 covers thermal needs.
  *   - SCD30   (CO2)            — hardware not present; co2_level stays NAN.
  */
-struct TelemetryData {
-    float temp_air;        ///< Air temperature in °C (from SHT30)
-    float humidity_air;    ///< Air humidity in % (from SHT30)
-    float co2_level;       ///< CO2 level in ppm — NAN until SCD30 is integrated
-} __attribute__((aligned(4)));
-
 /**
- * @brief Edge safety controller outputs (boolean relays, no PWM).
+ * @brief Edge-authoritative physical SSR output snapshot.
+ *
+ * Values are copied from the TPC scheduler's final output states, never
+ * inferred from sensor readings or read back from GPIO.
  */
 struct RelayOutputsPod {
     bool mist_active;
     bool fan_active;
-    bool heater_active;
+    bool heater_air_active;
+    bool heater_water_active;
     bool midday_blackout_active;
+    uint8_t padding[3];
+} __attribute__((aligned(4)));
+
+struct TelemetryData {
+    float temp_air;        ///< Air temperature in °C (from SHT30)
+    float humidity_air;    ///< Air humidity in % (from SHT30)
+    float co2_level;       ///< CO2 level in ppm — NAN until SCD30 is integrated
+    RelayOutputsPod actuators; ///< Final edge SSR states for this control sample
 } __attribute__((aligned(4)));
 
 /**

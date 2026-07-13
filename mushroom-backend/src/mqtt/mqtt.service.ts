@@ -17,12 +17,22 @@ export interface DeviceStatusEvent {
   timestamp: string;
 }
 
+export interface EdgeActuatorState {
+  mist_active: boolean;
+  fan_active: boolean;
+  heater_air_active: boolean;
+  heater_water_active: boolean;
+  midday_blackout_active: boolean;
+}
+
 export interface TelemetryEvent {
   deviceId: string;
   houseId: string;
   temp_air: number | null;
   humidity_air: number | null;
   co2_level: number | null;
+  /** null means legacy, malformed, or partial edge state; never backend-derived. */
+  actuators: EdgeActuatorState | null;
   receivedAt: Date;
   timestamp: string;
 }
@@ -153,12 +163,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const actuators = this.parseActuators(payloadObj, record.deviceId);
       const event: TelemetryEvent = {
         deviceId: record.deviceId,
         houseId: record.houseId,
         temp_air: tempAir,
         humidity_air: humidityAir,
         co2_level: co2Level,
+        actuators,
         receivedAt,
         timestamp: receivedAt.toISOString(),
       };
@@ -181,6 +193,28 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
     return { deviceId: parts[2], action: parts[3] };
+  }
+
+  private parseActuators(payload: Record<string, unknown>, deviceId: string): EdgeActuatorState | null {
+    if (payload.actuators === undefined) return null;
+    const candidate = payload.actuators;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      this.logger.warn(`Actuator state unavailable from '${deviceId}': expected complete object.`);
+      return null;
+    }
+    const value = candidate as Record<string, unknown>;
+    const fields = ['mist_active', 'fan_active', 'heater_air_active', 'heater_water_active', 'midday_blackout_active'] as const;
+    if (!fields.every((field) => typeof value[field] === 'boolean')) {
+      this.logger.warn(`Actuator state unavailable from '${deviceId}': missing or non-boolean field.`);
+      return null;
+    }
+    return {
+      mist_active: value.mist_active as boolean,
+      fan_active: value.fan_active as boolean,
+      heater_air_active: value.heater_air_active as boolean,
+      heater_water_active: value.heater_water_active as boolean,
+      midday_blackout_active: value.midday_blackout_active as boolean,
+    };
   }
 
   private finiteMetric(value: unknown): number | null {

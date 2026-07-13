@@ -305,7 +305,7 @@ void loop()
     {
         last_delta_scan = now;
         static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
-        TelemetryData mock_tel = {25.0f, 80.0f, NAN};
+        TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}}};
         processTelemetryPublication(now, mock_tel, telemetryState);
     }
     #endif
