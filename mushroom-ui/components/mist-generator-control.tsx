@@ -129,14 +129,14 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           </div>
           <div>
             <h3 className="font-semibold text-foreground flex items-center gap-2">
-              Máy phun sương (Động cơ 220V)
+              Máy phun sương
               {isBlackoutActive && (
                 <span className="text-[10px] font-bold uppercase bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-500/20">
                   Đã khóa
                 </span>
               )}
             </h3>
-            <p className="text-xs text-muted-foreground">Động cơ đảo chiều trên đường ray</p>
+            <p className="text-xs text-muted-foreground">Di chuyển dọc theo đường ray để tưới đều</p>
           </div>
         </div>
 
@@ -144,7 +144,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
         {isBlackoutActive && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)] animate-pulse">
             <Shield className="w-4 h-4" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Khóa sốc nhiệt đang bật</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">Đang tạm ngưng để bảo vệ nấm</span>
           </div>
         )}
       </div>
@@ -161,7 +161,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {endLimitActivated && !isBlackoutActive && (
             <div className="flex items-center gap-2 px-2 py-1 rounded bg-amber-500/20 border border-amber-500/40">
               <AlertCircle className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-amber-300">Đã chạm giới hạn biên</span>
+              <span className="text-xs text-amber-300">Đã đến cuối đường ray</span>
             </div>
           )}
         </div>
@@ -169,7 +169,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {isBlackoutActive ? (
             <span className="text-red-400 font-medium">Tự động ngưng phun sương để tránh sốc nhiệt cho nấm.</span>
           ) : (
-            `Động cơ: ${motorState === 'forward' ? '→ Tiến' : motorState === 'backward' ? '← Lùi' : '⊘ Đã dừng'}`
+            `Máy phun sương: ${motorState === 'forward' ? '→ Tiến' : motorState === 'backward' ? '← Lùi' : '⊘ Đã dừng'}`
           )}
         </p>
       </div>
@@ -177,7 +177,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
       {/* Position Slider */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm text-muted-foreground">Vị trí đường ray</span>
+          <span className="text-sm text-muted-foreground">Vị trí máy phun sương</span>
           <span className="text-sm font-semibold text-foreground">{position}%</span>
         </div>
         <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
@@ -200,7 +200,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
       {pwmDutyCycle !== undefined && (
         <div className="mb-6 p-3 rounded bg-slate-900/30 border border-slate-700/30">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-muted-foreground">Chu kỳ nhiệm vụ PWM</span>
+            <span className="text-xs text-muted-foreground">Cường độ hoạt động</span>
             <span className="text-sm font-semibold text-foreground">
               {isBlackoutActive ? '0.0%' : `${pwmDutyCycle.toFixed(1)}%`}
             </span>
@@ -258,7 +258,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
               Đã khóa điều khiển từ {thermalShockStart} đến {thermalShockEnd}
             </span>
           ) : (
-            '💡 Hệ thống tự động giám sát các công tắc hành trình'
+            '💡 Máy sẽ tự dừng khi đến hai đầu đường ray'
           )}
         </p>
       </div>

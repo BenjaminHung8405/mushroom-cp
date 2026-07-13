@@ -234,7 +234,7 @@ function Timeline({
           {optimalRange && (
             onOptimalRangeChange ? (
               <div className="flex items-center gap-1.5 bg-slate-900/50 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-emerald-400">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Optimal:</span>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Phù hợp:</span>
                 <input
                   type="number"
                   min={min}
@@ -262,7 +262,7 @@ function Timeline({
               </div>
             ) : (
               <span className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
-                Optimal: {optimalRange[0]}-{optimalRange[1]}{unit}
+                Phù hợp: {optimalRange[0]}-{optimalRange[1]}{unit}
               </span>
             )
           )}
@@ -568,19 +568,19 @@ function LightSchedule({
     <div className="mb-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
         <div>
-          <h4 className="font-semibold text-foreground text-sm sm:text-base">Lịch chiếu sáng (BẬT/TẮT)</h4>
-          <p className="text-xs text-muted-foreground">Nhấp vào cột để bật/tắt. Kéo mép màu hổ phách để nới hoặc thu khối.</p>
+          <h4 className="font-semibold text-foreground text-sm sm:text-base">Lịch bật đèn</h4>
+          <p className="text-xs text-muted-foreground">Chạm vào từng ngày để bật hoặc tắt đèn. Kéo hai đầu vùng màu vàng để thay đổi số ngày.</p>
         </div>
         
         {/* Dynamic biological phases display */}
         <div className="flex flex-wrap gap-2 text-[10px] md:text-xs">
           <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded text-amber-300">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            <span>Ủ tơ (Spawn): <strong>Ngày 1 - {spawnRunningEndDay}</strong></span>
+            <span>Giai đoạn ủ tơ: <strong>Ngày 1 - {spawnRunningEndDay}</strong></span>
           </div>
           <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded text-emerald-300">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span>Ra quả (Fruiting): <strong>Ngày {spawnRunningEndDay + 1} - {totalCropDays}</strong></span>
+            <span>Giai đoạn ra nấm: <strong>Ngày {spawnRunningEndDay + 1} - {totalCropDays}</strong></span>
           </div>
         </div>
       </div>
@@ -642,7 +642,7 @@ function LightSchedule({
                   N.{day}
                 </span>
                 <span className={`text-[9px] font-bold z-10 mt-0.5 ${state.active ? 'text-amber-300' : 'text-slate-600'}`}>
-                  {state.active ? 'BẬT' : 'TẮT'}
+                  {state.active ? 'Bật' : 'Tắt'}
                 </span>
               </div>
             )
@@ -653,10 +653,10 @@ function LightSchedule({
       {activeBlocks.length > 0 && (
         <div className="mt-3 p-2.5 rounded bg-slate-955/40 border border-amber-500/20">
           <p className="text-xs text-muted-foreground flex flex-wrap gap-1.5 items-center">
-            <span className="text-amber-400 font-semibold">Khung giờ chiếu sáng:</span>
+            <span className="text-amber-400 font-semibold">Lịch bật đèn:</span>
             {activeBlocks.map((block, idx) => (
               <span key={idx} className="bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded text-amber-200 font-medium text-[11px] inline-block">
-                Ngày {block.startDay}–{block.endDay} (BẬT)
+                Ngày {block.startDay}–{block.endDay} (Bật đèn)
               </span>
             ))}
           </p>
@@ -775,7 +775,7 @@ export function FuzzyLogicEqualizer() {
     <Card className="p-4 md:p-6 border border-slate-700/50 bg-slate-950/40 col-span-full mt-6">
       <div className="mb-6">
         <h2 className="text-lg md:text-2xl font-bold text-foreground mb-4">
-          Trình chỉnh hồ sơ logic mờ (chu kỳ {lightDayStates.length} ngày)
+          Thiết lập điều kiện trồng (chu kỳ {lightDayStates.length} ngày)
         </h2>
 
         {/* Profile Name — informational only; saved via BatchStatusPanel */}
@@ -788,7 +788,7 @@ export function FuzzyLogicEqualizer() {
             className="flex-1 w-full px-3 py-2 rounded bg-slate-800/50 border border-slate-700 text-foreground placeholder-muted-foreground focus:outline-none focus:border-emerald-500/50 text-xs sm:text-sm"
           />
           <span className="self-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-            Cấu hình cục bộ · chưa lưu vào vụ
+            Các thay đổi sẽ áp dụng khi bắt đầu vụ mới
           </span>
         </div>
 
@@ -804,10 +804,10 @@ export function FuzzyLogicEqualizer() {
             <AlertCircle className="w-5.5 h-5.5 text-amber-400 shrink-0" />
             <div className="flex flex-col gap-1.5">
               <h4 className="font-semibold text-foreground text-xs sm:text-sm">
-                Khung giờ khóa tưới sương tránh sốc nhiệt
+                Tạm ngưng phun sương vào giờ nắng nóng
               </h4>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] sm:text-xs text-muted-foreground">Khóa từ:</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">Tạm ngưng từ:</span>
                 <input
                   type="time"
                   value={localShockStart}
@@ -846,7 +846,7 @@ export function FuzzyLogicEqualizer() {
       {/* Three Parallel Timelines */}
       <div className="space-y-8">
         <Timeline
-          title="Đường nhiệt độ (điều khiển giá thể)"
+          title="Nhiệt độ mong muốn theo ngày"
           min={20}
           max={40}
           unit="°C"
@@ -858,7 +858,7 @@ export function FuzzyLogicEqualizer() {
         />
 
         <Timeline
-          title="Đường độ ẩm (điều khiển môi trường)"
+          title="Độ ẩm mong muốn theo ngày"
           min={50}
           max={100}
           unit="%"
@@ -879,9 +879,8 @@ export function FuzzyLogicEqualizer() {
       <div className="mt-6 p-4 rounded-lg bg-blue-950/20 border border-blue-500/20">
         <p className="text-xs text-blue-300">
           <Lightbulb className="w-3.5 h-3.5 inline-block align-text-bottom mr-1" />
-          <strong>Hồ sơ sinh học nấm rơm (Volvariella volvacea):</strong> Chu kỳ {totalCropDays} ngày này
-          điều chỉnh tịnh tiến từ Ủ tơ sang Ra quả. Pha Ủ tơ kết thúc ngày {spawnRunningEndDay}, chuyển tiếp sang pha kích sáng ra quả thể ở ngày {spawnRunningEndDay + 1}.
-          Các điểm neo tự động làm tròn theo bước 0,5 để điều khiển logic mờ ổn định.
+          <strong>Gợi ý cho nấm rơm:</strong> Trong chu kỳ {totalCropDays} ngày, nấm được ủ tơ đến hết ngày {spawnRunningEndDay}.
+          Từ ngày {spawnRunningEndDay + 1}, nấm chuyển sang giai đoạn ra nấm. Bạn có thể điều chỉnh nhiệt độ, độ ẩm và lịch bật đèn phù hợp với thực tế nhà nấm.
         </p>
       </div>
     </Card>

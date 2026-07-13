@@ -37,28 +37,28 @@ export function Header() {
         id: 'hum-crit-low',
         type: 'critical',
         title: 'Nguy hiểm: Độ ẩm thấp',
-        message: `RH hiện tại ${humidityCurrent.toFixed(1)}% (tối ưu: 70-90%). Nguy cơ nhiễm tạp cao.`,
+        message: `Độ ẩm hiện tại ${humidityCurrent.toFixed(1)}% (mức phù hợp: 70-90%). Nguy cơ nhiễm tạp cao.`,
       })
     } else if (humidityCurrent < 70) {
       alerts.push({
         id: 'hum-warn-low',
         type: 'warning',
         title: 'Cảnh báo độ ẩm thấp',
-        message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Nguy cơ khô bề mặt và không khí.`,
+        message: `Độ ẩm hiện tại ${humidityCurrent.toFixed(1)}%. Nguy cơ khô bề mặt và không khí.`,
       })
     } else if (humidityCurrent > 95) {
       alerts.push({
         id: 'hum-crit-high',
         type: 'critical',
-        title: 'Nguy hiểm: Quá bão hòa ẩm',
-        message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Nguy cơ nhiễm tạp và rụng đầu kim.`,
+        title: 'Cảnh báo: Độ ẩm quá cao',
+        message: `Độ ẩm hiện tại ${humidityCurrent.toFixed(1)}%. Nấm có thể dễ bị bệnh.`,
       })
     } else if (humidityCurrent > 90) {
       alerts.push({
         id: 'hum-warn-high',
         type: 'warning',
         title: 'Cảnh báo độ ẩm cao',
-        message: `RH hiện tại ${humidityCurrent.toFixed(1)}%. Có nguy cơ bão hòa quá mức.`,
+        message: `Độ ẩm hiện tại ${humidityCurrent.toFixed(1)}%. Cần theo dõi để tránh nấm bị ẩm quá mức.`,
       })
     }
   }
@@ -68,22 +68,22 @@ export function Header() {
       alerts.push({
         id: 'temp-crit-frost',
         type: 'critical',
-        title: 'CẢNH BÁO LẠNH NGUY HIỂM',
-        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Dưới 20°C có thể gây chết tơ vĩnh viễn.`,
+        title: 'CẢNH BÁO: NHIỆT ĐỘ QUÁ THẤP',
+        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Nấm có thể ngừng phát triển.`,
       })
     } else if (temperatureCurrent < 28) {
       alerts.push({
         id: 'temp-warn-low',
         type: 'warning',
         title: 'Nhiệt độ không khí thấp',
-        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Tốc độ nuôi tơ sẽ chậm lại.`,
+        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Nấm sẽ phát triển chậm hơn.`,
       })
     } else if (temperatureCurrent > 38) {
       alerts.push({
         id: 'temp-crit-high',
         type: 'critical',
         title: 'Nguy hiểm: Nhiệt quá cao',
-        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Nguy cơ suy giảm lứa trồng.`,
+        message: `Nhiệt độ không khí ${temperatureCurrent.toFixed(1)}°C. Nấm có thể bị ảnh hưởng xấu.`,
       })
     } else if (temperatureCurrent > 35) {
       alerts.push({
@@ -101,21 +101,21 @@ export function Header() {
         id: 'co2-crit-high',
         type: 'critical',
         title: 'Cảnh báo CO2 cao',
-        message: `CO2 hiện tại ${Math.round(co2Current)} ppm. Nguy cơ thân nấm kéo dài, biến dạng.`,
+        message: `Khí CO₂ hiện tại ${Math.round(co2Current)} ppm. Nấm có thể bị dài thân hoặc biến dạng.`,
       })
     } else if (co2Current > 1200) {
       alerts.push({
         id: 'co2-warn-high',
         type: 'warning',
-        title: 'Thông gió chưa đạt',
-        message: `CO2 hiện tại ${Math.round(co2Current)} ppm. Mục tiêu: 800-1200 ppm.`,
+        title: 'Cần tăng thông gió',
+        message: `Khí CO₂ hiện tại ${Math.round(co2Current)} ppm. Mức phù hợp: 800-1200 ppm.`,
       })
     }
   }
 
   const notifications = [
-    { id: 1, message: 'Dashboard đang hiển thị telemetry thật từ backend', time: 'Vừa xong' },
-    { id: 2, message: 'Pipeline fuzzy/TPC trên Core 1 kiểm soát SSR an toàn', time: '1 giờ trước' },
+    { id: 1, message: 'Đang hiển thị dữ liệu mới nhất từ phòng nấm', time: 'Vừa xong' },
+    { id: 2, message: 'Hệ thống đang tự động điều chỉnh các thiết bị trong phòng nấm', time: '1 giờ trước' },
   ]
 
   const getAlertBg = (type: string) =>
@@ -144,10 +144,9 @@ export function Header() {
               </span>
             </div>
             <div className="flex-1 text-xs text-red-200/80">
-              ESP32-S3 tại nhà nấm (
+              Thiết bị tại nhà nấm (
               <code className="bg-red-900/40 px-1 rounded text-red-300">{monitoredDeviceId}</code>
-              ) đã mất tín hiệu. EMQX đã kích hoạt Last Will and Testament. Kiểm tra nguồn điện
-              và kết nối mạng tại thực địa.
+              ) đã mất tín hiệu. Vui lòng kiểm tra nguồn điện và kết nối mạng tại nhà nấm.
             </div>
             <Button
               variant="ghost"
@@ -170,11 +169,11 @@ export function Header() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <AlertTriangle className="w-5 h-5" style={{ color: '#F59E0B' }} />
               <span className="text-xs font-bold uppercase tracking-widest" style={{ color: '#F59E0B' }}>
-                ⚠ Telemetry không cập nhật
+                ⚠ Dữ liệu chưa cập nhật
               </span>
             </div>
             <div className="flex-1 text-xs text-amber-200/80">
-              ESP32-S3 tại nhà nấm (<code className="bg-amber-900/40 px-1 rounded text-amber-300">{monitoredDeviceId}</code>) vẫn online nhưng dữ liệu cảm biến không được nhận sau 20 giây. Kiểm tra thiết bị hoặc cảm biến.
+              Thiết bị tại nhà nấm (<code className="bg-amber-900/40 px-1 rounded text-amber-300">{monitoredDeviceId}</code>) vẫn kết nối nhưng chưa gửi dữ liệu mới. Vui lòng kiểm tra thiết bị hoặc cảm biến.
             </div>
             <Button
               variant="ghost"
@@ -240,7 +239,7 @@ export function Header() {
                 </span>
               ) : deviceStatus === 'stale' ? (
                 <span className="text-[10px] font-semibold bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase">
-                  Telemetry stale
+                  Dữ liệu chưa cập nhật
                 </span>
               ) : deviceStatus === 'online' ? (
                 <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">
@@ -253,9 +252,9 @@ export function Header() {
               )}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-              <span>NẤM RƠM CP</span>
+              <span>TRANG TRẠI NẤM RƠM</span>
               <span aria-hidden="true" className="inline-block h-1 w-1 rounded-full bg-muted-foreground/50" />
-              <span>Nhà trụ Alpha (35 trụ)</span>
+              <span>Khu trồng số 1 (35 trụ)</span>
             </p>
           </div>
 
@@ -281,7 +280,7 @@ export function Header() {
               {notificationsOpen && (
                 <div className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50">
                   <div className="p-4 border-b border-border bg-card/50">
-                    <h3 className="font-semibold text-foreground text-sm">Chẩn đoán hệ thống</h3>
+                    <h3 className="font-semibold text-foreground text-sm">Thông báo</h3>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.map((notif) => (
@@ -309,7 +308,7 @@ export function Header() {
                 }}
               >
                 <User size={16} />
-                <span className="hidden sm:inline text-xs">Admin</span>
+                <span className="hidden sm:inline text-xs">Người dùng</span>
                 <ChevronDown size={14} />
               </Button>
 

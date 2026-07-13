@@ -59,21 +59,21 @@ function EnvironmentalHistoryChart() {
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40 h-full min-h-96 flex flex-col">
       <h3 className="font-semibold text-foreground mb-2">
-        Đường cong môi trường (24h, bucket 15 phút)
+        Diễn biến nhiệt độ trong 24 giờ
       </h3>
       <p className="text-xs text-muted-foreground mb-4">
-        TimescaleDB time_bucket — không render raw 5s points
+        Dữ liệu được tổng hợp theo từng 15 phút
       </p>
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
-          Đang tải history...
+          Đang tải dữ liệu...
         </div>
       ) : points.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center rounded-lg bg-gradient-to-br from-slate-900/20 to-emerald-900/10 border border-dashed border-slate-700/30 py-12">
           <p className="text-sm text-muted-foreground mb-2">Chưa có dữ liệu lịch sử</p>
           <p className="text-xs text-slate-600">
-            History xuất hiện sau khi ESP32 publish telemetry và backend ghi TimescaleDB
+            Biểu đồ sẽ xuất hiện khi hệ thống có đủ dữ liệu đo.
           </p>
         </div>
       ) : (
@@ -97,16 +97,16 @@ function EnvironmentalHistoryChart() {
           </div>
           <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-400">
             <div>
-              Điểm: <span className="text-foreground font-semibold">{points.length}</span>
+              Lần đo: <span className="text-foreground font-semibold">{points.length}</span>
             </div>
             <div>
-              T min/max:{' '}
+              Nhiệt độ thấp/cao:{' '}
               <span className="text-foreground font-semibold">
                 {minT.toFixed(1)}/{maxT.toFixed(1)}°C
               </span>
             </div>
             <div>
-              RH cuối:{' '}
+              Độ ẩm gần nhất:{' '}
               <span className="text-foreground font-semibold">
                 {points[points.length - 1]?.humidityMeasured?.toFixed(1) ?? '—'}%
               </span>
@@ -178,7 +178,7 @@ function DashboardContent() {
 
       {isLoading && (
         <div className="col-span-1 md:col-span-2 lg:col-span-4 rounded-lg border border-slate-700/50 bg-slate-950/50 px-4 py-2 text-xs text-slate-400">
-          Đang chờ snapshot telemetry thật từ backend…
+          Đang kết nối để nhận dữ liệu từ phòng nấm…
         </div>
       )}
 
@@ -252,7 +252,7 @@ function DashboardContent() {
               className="relative flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-full shadow-lg hover:shadow-amber-500/20 hover:-translate-y-0.5 transition-all duration-300 cursor-pointer font-bold text-xs tracking-wider uppercase group border border-amber-400/25 select-none"
             >
               <Sliders className="w-4 h-4 group-hover:rotate-45 transition-transform duration-300 text-amber-100" />
-              <span>Dev Sandbox</span>
+              <span>Kiểm thử</span>
             </button>
           </div>
 
@@ -269,10 +269,10 @@ function DashboardContent() {
                       <Sliders className="w-5 h-5 text-amber-500" />
                       <div>
                         <h3 className="font-bold text-sm tracking-wider uppercase text-foreground">
-                          Sandbox Kiểm Thử
+                          Khu vực kiểm thử
                         </h3>
                         <p className="text-[10px] text-muted-foreground">
-                          Dev-only — không che live telemetry
+                          Chỉ dùng để kiểm tra dữ liệu mô phỏng
                         </p>
                       </div>
                     </div>

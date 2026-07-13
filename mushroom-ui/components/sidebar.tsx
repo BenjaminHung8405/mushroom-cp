@@ -9,8 +9,8 @@ import { useState } from 'react'
 
 const navItems = [
   { name: 'Tổng quan', href: '/', icon: LayoutGrid },
-  { name: 'Quản lý trang trại', href: '/farms', icon: Leaf },
-  { name: 'Thư viện hồ sơ', href: '/library', icon: Library },
+  { name: 'Khu trồng', href: '/farms', icon: Leaf },
+  { name: 'Mẫu điều kiện trồng', href: '/library', icon: Library },
   { name: 'Cài đặt', href: '/settings', icon: Settings },
 ]
 
@@ -52,7 +52,7 @@ export function Sidebar() {
           </div>
           <div className="flex-1">
             <h1 className="text-lg font-bold text-sidebar-foreground">NẤM RƠM CP</h1>
-            <p className="text-xs text-sidebar-foreground/60">IoT nấm rơm</p>
+            <p className="text-xs text-sidebar-foreground/60">Theo dõi nhà nấm</p>
           </div>
         </div>
 
@@ -87,14 +87,14 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border p-4">
           <div className="bg-sidebar-accent/20 rounded-lg p-4 text-center">
             <p className="text-sm text-sidebar-foreground/75 mb-3">
-              Nhà trụ: <span className="font-semibold text-emerald-400">1</span> (35 trụ)
+              Khu trồng: <span className="font-semibold text-emerald-400">1</span> (35 trụ)
             </p>
             <Button
               variant="outline"
               size="sm"
               className="w-full border-emerald-500/50 text-emerald-400 hover:bg-emerald-500 hover:text-white"
             >
-              Thêm nhà trụ
+              Thêm khu trồng
             </Button>
           </div>
         </div>

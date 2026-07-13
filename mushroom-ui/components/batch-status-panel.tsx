@@ -132,7 +132,7 @@ export function BatchStatusPanel() {
         <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"><Sprout className="w-5 h-5" /></div>
         <div>
           <h3 className="font-semibold text-foreground text-sm sm:text-base">Quản lý vụ trồng</h3>
-          <p className="text-xs text-muted-foreground">{houseName ?? 'Xác định nhà nấm từ thiết bị'}</p>
+          <p className="text-xs text-muted-foreground">{houseName ?? 'Đang xác định khu trồng'}</p>
         </div>
       </div>
 
@@ -142,10 +142,10 @@ export function BatchStatusPanel() {
       {loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-slate-500">Đang tải trạng thái vụ...</div>
       ) : !houseId ? (
-        <div className="flex flex-1 flex-col items-start justify-center gap-3 text-sm text-slate-400"><span>Không thể xác định nhà nấm của thiết bị đang theo dõi.</span><Button variant="outline" size="sm" onClick={() => void refresh()}>Thử lại</Button></div>
+        <div className="flex flex-1 flex-col items-start justify-center gap-3 text-sm text-slate-400"><span>Chưa xác định được khu trồng. Vui lòng thử lại.</span><Button variant="outline" size="sm" onClick={() => void refresh()}>Thử lại</Button></div>
       ) : batch ? (
         <div className="flex flex-1 flex-col">
-          <div className="mb-4 flex items-center justify-between"><span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300">ACTIVE</span><span className="text-[11px] text-slate-500">{batch.id}</span></div>
+          <div className="mb-4 flex items-center justify-between"><span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300">ĐANG TRỒNG</span></div>
           <p className="text-sm font-semibold text-emerald-300">{batch.profileName}</p>
           <p className="mt-1 flex items-center gap-1 text-xs text-slate-400"><Clock3 className="size-3" />Bắt đầu: {formatStartDate(batch.startDate)}</p>
           <div className="my-5 rounded-lg border border-emerald-500/25 bg-emerald-950/20 p-4 text-center"><p className="text-[10px] uppercase font-bold tracking-wider text-emerald-400">Hôm nay</p><p className="mt-1 text-2xl font-bold text-foreground">Ngày {batch.cropDay} <span className="text-sm font-medium text-slate-400">/ {batch.totalCropDays}</span></p></div>
@@ -156,9 +156,9 @@ export function BatchStatusPanel() {
       ) : (
         <div className="flex flex-1 flex-col">
           <div className="mb-5 rounded-lg border border-dashed border-slate-700 p-3 text-sm text-slate-400">Chưa có vụ đang chạy cho nhà nấm này.</div>
-          <label className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Hồ sơ áp dụng</label>
+          <label className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Chọn điều kiện trồng</label>
           <select value={profileKey} onChange={(event) => loadProfilePreset(event.target.value)} className="mb-4 w-full rounded border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-emerald-300 focus:outline-none">
-            <option value="dry_season">Tối ưu mùa khô</option><option value="rainy_season">Tối ưu mùa mưa</option><option value="quick_fruiting">Kích quả nhanh</option>
+            <option value="dry_season">Phù hợp mùa khô</option><option value="rainy_season">Phù hợp mùa mưa</option><option value="quick_fruiting">Ra nấm sớm</option>
           </select>
           <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500"><CalendarRange className="size-3" />Tổng số ngày</label>
           <input type="number" min="10" max="45" value={totalCropDays} onChange={(event) => {

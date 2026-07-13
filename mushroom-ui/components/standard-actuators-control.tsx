@@ -24,16 +24,16 @@ function ActuatorStatusRow({ name, description, icon, state, locked = false, loc
           <div>
             <h4 className="font-semibold text-foreground text-sm flex items-center gap-1.5">
               {name}
-              {locked && <span className="text-[10px] font-bold uppercase bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-500/20">Đã khóa</span>}
+              {locked && <span className="text-[10px] font-bold uppercase bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-500/20">Tạm ngưng</span>}
             </h4>
             <p className="text-xs mt-0.5 text-muted-foreground">{description}</p>
           </div>
         </div>
         <div className={`min-w-14 text-center px-2 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide ${state === true ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-          {unavailable ? '—' : state ? 'ON' : 'OFF'}
+          {unavailable ? '—' : state ? 'Đang chạy' : 'Đã tắt'}
         </div>
       </div>
-      {unavailable && <p className="text-[11px] text-slate-500">Chưa có dữ liệu từ edge</p>}
+      {unavailable && <p className="text-[11px] text-slate-500">Chưa nhận được dữ liệu</p>}
       {locked && lockReason && <div className="flex items-center gap-1 text-[11px] text-red-400 font-medium"><ShieldAlert size={12} /><span>{lockReason}</span></div>}
     </div>
   )
@@ -57,19 +57,19 @@ export function StandardActuatorsControl({
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
   const blackoutConfirmed = blackoutActive === true
-  const statusText = (state: EdgeState) => state === null ? '— / Chưa có dữ liệu từ edge' : state ? 'Đang hoạt động (ON)' : 'Tắt (OFF)'
+  const statusText = (state: EdgeState) => state === null ? '— / Chưa nhận được dữ liệu' : state ? 'Đang hoạt động' : 'Đã tắt'
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40">
-      <div className="mb-4"><h3 className="font-semibold text-foreground text-lg">Bộ chấp hành tiêu chuẩn</h3><p className="text-xs text-muted-foreground mt-1">Trạng thái SSR đã xác nhận từ edge (chỉ đọc)</p></div>
+      <div className="mb-4"><h3 className="font-semibold text-foreground text-lg">Thiết bị trong phòng nấm</h3><p className="text-xs text-muted-foreground mt-1">Theo dõi trạng thái hoạt động của các thiết bị</p></div>
       <div className="space-y-3">
-        <ActuatorStatusRow name="Quạt đối lưu" description="Tuần hoàn không khí / hạ nhiệt / xả CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} />
-        <ActuatorStatusRow name="Đèn gia nhiệt không khí (H_AIR)" description="SSR gia nhiệt không khí do TPC xác nhận" icon={<Zap className="w-5 h-5 text-amber-400" />} state={heaterAirActive} />
-        <ActuatorStatusRow name="Gia nhiệt nước (H_WAT — slot chờ phần cứng)" description="Slot SSR riêng, chưa đại diện tải vật lý đang vận hành" icon={<Zap className="w-5 h-5 text-blue-400" />} state={heaterWaterActive} />
-        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Phun sương ON/OFF theo fuzzy/TPC pipeline" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} locked={blackoutConfirmed} lockReason={blackoutConfirmed ? 'Blackout đã được edge xác nhận — TPC khóa mist' : undefined} />
+        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} />
+        <ActuatorStatusRow name="Thiết bị sưởi ấm không khí" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={heaterAirActive} />
+        <ActuatorStatusRow name="Thiết bị làm ấm nước" description="Thiết bị này chưa được lắp đặt" icon={<Zap className="w-5 h-5 text-blue-400" />} state={heaterWaterActive} />
+        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo điều kiện trong phòng" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} locked={blackoutConfirmed} lockReason={blackoutConfirmed ? 'Đang tạm ngưng phun sương để bảo vệ nấm' : undefined} />
       </div>
       <div className="mt-4 p-3 rounded bg-slate-900/30 border border-slate-700/30 text-xs text-muted-foreground space-y-1">
-        <div>Blackout: <span className={blackoutConfirmed ? 'text-red-400 font-semibold' : 'text-slate-400'}>{blackoutConfirmed ? 'Đã xác nhận từ edge' : blackoutActive === null ? '— / Chưa có dữ liệu từ edge' : 'Không hoạt động'}</span></div>
-        <div>Quạt: {statusText(fanActive)}</div><div>H_AIR: {statusText(heaterAirActive)}</div><div>H_WAT: {statusText(heaterWaterActive)}</div><div>Máy tạo ẩm: {statusText(mistActive)}</div>
+        <div>Tạm ngưng phun sương: <span className={blackoutConfirmed ? 'text-red-400 font-semibold' : 'text-slate-400'}>{blackoutConfirmed ? 'Đang tạm ngưng' : blackoutActive === null ? '— / Chưa nhận được dữ liệu' : 'Không tạm ngưng'}</span></div>
+        <div>Quạt: {statusText(fanActive)}</div><div>Sưởi không khí: {statusText(heaterAirActive)}</div><div>Làm ấm nước: {statusText(heaterWaterActive)}</div><div>Máy tạo ẩm: {statusText(mistActive)}</div>
       </div>
     </Card>
   )

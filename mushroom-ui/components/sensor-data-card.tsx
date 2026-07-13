@@ -25,19 +25,19 @@ interface SensorDataCardProps {
 const sensorConfig = {
   humidity: {
     icon: Droplets,
-    label: 'Độ ẩm không khí (SHT30)',
+    label: 'Độ ẩm phòng nấm',
     optimal: [70, 90] as [number, number],
     color: 'text-blue-400',
   },
   temperature: {
     icon: Thermometer,
-    label: 'Nhiệt độ không khí (SHT30)',
+    label: 'Nhiệt độ phòng nấm',
     optimal: [28, 35] as [number, number],
     color: 'text-orange-400',
   },
   co2: {
     icon: Wind,
-    label: 'Mức CO₂ (SCD30)',
+    label: 'Khí CO₂ trong phòng',
     optimal: [800, 1200] as [number, number],
     color: 'text-cyan-400',
   },
@@ -140,13 +140,13 @@ export function SensorDataCard({
         )}
 
         {!hasValue && (
-          <p className="text-xs text-slate-500">Chưa nhận telemetry thật</p>
+          <p className="text-xs text-slate-500">Chưa có số liệu mới</p>
         )}
       </div>
 
       <div className="bg-slate-900/40 rounded px-2 py-2 mb-2 md:mb-3 border border-slate-700/50">
         <div className="flex justify-between items-center mb-1">
-          <span className="text-xs text-muted-foreground">Sai lệch (E)</span>
+          <span className="text-xs text-muted-foreground">Chênh lệch</span>
           <span className="text-xs font-semibold text-foreground">
             {errorDelta !== null && errorDelta > 0 ? '+' : ''}
             {formattedError}
@@ -161,7 +161,7 @@ export function SensorDataCard({
 
       {actuatorActive !== undefined && (
         <div className="mb-2 md:mb-3 flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Actuator</span>
+          <span className="text-muted-foreground">Thiết bị</span>
           <span
             className={
               actuatorActive
@@ -169,7 +169,7 @@ export function SensorDataCard({
                 : 'text-slate-500 font-semibold'
             }
           >
-            {actuatorActive ? 'ON' : 'OFF'}
+            {actuatorActive ? 'Bật' : 'Tắt'}
           </span>
         </div>
       )}
