@@ -1,3 +1,22 @@
+## [2026-07-13T11:23:30+07:00]
+- **Task ID**: F4
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file**:
+  - [MODIFY] [definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h)
+  - [MODIFY] [main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp)
+  - [MODIFY] [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình ngắn gọn**:
+  - **Khai báo và triển khai `hydrateSetpointsFromNVS()`**:
+    - Hàm được định nghĩa trong `definitions.h` và cài đặt trong `main.cpp`.
+    - Thực hiện nạp hai snapshot từ NVS: backend setpoint baseline và hardware override setpoint.
+    - Nếu baseline NVS trống hoặc không hợp lệ, hệ thống sẽ tự động fallback về setpoint của Trajectory Day 0 (Nhiệt độ: 24.0°C, Độ ẩm: 90.0%, CO2: 1000 ppm) và ghi đè vào queue `xBaselineQueue`.
+    - Nếu hardware override trong NVS có thuộc tính `active = true`, hàm sẽ đẩy setpoint ghi đè tương ứng vào queue `xOverrideQueue`. Ngược lại, đẩy một inactive command để đảm bảo Core 1 không bị trạng thái rác.
+  - **Tích hợp vào chu kỳ khởi tạo khởi động (`setup()`)**:
+    - Gọi hàm `hydrateSetpointsFromNVS()` ngay sau khi tạo queue (`initQueues()`) và semaphore (`initSemaphores()`), nhưng trước khi khởi tạo WiFi và phân bổ chạy các FreeRTOS tasks. Việc này đảm bảo Core 0/Core 1 khởi chạy với dữ liệu setpoint chính xác nhất ngay từ tick đầu tiên.
+  - **Bổ sung Unit Tests & Kiểm thử**:
+    - Tạo Test Case 34 trong `test/run_tests.cpp` để kiểm chứng logic hydration: verify kịch bản NVS trống (fallback Trajectory Day 0 thành công) và kịch bản NVS có lưu trữ hợp lệ (đọc và đẩy chính xác vào baseline và override queues).
+    - Biên dịch và chạy bộ kiểm thử thành công, đạt 100% test case passed.
+
 ## [2026-07-13T11:17:58+07:00]
 - **Task ID**: F3
 - **Trạng thái hiện tại**: Đang chờ QA Review

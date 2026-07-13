@@ -2069,6 +2069,70 @@ int main() {
         assert(overrideCmd.active == false);
     }
 
+    // 34. Test Task F4 - NVS hydration on startup
+    Serial.println("[TEST] Starting Task F4 - NVS hydration on startup Unit Tests...");
+    {
+        // 34.1 Setup queues and clear storage
+        if (xBaselineQueue == nullptr) {
+            xBaselineQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        } else {
+            ControlSetpointCommand discard;
+            while (xQueueReceive(xBaselineQueue, &discard, 0) == pdTRUE);
+        }
+        if (xOverrideQueue == nullptr) {
+            xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
+        } else {
+            ControlSetpointCommand discard;
+            while (xQueueReceive(xOverrideQueue, &discard, 0) == pdTRUE);
+        }
+        storage.factory_reset();
+
+        // 34.2 Case 1: Empty NVS (no backend snapshot, no hardware override)
+        // Calling hydrateSetpointsFromNVS should fallback baseline to Trajectory Day 0
+        // and put an inactive override command in xOverrideQueue.
+        hydrateSetpointsFromNVS();
+
+        // Verify baseline is trajectory Day 0 (T: 24.0, H: 90.0, CO2: 1000.0)
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
+        ControlSetpointCommand baselineCmd;
+        assert(xQueueReceive(xBaselineQueue, &baselineCmd, 0) == pdTRUE);
+        assert(std::fabs(baselineCmd.temp_target - 24.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.humidity_target - 90.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.co2_target - 1000.0f) < 0.01f);
+        assert(baselineCmd.active == true);
+
+        // Verify override queue contains inactive override command
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
+        ControlSetpointCommand overrideCmd;
+        assert(xQueueReceive(xOverrideQueue, &overrideCmd, 0) == pdTRUE);
+        assert(overrideCmd.active == false);
+
+        // 34.3 Case 2: NVS contains active baseline and active hardware override
+        storage::BackendSetpointSnapshot valid_back = { 28.5f, 80.0f, 900.0f, true };
+        assert(storage.save_backend_snapshot(valid_back) == true);
+        storage::HardwareOverrideSnapshot valid_hw = { 25.5f, 75.0f, true };
+        assert(storage.save_hardware_override(valid_hw) == true);
+
+        // Run hydration
+        hydrateSetpointsFromNVS();
+
+        // Verify baseline matches NVS
+        assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
+        assert(xQueueReceive(xBaselineQueue, &baselineCmd, 0) == pdTRUE);
+        assert(std::fabs(baselineCmd.temp_target - 28.50f) < 0.01f);
+        assert(std::fabs(baselineCmd.humidity_target - 80.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.co2_target - 900.0f) < 0.01f);
+        assert(baselineCmd.active == true);
+
+        // Verify override matches NVS
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
+        assert(xQueueReceive(xOverrideQueue, &overrideCmd, 0) == pdTRUE);
+        assert(std::fabs(overrideCmd.temp_target - 25.50f) < 0.01f);
+        assert(std::fabs(overrideCmd.humidity_target - 75.0f) < 0.01f);
+        assert(std::isnan(overrideCmd.co2_target));
+        assert(overrideCmd.active == true);
+    }
+
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;
 }

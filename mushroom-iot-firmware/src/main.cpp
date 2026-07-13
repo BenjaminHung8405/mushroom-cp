@@ -9,6 +9,7 @@
 #include "mqtt_client.h"
 #include "Telemetry.h"
 #include "CryptoUtils.h"
+#include "Trajectory.h"
 
 // Queue depth constants — sized for the expected inter-core message rate.
 // Actuator commands arrive sporadically from MQTT; a depth of 8 absorbs bursts.
@@ -179,6 +180,67 @@ void createCoreTasks()
 #endif
 }
 
+void hydrateSetpointsFromNVS()
+{
+    storage::StorageManager &storage = storage::StorageManager::get_instance();
+
+    // 1. Hydrate baseline setpoint
+    storage::BackendSetpointSnapshot backendSnap;
+    ControlSetpointCommand baselineCmd = {0.0f, 0.0f, 0.0f, false, {0, 0, 0}};
+    if (storage.load_backend_snapshot(backendSnap) && backendSnap.valid)
+    {
+        baselineCmd.temp_target = backendSnap.temp_target;
+        baselineCmd.humidity_target = backendSnap.humidity_target;
+        baselineCmd.co2_target = backendSnap.co2_target;
+        baselineCmd.active = true;
+        Serial.printf("[MAIN] Hydrated baseline from NVS: T=%.2f, H=%.2f, CO2=%.2f\n",
+                      baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
+    }
+    else
+    {
+        // Fallback to trajectory Day 0
+        Trajectory::SetpointPod day0 = Trajectory::interpolateSetpoints(0.0f);
+        baselineCmd.temp_target = day0.temp_target;
+        baselineCmd.humidity_target = day0.humidity_target;
+        baselineCmd.co2_target = day0.co2_target;
+        baselineCmd.active = true;
+        Serial.printf("[MAIN] NVS baseline empty/invalid. Fallback to Trajectory Day 0: T=%.2f, H=%.2f, CO2=%.2f\n",
+                      baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
+    }
+    
+    if (xBaselineQueue != nullptr)
+    {
+        xQueueOverwrite(xBaselineQueue, &baselineCmd);
+    }
+
+    // 2. Hydrate hardware override setpoint (if active)
+    storage::HardwareOverrideSnapshot overrideSnap;
+    if (storage.load_hardware_override(overrideSnap) && overrideSnap.active)
+    {
+        ControlSetpointCommand overrideCmd = {0.0f, 0.0f, 0.0f, false, {0, 0, 0}};
+        overrideCmd.temp_target = overrideSnap.temp_target;
+        overrideCmd.humidity_target = overrideSnap.humidity_target;
+        overrideCmd.co2_target = NAN; // CO2 is not manually overridden
+        overrideCmd.active = true;
+        
+        if (xOverrideQueue != nullptr)
+        {
+            xQueueOverwrite(xOverrideQueue, &overrideCmd);
+        }
+        Serial.printf("[MAIN] Hydrated hardware override from NVS: T=%.2f, H=%.2f\n",
+                      overrideCmd.temp_target, overrideCmd.humidity_target);
+    }
+    else
+    {
+        ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
+        if (xOverrideQueue != nullptr)
+        {
+            xQueueOverwrite(xOverrideQueue, &overrideCmd);
+        }
+        Serial.println("[MAIN] No active hardware override in NVS. Sent inactive override command.");
+    }
+}
+
 void setup()
 {
     // Initialize Serial interface
@@ -211,6 +273,9 @@ void setup()
     // 6. Create queues and semaphores
     initQueues();
     initSemaphores();
+
+    // Hydrate setpoints from NVS to queues
+    hydrateSetpointsFromNVS();
 
     // 7. Initialize and activate WiFi
     wifi::init_wifi();

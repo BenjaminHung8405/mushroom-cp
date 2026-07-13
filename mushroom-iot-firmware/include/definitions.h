@@ -107,3 +107,9 @@ extern QueueHandle_t xBaselineQueue;
  */
 extern QueueHandle_t xOverrideQueue;
 
+/**
+ * @brief Hydrate setpoints from NVS and push them to xBaselineQueue and xOverrideQueue.
+ * Fallbacks to trajectory Day 0 if NVS baseline is missing/invalid.
+ */
+void hydrateSetpointsFromNVS();
+
