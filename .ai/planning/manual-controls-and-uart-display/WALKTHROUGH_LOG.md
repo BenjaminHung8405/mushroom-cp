@@ -1,5 +1,22 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:39:10+07:00] Task S1-C2: Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Cập nhật định nghĩa và triển khai của `applyTpcOutputs` nhận tham số cấu hình riêng biệt cho 2 đèn nhiệt (`lamp1Config`, `lamp2Config`) thay vì cấu hình gộp `hLampConfig` hoặc `hAirConfig` cũ.
+  - Sửa đổi logic bên trong `applyTpcOutputs` để gọi hàm `applyLampStaging` thực hiện chia tải staged dispatch cho 2 bóng đèn nhiệt `Lamp1` và `Lamp2` dựa trên tổng demand `outputs.HLamp`.
+  - Cập nhật `TpcSchedulerState` để đổi tên kênh `HLamp` thành hai kênh riêng biệt `Lamp1` và `Lamp2` (đồng bộ hoàn thành Task S1-C3).
+  - Khai báo cấu hình `LAMP_1_TPC_CONFIG` (offset 0ms) và `LAMP_2_TPC_CONFIG` (offset 5000ms để chống dòng inrush) trong `src/core1_tasks.cpp` thay cho cấu hình `H_AIR_TPC_CONFIG` cũ (đồng bộ hoàn thành Task S1-C4).
+  - Cập nhật logic tạo `RelayOutputsPod actuatorSnapshot` trong `src/core1_tasks.cpp` để phản ánh trạng thái hoạt động thực tế của `Lamp1` và `Lamp2` vào telemetry (đồng bộ hoàn thành Task S1-D1).
+- **Kết quả tự kiểm thử**:
+  - Biên dịch thành công offline executable `run_tests` bằng `g++` local host.
+  - Chạy `./run_tests` thành công vượt qua toàn bộ 100% test cases hiện có (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:38:00+07:00] Task S1-C1: Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

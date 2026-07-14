@@ -44,8 +44,8 @@
 | Task | Mô tả | Status |
 |------|-------|:------:|
 | S1-C1 | Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)` | `[ ] QA Review` |
-| S1-C2 | Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)` | `[ ] Pending` |
-| S1-C3 | Đổi tên `TpcSchedulerState::HAir` → `Lamp1`, thêm `Lamp2` | `[ ] Pending` |
+| S1-C2 | Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)` | `[ ] QA Review` |
+| S1-C3 | Đổi tên `TpcSchedulerState::HAir` → `Lamp1`, thêm `Lamp2` | `[ ] In Progress` |
 | S1-C4 | Thêm `LAMP1_TPC_CONFIG` và `LAMP2_TPC_CONFIG` trong `core1_tasks.cpp` | `[ ] Pending` LAMP1 offset 0, LAMP2 offset +5000ms (stagger inrush). |
 
 ### Track D: Snapshot & Telemetry

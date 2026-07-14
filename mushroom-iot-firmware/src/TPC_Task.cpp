@@ -159,12 +159,13 @@ void applyLampStaging(
 
 void applyTpcOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
-    const TpcChannelConfig& hLampConfig,
+    const TpcChannelConfig& lamp1Config,
+    const TpcChannelConfig& lamp2Config,
     const TpcChannelConfig& hWatConfig,
     const TpcChannelConfig& mistConfig,
     const TpcChannelConfig& exhConfig,
     TpcSchedulerState& state) {
-    updateTpcChannel(hLampConfig, state.HLamp, outputs.HLamp);
+    applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, lamp1Config, lamp2Config);
     updateTpcChannel(hWatConfig, state.HWat, outputs.HWat);
     updateTpcChannel(mistConfig, state.Mist, outputs.Mist);
     updateTpcChannel(exhConfig, state.Exh, outputs.Exh);

@@ -247,8 +247,10 @@ void taskHardwareButton(void* /*pvParameters*/)
 
 // Physical SSR assignments. The TPC layer is the exclusive owner of their
 // HIGH/LOW phase; no other Core 1 path writes these output pins after init.
-constexpr TPC_Task::TpcChannelConfig H_AIR_TPC_CONFIG = {
+constexpr TPC_Task::TpcChannelConfig LAMP_1_TPC_CONFIG = {
     config::pins::PIN_RELAY_LAMP_1, 300000U, 10000U, 10000U, 0U};
+constexpr TPC_Task::TpcChannelConfig LAMP_2_TPC_CONFIG = {
+    config::pins::PIN_RELAY_LAMP_2, 300000U, 10000U, 10000U, 5000U};
 constexpr TPC_Task::TpcChannelConfig H_WAT_TPC_CONFIG = {
     config::pins::PIN_RELAY_HWAT, 300000U, 10000U, 10000U, 3000U};
 constexpr TPC_Task::TpcChannelConfig MIST_TPC_CONFIG = {
@@ -676,7 +678,8 @@ static void runControlPipelineStep(
     TPC_Task::hardwareProtectionOverride(outputs, rtcTime);
     TPC_Task::applyTpcOutputs(
         outputs,
-        H_AIR_TPC_CONFIG,
+        LAMP_1_TPC_CONFIG,
+        LAMP_2_TPC_CONFIG,
         H_WAT_TPC_CONFIG,
         MIST_TPC_CONFIG,
         EXHAUST_TPC_CONFIG,
@@ -685,8 +688,8 @@ static void runControlPipelineStep(
     const RelayOutputsPod actuatorSnapshot = {
         tpcState.Mist.output_high,
         tpcState.Exh.output_high,
-        tpcState.HLamp.output_high,  // lamp_stage_active — S1-D1 sẽ trỏ sang tpcState.Lamp1
-        false,                      // lamp_stage2_active — placeholder tới khi Lamp2 xuất hiện
+        tpcState.Lamp1.output_high,  // lamp_stage_active
+        tpcState.Lamp2.output_high,  // lamp_stage2_active
         tpcState.HWat.output_high,
         !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||
             (rtcTime.hour == 13U && rtcTime.minute <= 30U)),

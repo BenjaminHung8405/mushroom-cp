@@ -45,7 +45,8 @@ namespace TPC_Task
     /** Scheduler state for all four physical SSR outputs. */
     struct TpcSchedulerState
     {
-        TpcChannelState HLamp;
+        TpcChannelState Lamp1;
+        TpcChannelState Lamp2;
         TpcChannelState HWat;
         TpcChannelState Mist;
         TpcChannelState Exh;
@@ -95,7 +96,8 @@ namespace TPC_Task
      */
     void applyTpcOutputs(
         const FuzzyController::ArbitratedOutputsPod &outputs,
-        const TpcChannelConfig &hLampConfig,
+        const TpcChannelConfig &lamp1Config,
+        const TpcChannelConfig &lamp2Config,
         const TpcChannelConfig &hWatConfig,
         const TpcChannelConfig &mistConfig,
         const TpcChannelConfig &exhConfig,
