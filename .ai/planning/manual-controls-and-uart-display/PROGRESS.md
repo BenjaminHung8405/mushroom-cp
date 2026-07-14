@@ -83,13 +83,13 @@
 | Task | Mô tả | Status |
 |------|-------|:------:|
 | S2-A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`) | `[ ] QA Review` |
-| S2-A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `[ ] In Progress` |
+| S2-A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `[ ] QA Review` |
 
 ### Track B: Unified Override Models, Queues & MQTT Bridge
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-B1 | Thêm models vào `include/models.h` (`AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck`) | `[ ] Pending` |
+| S2-B1 | Thêm models vào `include/models.h` (`AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck`) | `[ ] In Progress` |
 | S2-B2 | Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `definitions.h` | `[ ] QA Review` |
 | S2-B3 | Định nghĩa queue trong `src/core1_tasks.cpp` | `[ ] Pending` |
 | S2-B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | `[ ] QA Review` |

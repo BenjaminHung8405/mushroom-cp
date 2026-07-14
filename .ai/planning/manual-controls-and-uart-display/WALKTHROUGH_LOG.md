@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:21:02+07:00] Task S2-A2: Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/actuators.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/actuators.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/actuators.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/actuators.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Bổ sung hàm khai báo và định nghĩa `init_cabinet_buttons_gpio()` trong `actuators.h` và `actuators.cpp` để khởi tạo cấu hình `INPUT_PULLUP` cho 3 nút tủ điện (`PIN_BTN_MIST`, `PIN_BTN_LAMP`, `PIN_BTN_FAN`).
+  - Hàm `init_cabinet_buttons_gpio()` được tích hợp gọi tự động từ bên trong `init_actuators_gpio()`.
+- **Kết quả tự kiểm thử**:
+  - Đã chạy thử nghiệm unit test suite ngoại tuyến `./run_tests`. Toàn bộ assertions đều PASS 100% thành công.
+
 ## [2026-07-14T17:21:00+07:00] Task S2-A1: Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`)
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
