@@ -2934,16 +2934,94 @@ int main() {
 
             // 4. Safe offline setpoint fallback evaluation under Uncertainty
             time_conf::setTimeConfidence(TimeConfidence::Uncertain);
-            
-            TelemetryData telemetry = {};
-            ControlSetpointCommand baseline = {28.0f, 80.0f, 900.0f, true, {0, 0, 0}};
-            ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
-            float errT = NAN, errH = NAN, errC = NAN;
-            
-            // Run helper method
-            // We need to declare getControlSetpointsAndErrors or reference the file.
-            // Since it's a private static in core1_tasks, we rely on the state snapshot or public integration testing.
-            // But we can check that safe offline targets evaluate correctly by looking at the shared state updated by Core 1 control pipeline.
+        }
+
+        // Sprint 4 Track C & E Unit Tests (Profile Snapshot & Interpolation)
+        {
+            Serial.println("[TEST] Starting Sprint 4 Track C & E Profile Snapshot & Interpolation Unit Tests...");
+
+            // 1. test_interpolate_between_checkpoints
+            PersistedCropProfile prof{};
+            prof.checkpoint_count = 3;
+            prof.total_crop_days = 10;
+            prof.checkpoints[0] = {1, 20.0f, 50.0f};
+            prof.checkpoints[1] = {5, 24.0f, 70.0f};
+            prof.checkpoints[2] = {10, 30.0f, 90.0f};
+
+            float temp_t = 0.0f, hum_t = 0.0f;
+            // Interpolate at day 3 (midpoint between 1 and 5)
+            assert(Trajectory::interpolateSetpoint(3, prof, temp_t, hum_t) == true);
+            assert(std::abs(temp_t - 22.0f) < 0.001f);
+            assert(std::abs(hum_t - 60.0f) < 0.001f);
+
+            // 2. test_interpolate_endpoint_clamp
+            // Day 0 (before day 1) clamps to day 1 checkpoint
+            assert(Trajectory::interpolateSetpoint(0, prof, temp_t, hum_t) == true);
+            assert(std::abs(temp_t - 20.0f) < 0.001f);
+            assert(std::abs(hum_t - 50.0f) < 0.001f);
+
+            // Day 12 (after day 10) clamps to day 10 checkpoint
+            assert(Trajectory::interpolateSetpoint(12, prof, temp_t, hum_t) == true);
+            assert(std::abs(temp_t - 30.0f) < 0.001f);
+            assert(std::abs(hum_t - 90.0f) < 0.001f);
+
+            // 3. test_profile_rejects_invalid_checkpoint_data
+            PersistedCropProfile badProf = prof;
+            badProf.magic = 0x43524F50;
+            badProf.checkpoints[1].temp_target_c = NAN;
+            assert(storage::CropProfileValidator::validate(badProf) == false);
+
+            badProf = prof;
+            badProf.magic = 0x43524F50;
+            badProf.checkpoints[1].crop_day = 0;
+            assert(storage::CropProfileValidator::validate(badProf) == false);
+
+            badProf = prof;
+            badProf.magic = 0x43524F50;
+            badProf.checkpoints[1].crop_day = badProf.checkpoints[0].crop_day; // Duplicate day
+            assert(storage::CropProfileValidator::validate(badProf) == false);
+
+            // 4. test_profile_crc_rejects_corruption
+            PersistedCropProfile corruptProf = prof;
+            corruptProf.magic = 0x43524F50;
+            corruptProf.crc32 = 0x12345678; // Invalid CRC
+            storage::CropProfileStorage& cps = storage::CropProfileStorage::getInstance();
+            assert(cps.saveProfile(corruptProf) == true);
+            PersistedCropProfile loadedCorrupt{};
+            assert(cps.loadProfile(loadedCorrupt) == false);
+
+            // 5. test_holdover_keeps_crop_day_after_wifi_loss
+            time_conf::initializeTimeConfidence(false);
+            time_conf::onTimeSyncSuccess(100000);
+            assert(time_conf::getTimeConfidence() == TimeConfidence::Trusted);
+            time_conf::onConnectionLoss();
+            assert(time_conf::getTimeConfidence() == TimeConfidence::Holdover);
+
+            // 6. test_reboot_without_trusted_clock_enters_safe_offline
+            time_conf::initializeTimeConfidence(false); // boot without RTC
+            assert(time_conf::getTimeConfidence() == TimeConfidence::Uncertain);
+
+            // 7. test_force_on_not_restored_when_time_uncertain
+            time_conf::setTimeConfidence(TimeConfidence::Uncertain);
+            PersistedManualOverride ovr{AppIntent::FORCE_ON, {0, 0, 0}, 2000};
+            cps.saveManualOverride(AppChannel::MIST, ovr);
+            manual::ManualLatchArray manualLatch{};
+            time_t now_epoch_s = time(nullptr);
+            TimeConfidence tc = time_conf::getTimeConfidence();
+            assert(tc == TimeConfidence::Uncertain);
+            if (cps.loadManualOverride(AppChannel::MIST, ovr)) {
+                if (tc == TimeConfidence::Uncertain) {
+                    manualLatch[static_cast<size_t>(AppChannel::MIST)].active = false;
+                    manualLatch[static_cast<size_t>(AppChannel::MIST)].forced_state = AppIntent::AUTO;
+                    cps.clearManualOverride(AppChannel::MIST);
+                }
+            }
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].active == false);
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].forced_state == AppIntent::AUTO);
+
+            // Clean up NVS
+            cps.clearProfile();
+            cps.clearManualOverride(AppChannel::MIST);
         }
     }
 

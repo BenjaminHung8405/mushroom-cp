@@ -70,4 +70,54 @@ SetpointPod interpolateSetpoints(float currentDay) {
     return target;
 }
 
+bool interpolateSetpoint(
+    uint16_t cropDay,
+    const PersistedCropProfile &profile,
+    float &temp_target,
+    float &humidity_target)
+{
+    if (profile.checkpoint_count == 0) {
+        return false;
+    }
+
+    if (cropDay <= profile.checkpoints[0].crop_day) {
+        temp_target = profile.checkpoints[0].temp_target_c;
+        humidity_target = profile.checkpoints[0].humidity_target_rh;
+    }
+    else if (cropDay >= profile.checkpoints[profile.checkpoint_count - 1].crop_day) {
+        temp_target = profile.checkpoints[profile.checkpoint_count - 1].temp_target_c;
+        humidity_target = profile.checkpoints[profile.checkpoint_count - 1].humidity_target_rh;
+    }
+    else {
+        uint16_t idx = 0;
+        for (uint16_t i = 0; i < profile.checkpoint_count - 1; ++i) {
+            if (cropDay >= profile.checkpoints[i].crop_day && cropDay <= profile.checkpoints[i+1].crop_day) {
+                idx = i;
+                break;
+            }
+        }
+        
+        float day_a = profile.checkpoints[idx].crop_day;
+        float day_b = profile.checkpoints[idx+1].crop_day;
+        float val_temp_a = profile.checkpoints[idx].temp_target_c;
+        float val_temp_b = profile.checkpoints[idx+1].temp_target_c;
+        float val_hum_a = profile.checkpoints[idx].humidity_target_rh;
+        float val_hum_b = profile.checkpoints[idx+1].humidity_target_rh;
+        
+        float t = (static_cast<float>(cropDay) - day_a) / (day_b - day_a);
+        temp_target = val_temp_a + (val_temp_b - val_temp_a) * t;
+        humidity_target = val_hum_a + (val_hum_b - val_hum_a) * t;
+    }
+
+    if (!std::isfinite(temp_target) || temp_target < 10.0f || temp_target > 45.0f) {
+        return false;
+    }
+    if (!std::isfinite(humidity_target) || humidity_target < 30.0f || humidity_target > 95.0f) {
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace Trajectory
+

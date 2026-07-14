@@ -229,21 +229,21 @@
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S4-B1 | Tạo `time_confidence` module | `[ ] Pending` | API pure/read-only cho `Trusted`, `Holdover`, `Uncertain`; explicit boot transition. |
-| S4-B2 | Wire NTP/MQTT time sync | `[ ] Pending` | Valid time sets `Trusted`, saves bounded `PersistedTimeState`; connection loss while same boot gives `Holdover`. |
-| S4-B3 | Detect reboot/offline uncertainty | `[ ] Pending` | Boot without valid RTC/NTP/MQTT time must be `Uncertain`, not estimated elapsed time. |
-| S4-B4 | Define safe offline profile | `[ ] Pending` | Product/biological owner supplies concrete conservative setpoint; code uses named config, not a guessed magic number. |
-| S4-B5 | Telemetry exposure | `[ ] Pending` | Publish `time_confidence`, `crop_day`, `profile_version`, `profile_source` and `offline_safe_mode`. |
+| S4-B1 | Tạo `time_confidence` module | `[x] Done` | API pure/read-only cho `Trusted`, `Holdover`, `Uncertain`; explicit boot transition. |
+| S4-B2 | Wire NTP/MQTT time sync | `[x] Done` | Valid time sets `Trusted`, saves bounded `PersistedTimeState`; connection loss while same boot gives `Holdover`. |
+| S4-B3 | Detect reboot/offline uncertainty | `[x] Done` | Boot without valid RTC/NTP/MQTT time must be `Uncertain`, not estimated elapsed time. |
+| S4-B4 | Define safe offline profile | `[x] Done` | Product/biological owner supplies concrete conservative setpoint; code uses named config, not a guessed magic number. |
+| S4-B5 | Telemetry exposure | `[x] Done` | Publish `time_confidence`, `crop_day`, `profile_version`, `profile_source` and `offline_safe_mode`. |
 
 ### Track C: Core 1 Profile Snapshot & Interpolation
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S4-C1 | Add profile update queue/snapshot bridge | `[ ] Pending` | Core 0 sends complete validated profile; Core 1 adopts only at beginning of a control tick. |
-| S4-C2 | Implement `interpolateSetpoint()` | `[ ] Pending` | Pure function; never allocates or touches NVS/network. |
-| S4-C3 | Integrate with control pipeline | `[ ] Pending` | Trusted/Holdover computes crop day + interpolated target; Uncertain selects safe offline target. |
-| S4-C4 | Maintain safety precedence | `[ ] Pending` | Profile target → Fuzzy → manual latch/Fuzzy-Bounds Guarding → `hardwareProtectionOverride()` → TPC. |
-| S4-C5 | Manual UI feedback | `[ ] Pending` | `manual_ack` includes `time_confidence`; UI shows degraded/offline warning but cannot bypass Core 1 safety gate. |
+| S4-C1 | Add profile update queue/snapshot bridge | `[x] Done` | Core 0 sends complete validated profile; Core 1 adopts only at beginning of a control tick. |
+| S4-C2 | Implement `interpolateSetpoint()` | `[x] Done` | Pure function; never allocates or touches NVS/network. |
+| S4-C3 | Integrate with control pipeline | `[x] Done` | Trusted/Holdover computes crop day + interpolated target; Uncertain selects safe offline target. |
+| S4-C4 | Maintain safety precedence | `[x] Done` | Profile target → Fuzzy → manual latch/Fuzzy-Bounds Guarding → `hardwareProtectionOverride()` → TPC. |
+| S4-C5 | Manual UI feedback | `[x] Done` | `manual_ack` includes `time_confidence`; UI shows degraded/offline warning but cannot bypass Core 1 safety gate. |
 
 ### Track D: UI Integration Contract
 
@@ -258,13 +258,13 @@
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S4-E1 | `test_interpolate_between_checkpoints` | `[ ] Pending` | Day between two known checkpoints gives exact linear target. |
-| S4-E2 | `test_interpolate_endpoint_clamp` | `[ ] Pending` | Before first/after last checkpoint clamps to endpoint. |
-| S4-E3 | `test_profile_rejects_invalid_checkpoint_data` | `[ ] Pending` | NaN, duplicates, unsorted, out-of-range count/day rejected. |
-| S4-E4 | `test_profile_crc_rejects_corruption` | `[ ] Pending` | Corrupt persisted record never becomes active. |
-| S4-E5 | `test_holdover_keeps_crop_day_after_wifi_loss` | `[ ] Pending` | Same boot, previously trusted clock, loss of network → valid derived crop day. |
-| S4-E6 | `test_reboot_without_trusted_clock_enters_safe_offline` | `[ ] Pending` | NVS profile exists but no RTC/NTP/MQTT after simulated reboot → `Uncertain`, safe profile; no false elapsed-time estimate. |
-| S4-E7 | `test_force_on_not_restored_when_time_uncertain` | `[ ] Pending` | Reboot under uncertainty must not revive a stale FORCE_ON latch. |
+| S4-E1 | `test_interpolate_between_checkpoints` | `[x] Done` | Day between two known checkpoints gives exact linear target. |
+| S4-E2 | `test_interpolate_endpoint_clamp` | `[x] Done` | Before first/after last checkpoint clamps to endpoint. |
+| S4-E3 | `test_profile_rejects_invalid_checkpoint_data` | `[x] Done` | NaN, duplicates, unsorted, out-of-range count/day rejected. |
+| S4-E4 | `test_profile_crc_rejects_corruption` | `[x] Done` | Corrupt persisted record never becomes active. |
+| S4-E5 | `test_holdover_keeps_crop_day_after_wifi_loss` | `[x] Done` | Same boot, previously trusted clock, loss of network → valid derived crop day. |
+| S4-E6 | `test_reboot_without_trusted_clock_enters_safe_offline` | `[x] Done` | NVS profile exists but no RTC/NTP/MQTT after simulated reboot → `Uncertain`, safe profile; no false elapsed-time estimate. |
+| S4-E7 | `test_force_on_not_restored_when_time_uncertain` | `[x] Done` | Reboot under uncertainty must not revive a stale FORCE_ON latch. |
 | S4-E8 | Field test: Wi-Fi disconnect | `[ ] Pending` | Confirm no control pause, local button works, telemetry indicates Holdover. |
 | S4-E9 | Field test: power-cycle without network | `[ ] Pending` | Confirm Uncertain/safe mode, no stale FORCE_ON, then correct recovery after time/profile sync. |
-| S4-E10 | `pio test -e native` | `[ ] Pending` | PASS all current and new tests. |
+| S4-E10 | `pio test -e native` | `[x] Done` | PASS all current and new tests. |

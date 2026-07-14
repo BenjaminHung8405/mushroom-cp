@@ -25,6 +25,22 @@ struct SetpointPod {
  * @param currentDay The current day age of the crop [0.0, 20.0]
  * @return SetpointPod The interpolated target setpoints.
  */
+/**
+ * @brief Linearly interpolates target setpoints from a custom crop profile.
+ * 
+ * @param cropDay The current integer day of the crop
+ * @param profile The active crop profile
+ * @param temp_target Output parameter for temperature target
+ * @param humidity_target Output parameter for humidity target
+ * @return true if interpolation succeeded and results are valid, false otherwise.
+ */
+bool interpolateSetpoint(
+    uint16_t cropDay,
+    const PersistedCropProfile &profile,
+    float &temp_target,
+    float &humidity_target);
+
 SetpointPod interpolateSetpoints(float currentDay);
 
 } // namespace Trajectory
+

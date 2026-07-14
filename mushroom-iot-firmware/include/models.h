@@ -110,7 +110,8 @@ struct ManualAck {
     ManualDecision      decision;
     AppIntent           effective_intent;
     ManualReleaseReason release_reason;
-    uint8_t             padding[3];
+    TimeConfidence      time_confidence;
+    uint8_t             padding[2];
     uint32_t            expires_ms;
     uint32_t            ack_ms;
 } __attribute__((aligned(4)));

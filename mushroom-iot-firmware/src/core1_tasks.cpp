@@ -41,6 +41,8 @@ QueueHandle_t g_profile_update_queue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 volatile bool shared_forceFullPublish = false;
+static PersistedCropProfile activeProfile;
+static bool hasActiveProfile = false;
 #ifndef UNIT_TEST
 SemaphoreHandle_t xTelemetryMutex = nullptr;
 #endif
@@ -388,6 +390,25 @@ static float calculateCurrentCropDay()
     }
 }
 
+static uint16_t getCurrentCropDay()
+{
+    if (time_conf::getTimeConfidence() == TimeConfidence::Uncertain)
+    {
+        return 0;
+    }
+    if (hasActiveProfile)
+    {
+        time_t now_epoch_s = time(nullptr);
+        int64_t diff = now_epoch_s - activeProfile.crop_start_epoch_s;
+        int32_t day_val = 1 + (diff / 86400);
+        if (day_val < 1) day_val = 1;
+        if (day_val > activeProfile.total_crop_days) day_val = activeProfile.total_crop_days;
+        return static_cast<uint16_t>(day_val);
+    }
+    float currentDay = calculateCurrentCropDay();
+    return static_cast<uint16_t>(currentDay);
+}
+
 static Trajectory::SetpointPod getControlSetpointsAndErrors(
     const TelemetryData& telemetry,
     const ControlSetpointCommand& baselineCmd,
@@ -411,7 +432,22 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
         const Trajectory::SetpointPod trajectory =
             Trajectory::interpolateSetpoints(currentDay);
 
-        // Temperature Target Priority: override > baseline > trajectory Day 0
+        float base_temp_target = trajectory.temp_target;
+        float base_humidity_target = trajectory.humidity_target;
+
+        if (hasActiveProfile)
+        {
+            uint16_t cropDay = getCurrentCropDay();
+            float temp_t = 0.0f;
+            float hum_t = 0.0f;
+            if (Trajectory::interpolateSetpoint(cropDay, activeProfile, temp_t, hum_t))
+            {
+                base_temp_target = temp_t;
+                base_humidity_target = hum_t;
+            }
+        }
+
+        // Temperature Target Priority: override > baseline > trajectory/profile target
         if (overrideCmd.active && std::isfinite(overrideCmd.temp_target))
         {
             setpoints.temp_target = overrideCmd.temp_target;
@@ -422,10 +458,10 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
         }
         else
         {
-            setpoints.temp_target = trajectory.temp_target;
+            setpoints.temp_target = base_temp_target;
         }
 
-        // Humidity Target Priority: override > baseline > trajectory Day 0
+        // Humidity Target Priority: override > baseline > trajectory/profile target
         if (overrideCmd.active && std::isfinite(overrideCmd.humidity_target))
         {
             setpoints.humidity_target = overrideCmd.humidity_target;
@@ -436,7 +472,7 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
         }
         else
         {
-            setpoints.humidity_target = trajectory.humidity_target;
+            setpoints.humidity_target = base_humidity_target;
         }
 
         // CO2 Target Priority: override > baseline > trajectory Day 0
@@ -498,6 +534,19 @@ static void runControlPipelineStep(
     unsigned long& lastSensorMs,
     unsigned long& lastControlMs)
 {
+    // S4-C1: Adopt profile update only at beginning of a control tick
+    if (g_profile_update_queue != nullptr)
+    {
+        PersistedCropProfile newProfile;
+        if (xQueueReceive(g_profile_update_queue, &newProfile, 0) == pdTRUE)
+        {
+            activeProfile = newProfile;
+            hasActiveProfile = true;
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[CORE1_TASK] Adopted new crop profile. Checkpoints: %u, Version: %u\n",
+                          activeProfile.checkpoint_count, activeProfile.schema_version);
+        }
+    }
     // Non-blocking drain baseline and override queues at the beginning of tick 50 ms
     if (xBaselineQueue != nullptr)
     {
@@ -575,8 +624,7 @@ static void runControlPipelineStep(
         if (q != nullptr) {
             ManualRequest req;
             while (xQueueReceive(q, &req, 0) == pdTRUE) {
-                float currentDay = calculateCurrentCropDay();
-                uint16_t cropDay = static_cast<uint16_t>(currentDay);
+                uint16_t cropDay = getCurrentCropDay();
                 const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
                 ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
                 
@@ -594,6 +642,7 @@ static void runControlPipelineStep(
                     ack.decision = ManualDecision::Accepted;
                     ack.effective_intent = req.intent;
                     ack.release_reason = ManualReleaseReason::None;
+                    ack.time_confidence = time_conf::getTimeConfidence();
                     ack.expires_ms = manualLatch[static_cast<size_t>(req.channel)].expires_ms;
                     ack.ack_ms = now;
                     if (g_manual_ack_queue != nullptr) {
@@ -613,6 +662,7 @@ static void runControlPipelineStep(
                         ack.expires_ms = 0;
                     }
                     ack.release_reason = ManualReleaseReason::None;
+                    ack.time_confidence = time_conf::getTimeConfidence();
                     ack.ack_ms = now;
                     if (g_manual_ack_queue != nullptr) {
                         xQueueSend(g_manual_ack_queue, &ack, 0);
@@ -626,8 +676,7 @@ static void runControlPipelineStep(
     drainManualQueue(g_mqtt_override_queue);
 
     // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
-    float currentDay = calculateCurrentCropDay();
-    uint16_t cropDay = static_cast<uint16_t>(currentDay);
+    uint16_t cropDay = getCurrentCropDay();
     const TPC_Task::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
 
     manual::ManualLatchArray prevLatch = manualLatch;
@@ -651,6 +700,7 @@ static void runControlPipelineStep(
             ack.decision = ManualDecision::Accepted;
             ack.effective_intent = AppIntent::AUTO;
             ack.release_reason = reason;
+            ack.time_confidence = time_conf::getTimeConfidence();
             ack.expires_ms = 0;
             ack.ack_ms = now;
             if (g_manual_ack_queue != nullptr) {
@@ -715,6 +765,14 @@ void taskCore1Control(void* /*pvParameters*/)
     // GPIO is initialized LOW before this task accepts any demand.
     sensors::init_sensors_placeholder();
     actuators::init_actuators_gpio();
+
+    // Load persisted crop profile once on boot
+    hasActiveProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
+    if (hasActiveProfile) {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[CORE1_TASK] Loaded crop profile from NVS successfully. Checkpoints: %u, Version: %u\n",
+                      activeProfile.checkpoint_count, activeProfile.schema_version);
+    }
 
 #ifndef UNIT_TEST
     if (esp_task_wdt_add(nullptr) != ESP_OK)
