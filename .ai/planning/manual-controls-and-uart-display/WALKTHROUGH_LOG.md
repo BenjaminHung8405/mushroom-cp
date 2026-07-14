@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:53:20+07:00] Task S1-E6: Test dual-lamp offset chống inrush (window ellapsed 0 → stage2 vẫn OFF trong 5s đầu)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Đã có sẵn)
+- **Giải trình giải pháp**:
+  - Xác minh test case cho kịch bản bảo vệ chống dòng inrush với cấu hình offset của 2 bóng đèn nhiệt.
+  - Test case S1-E6 kiểm tra chi tiết tại thời điểm bắt đầu chu kỳ mới (window elapsed 0, t=0 hay millis = 10000) và trước 5s đầu (t < 5s, millis = 14999), bóng đèn thứ hai (stage2/Lamp2) buộc phải ở trạng thái OFF mặc dù demand đạt tối đa 1.0. Stage2 chỉ được chuyển sang ON khi trôi qua đủ 5s (millis = 15000).
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và thực thi offline suite test thành công tốt đẹp: 100% assertions passed (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:50:27+07:00] Task S1-E5: Test demand=1.0 → stage1&2 duty=1.0
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

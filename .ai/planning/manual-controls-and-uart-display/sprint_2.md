@@ -56,10 +56,25 @@ enum class AppChannel : uint8_t {
     COUNT
 };
 
+// Unified override intent — shared by UI (MQTT) and physical buttons.
+// Replaces the old toggle-only `intent_on` boolean with explicit three-state intent.
+enum class AppIntent : uint8_t {
+    AUTO = 0,   // Trả quyền về Fuzzy/TPC
+    FORCE_ON = 1, // Ép bật có kiểm soát (Fuzzy-Bounds Guarding)
+    FORCE_OFF = 2, // Ép tắt
+};
+
 struct ManualRequest {
     AppChannel channel;
-    bool       intent_on;   // true=user muốn ON, false=user muốn OFF
+    AppIntent  intent;      // AUTO / FORCE_ON / FORCE_OFF
     uint32_t   request_ms;  // millis() lúc phát request
+} __attribute__((aligned(4)));
+
+// Payload từ Web UI qua MQTT override topic — cùng schema với ManualRequest.
+struct ActuatorOverridePayload {
+    AppChannel channel;
+    AppIntent  intent;      // AUTO / FORCE_ON / FORCE_OFF
+    uint32_t   request_ms;  // epoch ms từ client (cho audit trail)
 } __attribute__((aligned(4)));
 
 enum class ManualDecision : uint8_t {
@@ -69,11 +84,12 @@ enum class ManualDecision : uint8_t {
     RejectedHumi = 3,
     RejectedBlackout = 4,
     RejectedRateLimit = 5,
+    RejectedLocked = 6,    // NEW: crop-day lock (heater_air > day 8) hoặc blackout cứng
 };
 
 struct ManualAck {
     AppChannel     channel;
-    bool           requested_on;
+    AppIntent      requested_intent;
     ManualDecision decision;
     uint32_t       ack_ms;
 } __attribute__((aligned(4)));
@@ -81,35 +97,53 @@ struct ManualAck {
 
 ## Safety gate rules (Core 1, pure function)
 
-Hàm `manual::evaluateSafetyGate(request, telemetry, setpoints, rtcTime)`:
+Hàm `manual::evaluateSafetyGate(request, telemetry, setpoints, rtcTime, cropDay)` chạy **chỉ trên Core 1**
+và áp dụng đồng nhất cho request từ nút vật lý lẫn MQTT/Web UI:
 
-- **OFF request**: luôn `Accepted`. Không cần đọc sensor.
-- **Mist ON**:
+- **AUTO hoặc FORCE_OFF**: luôn `Accepted`. Không cần đọc sensor; AUTO xoá latch, FORCE_OFF
+  giữ duty ở 0 cho tới TTL hoặc request AUTO mới.
+- **Mist FORCE_ON**:
   - `!isfinite(humidity_air)` → `RejectedNAN`.
-  - `humidity_air > 92.0f` → `RejectedHumi`.
+  - `humidity_air >= MIST_WARNING_LIMIT_RH` (92.0f) → `RejectedHumi`.
   - `!rtcTime.valid || isMiddayBlackout(rtcTime)` → `RejectedBlackout`.
   - Ngược lại → `Accepted`.
-- **Lamp ON**:
+- **Lamp FORCE_ON**:
   - `!isfinite(temp_air)` → `RejectedNAN`.
-  - `temp_air > setpoints.temp_target + 3.0f` → `RejectedTemp`.
-  - Ngược lại → `Accepted`. (Lamp không bị blackout.)
-- **Fan ON**: luôn `Accepted` (quạt an toàn, kể cả blackout — giúp hạ nhiệt).
+  - `cropDay > 8` → `RejectedLocked`, đúng với UI lock của `heater_air`.
+  - `temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C` (3.0f) → `RejectedTemp`.
+  - Ngược lại → `Accepted`.
+- **Fan FORCE_ON**: luôn `Accepted` (quạt an toàn, kể cả blackout — giúp hạ nhiệt).
+
+### Fuzzy-Bounds Guarding (bắt buộc)
+
+`FORCE_ON` **không** nhường quyền lại cho Fuzzy ngay ở tick kế tiếp. Nó ép thiết bị chạy để đáp ứng
+ý định của người vận hành, nhưng vẫn chạy dưới dải giới hạn sinh học đã xác nhận:
+
+- MIST: giữ duty 1.0 cho đến khi `humidity_air >= MIST_WARNING_LIMIT_RH` (92%RH). Khi chạm
+  ngưỡng, ép duty=0, tự đổi intent về `AUTO`, publish ack/release reason `SafetyLimitReached`.
+- LAMP: giữ demand `LAMP_MANUAL_DUTY` (0.6, tương ứng staged Lamp1 full + Lamp2 20%) cho đến
+  khi `temp_air >= temp_target + LAMP_WARNING_DELTA_C`; khi chạm ngưỡng, ép duty=0, tự về `AUTO`
+  và publish ack/release reason.
+- FAN: FORCE_ON không có biological warning limit; chỉ nhả theo AUTO, TTL, hoặc reset.
+- `hardwareProtectionOverride()` là chốt cứng cuối: thắng mọi latch, bao gồm cả FORCE_OFF/ON.
 
 Manual latch:
-- TTL 15 phút. Sau TTL, latch tự release, fuzzy giành lại quyền điều khiển.
-- Nếu Core 1 đọc sensor thấy điều kiện lật ngược ranh giới (VD humidity vọt lên 95%
-  trong khi Mist latch ON), latch bị **auto-clear** — không đợi TTL. Log rõ ràng.
+- Mỗi override có TTL 15 phút. Sau TTL, intent tự thành `AUTO` và fuzzy giành lại quyền.
+- Core 1 đánh giá lại giới hạn ở **mỗi control tick**, không chỉ lúc nhận request. Vì vậy sensor
+  thay đổi sau khi force-on vẫn tự nhả an toàn.
 - Rate limit: cùng 1 kênh không được nhận > 1 request/second → `RejectedRateLimit`.
+- Chỉ Core 1 đọc/ghi latch. Core 0 không được sửa trực tiếp state manual.
 
 ## Ứng dụng latch vào output
 
 Hàm `manual::applyManualLatchToOutputs(FuzzyController::ArbitratedOutputsPod& outputs,
-const ManualLatchArray& latch, uint32_t now)`:
+ManualLatchArray& latch, uint32_t now, const TelemetryData&, const SetpointPod&, const RtcTimePod&, uint16_t cropDay)`:
 
-- Với mỗi channel còn active:
-  - Nếu `forced_state == ON`: set duty tương ứng = `1.0f` (Mist/Fan) hoặc `0.6f`
-    (Lamp — bật 1 bóng full + 1 bóng ~20% để user không cảm giác sáng quá).
-  - Nếu `forced_state == OFF`: set duty = `0.0f`.
+- Với từng channel, expire TTL hoặc auto-release do warning limit trước khi áp dụng duty.
+- `FORCE_ON`: set duty tương ứng = `1.0f` (Mist/Fan) hoặc `0.6f` (Lamp).
+- `FORCE_OFF`: set duty = `0.0f`.
+- `AUTO`: không sửa output của Fuzzy.
+- Trả về danh sách release event để Core 1 publish `ManualAck` cập nhật UI.
 - Áp dụng **sau** fuzzy + adaptive tuner, **trước** `hardwareProtectionOverride()`. Blackout
   interlock luôn thắng manual latch.
 
