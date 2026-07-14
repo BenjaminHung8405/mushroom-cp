@@ -12,8 +12,12 @@
   - [sprint_2.md](./sprint_2.md) — 3 nút cứng tủ điện + safety gate Core 0/Core 1
   - [sprint_3.md](./sprint_3.md) — UART 4-digit LED display
 
-## Addition Plan
-- Chưa có
+## Addition Plan — Unified Overrides & Offline Autonomy (2026-07-14)
+- **Nguồn ý tưởng/UI:** `mushroom-ui/components/standard-actuators-control.tsx` có UI override 3 trạng thái (`auto` / `on` / `off`), UI lock và toast auto-release. Firmware Sprint 2 phải dùng chính contract này; UI là UX pre-check, Core 1 firmware là authority.
+- **Override thống nhất:** Nút vật lý và MQTT/Web UI vào hai queue riêng nhưng dùng chung `ManualRequest{AppChannel, AppIntent}`; Core 1 là sole writer của `ManualLatchArray` và GPIO vẫn chỉ do TPC xuất.
+- **Fuzzy-Bounds Guarding:** `FORCE_ON` phải chạy thật để người vận hành thấy hiệu lực, nhưng tự release về AUTO khi chạm biological warning limit; không để fuzzy tắt ngay tick sau và cũng không cho ON vô thời hạn.
+- **Offline autonomy:** Bổ sung sprint tiếp theo cho NVS profile/crop-time checkpoint persistence, tính crop day không phụ thuộc NTP sau mất điện, và nội suy setpoint offline. Không commit các giá trị hardcode theo day.
+- **UI rename/contract:** Đồng bộ `heater_air` với actuator đèn nhiệt (`lamp`/`lamp_stage`) trước integration; UI lấy `effective_intent`/release reason từ firmware ack thay vì suy luận state local.
 
 ---
 
@@ -77,9 +81,9 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware` | `[ ] Pending` |
-| S2-A2 | Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min) | `[ ] Pending` |
-| S2-A3 | Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] Pending` |
+| S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware` | `[ ] QA Review` |
+| S2-A2 | Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min) | `[ ] QA Review` |
+| S2-A3 | Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] QA Review` |
 | S2-A4 | Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()` | `[ ] Pending` |
 
 ### Track B: Core 0 Button Task

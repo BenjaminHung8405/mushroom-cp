@@ -15,6 +15,9 @@ Kế hoạch này bổ sung ba khối chức năng vật lý cho hệ điều kh
 3. **Module hiển thị LED 7-đoạn 4 chữ số** giao tiếp qua UART (Serial1). 2 chữ số trái = độ ẩm
    nhà nấm (%RH), 2 chữ số phải = nhiệt độ không khí (°C). Khi sensor không hợp lệ (NAN) hiển
    thị `----`. Task display chạy trên Core 0, đọc snapshot state qua mutex có sẵn.
+4. **Offline autonomy** — profile/crop trajectory đã đồng bộ được persist có CRC trong NVS;
+   control loop tiếp tục khi mất mạng. Sau power-cycle mà chưa có giờ tin cậy, firmware phải vào
+   safe offline mode thay vì suy diễn sai crop day từ `millis()`/NVS.
 
 ### Các mục tiêu cụ thể
 
@@ -134,3 +137,4 @@ quỹ đạo trồng nấm. Fan/Lamp/Mist đủ cho vận hành thủ công 90% 
 | **1**  | Pin map refactor + HAir→HLamp + 2-bulb dispatch        | `config.h`, `models.h`, `FuzzyController.*`, `AdaptiveTuner.*`, `TPC_Task.*`, `core1_tasks.cpp`, `actuators.cpp`, `WebInterface.cpp`, `main.cpp`, `definitions.h`, `run_tests.cpp` |
 | **2**  | Cabinet buttons + Manual Request pipeline + Safety Gate | `cabinet_buttons.h` [NEW], `cabinet_buttons.cpp` [NEW], `manual_control.h` [NEW], `manual_control.cpp` [NEW], `definitions.h`, `main.cpp`, `core0_tasks.cpp`, `core1_tasks.cpp`, `mqtt_client.cpp` |
 | **3**  | UART LED 7-segment Display Driver                      | `display_driver.h` [NEW], `display_driver.cpp` [NEW], `config.h`, `definitions.h`, `main.cpp`, `core0_tasks.cpp` |
+| **4**  | Offline Autonomy, Persisted Crop Profile & Observability | `crop_profile_storage.h/.cpp` [NEW], `time_confidence.h/.cpp` [NEW], `models.h`, `mqtt_client.cpp`, `core1_tasks.cpp`, `main.cpp` |

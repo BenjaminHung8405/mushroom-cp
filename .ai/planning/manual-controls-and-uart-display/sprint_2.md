@@ -189,45 +189,51 @@ ManualLatchArray& latch, uint32_t now, const TelemetryData&, const SetpointPod&,
 | D5 | Gọi `xTaskCreatePinnedToCore` trong `createCoreTasks()` | Chạy task `cabinet_buttons::task_cabinet_buttons` (Core 0, priority 1, stack 2048). Vòng lặp dùng `vTaskDelayUntil` với chu kỳ `xFrequency = pdMS_TO_TICKS(10)` để đảm bảo chính xác 10ms. |
 | D6 | Pre-seed lịch sử nút lúc start | Khởi tạo nút với `history = 0xFF`, `current_state = true` để tránh false trigger PRESS khi boot. |
 
-### Track E — Core 1 Integration
+### Track E — Core 1 Integration (Unified Override Pipeline)
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
 | E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | Không toàn cục. Init zero. |
-| E2 | Thêm bước drain queue vào đầu `runControlPipelineStep()` | Sau khi drain baseline/override, drain `g_manual_request_queue`. Với mỗi request: gọi `evaluateSafetyGate`, nếu Accepted và toggle-semantics: nếu latch cùng channel đang active với `forced_state==intent_on` thì clear latch (toggle OFF), ngược lại update latch. Sinh `ManualAck` push vào `g_manual_ack_queue` (non-blocking). |
-| E3 | Chèn `autoClearOnSensorViolation(manualLatch, telemetry, setpoints, rtcTime)` sau khi có `setpoints` | Trước khi gọi fuzzy. |
-| E4 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, millis())` sau `arbitrateOutputs` | Trước `hardwareProtectionOverride`. |
-| E5 | Verify `hardwareProtectionOverride` vẫn thắng | Thêm 1 comment giải thích thứ tự: fuzzy → tuner → arbitrate → manual latch → protection → TPC. |
+| E2 | Drains **hai** queue input: `g_manual_request_queue` (physical buttons) + `g_mqtt_override_queue` (UI/MQTT) | Cả hai queue đều chứa `ManualRequest`. Với mỗi request: gọi `evaluateSafetyGate()`. Nếu Accepted → update latch theo intent (FORCE_ON/FORCE_OFF/AUTO); nếu Rejected → push `ManualAck` vào `g_manual_ack_queue` (non-blocking). |
+| E3 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTime, cropDay)` sau `arbitrateOutputs` | Trước `hardwareProtectionOverride`. Hàm này xử lý expire TTL, Fuzzy-Bounds Guarding warning limit, và trả về release events. |
+| E4 | Verify `hardwareProtectionOverride` vẫn thắng | Comment thứ tự pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → TPC. |
 
-### Track F — Core 0 Ack Consumer
+### Track F — Core 0 Ack Consumer & UI Contract
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| F1 | Trong `taskCore0Communication`, thêm bước drain `g_manual_ack_queue` mỗi vòng | Log qua `ScopedSerialLock`: `[MANUAL] ch=%d req_on=%d decision=%d`. Không block. |
-| F2 | (Optional) Publish MQTT topic `mushroom/{device}/manual_ack` | Nếu MQTT connected. Payload JSON `{channel, requested_on, decision, ts}`. Không bắt buộc pass trong sprint này. |
+| F1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue` mỗi vòng | Log qua `ScopedSerialLock`: `[MANUAL] ch=%d requested=%d effective=%d decision=%d release=%d`. Không block. |
+| F2 | Publish MQTT retained `mushroom/{deviceId}/manual/ack` | Dùng contract B6. Bắt buộc publish cho Accepted, Rejected, TTL expiry, warning-limit release, và hardware protection release để UI đồng bộ. Khi offline, ack còn lại được chờ queue/reconnect hoặc state mới nhất được publish retained sau reconnect. |
+| F3 | Cập nhật UI contract/labels trước integration | `heater_air` phải được migrate/alias có thời hạn sang `lamp`/`lamp_stage`; UI hiển thị `AUTO / ON / OFF` từ `effective_intent` nhận từ firmware, không dùng React state làm source of truth. UI pre-check chỉ là UX; firmware ack là authoritative. |
 
 ### Track G — Tests
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| G1 | `test_manual_gate_mist_over_humidity` | telemetry.humidity_air = 94, request Mist ON → `RejectedHumi`. |
+| G1 | `test_manual_gate_mist_over_humidity` | humidity=92 → Mist FORCE_ON `RejectedHumi`; test chính xác boundary. |
 | G2 | `test_manual_gate_mist_nan_humidity` | humidity NAN → `RejectedNAN`. |
-| G3 | `test_manual_gate_lamp_over_temp` | temp_air = target+5 → `RejectedTemp`. |
-| G4 | `test_manual_gate_fan_always_accepted` | Fan ON được chấp nhận kể cả blackout + sensor NAN. |
-| G5 | `test_manual_gate_off_always_accepted` | Bất kỳ OFF request → Accepted, không đọc sensor. |
-| G6 | `test_latch_ttl_expires` | Latch active, giả lập `now` vượt TTL → apply không ép duty. |
-| G7 | `test_latch_auto_clear_on_sensor_violation` | Latch Mist=ON, telemetry.humidity vọt 95 → autoClear clear latch. |
-| G8 | `test_apply_latch_order_vs_protection` | Latch Mist=ON, blackout active → sau protection outputs.Mist = 0 (protection thắng). |
-| G9 | Chạy `pio test -e native` toàn bộ | PASS, không có warning liên quan. |
+| G3 | `test_manual_gate_lamp_over_temp_or_crop_lock` | temp=target+3 → `RejectedTemp`; cropDay=9 → `RejectedLocked`. |
+| G4 | `test_manual_gate_fan_always_accepted` | Fan FORCE_ON được chấp nhận kể cả blackout + sensor NAN. |
+| G5 | `test_manual_gate_auto_and_force_off_always_accepted` | AUTO/FORCE_OFF không đọc sensor, luôn Accepted. |
+| G6 | `test_latch_ttl_releases_to_auto` | Latch active, giả lập `now` vượt TTL → không ép duty và publish TTL release event. |
+| G7 | `test_fuzzy_bounds_guard_mist` | Mist FORCE_ON ở 75% cho duty=1.0; 92% → duty=0, intent AUTO, release reason safety limit. |
+| G8 | `test_fuzzy_bounds_guard_lamp` | Lamp FORCE_ON dưới warning → `LAMP_MANUAL_DUTY`; tại `target+3` → duty=0, intent AUTO. |
+| G9 | `test_apply_latch_order_vs_protection` | Mist FORCE_ON, blackout active → sau protection outputs.Mist=0 và release event; protection thắng. |
+| G10 | `test_ui_and_button_requests_follow_same_gate` | Cùng `ManualRequest` từ hai queue cho cùng input phải cho cùng decision/latch state. |
+| G11 | `test_debounce_shift_register` | 8 mẫu LOW trigger đúng một FORCE_ON request; release không tạo request ngoài spec. |
+| G12 | Chạy `pio test -e native` toàn bộ | PASS, không warning liên quan. |
 
 ## Definition of Done
 
-- Sau khi flash và nhấn nút Mist ở nhà nấm với humidity 70%, Mist relay ON trong TTL 15 phút.
-- Nhấn nút Mist khi humidity 94% → relay không ON, Serial log `[MANUAL] ch=0 req_on=1 decision=3`.
+- Flash xong, nhấn nút Mist khi humidity 70% → relay ON trong TTL 15 phút; UI nhận ack `effective_intent=FORCE_ON`.
+- Nhấn nút Mist khi humidity 94% → relay không ON, ack `RejectedHumi`; UI hiển thị toast lỗi.
 - Nhấn nút Fan luôn ON.
-- Blackout 11:00-13:30: nút Mist bị chặn với `decision=RejectedBlackout`.
+- Blackout 11:00–13:30: nút Mist bị chặn với `decision=RejectedBlackout`.
+- **Fuzzy-Bounds Guarding:** Ép Mist ON ở 75% → chạy duty=1.0; khi humidity chạm 92% → tự nhả về AUTO, publish release event.
+- **Unified override:** Web UI gửi `POST /actuator_override` với `state=null` (AUTO) → cùng gate logic như nút vật lý; ack trả về đúng intent.
+- **Offline resilience:** Cắt Wi-Fi → Fuzzy + latch + safety gate vẫn chạy bình thường; không crash, không treo.
 - `pio test -e native` PASS.
-- Không có race condition: manualLatch chỉ được sửa bởi Core 1, request chỉ push bởi Core 0.
+- Không có race condition: manualLatch chỉ được sửa bởi Core 1, request chỉ push bởi Core 0 hoặc MQTT bridge.
 
 ## Phụ lục — Thuật toán Shift-Register Integrator Debounce
 

@@ -1,5 +1,37 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:04:30+07:00] Task S2-A3: Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/manual_control.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/manual_control.h) (Tạo mới)
+- **Giải trình giải pháp**:
+  - Tạo mới file header `include/manual_control.h` định nghĩa các kiểu dữ liệu và cấu trúc dữ liệu cho cơ chế điều khiển ghi đè (manual override) thống nhất bao gồm: `AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, và `ManualAck`.
+  - Định nghĩa struct `ManualLatchEntry` (tương đương `ManualLatchState`) và kiểu alias `ManualLatchArray` trong namespace `manual`.
+  - Khai báo các hàm prototype cho quy trình kiểm tra an toàn và áp dụng chốt giữ (latch) ở Core 1: `evaluateSafetyGate()`, `updateLatchOnAccepted()`, `updateLatchDecay()`, `applyManualLatchToOutputs()`, và `autoClearOnSensorViolation()`.
+- **Kết quả tự kiểm thử**:
+  - Đã biên dịch thử và file header tuân thủ đúng chuẩn, không gây lỗi cú pháp.
+
+## [2026-07-14T16:58:30+07:00] Task S2-A2: Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Bổ sung hằng số `MANUAL_LATCH_TTL_MS = 900000` (15 phút) vào bên trong `namespace config::hardware` của `include/config.h` để làm cơ sở cấu hình thời gian chốt (latch) thủ công trước khi tự động nhả.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và thực thi thành công bộ unit test native `./run_tests` với 100% test cases pass.
+
+## [2026-07-14T16:57:00+07:00] Task S2-A1: Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Khởi tạo namespace mới `config::hardware` trong file `include/config.h` để định nghĩa 3 chân hằng số cho nút bấm tủ điện điều khiển thủ công: `PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, và `PIN_BTN_FAN = 16`.
+- **Kết quả tự kiểm thử**:
+  - Thực thi bộ unit test native `./run_tests` thành công 100%, không bị regression.
+
 ## [2026-07-14T16:54:15+07:00] Task S1-E7: Toàn bộ `pio test -e native` PASS
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

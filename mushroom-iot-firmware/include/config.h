@@ -93,4 +93,16 @@ namespace config
 
     } // namespace network
 
+    namespace hardware
+    {
+        // Manual cabinet buttons pin assignment
+        // Active-LOW, uses internal INPUT_PULLUP; production needs physical 4.7k pull-up + 100nF RC + 10k debounce.
+        constexpr uint8_t PIN_BTN_MIST = 4;
+        constexpr uint8_t PIN_BTN_LAMP = 15;
+        constexpr uint8_t PIN_BTN_FAN = 16;
+
+        // Manual latch duration (15 minutes)
+        constexpr uint32_t MANUAL_LATCH_TTL_MS = 900000;
+    } // namespace hardware
+
 } // namespace config
