@@ -33,6 +33,8 @@ extern EventGroupHandle_t xWifiEventGroup;
 extern volatile bool shared_forceFullPublish;
 #ifndef UNIT_TEST
 extern SemaphoreHandle_t xTelemetryMutex;
+extern TaskHandle_t hTaskCore1Control;
+extern TaskHandle_t hTaskHWButton;
 #endif
 
 // Safe helper functions for thread-safe access to shared_forceFullPublish.

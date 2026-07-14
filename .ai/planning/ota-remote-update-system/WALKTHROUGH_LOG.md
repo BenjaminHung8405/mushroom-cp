@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-14T13:09:48+07:00 — Task A2
+
+- **Task ID:** A2
+- **Mô tả:** Khai báo `extern TaskHandle_t hTaskCore1Control` và `extern TaskHandle_t hTaskHWButton` trong `mushroom-iot-firmware/include/definitions.h`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Files đã sửa đổi:**
+  - `mushroom-iot-firmware/include/definitions.h` (thêm 2 dòng khai báo `extern` bên trong block `#ifndef UNIT_TEST` hiện có).
+- **Files đã tạo mới:**
+  - Không có.
+- **Giải pháp logic đã viết:**
+  - Chèn đúng 2 dòng `extern TaskHandle_t hTaskCore1Control;` và `extern TaskHandle_t hTaskHWButton;` ngay sau `extern SemaphoreHandle_t xTelemetryMutex;` — nằm bên trong block `#ifndef UNIT_TEST ... #endif` đã sẵn có ở khoảng dòng 34-38, đảm bảo tuân thủ chỉ thị Kỹ sư trưởng: (1) chỉ khai báo trong `definitions.h`, (2) bọc trong `#ifndef UNIT_TEST`, (3) không include trực tiếp `<freertos/task.h>` ở phạm vi toàn cục (type `TaskHandle_t` đã có sẵn qua include `<freertos/task.h>` nội bộ trong cùng block `#ifndef UNIT_TEST` ở đầu file).
+  - Không sinh definition, không sửa vị trí include, không đụng vào các khai báo/hàm khác — patch tối thiểu tuyệt đối để không tạo nợ kỹ thuật.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `grep -rn "extern TaskHandle_t hTaskCore1Control" mushroom-iot-firmware` xác nhận duy nhất một khai báo tại `include/definitions.h:36`; tương tự `hTaskHWButton` tại dòng 37 — không có xung đột đa khai báo.
+  - Biên dịch host-side unit test bằng lệnh chuẩn của repo (`g++ -std=c++17 -DUNIT_TEST -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src ...`) với đầy đủ source files → build thành công, chỉ tồn tại 1 warning `-Wformat-security` pre-existing tại `test/Arduino.h:61` (không liên quan Task A2). Điều này chứng minh khối `#ifndef UNIT_TEST` hoạt động đúng: khai báo `TaskHandle_t` extern KHÔNG bị lộ ra native build và không đòi hỏi định nghĩa symbol khi link.
+  - Chạy `./run_tests` cho kết quả assertion fail pre-existing tại `run_tests.cpp:270` (`storage.load_hardware_override`) — đã được xác nhận là lỗi tồn tại từ trước bằng cách `git stash` toàn bộ thay đổi Task A2 và rebuild/rerun cho cùng lỗi. Task A2 KHÔNG gây hồi quy.
+  - `git diff mushroom-iot-firmware/include/definitions.h` xác nhận diff chỉ gồm đúng 2 dòng added, không có thay đổi ngẫu nhiên nào khác (whitespace, formatting, encoding). Không có file binary/artefact được commit kèm.
+
+---
+
 ## 2026-07-14T13:01:32+07:00 — Task A1
 
 - **Task ID:** A1
