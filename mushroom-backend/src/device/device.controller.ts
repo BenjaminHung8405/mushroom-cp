@@ -232,9 +232,6 @@ export class DeviceController {
   ) {
     const { id } = params;
     let { actuator, state } = body;
-    if (actuator === 'lamp' || actuator === 'lamp_stage') {
-      actuator = 'heater_air';
-    }
 
     // 1. Check device registry
     const device =
@@ -263,7 +260,7 @@ export class DeviceController {
       }
     }
 
-    if (actuator === 'heater_air' && state === true) {
+    if ((actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') && state === true) {
       // Check if active batch has cropDay > 8
       try {
         const activeBatch = await this.batchService.getActiveBatchByHouseId(

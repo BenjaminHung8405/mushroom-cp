@@ -45,8 +45,10 @@ describe('TelemetryService', () => {
   beforeEach(async () => {
     telemetrySubject = new Subject<TelemetryEvent>();
 
+    const manualAckSubject = new Subject<{ deviceId: string; ack: any }>();
     const mockMqttService = {
       telemetry$: telemetrySubject,
+      manualAck$: manualAckSubject,
       dispatchSetpoint: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -138,19 +140,21 @@ describe('TelemetryService', () => {
         event({
           mist_active: true,
           fan_active: false,
-          heater_air_active: true,
+          lamp_stage_active: true,
+          lamp_stage2_active: false,
           heater_water_active: false,
           midday_blackout_active: true,
         }),
       );
       expect(dbService.query).toHaveBeenCalledWith(
-        expect.stringContaining('heater_air_active'),
-        expect.arrayContaining([true, false, true, false, true]),
+        expect.stringContaining('lamp_stage_active'),
+        expect.arrayContaining([true, false, true, false, false, true]),
       );
       expect(updates[0]).toMatchObject({
         mistGeneratorActive: true,
         convectionFanActive: false,
-        heaterAirActive: true,
+        lampStageActive: true,
+        lampStage2Active: false,
         heaterWaterActive: false,
         middayBlackoutActive: true,
       });
@@ -163,7 +167,8 @@ describe('TelemetryService', () => {
       expect(updates[0]).toMatchObject({
         mistGeneratorActive: null,
         convectionFanActive: null,
-        heaterAirActive: null,
+        lampStageActive: null,
+        lampStage2Active: null,
         heaterWaterActive: null,
         middayBlackoutActive: null,
       });
@@ -187,7 +192,8 @@ describe('TelemetryService', () => {
         temperatureErrorDelta: -1,
         mistGeneratorActive: true,
         convectionFanActive: false,
-        heaterAirActive: false,
+        lampStageActive: false,
+        lampStage2Active: false,
         heaterWaterActive: false,
         middayBlackoutActive: false,
       };
@@ -220,7 +226,8 @@ describe('TelemetryService', () => {
         temperatureErrorDelta: -1,
         mistGeneratorActive: true,
         convectionFanActive: false,
-        heaterAirActive: false,
+        lampStageActive: false,
+        lampStage2Active: false,
         heaterWaterActive: false,
         middayBlackoutActive: false,
       };

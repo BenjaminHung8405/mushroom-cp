@@ -9,6 +9,15 @@
  *   SSE  /devices/status/stream             — all-device LWT events
  */
 
+export interface ManualAckState {
+  /** 'on' | 'off' | 'auto' — what firmware accepted */
+  effective_intent: 'on' | 'off' | 'auto'
+  /** If firmware released the override, firmware-provided reason string */
+  release_reason: string | null
+  /** Epoch ms when the override expires (0 = no expiry set) */
+  expires_ms: number
+}
+
 export interface TelemetrySnapshot {
   deviceId: string
   houseId: string
@@ -24,9 +33,16 @@ export interface TelemetrySnapshot {
   temperatureErrorDelta: number | null
   mistGeneratorActive: boolean | null
   convectionFanActive: boolean | null
-  heaterAirActive: boolean | null
+  /** Stage 1 thermal-lamp (lamp channel) — replaces legacy heaterAirActive */
+  lampStageActive: boolean | null
+  /** Stage 2 thermal-lamp (lamp_stage2 channel) */
+  lampStage2Active: boolean | null
   heaterWaterActive: boolean | null
   middayBlackoutActive: boolean | null
+  /** Firmware-authoritative manual ack states (populated from retained MQTT ack) */
+  mistAck: ManualAckState | null
+  fanAck: ManualAckState | null
+  lampAck: ManualAckState | null
 }
 
 export interface DeviceStatusEvent {

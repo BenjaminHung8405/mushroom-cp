@@ -20,7 +20,8 @@ export interface DeviceStatusEvent {
 export interface EdgeActuatorState {
   mist_active: boolean;
   fan_active: boolean;
-  heater_air_active: boolean;
+  lamp_stage_active: boolean;
+  lamp_stage2_active: boolean;
   heater_water_active: boolean;
   midday_blackout_active: boolean;
 }
@@ -44,6 +45,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   public readonly deviceStatus$ = new Subject<DeviceStatusEvent>();
   public readonly telemetry$ = new Subject<TelemetryEvent>();
+  public readonly manualAck$ = new Subject<{ deviceId: string; ack: any }>();
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
   private readonly unknownRefreshes = new Set<string>();
 
@@ -120,6 +122,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         );
       else this.logger.log("Subscribed to 'mushroom/device/+/telemetry'");
     });
+    this.client.subscribe('mushroom/+/manual/ack', { qos: 1 }, (err) => {
+      if (err)
+        this.logger.error(
+          `Failed to subscribe to manual ack topics: ${err.message}`,
+        );
+      else this.logger.log("Subscribed to 'mushroom/+/manual/ack'");
+    });
   }
 
   private handleIncomingMessage(topic: string, payload: Buffer): void {
@@ -172,6 +181,22 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      if (parsedTopic.action === 'manual_ack') {
+        const payloadObj = data as Record<string, unknown>;
+        const ack = {
+          channel: typeof payloadObj.channel === 'number' ? payloadObj.channel : 0,
+          requestedIntent: typeof payloadObj.requested_intent === 'number' ? payloadObj.requested_intent : 0,
+          decision: typeof payloadObj.decision === 'number' ? payloadObj.decision : 0,
+          effectiveIntent: typeof payloadObj.effective_intent === 'number' ? payloadObj.effective_intent : 0,
+          releaseReason: typeof payloadObj.release_reason === 'number' ? payloadObj.release_reason : 0,
+          expiresMs: typeof payloadObj.expires_ms === 'number' ? payloadObj.expires_ms : 0,
+          ackMs: typeof payloadObj.ack_ms === 'number' ? payloadObj.ack_ms : 0,
+        };
+        this.manualAck$.next({ deviceId: record.deviceId, ack });
+        void this.registry.touchLastSeen(record.deviceId, receivedAt);
+        return;
+      }
+
       const payloadObj = data as Record<string, unknown>;
       const tempAir = this.finiteMetric(payloadObj.temp_air);
       const humidityAir = this.finiteMetric(payloadObj.humidity_air);
@@ -205,18 +230,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   private parseDeviceTopic(
     topic: string,
-  ): { deviceId: string; action: 'status' | 'telemetry' } | null {
+  ): { deviceId: string; action: 'status' | 'telemetry' | 'manual_ack' } | null {
     const parts = topic.split('/');
     if (
-      parts.length !== 4 ||
-      parts[0] !== 'mushroom' ||
-      parts[1] !== 'device' ||
-      !/^[a-zA-Z0-9_-]{1,50}$/.test(parts[2]) ||
-      (parts[3] !== 'status' && parts[3] !== 'telemetry')
+      parts.length === 4 &&
+      parts[0] === 'mushroom' &&
+      parts[1] === 'device' &&
+      /^[a-zA-Z0-9_-]{1,50}$/.test(parts[2]) &&
+      (parts[3] === 'status' || parts[3] === 'telemetry')
     ) {
-      return null;
+      return { deviceId: parts[2], action: parts[3] as any };
     }
-    return { deviceId: parts[2], action: parts[3] };
+    if (
+      parts.length === 4 &&
+      parts[0] === 'mushroom' &&
+      parts[2] === 'manual' &&
+      parts[3] === 'ack' &&
+      /^[a-zA-Z0-9_-]{1,50}$/.test(parts[1])
+    ) {
+      return { deviceId: parts[1], action: 'manual_ack' };
+    }
+    return null;
   }
 
   private parseActuators(
@@ -238,14 +272,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const value = candidate as Record<string, unknown>;
     const mist = value.mist_active;
     const fan = value.fan_active;
-    const heater_air = value.lamp_stage_active !== undefined ? value.lamp_stage_active : value.heater_air_active;
+    const lamp_stage = value.lamp_stage_active;
+    const lamp_stage2 = value.lamp_stage2_active;
     const heater_water = value.heater_water_active;
     const blackout = value.midday_blackout_active;
 
     if (
       typeof mist !== 'boolean' ||
       typeof fan !== 'boolean' ||
-      typeof heater_air !== 'boolean' ||
+      typeof lamp_stage !== 'boolean' ||
+      typeof lamp_stage2 !== 'boolean' ||
       typeof heater_water !== 'boolean' ||
       typeof blackout !== 'boolean'
     ) {
@@ -257,7 +293,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return {
       mist_active: mist,
       fan_active: fan,
-      heater_air_active: heater_air,
+      lamp_stage_active: lamp_stage,
+      lamp_stage2_active: lamp_stage2,
       heater_water_active: heater_water,
       midday_blackout_active: blackout,
     };
@@ -308,17 +345,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   async dispatchActuatorOverride(
     deviceId: string,
-    actuator: 'fan' | 'heater_air' | 'mist',
+    actuator: 'fan' | 'heater_air' | 'mist' | 'lamp' | 'lamp_stage',
     state: boolean | null,
   ): Promise<void> {
     if (!this.client?.connected) {
       throw new Error('MQTT client is not connected.');
     }
 
-    const overrideValue = state === true ? 1 : state === false ? 2 : 0;
-    const payloadKey = `${actuator}_override`;
     const payload = {
-      [payloadKey]: overrideValue,
+      actuator,
+      state,
     };
 
     this.logger.log(

@@ -64,10 +64,17 @@ interface RealTelemetryContextType {
   isLoading: boolean
 
   fanActive: boolean | null
-  heaterAirActive: boolean | null
+  /** Stage 1 thermal-lamp active state (replaces legacy heaterAirActive) */
+  lampStageActive: boolean | null
+  lampStage2Active: boolean | null
   heaterWaterActive: boolean | null
   mistActive: boolean | null
   middayBlackoutActive: boolean | null
+
+  /** Firmware-authoritative manual ack states — null means no ack received yet */
+  mistAck: import('./telemetry-api').ManualAckState | null
+  fanAck: import('./telemetry-api').ManualAckState | null
+  lampAck: import('./telemetry-api').ManualAckState | null
 
   deviceStatus: DeviceStatus
   lastTelemetryAt: string | null
@@ -180,10 +187,15 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const humiditySetpoint = snapshot?.humiditySetpoint ?? null
 
   const fanActive = snapshot?.convectionFanActive ?? null
-  const heaterAirActive = snapshot?.heaterAirActive ?? null
+  const lampStageActive = snapshot?.lampStageActive ?? null
+  const lampStage2Active = snapshot?.lampStage2Active ?? null
   const heaterWaterActive = snapshot?.heaterWaterActive ?? null
   const mistActive = snapshot?.mistGeneratorActive ?? null
   const middayBlackoutActive = snapshot?.middayBlackoutActive ?? null
+
+  const mistAck = snapshot?.mistAck ?? null
+  const fanAck = snapshot?.fanAck ?? null
+  const lampAck = snapshot?.lampAck ?? null
 
   return (
     <RealTelemetryContext.Provider
@@ -199,10 +211,14 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         snapshot,
         isLoading,
         fanActive,
-        heaterAirActive,
+        lampStageActive,
+        lampStage2Active,
         heaterWaterActive,
         mistActive,
         middayBlackoutActive,
+        mistAck,
+        fanAck,
+        lampAck,
         deviceStatus,
         lastTelemetryAt,
         monitoredDeviceId: DEFAULT_DEVICE_ID,

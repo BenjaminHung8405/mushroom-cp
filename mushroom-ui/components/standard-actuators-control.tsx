@@ -137,7 +137,8 @@ function ActuatorStatusRow({
 
 interface StandardActuatorsControlProps {
   fanActive?: EdgeState
-  heaterAirActive?: EdgeState
+  lampStageActive?: EdgeState
+  lampStage2Active?: EdgeState
   heaterWaterActive?: EdgeState
   mistActive?: EdgeState
   blackoutActive?: EdgeState
@@ -146,17 +147,18 @@ interface StandardActuatorsControlProps {
 
 export function StandardActuatorsControl({
   fanActive = null,
-  heaterAirActive = null,
+  lampStageActive = null,
+  lampStage2Active = null,
   heaterWaterActive = null,
   mistActive = null,
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent } = useRealTelemetry()
+  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, mistAck, fanAck, lampAck } = useRealTelemetry()
   const { cropDayInt } = useBatch()
 
   const [mistMode, setMistMode] = useState<'auto' | 'on' | 'off'>('auto')
   const [fanMode, setFanMode] = useState<'auto' | 'on' | 'off'>('auto')
-  const [heaterAirMode, setHeaterAirMode] = useState<'auto' | 'on' | 'off'>('auto')
+  const [lampMode, setLampMode] = useState<'auto' | 'on' | 'off'>('auto')
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
@@ -168,7 +170,51 @@ export function StandardActuatorsControl({
     }
   }, [toast])
 
-  // Synchronize override selection if hardware resets it due to safety boundaries
+  // S4-D2: Reconcile optimistic UI state from firmware-authoritative ack.
+  // When the firmware ack arrives, replace local optimistic state with the
+  // authoritative effective_intent so UI always reflects real device state.
+  useEffect(() => {
+    if (mistAck?.effective_intent) {
+      setMistMode(mistAck.effective_intent)
+    }
+  }, [mistAck?.effective_intent])
+
+  useEffect(() => {
+    if (fanAck?.effective_intent) {
+      setFanMode(fanAck.effective_intent)
+    }
+  }, [fanAck?.effective_intent])
+
+  useEffect(() => {
+    if (lampAck?.effective_intent) {
+      setLampMode(lampAck.effective_intent)
+    }
+  }, [lampAck?.effective_intent])
+
+  // S4-D3: When Core 1 releases the override (safety gate), return to AUTO and
+  // display the exact firmware-provided reason — never derive it client-side.
+  useEffect(() => {
+    if (lampAck?.release_reason) {
+      setLampMode('auto')
+      setToast({
+        message: `[Firmware] Đèn nhiệt đã được nhả bởi firmware: ${lampAck.release_reason}`,
+        type: 'error',
+      })
+    }
+  }, [lampAck?.release_reason])
+
+  useEffect(() => {
+    if (mistAck?.release_reason) {
+      setMistMode('auto')
+      setToast({
+        message: `[Firmware] Máy tạo ẩm đã được nhả bởi firmware: ${mistAck.release_reason}`,
+        type: 'error',
+      })
+    }
+  }, [mistAck?.release_reason])
+
+  // S4-D4: UI pre-checks as UX-only first defense (device-side RTC/profile remains authoritative).
+  // These reduce failed network round-trips but are NOT the safety enforcement layer.
   useEffect(() => {
     if (mistMode === 'on' && mistActive === false && humidityCurrent !== null && humidityCurrent >= 90) {
       setMistMode('auto')
@@ -178,12 +224,12 @@ export function StandardActuatorsControl({
       })
     }
     if (
-      heaterAirMode === 'on' &&
-      heaterAirActive === false &&
+      lampMode === 'on' &&
+      lampStageActive === false &&
       temperatureCurrent !== null &&
       temperatureCurrent >= (cropDayInt > 8 ? 30 : 35)
     ) {
-      setHeaterAirMode('auto')
+      setLampMode('auto')
       setToast({
         message: `Thiết bị sưởi đã tự động nhả về Tự động (Auto) do nhiệt độ chạm giới hạn nguy hiểm (${
           cropDayInt > 8 ? 30 : 35
@@ -191,13 +237,13 @@ export function StandardActuatorsControl({
         type: 'error',
       })
     }
-  }, [mistActive, heaterAirActive, humidityCurrent, temperatureCurrent, cropDayInt])
+  }, [mistActive, lampStageActive, humidityCurrent, temperatureCurrent, cropDayInt])
 
   const handleOverrideChange = async (
     actuator: 'fan' | 'heater_air' | 'lamp' | 'lamp_stage' | 'mist',
     mode: 'auto' | 'on' | 'off',
   ) => {
-    // 1. Biological rule checks on UI (First defense)
+    // 1. Biological rule checks on UI (UX-only first defense — S4-D4)
     if (actuator === 'mist' && mode === 'on') {
       const now = new Date()
       const hour = now.getHours()
@@ -225,14 +271,15 @@ export function StandardActuatorsControl({
       }
     }
 
-    // 2. Dispatch to backend
+    // 2. Dispatch to backend; firmware will ack with effective_intent (S4-D2)
     const targetState = mode === 'on' ? true : mode === 'off' ? false : null
     const res = await postActuatorOverride(monitoredDeviceId, actuator, targetState)
 
     if (res.success) {
+      // Apply optimistic state — will be reconciled when lampAck/mistAck/fanAck arrives
       if (actuator === 'mist') setMistMode(mode)
       if (actuator === 'fan') setFanMode(mode)
-      if (actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') setHeaterAirMode(mode)
+      if (actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') setLampMode(mode)
 
       const displayName =
         actuator === 'mist'
@@ -280,8 +327,8 @@ export function StandardActuatorsControl({
           name="Đèn nhiệt sưởi ấm (HLamp)"
           description="Tự động sưởi khi phòng nấm cần tăng nhiệt (Khóa khi ra quả)"
           icon={<Zap className="w-5 h-5 text-amber-400" />}
-          state={heaterAirActive}
-          overrideMode={heaterAirMode}
+          state={lampStageActive}
+          overrideMode={lampMode}
           onOverrideChange={(mode) => handleOverrideChange('lamp', mode)}
           locked={cropDayInt > 8}
           lockReason={
@@ -327,7 +374,8 @@ export function StandardActuatorsControl({
           </span>
         </div>
         <div>Quạt: {statusText(fanActive)}</div>
-        <div>Sưởi không khí: {statusText(heaterAirActive)}</div>
+        <div>Đèn nhiệt (stage 1): {statusText(lampStageActive)}</div>
+        <div>Đèn nhiệt (stage 2): {statusText(lampStage2Active)}</div>
         <div>Làm ấm nước: {statusText(heaterWaterActive)}</div>
         <div>Máy tạo ẩm: {statusText(mistActive)}</div>
       </div>

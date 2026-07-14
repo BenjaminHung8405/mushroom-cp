@@ -11,6 +11,16 @@ import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
 import { DeviceRegistryService } from '../../device/device-registry.service';
 
+export interface ManualAckState {
+  channel: number;
+  requestedIntent: number;
+  decision: number;
+  effectiveIntent: number;
+  releaseReason: number;
+  expiresMs: number;
+  ackMs: number;
+}
+
 export interface TelemetrySnapshot {
   deviceId: string;
   houseId: string;
@@ -26,9 +36,13 @@ export interface TelemetrySnapshot {
   temperatureErrorDelta: number | null;
   mistGeneratorActive: boolean | null;
   convectionFanActive: boolean | null;
-  heaterAirActive: boolean | null;
+  lampStageActive: boolean | null;
+  lampStage2Active: boolean | null;
   heaterWaterActive: boolean | null;
   middayBlackoutActive: boolean | null;
+  mistAck?: ManualAckState | null;
+  fanAck?: ManualAckState | null;
+  lampAck?: ManualAckState | null;
 }
 
 export interface TelemetryLogDbRow {
@@ -45,7 +59,8 @@ export interface TelemetryLogDbRow {
   temperatureErrorDelta: string | number | null;
   mistGeneratorActive: boolean | null;
   convectionFanActive: boolean | null;
-  heaterAirActive: boolean | null;
+  lampStageActive: boolean | null;
+  lampStage2Active: boolean | null;
   heaterWaterActive: boolean | null;
   middayBlackoutActive: boolean | null;
 }
@@ -54,9 +69,12 @@ export interface TelemetryLogDbRow {
 export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetryService.name);
   private telemetrySubscription: Subscription | null = null;
-  readonly telemetryUpdates$ = new Subject<TelemetrySnapshot>();
+  private manualAckSubscription: Subscription | null = null;
+  public readonly telemetryUpdates$ = new Subject<TelemetrySnapshot>();
   /** Keyed by deviceId (MQTT identity), never by houseId. */
   private readonly latestCache = new Map<string, TelemetrySnapshot>();
+  /** Latest manual acks for each device. */
+  private readonly manualAcks = new Map<string, { mistAck?: ManualAckState | null, fanAck?: ManualAckState | null, lampAck?: ManualAckState | null }>();
 
   constructor(
     private readonly mqttService: MqttService,
@@ -76,6 +94,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         });
       },
     );
+    this.manualAckSubscription = this.mqttService.manualAck$.subscribe(
+      ({ deviceId, ack }) => {
+        this.handleManualAck(deviceId, ack);
+      },
+    );
     this.logger.log(
       'TelemetryService initialized and subscribed to telemetry stream.',
     );
@@ -85,6 +108,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     if (this.telemetrySubscription) {
       this.telemetrySubscription.unsubscribe();
       this.logger.log('Unsubscribed from MQTT telemetry stream.');
+    }
+    if (this.manualAckSubscription) {
+      this.manualAckSubscription.unsubscribe();
+      this.logger.log('Unsubscribed from MQTT manual ack stream.');
     }
   }
 
@@ -169,7 +196,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           temperature_error_delta AS "temperatureErrorDelta",
           mist_generator_active AS "mistGeneratorActive",
           convection_fan_active AS "convectionFanActive",
-          heater_air_active AS "heaterAirActive",
+          lamp_stage_active AS "lampStageActive",
+          lamp_stage2_active AS "lampStage2Active",
           heater_water_active AS "heaterWaterActive",
           midday_blackout_active AS "middayBlackoutActive"
         FROM telemetry_logs
@@ -185,6 +213,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
+      const devAcks = this.manualAcks.get(deviceId) || {};
       const snapshot: TelemetrySnapshot = {
         deviceId,
         houseId: record.houseId,
@@ -214,9 +243,13 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
             : null,
         mistGeneratorActive: row.mistGeneratorActive,
         convectionFanActive: row.convectionFanActive,
-        heaterAirActive: row.heaterAirActive,
+        lampStageActive: row.lampStageActive,
+        lampStage2Active: row.lampStage2Active,
         heaterWaterActive: row.heaterWaterActive,
         middayBlackoutActive: row.middayBlackoutActive,
+        mistAck: devAcks.mistAck ?? null,
+        fanAck: devAcks.fanAck ?? null,
+        lampAck: devAcks.lampAck ?? null,
       };
 
       this.latestCache.set(deviceId, snapshot);
@@ -254,10 +287,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         humidity_measured, temperature_measured, co2_measured,
         humidity_setpoint, temperature_setpoint,
         humidity_error_delta, temperature_error_delta,
-        mist_generator_active, convection_fan_active, heater_air_active,
-        heater_water_active, midday_blackout_active
+        mist_generator_active, convection_fan_active, lamp_stage_active,
+        lamp_stage2_active, heater_water_active, midday_blackout_active
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
       );`,
       [
         timestamp,
@@ -273,7 +306,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         this.calculateDelta(temperatureSetpoint, event.temp_air),
         actuators?.mist_active ?? null,
         actuators?.fan_active ?? null,
-        actuators?.heater_air_active ?? null,
+        actuators?.lamp_stage_active ?? null,
+        actuators?.lamp_stage2_active ?? null,
         actuators?.heater_water_active ?? null,
         actuators?.midday_blackout_active ?? null,
       ],
@@ -290,6 +324,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
     const actuators = event.actuators;
+    const devAcks = this.manualAcks.get(deviceId) || {};
     const snapshot: TelemetrySnapshot = {
       deviceId,
       houseId,
@@ -311,9 +346,13 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       ),
       mistGeneratorActive: actuators?.mist_active ?? null,
       convectionFanActive: actuators?.fan_active ?? null,
-      heaterAirActive: actuators?.heater_air_active ?? null,
+      lampStageActive: actuators?.lamp_stage_active ?? null,
+      lampStage2Active: actuators?.lamp_stage2_active ?? null,
       heaterWaterActive: actuators?.heater_water_active ?? null,
       middayBlackoutActive: actuators?.midday_blackout_active ?? null,
+      mistAck: devAcks.mistAck ?? null,
+      fanAck: devAcks.fanAck ?? null,
+      lampAck: devAcks.lampAck ?? null,
     };
     this.latestCache.set(deviceId, snapshot);
     this.telemetryUpdates$.next(snapshot);
@@ -383,7 +422,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         AVG(co2_measured)::float AS "co2Measured",
         bool_or(mist_generator_active) AS "mistGeneratorActive",
         bool_or(convection_fan_active) AS "convectionFanActive",
-        bool_or(heater_air_active) AS "heaterAirActive",
+        bool_or(lamp_stage_active) AS "lampStageActive",
+        bool_or(lamp_stage2_active) AS "lampStage2Active",
         bool_or(heater_water_active) AS "heaterWaterActive",
         bool_or(midday_blackout_active) AS "middayBlackoutActive"
       FROM telemetry_logs
@@ -402,7 +442,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       co2Measured: number | null;
       mistGeneratorActive: boolean | null;
       convectionFanActive: boolean | null;
-      heaterAirActive: boolean | null;
+      lampStageActive: boolean | null;
+      lampStage2Active: boolean | null;
       heaterWaterActive: boolean | null;
       middayBlackoutActive: boolean | null;
     }>(queryText, [bucket, houseId, from, to]);
@@ -426,9 +467,39 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       temperatureErrorDelta: null,
       mistGeneratorActive: row.mistGeneratorActive,
       convectionFanActive: row.convectionFanActive,
-      heaterAirActive: row.heaterAirActive,
+      lampStageActive: row.lampStageActive,
+      lampStage2Active: row.lampStage2Active,
       heaterWaterActive: row.heaterWaterActive,
       middayBlackoutActive: row.middayBlackoutActive,
     }));
+  }
+
+  handleManualAck(deviceId: string, ack: ManualAckState): void {
+    let devAcks = this.manualAcks.get(deviceId);
+    if (!devAcks) {
+      devAcks = {};
+      this.manualAcks.set(deviceId, devAcks);
+    }
+    
+    // In firmware AppChannel: MIST = 0, LAMP = 1, FAN = 2
+    if (ack.channel === 0) {
+      devAcks.mistAck = ack;
+    } else if (ack.channel === 2) {
+      devAcks.fanAck = ack;
+    } else if (ack.channel === 1) {
+      devAcks.lampAck = ack;
+    }
+
+    const existing = this.latestCache.get(deviceId);
+    if (existing) {
+      const updated = {
+        ...existing,
+        mistAck: devAcks.mistAck ?? null,
+        fanAck: devAcks.fanAck ?? null,
+        lampAck: devAcks.lampAck ?? null,
+      };
+      this.latestCache.set(deviceId, updated);
+      this.telemetryUpdates$.next(updated);
+    }
   }
 }

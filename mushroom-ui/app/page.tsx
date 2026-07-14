@@ -129,7 +129,8 @@ function DashboardContent() {
     humiditySetpoint,
     temperatureSetpoint,
     fanActive,
-    heaterAirActive,
+    lampStageActive,
+    lampStage2Active,
     heaterWaterActive,
     mistActive,
     middayBlackoutActive,
@@ -203,7 +204,7 @@ function DashboardContent() {
           unit="°C"
           status={temperatureStatus}
           trend={temperatureTrend}
-          actuatorActive={heaterAirActive ?? undefined}
+          actuatorActive={lampStageActive ?? undefined}
           lastUpdated={snapshot?.time ?? null}
         />
       </div>
@@ -228,7 +229,8 @@ function DashboardContent() {
       <div className="col-span-1 md:col-span-2 lg:col-span-2">
         <StandardActuatorsControl
           fanActive={fanActive}
-          heaterAirActive={heaterAirActive}
+          lampStageActive={lampStageActive}
+          lampStage2Active={lampStage2Active}
           heaterWaterActive={heaterWaterActive}
           mistActive={mistActive}
           blackoutActive={middayBlackoutActive}

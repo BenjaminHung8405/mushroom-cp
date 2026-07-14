@@ -85,8 +85,11 @@ export class TelemetryLog {
   @Column({ name: 'heating_lamp_active', type: 'boolean', nullable: true })
   heatingLampActive: boolean | null;
 
-  @Column({ name: 'heater_air_active', type: 'boolean', nullable: true })
-  heaterAirActive: boolean | null;
+  @Column({ name: 'lamp_stage_active', type: 'boolean', nullable: true })
+  lampStageActive: boolean | null;
+
+  @Column({ name: 'lamp_stage2_active', type: 'boolean', nullable: true })
+  lampStage2Active: boolean | null;
 
   @Column({ name: 'heater_water_active', type: 'boolean', nullable: true })
   heaterWaterActive: boolean | null;

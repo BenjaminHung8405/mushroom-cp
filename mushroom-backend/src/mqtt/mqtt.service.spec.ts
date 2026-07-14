@@ -139,7 +139,8 @@ describe('MqttService', () => {
         expect(event.actuators).toEqual({
           mist_active: true,
           fan_active: false,
-          heater_air_active: true,
+          lamp_stage_active: true,
+          lamp_stage2_active: false,
           heater_water_active: false,
           midday_blackout_active: true,
         });
@@ -153,7 +154,8 @@ describe('MqttService', () => {
             actuators: {
               mist_active: true,
               fan_active: false,
-              heater_air_active: true,
+              lamp_stage_active: true,
+              lamp_stage2_active: false,
               heater_water_active: false,
               midday_blackout_active: true,
             },
