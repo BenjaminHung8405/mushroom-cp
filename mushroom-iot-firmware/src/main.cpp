@@ -232,6 +232,29 @@ void createCoreTasks()
                           static_cast<int>(result));
         }
     }
+
+    // Create Cabinet Buttons Task (Core 0, Priority 1) — Track D
+    {
+        BaseType_t result = xTaskCreatePinnedToCore(
+            taskCabinetButtons,      // Task function
+            "TaskCabinetBtns",       // Name of task
+            2048,                    // Stack size in bytes
+            nullptr,                 // Parameter to pass
+            1,                       // Task priority (Priority 1)
+            nullptr,                 // Task handle
+            0                        // Pin to Core 0
+        );
+
+        if (result == pdPASS)
+        {
+            Serial.println("[MAIN] Pinned taskCabinetButtons to Core 0 successfully.");
+        }
+        else
+        {
+            Serial.printf("[MAIN] ERROR: Failed to create taskCabinetButtons (code: %d)!\n",
+                          static_cast<int>(result));
+        }
+    }
 #else
     Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
 #endif

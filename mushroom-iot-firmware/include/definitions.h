@@ -93,6 +93,19 @@ void taskHardwareButton(void* pvParameters);
  */
 void taskEncoderInput(void* pvParameters);
 
+#ifndef UNIT_TEST
+/**
+ * @brief FreeRTOS task on Core 0 that processes physical cabinet buttons with Shift-Register debounce.
+ */
+void taskCabinetButtons(void* pvParameters);
+#else
+namespace cabinet_buttons {
+    void process_cabinet_buttons();
+    void reset_for_test();
+}
+#endif
+
+
 /**
  * @brief Handle for the FreeRTOS queue carrying TelemetryData from Core 1 to Core 0.
  * Created during setup(); destroyed on shutdown.

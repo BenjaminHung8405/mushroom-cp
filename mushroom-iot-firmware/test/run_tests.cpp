@@ -2686,6 +2686,57 @@ int main() {
 
             assert(decButton == decUI);
         }
+
+        // S2-G9: Test debounce Shift Register 8 mẫu lọc nhiễu thành công
+        {
+            cabinet_buttons::reset_for_test();
+            
+            // Set up clean request queue
+            if (g_manual_request_queue == nullptr) {
+                g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
+            } else {
+                xQueueReset(g_manual_request_queue);
+            }
+
+            // 1. Initial state: history=0xFF, current_state=true. Pin defaults to HIGH (released).
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
+            cabinet_buttons::process_cabinet_buttons();
+            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+
+            // 2. Introduce bounce/noise (LOW for 7 samples, then 1 sample HIGH)
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
+            for (int i = 0; i < 7; ++i) {
+                cabinet_buttons::process_cabinet_buttons();
+            }
+            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
+            cabinet_buttons::process_cabinet_buttons();
+            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+
+            // 3. Stable press (8 consecutive LOW samples)
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
+            for (int i = 0; i < 7; ++i) {
+                cabinet_buttons::process_cabinet_buttons();
+                assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+            }
+            // 8th sample
+            cabinet_buttons::process_cabinet_buttons();
+            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
+
+            ManualRequest req;
+            assert(xQueueReceive(g_manual_request_queue, &req, 0) == pdTRUE);
+            assert(req.channel == AppChannel::MIST);
+            assert(req.intent == AppIntent::FORCE_ON);
+
+            // 4. Stable released (8 consecutive HIGH samples)
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
+            for (int i = 0; i < 8; ++i) {
+                cabinet_buttons::process_cabinet_buttons();
+            }
+            // Released should not push new request to queue
+            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+        }
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

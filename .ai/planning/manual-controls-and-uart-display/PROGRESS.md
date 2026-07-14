@@ -111,12 +111,12 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-D1 | Thêm khai báo `taskCabinetButtons(void*)` trong `definitions.h` | `[ ] Pending` |
-| S2-D2 | Tạo file `src/cabinet_buttons.cpp` | `[ ] Pending` |
-| S2-D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | `[ ] Pending` |
-| S2-D4 | Gửi request sang Core 1 | `[ ] Pending` |
-| S2-D5 | Gọi `xTaskCreatePinnedToCore` trong `createCoreTasks()` | `[ ] Pending` |
-| S2-D6 | Pre-seed lịch sử nút lúc start | `[ ] Pending` |
+| S2-D1 | Thêm khai báo `taskCabinetButtons(void*)` trong `definitions.h` | `[ ] QA Review` |
+| S2-D2 | Tạo file `src/cabinet_buttons.cpp` | `[ ] QA Review` |
+| S2-D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | `[ ] QA Review` |
+| S2-D4 | Gửi request sang Core 1 | `[ ] QA Review` |
+| S2-D5 | Gọi `xTaskCreatePinnedToCore` trong `createCoreTasks()` | `[ ] QA Review` |
+| S2-D6 | Pre-seed lịch sử nút lúc start | `[ ] QA Review` |
 
 ### Track E: Core 1 Integration (Unified Override Pipeline)
 
@@ -147,7 +147,7 @@
 | S2-G6 | Test gate OFF luôn PASS | `[ ] Pending` |
 | S2-G7 | Test latch TTL expire sau 15 phút | `[ ] Pending` |
 | S2-G8 | Test latch không đè blackout Mist | `[ ] Pending` |
-| S2-G9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] Pending` |
+| S2-G9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] QA Review` |
 | S2-G10 | Test ui and button requests follow same gate | `[ ] Pending` |
 | S2-G11 | Test force on not restored when time uncertain | `[ ] Pending` |
 | S2-G12 | `pio test -e native` PASS | `[ ] Pending` |
