@@ -248,9 +248,9 @@ void taskHardwareButton(void* /*pvParameters*/)
 // Physical SSR assignments. The TPC layer is the exclusive owner of their
 // HIGH/LOW phase; no other Core 1 path writes these output pins after init.
 constexpr TPC_Task::TpcChannelConfig H_AIR_TPC_CONFIG = {
-    config::pins::PIN_RELAY_HEATER_1, 300000U, 10000U, 10000U, 0U};
+    config::pins::PIN_RELAY_LAMP_1, 300000U, 10000U, 10000U, 0U};
 constexpr TPC_Task::TpcChannelConfig H_WAT_TPC_CONFIG = {
-    config::pins::PIN_RELAY_HEATER_2, 300000U, 10000U, 10000U, 3000U};
+    config::pins::PIN_RELAY_HWAT, 300000U, 10000U, 10000U, 3000U};
 constexpr TPC_Task::TpcChannelConfig MIST_TPC_CONFIG = {
     config::pins::PIN_RELAY_MIST, 300000U, 5000U, 10000U, 8000U};
 constexpr TPC_Task::TpcChannelConfig EXHAUST_TPC_CONFIG = {

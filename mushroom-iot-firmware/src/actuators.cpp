@@ -12,8 +12,8 @@ namespace actuators
     static constexpr uint8_t VALID_RELAY_PINS[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
-        config::pins::PIN_RELAY_HEATER_1,
-        config::pins::PIN_RELAY_HEATER_2
+        config::pins::PIN_RELAY_LAMP_1,
+        config::pins::PIN_RELAY_HWAT
     };
     static constexpr size_t VALID_RELAY_COUNT =
         sizeof(VALID_RELAY_PINS) / sizeof(VALID_RELAY_PINS[0]);
@@ -23,14 +23,11 @@ namespace actuators
      */
     static const char *relay_name(uint8_t pin)
     {
-        switch (pin)
-        {
-        case config::pins::PIN_RELAY_MIST:     return "MIST";
-        case config::pins::PIN_RELAY_FAN:      return "FAN";
-        case config::pins::PIN_RELAY_HEATER_1: return "HEATER_1";
-        case config::pins::PIN_RELAY_HEATER_2: return "HEATER_2";
-        default:                               return "UNKNOWN";
-        }
+        if (pin == config::pins::PIN_RELAY_MIST)     return "MIST";
+        if (pin == config::pins::PIN_RELAY_FAN)      return "FAN";
+        if (pin == config::pins::PIN_RELAY_LAMP_1)   return "LAMP_1";
+        if (pin == config::pins::PIN_RELAY_HWAT)   return "HWAT";
+        return "UNKNOWN";
     }
 
     /**
@@ -62,15 +59,15 @@ namespace actuators
         digitalWrite(config::pins::PIN_RELAY_FAN, LOW);
         Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_FAN);
 
-        // Pin 3: Heater 1 Relay
-        pinMode(config::pins::PIN_RELAY_HEATER_1, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_HEATER_1, LOW);
-        Serial.printf("[ACTUATORS] Relay HEATER 1 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HEATER_1);
+        // Pin 3: Lamp 1 Relay
+        pinMode(config::pins::PIN_RELAY_LAMP_1, OUTPUT);
+        digitalWrite(config::pins::PIN_RELAY_LAMP_1, LOW);
+        Serial.printf("[ACTUATORS] Relay LAMP 1 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_LAMP_1);
 
-        // Pin 4: Heater 2 Relay
-        pinMode(config::pins::PIN_RELAY_HEATER_2, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_HEATER_2, LOW);
-        Serial.printf("[ACTUATORS] Relay HEATER 2 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HEATER_2);
+        // Pin 4: Heater Water Relay
+        pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
+        digitalWrite(config::pins::PIN_RELAY_HWAT, LOW);
+        Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HWAT);
 
         Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state.");
 
@@ -97,8 +94,8 @@ namespace actuators
                 (int)relay_pin,
                 (int)config::pins::PIN_RELAY_MIST,
                 (int)config::pins::PIN_RELAY_FAN,
-                (int)config::pins::PIN_RELAY_HEATER_1,
-                (int)config::pins::PIN_RELAY_HEATER_2
+                (int)config::pins::PIN_RELAY_LAMP_1,
+                (int)config::pins::PIN_RELAY_HWAT
             );
             return false;
         }

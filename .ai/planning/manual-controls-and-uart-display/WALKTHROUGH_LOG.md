@@ -2,6 +2,64 @@
 
 > Ghi log theo thứ tự thời gian đảo ngược (bản ghi mới nhất ở đầu).
 
+## 2026-07-14 16:20 (Asia/Ho_Chi_Minh) — Task `S1-A6`
+
+- **Task ID:** S1-A6
+- **Mô tả:** Đổi `config::pins::PIN_RELAY_HEATER_2` → `PIN_RELAY_HWAT = 12`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập.
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/config.h` | Đổi `PIN_RELAY_HEATER_2 = 13` → `PIN_RELAY_HWAT = 12`. |
+| 2 | `mushroom-iot-firmware/src/actuators.cpp` | Cập nhật whitelist `VALID_RELAY_PINS`, `relay_name()` trả về `"HWAT"`, log khởi tạo trong `init_actuators_gpio()`, và log từ chối trong `set_relay_state()`. |
+| 3 | `mushroom-iot-firmware/src/core1_tasks.cpp` | Cập nhật cấu hình `H_WAT_TPC_CONFIG` sử dụng `PIN_RELAY_HWAT` thay cho `PIN_RELAY_HEATER_2`. |
+| 4 | `mushroom-iot-firmware/test/run_tests.cpp` | Cập nhật toàn bộ các assertion mock check từ `PIN_RELAY_HEATER_2` sang `PIN_RELAY_HWAT`. |
+| 5 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Cập nhật trạng thái Task `S1-A6` sang `[ ] QA Review`. |
+
+### Giải trình logic
+
+- **Đổi tên & Giá trị Chân Rơ-le:** Đổi tên hằng số từ `PIN_RELAY_HEATER_2` thành `PIN_RELAY_HWAT` và cập nhật giá trị từ `13` thành `12`. Việc này giúp tách biệt chân của `PIN_RELAY_LAMP_1` (13) và `PIN_RELAY_HWAT` (12) sau bước phân rã từ Heater cũ.
+- **Nhất quán nhãn Log:** Cập nhật hàm `relay_name()` trả về nhãn `"HWAT"` thay vì `"HEATER_2"` cũ để hiển thị nhật ký vận hành chính xác hơn.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- **Grep verify:** `grep -rn "PIN_RELAY_HEATER_2"` trả về 0 hit trong thư mục source code.
+- **Biên dịch nội bộ:** Biên dịch thành công với `clang++` không có lỗi logic mới.
+- **Chạy thử nghiệm:** Chạy binary unit test thành công, các test case của phần Actuator hoạt động hoàn hảo (độc lập với lỗi pre-existing `storage.load_hardware_override` tại dòng 2372).
+
+---
+
+## 2026-07-14 16:17 (Asia/Ho_Chi_Minh) — Task `S1-A5`
+
+- **Task ID:** S1-A5
+- **Mô tả:** Đổi `config::pins::PIN_RELAY_HEATER_1` → `PIN_RELAY_LAMP_1 = 13`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập.
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/config.h` | Đổi `PIN_RELAY_HEATER_1 = 12` → `PIN_RELAY_LAMP_1 = 13`. |
+| 2 | `mushroom-iot-firmware/src/actuators.cpp` | Cập nhật whitelist `VALID_RELAY_PINS` và log/REJECTED messages. Chuyển switch-case trong `relay_name()` sang if-else statements để tránh lỗi trùng case label C++ khi cả `PIN_RELAY_LAMP_1` và `PIN_RELAY_HEATER_2` cùng có giá trị 13 ở bước này. |
+| 3 | `mushroom-iot-firmware/src/core1_tasks.cpp` | Cập nhật config `H_AIR_TPC_CONFIG` sử dụng `PIN_RELAY_LAMP_1` thay cho `PIN_RELAY_HEATER_1`. |
+| 4 | `mushroom-iot-firmware/test/run_tests.cpp` | Cập nhật toàn bộ các assertion và mock check từ `PIN_RELAY_HEATER_1` sang `PIN_RELAY_LAMP_1`. |
+| 5 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Cập nhật trạng thái Task `S1-A5` sang `[ ] QA Review`. |
+
+### Giải trình logic
+
+- **Đổi tên & Giá trị Chân Rơ-le:** Đổi tên hằng số từ `PIN_RELAY_HEATER_1` thành `PIN_RELAY_LAMP_1` và đổi giá trị pin từ `12` thành `13`.
+- **Giải quyết Xung đột Switch Case:** Do ở phase trung gian này, `PIN_RELAY_LAMP_1` và `PIN_RELAY_HEATER_2` (sẽ đổi tên thành `PIN_RELAY_HWAT` ở task tiếp theo) đều mang giá trị là `13`. C++ compiler không cho phép duplicate case labels trong khối `switch(pin)`. Do đó, switch-case trong hàm `relay_name()` đã được cấu trúc lại một cách an toàn bằng các câu lệnh `if-else` tuần tự.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- **Grep verify:** `grep -rn "PIN_RELAY_HEATER_1"` trả về 0 hit.
+- **Biên dịch nội bộ:** Chạy `clang++` biên dịch thành công không có lỗi (0 errors, 1 warning pre-existing về format-security).
+- **Chạy thử nghiệm:** Chạy file binary test `/tmp/run_tests_s1a5` thành công và tất cả các bài test (ngoại trừ lỗi pre-existing `storage.load_hardware_override` tại dòng 2372 đã được ghi nhận từ trước) đều chạy qua thành công.
+
+---
+
 ## 2026-07-14 16:02 (Asia/Ho_Chi_Minh) — Task `S1-A3`
 
 - **Task ID:** S1-A3

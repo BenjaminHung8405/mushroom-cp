@@ -82,11 +82,11 @@ GainsPod updateGains(IntegralState& state,
     }
 
     // Adaptive gain mapping from surface integrals.
-    // - HAir follows temperature deficit (cold => boost air heat).
+    // - HLamp follows temperature deficit (cold => boost heat lamps).
     // - HWat follows temperature with mild humidity coupling (cold+wet favors water heat).
     // - Mist follows humidity deficit (dry => boost mist).
     GainsPod gains;
-    gains.gain_HAir = clampf(
+    gains.gain_HLamp = clampf(
         GAIN_BASE + (KI_TEMP * state.integral_temp),
         GAIN_MIN,
         GAIN_MAX);

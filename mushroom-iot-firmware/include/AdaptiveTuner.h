@@ -16,7 +16,7 @@ namespace AdaptiveTuner {
  * Each gain is expected to stay inside the safety band [0.5, 2.5].
  */
 struct GainsPod {
-    float gain_HAir;  ///< Air-heater gain multiplier
+    float gain_HLamp; ///< Heat-lamp cluster gain multiplier
     float gain_HWat;  ///< Water-heater gain multiplier
     float gain_Mist;  ///< Mist actuator gain multiplier
 } __attribute__((aligned(4)));
@@ -51,7 +51,7 @@ void reset(IntegralState& state);
  * Surface integral law (anti-windup included):
  *   I_T = sat(I_T + errorTemp  * dt, ±I_MAX_T)
  *   I_H = sat(I_H + errorHumid * dt, ±I_MAX_H)
- *   gain_HAir = clamp(1.0 + kT * I_T, 0.5, 2.5)
+ *   gain_HLamp = clamp(1.0 + kT * I_T, 0.5, 2.5)
  *   gain_HWat = clamp(1.0 + kT * I_T + 0.25 * kH * I_H, 0.5, 2.5)
  *   gain_Mist = clamp(1.0 + kH * I_H, 0.5, 2.5)
  *

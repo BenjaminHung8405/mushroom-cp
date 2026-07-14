@@ -803,8 +803,8 @@ int main() {
     uint8_t relay_pins[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
-        config::pins::PIN_RELAY_HEATER_1,
-        config::pins::PIN_RELAY_HEATER_2
+        config::pins::PIN_RELAY_LAMP_1,
+        config::pins::PIN_RELAY_HWAT
     };
 
     for (uint8_t pin : relay_pins) {
@@ -966,12 +966,12 @@ int main() {
 
     // Verify sensors and relays were initialized
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) > 0);
-    assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_1) > 0);
+    assert(mock_pin_modes.count(config::pins::PIN_RELAY_LAMP_1) > 0);
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
 
     // TPC initialized its channels to OFF (LOW) by default.
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
-    assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP_1] == LOW);
     assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
     // 19.8 Cleanup queues
@@ -1179,13 +1179,13 @@ int main() {
         assert(state.integral_humid == 0.0f);
 
         AdaptiveTuner::GainsPod g0 = AdaptiveTuner::defaultGains();
-        assert(g0.gain_HAir == 1.0f);
+        assert(g0.gain_HLamp == 1.0f);
         assert(g0.gain_HWat == 1.0f);
         assert(g0.gain_Mist == 1.0f);
 
         // Zero errors keep gains at nominal
         AdaptiveTuner::GainsPod g_zero = AdaptiveTuner::updateGains(state, 0.0f, 0.0f, 1.0f);
-        assert(std::abs(g_zero.gain_HAir - 1.0f) < 1e-6f);
+        assert(std::abs(g_zero.gain_HLamp - 1.0f) < 1e-6f);
         assert(std::abs(g_zero.gain_HWat - 1.0f) < 1e-6f);
         assert(std::abs(g_zero.gain_Mist - 1.0f) < 1e-6f);
         assert(state.integral_temp == 0.0f);
@@ -1194,9 +1194,9 @@ int main() {
         // 24.2 Positive temperature error increases heater gains
         AdaptiveTuner::IntegralState cold = AdaptiveTuner::makeInitialState();
         AdaptiveTuner::GainsPod g_cold = AdaptiveTuner::updateGains(cold, 2.0f, 0.0f, 1.0f);
-        // I_T = 2.0, gain_HAir = 1.0 + 0.10*2.0 = 1.2
+        // I_T = 2.0, gain_HLamp = 1.0 + 0.10*2.0 = 1.2
         assert(std::abs(cold.integral_temp - 2.0f) < 1e-6f);
-        assert(std::abs(g_cold.gain_HAir - 1.2f) < 1e-5f);
+        assert(std::abs(g_cold.gain_HLamp - 1.2f) < 1e-5f);
         assert(std::abs(g_cold.gain_HWat - 1.2f) < 1e-5f);
         assert(std::abs(g_cold.gain_Mist - 1.0f) < 1e-5f);
 
@@ -1208,7 +1208,7 @@ int main() {
         assert(std::abs(dry.integral_humid - 4.0f) < 1e-6f);
         assert(std::abs(g_dry.gain_Mist - 1.2f) < 1e-5f);
         assert(std::abs(g_dry.gain_HWat - 1.05f) < 1e-5f);
-        assert(std::abs(g_dry.gain_HAir - 1.0f) < 1e-5f);
+        assert(std::abs(g_dry.gain_HLamp - 1.0f) < 1e-5f);
 
         // 24.4 Anti-windup: integral saturates and gains clamp to [0.5, 2.5]
         AdaptiveTuner::IntegralState windup = AdaptiveTuner::makeInitialState();
@@ -1218,15 +1218,15 @@ int main() {
         }
         assert(std::abs(windup.integral_temp - 15.0f) < 1e-5f);   // I_MAX_TEMP
         assert(std::abs(windup.integral_humid - 30.0f) < 1e-5f);  // I_MAX_HUMID
-        assert(g_hi.gain_HAir <= 2.5f + 1e-6f);
+        assert(g_hi.gain_HLamp <= 2.5f + 1e-6f);
         assert(g_hi.gain_HWat <= 2.5f + 1e-6f);
         assert(g_hi.gain_Mist <= 2.5f + 1e-6f);
-        assert(g_hi.gain_HAir >= 0.5f - 1e-6f);
+        assert(g_hi.gain_HLamp >= 0.5f - 1e-6f);
         assert(g_hi.gain_HWat >= 0.5f - 1e-6f);
         assert(g_hi.gain_Mist >= 0.5f - 1e-6f);
         // Expected: HAir = clamp(1 + 0.1*15, ...) = 2.5
         //           Mist = clamp(1 + 0.05*30, ...) = 2.5
-        assert(std::abs(g_hi.gain_HAir - 2.5f) < 1e-5f);
+        assert(std::abs(g_hi.gain_HLamp - 2.5f) < 1e-5f);
         assert(std::abs(g_hi.gain_Mist - 2.5f) < 1e-5f);
 
         AdaptiveTuner::IntegralState windup_lo = AdaptiveTuner::makeInitialState();
@@ -1236,7 +1236,7 @@ int main() {
         }
         assert(std::abs(windup_lo.integral_temp + 15.0f) < 1e-5f);
         assert(std::abs(windup_lo.integral_humid + 30.0f) < 1e-5f);
-        assert(std::abs(g_lo.gain_HAir - 0.5f) < 1e-5f);
+        assert(std::abs(g_lo.gain_HLamp - 0.5f) < 1e-5f);
         assert(std::abs(g_lo.gain_Mist - 0.5f) < 1e-5f);
         assert(g_lo.gain_HWat >= 0.5f - 1e-6f);
         assert(g_lo.gain_HWat <= 2.5f + 1e-6f);
@@ -1249,7 +1249,7 @@ int main() {
         AdaptiveTuner::GainsPod g_nan = AdaptiveTuner::updateGains(freeze, NAN, INFINITY, 1.0f);
         assert(std::abs(freeze.integral_temp - iT_before) < 1e-6f);
         assert(std::abs(freeze.integral_humid - iH_before) < 1e-6f);
-        assert(g_nan.gain_HAir >= 0.5f && g_nan.gain_HAir <= 2.5f);
+        assert(g_nan.gain_HLamp >= 0.5f && g_nan.gain_HLamp <= 2.5f);
         assert(g_nan.gain_HWat >= 0.5f && g_nan.gain_HWat <= 2.5f);
         assert(g_nan.gain_Mist >= 0.5f && g_nan.gain_Mist <= 2.5f);
 
@@ -1681,19 +1681,19 @@ int main() {
         taskCore1Control(nullptr);
 
         // Verify all SSR relay pins were initialized as OUTPUT
-        assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_1) == 1);
-        assert(mock_pin_modes.count(config::pins::PIN_RELAY_HEATER_2) == 1);
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_LAMP_1) == 1);
+        assert(mock_pin_modes.count(config::pins::PIN_RELAY_HWAT) == 1);
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) == 1);
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
 
         // RTC is unavailable (fail-safe), so hardwareProtectionOverride() forces
         // HWat and Mist to 0.0 duty → TPC writes LOW to both heater pins.
-        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_2] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
         // HAir and Exhaust are unaffected by the blackout interlock; Exhaust is
         // HIGH because the default crop day (0.0) target (24.0C) is lower than mock temperature.
-        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_1] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP_1] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
         // Verify no heap allocation or delay() was used — confirmed by static
@@ -2364,7 +2364,7 @@ int main() {
         // An active manual override cannot bypass the invalid-RTC TPC safety shutdown.
         assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);
         taskCore1Control(nullptr);
-        assert(mock_pin_values[config::pins::PIN_RELAY_HEATER_2] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
         // Existing F6 gesture tests exercise edit/save/clear; the test cleanup leaves no override.
