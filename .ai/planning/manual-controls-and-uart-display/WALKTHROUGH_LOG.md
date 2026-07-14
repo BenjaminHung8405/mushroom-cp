@@ -1,5 +1,15 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:24:20+07:00] Task S2-B3: Định nghĩa queue trong `src/core1_tasks.cpp`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Định nghĩa các biến toàn cục cho ba hàng đợi điều khiển thủ công (`g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue`) bằng `nullptr` trong `src/core1_tasks.cpp`.
+- **Kết quả tự kiểm thử**:
+  - Chạy `./run_tests` thành công vượt qua 100% test cases (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T17:23:46+07:00] Task S2-B2: Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `definitions.h`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

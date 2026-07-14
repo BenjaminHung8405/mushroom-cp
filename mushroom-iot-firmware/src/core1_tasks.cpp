@@ -30,6 +30,9 @@ QueueHandle_t xTelemetryQueue = nullptr;
 QueueHandle_t xBaselineQueue  = nullptr;
 QueueHandle_t xOverrideQueue  = nullptr;
 QueueHandle_t xActuatorOverrideQueue = nullptr;
+QueueHandle_t g_manual_request_queue = nullptr;
+QueueHandle_t g_mqtt_override_queue = nullptr;
+QueueHandle_t g_manual_ack_queue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 volatile bool shared_forceFullPublish = false;
