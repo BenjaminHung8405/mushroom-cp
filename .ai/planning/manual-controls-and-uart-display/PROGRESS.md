@@ -11,6 +11,7 @@
   - [sprint_1.md](./sprint_1.md) — Actuator refactor (bỏ HAir, thêm 2 bóng đèn nhiệt)
   - [sprint_2.md](./sprint_2.md) — 3 nút cứng tủ điện + safety gate Core 0/Core 1
   - [sprint_3.md](./sprint_3.md) — UART 4-digit LED display
+  - [sprint_4.md](./sprint_4.md) — Offline Autonomy, Persisted Crop Profile & Control Observability
 
 ## Addition Plan — Unified Overrides & Offline Autonomy (2026-07-14)
 - **Nguồn ý tưởng/UI:** `mushroom-ui/components/standard-actuators-control.tsx` có UI override 3 trạng thái (`auto` / `on` / `off`), UI lock và toast auto-release. Firmware Sprint 2 phải dùng chính contract này; UI là UX pre-check, Core 1 firmware là authority.
@@ -75,62 +76,83 @@
 
 ---
 
-## Sprint 2 — 3 Nút Cứng Tủ Điện + Safety Gate
+## Sprint 2 — 3 Nút Cứng + Unified Override Pipeline + Safety Gate
 
-### Track A: Config & Types
-
-| Task | Mô tả | Status |
-|------|-------|:------:|
-| S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware` | `[ ] QA Review` |
-| S2-A2 | Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min) | `[ ] QA Review` |
-| S2-A3 | Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] QA Review` |
-| S2-A4 | Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()` | `[ ] QA Review` |
-
-### Track B: Core 0 Button Task
+### Track A: Config & Boot GPIO
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-B1 | Tạo `src/cabinet_buttons.cpp` chứa `task_cabinet_buttons(void*)` | `[ ] Pending` |
-| S2-B2 | Init pinMode INPUT_PULLUP cho 3 chân trong task startup | `[ ] Pending` |
-| S2-B3 | Lấy mẫu mỗi 10ms, Shift Register tích luỹ (0x00/0xFF) chốt PRESS/RELEASE → gửi request | `[ ] Pending` |
-| S2-B4 | Rate limit: nếu drain queue thất bại (full) → log 1 lần/5s, không block | `[ ] Pending` |
-| S2-B5 | Đăng ký task Core 0 priority=1, stack 2048 trong `createCoreTasks()` | `[ ] Pending` |
+| S2-A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`) | `[ ] Pending` |
+| S2-A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `[ ] Pending` |
 
-### Track C: Core 1 Safety Gate
+### Track B: Unified Override Models, Queues & MQTT Bridge
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-C1 | Implement `evaluateSafetyGate()` — pure, không side-effect | `[ ] Pending` |
-| S2-C2 | Rules: BTN_MIST ON block nếu humidity≥92 hoặc NAN hoặc blackout active | `[ ] Pending` |
-| S2-C3 | Rules: BTN_LAMP ON block nếu temp > setpoint+3°C hoặc NAN hoặc blackout | `[ ] Pending` |
-| S2-C4 | Rules: BTN_FAN luôn PASS | `[ ] Pending` |
-| S2-C5 | Rules: mọi OFF/CLEAR luôn PASS | `[ ] Pending` |
-| S2-C6 | Implement `applyLatchToOutputs()` sau `hardwareProtectionOverride()` — latch không đè blackout | `[ ] Pending` |
-| S2-C7 | Implement `updateLatchDecay()` — TTL 15 phút | `[ ] Pending` |
-| S2-C8 | Trong `runControlPipelineStep()`: drain `g_manual_request_queue`, gate, update latch, publish ack qua `g_manual_ack_queue` | `[ ] Pending` |
+| S2-B1 | Thêm models vào `include/models.h` (`AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck`) | `[ ] Pending` |
+| S2-B2 | Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `definitions.h` | `[ ] QA Review` |
+| S2-B3 | Định nghĩa queue trong `src/core1_tasks.cpp` | `[ ] Pending` |
+| S2-B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | `[ ] QA Review` |
+| S2-B5 | Thêm MQTT/UI override adapter trong `mqtt_client.cpp` | `[ ] Pending` |
+| S2-B6 | Xác nhận telemetry/ack contract cho UI | `[ ] Pending` |
 
-### Track D: Ack Forwarding
+### Track C: Safety Gate & Latch Module
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-D1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue`, log rõ ràng (PASS/BLOCK), publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] Pending` |
+| S2-C1 | Tạo mới `include/manual_control.h` | `[ ] QA Review` |
+| S2-C2 | Tạo mới `src/manual_control.cpp` | `[ ] Pending` |
+| S2-C3 | Hiện thực `evaluateSafetyGate()` | `[ ] Pending` |
+| S2-C4 | Hiện thực helper `updateLatchOnAccepted()` | `[ ] Pending` |
+| S2-C5 | Hiện thực `applyManualLatchToOutputs()` | `[ ] Pending` |
+| S2-C6 | Thêm `autoClearOnSensorViolation()` | `[ ] Pending` |
 
-### Track E: Tests & Verification
+### Track D: Core 0 Button Task
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-E1 | Test gate Mist block khi humidity=95 | `[ ] Pending` |
-| S2-E2 | Test gate Mist block khi humidity=NAN | `[ ] Pending` |
-| S2-E3 | Test gate Mist PASS khi humidity=70 | `[ ] Pending` |
-| S2-E4 | Test gate Lamp block khi temp=setpoint+4 | `[ ] Pending` |
-| S2-E5 | Test gate Fan PASS mọi tình huống | `[ ] Pending` |
-| S2-E6 | Test gate OFF luôn PASS | `[ ] Pending` |
-| S2-E7 | Test latch TTL expire sau 15 phút | `[ ] Pending` |
-| S2-E8 | Test latch không đè blackout Mist | `[ ] Pending` |
-| S2-E9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] Pending` |
-| S2-E10 | `pio test -e native` PASS | `[ ] Pending` |
-| S2-V1 | **Nghiệm thu phần cứng Debounce:** Lấy dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện giả lập. Lọc nhiễu phải bỏ qua các xung này, chỉ khi nhấn giữ thật sự >80ms thì mới trigger | `[ ] Pending` |
-| S2-V2 | **Độc quyền TPC Chốt chặn:** Chạy `grep -r "digitalWrite" src/` kiểm tra không được ghi relay ngoài `TPC_Task.cpp` (trừ init trong `actuators.cpp`) | `[ ] Pending` |
+| S2-D1 | Thêm khai báo `taskCabinetButtons(void*)` trong `definitions.h` | `[ ] Pending` |
+| S2-D2 | Tạo file `src/cabinet_buttons.cpp` | `[ ] Pending` |
+| S2-D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | `[ ] Pending` |
+| S2-D4 | Gửi request sang Core 1 | `[ ] Pending` |
+| S2-D5 | Gọi `xTaskCreatePinnedToCore` trong `createCoreTasks()` | `[ ] Pending` |
+| S2-D6 | Pre-seed lịch sử nút lúc start | `[ ] Pending` |
+
+### Track E: Core 1 Integration (Unified Override Pipeline)
+
+| Task | Mô tả | Status |
+|------|-------|:------:|
+| S2-E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | `[ ] Pending` |
+| S2-E2 | Drains **hai** queue input: `g_manual_request_queue` (physical buttons) + `g_mqtt_override_queue` (UI/MQTT) | `[ ] Pending` |
+| S2-E3 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTime, cropDay)` sau `arbitrateOutputs` | `[ ] Pending` |
+| S2-E4 | Verify `hardwareProtectionOverride` vẫn thắng | `[ ] Pending` |
+
+### Track F: Core 0 Ack Consumer & UI Contract
+
+| Task | Mô tả | Status |
+|------|-------|:------:|
+| S2-F1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue` mỗi vòng | `[ ] Pending` |
+| S2-F2 | Publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] Pending` |
+| S2-F3 | Cập nhật UI contract/labels trước integration | `[ ] Pending` |
+
+### Track G: Tests & Verification
+
+| Task | Mô tả | Status |
+|------|-------|:------:|
+| S2-G1 | Test gate Mist block khi humidity=95 | `[ ] Pending` |
+| S2-G2 | Test gate Mist block khi humidity=NAN | `[ ] Pending` |
+| S2-G3 | Test gate Mist PASS khi humidity=70 | `[ ] Pending` |
+| S2-G4 | Test gate Lamp block khi temp=setpoint+4 | `[ ] Pending` |
+| S2-G5 | Test gate Fan PASS mọi tình huống | `[ ] Pending` |
+| S2-G6 | Test gate OFF luôn PASS | `[ ] Pending` |
+| S2-G7 | Test latch TTL expire sau 15 phút | `[ ] Pending` |
+| S2-G8 | Test latch không đè blackout Mist | `[ ] Pending` |
+| S2-G9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] Pending` |
+| S2-G10 | Test ui and button requests follow same gate | `[ ] Pending` |
+| S2-G11 | Test force on not restored when time uncertain | `[ ] Pending` |
+| S2-G12 | `pio test -e native` PASS | `[ ] Pending` |
+| S2-G13 | **Nghiệm thu phần cứng Debounce:** Lấy dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện giả lập. Lọc nhiễu phải bỏ qua các xung này, chỉ khi nhấn giữ thật sự >80ms thì mới trigger | `[ ] Pending` |
+| S2-G14 | **Độc quyền TPC Chốt chặn:** Chạy `grep -r "digitalWrite" src/` kiểm tra không được ghi relay ngoài `TPC_Task.cpp` (trừ init trong `actuators.cpp`) | `[ ] Pending` |
 
 ---
 
@@ -188,3 +210,61 @@
 | S3-F6 | Test latch dot mapping | `[ ] Pending` |
 | S3-F7 | Test rounding half-up humidity=87.5 → '8''8' | `[ ] Pending` |
 | S3-F8 | `pio test -e native` PASS | `[ ] Pending` |
+
+---
+
+## Sprint 4 — Offline Autonomy, Persisted Crop Profile & Control Observability
+
+### Track A: Profile Contract & NVS
+
+| Task | Mô tả | Status | Chỉ thị |
+|------|-------|:------:|---------|
+| S4-A1 | Thêm profile/time models vào `models.h` hoặc module profile riêng | `[ ] Pending` | Không để UI payload đi thẳng vào struct runtime; parse DTO rồi validate/copy. |
+| S4-A2 | Tạo `crop_profile_storage.h/.cpp` | `[ ] Pending` | NVS namespace/version/magic/CRC, load/store atomic record, bounded write cadence. |
+| S4-A3 | Implement profile validator | `[ ] Pending` | Reject malformed/NaN/unsorted/out-of-range checkpoints trước persist và trước enqueue. |
+| S4-A4 | Extend MQTT sync contract | `[ ] Pending` | Backend gửi version, `crop_start_epoch_s`, `total_crop_days`, checkpoints, CRC/schema. Retained profile giúp device reconnect tự phục hồi. |
+| S4-A5 | Persist manual override separately | `[ ] Pending` | Chỉ persist latest intent + expiry in trusted epoch khi available. Nếu reboot time `Uncertain`, do not restore FORCE_ON; restore AUTO (fail-safe). FORCE_OFF có thể restore only if explicitly approved in safety review. |
+
+### Track B: Time Confidence
+
+| Task | Mô tả | Status | Chỉ thị |
+|------|-------|:------:|---------|
+| S4-B1 | Tạo `time_confidence` module | `[ ] Pending` | API pure/read-only cho `Trusted`, `Holdover`, `Uncertain`; explicit boot transition. |
+| S4-B2 | Wire NTP/MQTT time sync | `[ ] Pending` | Valid time sets `Trusted`, saves bounded `PersistedTimeState`; connection loss while same boot gives `Holdover`. |
+| S4-B3 | Detect reboot/offline uncertainty | `[ ] Pending` | Boot without valid RTC/NTP/MQTT time must be `Uncertain`, not estimated elapsed time. |
+| S4-B4 | Define safe offline profile | `[ ] Pending` | Product/biological owner supplies concrete conservative setpoint; code uses named config, not a guessed magic number. |
+| S4-B5 | Telemetry exposure | `[ ] Pending` | Publish `time_confidence`, `crop_day`, `profile_version`, `profile_source` and `offline_safe_mode`. |
+
+### Track C: Core 1 Profile Snapshot & Interpolation
+
+| Task | Mô tả | Status | Chỉ thị |
+|------|-------|:------:|---------|
+| S4-C1 | Add profile update queue/snapshot bridge | `[ ] Pending` | Core 0 sends complete validated profile; Core 1 adopts only at beginning of a control tick. |
+| S4-C2 | Implement `interpolateSetpoint()` | `[ ] Pending` | Pure function; never allocates or touches NVS/network. |
+| S4-C3 | Integrate with control pipeline | `[ ] Pending` | Trusted/Holdover computes crop day + interpolated target; Uncertain selects safe offline target. |
+| S4-C4 | Maintain safety precedence | `[ ] Pending` | Profile target → Fuzzy → manual latch/Fuzzy-Bounds Guarding → `hardwareProtectionOverride()` → TPC. |
+| S4-C5 | Manual UI feedback | `[ ] Pending` | `manual_ack` includes `time_confidence`; UI shows degraded/offline warning but cannot bypass Core 1 safety gate. |
+
+### Track D: UI Integration Contract
+
+| Task | Mô tả | Status | Chỉ thị |
+|------|-------|:------:|---------|
+| S4-D1 | Rename actuator contract deliberately | `[ ] Pending` | Migrate UI `heater_air` to firmware’s thermal-lamp channel (`lamp`/`lamp_stage`) with an explicit backend migration, not a silent client-only rename. |
+| S4-D2 | Reconcile intent from firmware | `[ ] Pending` | Existing local React `mistMode/fanMode/heaterAirMode` becomes optimistic only; reconcile from retained ack/state `effective_intent`, `release_reason`, `expires_ms`. |
+| S4-D3 | Show authoritative safety release | `[ ] Pending` | When Core 1 emits `SafetyLimitReached`, UI returns control to AUTO and displays exact firmware-provided reason. It must not rely on browser time or guessed sensor threshold. |
+| S4-D4 | Preserve UI pre-checks as UX only | `[ ] Pending` | The midday/crop-day checks in `handleOverrideChange()` can reduce failed clicks, but device-side RTC/profile rules remain authoritative. |
+
+### Track E: Tests & Field Verification
+
+| Task | Mô tả | Status | Chỉ thị |
+|------|-------|:------:|---------|
+| S4-E1 | `test_interpolate_between_checkpoints` | `[ ] Pending` | Day between two known checkpoints gives exact linear target. |
+| S4-E2 | `test_interpolate_endpoint_clamp` | `[ ] Pending` | Before first/after last checkpoint clamps to endpoint. |
+| S4-E3 | `test_profile_rejects_invalid_checkpoint_data` | `[ ] Pending` | NaN, duplicates, unsorted, out-of-range count/day rejected. |
+| S4-E4 | `test_profile_crc_rejects_corruption` | `[ ] Pending` | Corrupt persisted record never becomes active. |
+| S4-E5 | `test_holdover_keeps_crop_day_after_wifi_loss` | `[ ] Pending` | Same boot, previously trusted clock, loss of network → valid derived crop day. |
+| S4-E6 | `test_reboot_without_trusted_clock_enters_safe_offline` | `[ ] Pending` | NVS profile exists but no RTC/NTP/MQTT after simulated reboot → `Uncertain`, safe profile; no false elapsed-time estimate. |
+| S4-E7 | `test_force_on_not_restored_when_time_uncertain` | `[ ] Pending` | Reboot under uncertainty must not revive a stale FORCE_ON latch. |
+| S4-E8 | Field test: Wi-Fi disconnect | `[ ] Pending` | Confirm no control pause, local button works, telemetry indicates Holdover. |
+| S4-E9 | Field test: power-cycle without network | `[ ] Pending` | Confirm Uncertain/safe mode, no stale FORCE_ON, then correct recovery after time/profile sync. |
+| S4-E10 | `pio test -e native` | `[ ] Pending` | PASS all current and new tests. |
