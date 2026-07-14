@@ -92,7 +92,7 @@
 | S2-B1 | Thêm models vào `include/models.h` (`AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck`) | `[ ] QA Review` |
 | S2-B2 | Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `definitions.h` | `[ ] QA Review` |
 | S2-B3 | Định nghĩa queue trong `src/core1_tasks.cpp` | `[ ] QA Review` |
-| S2-B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | `[ ] Pending` |
+| S2-B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | `[ ] QA Review` |
 | S2-B5 | Thêm MQTT/UI override adapter trong `mqtt_client.cpp` | `[ ] Pending` |
 | S2-B6 | Xác nhận telemetry/ack contract cho UI | `[ ] Pending` |
 

@@ -21,9 +21,6 @@ TaskHandle_t hTaskCore1Control = nullptr;
 TaskHandle_t hTaskHWButton     = nullptr;
 #endif
 
-// Global Queue Handles for Manual Control
-QueueHandle_t g_manual_request_queue = nullptr;
-QueueHandle_t g_manual_ack_queue = nullptr;
 
 // Telemetry samples are produced every 5 s; depth of 4 is enough for Core 0 to
 // drain without blocking Core 1.
@@ -95,6 +92,17 @@ void initQueues()
     else
     {
         Serial.printf("[MAIN] g_manual_request_queue created (depth=8, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ManualRequest)));
+    }
+
+    g_mqtt_override_queue = xQueueCreate(8, sizeof(ManualRequest));
+    if (g_mqtt_override_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_mqtt_override_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_mqtt_override_queue created (depth=8, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ManualRequest)));
     }
 

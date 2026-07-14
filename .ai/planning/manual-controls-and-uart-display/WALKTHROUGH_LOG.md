@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:27:30+07:00] Task S2-B4: Tạo ba queue trong `initQueues()` của `main.cpp`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Khởi tạo hàng đợi `g_mqtt_override_queue` bằng `xQueueCreate` trong hàm `initQueues()` của `src/main.cpp` với độ sâu hàng đợi (depth) bằng 8 và kích thước tương ứng với `sizeof(ManualRequest)` để nhận lệnh override từ UI/MQTT.
+  - Loại bỏ các định nghĩa trùng lặp của `g_manual_request_queue` và `g_manual_ack_queue` trong `src/main.cpp` (vốn đã được định nghĩa tại `src/core1_tasks.cpp` và khai báo `extern` trong `definitions.h`). Điều này giải quyết triệt để lỗi trùng lặp symbol khi liên kết (multiple definition linker error).
+- **Kết quả tự kiểm thử**:
+  - Biên dịch thành công cho các môi trường `otg`, `base`, và `uart` thông qua PlatformIO.
+  - Chạy `./run_tests` cục bộ thành công vượt qua 100% assertions hiện tại của dự án (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T17:24:20+07:00] Task S2-B3: Định nghĩa queue trong `src/core1_tasks.cpp`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
