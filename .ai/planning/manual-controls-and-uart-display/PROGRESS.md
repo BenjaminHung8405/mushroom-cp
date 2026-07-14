@@ -249,10 +249,10 @@
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S4-D1 | Rename actuator contract deliberately | `[ ] Pending` | Migrate UI `heater_air` to firmware’s thermal-lamp channel (`lamp`/`lamp_stage`) with an explicit backend migration, not a silent client-only rename. |
-| S4-D2 | Reconcile intent from firmware | `[ ] Pending` | Existing local React `mistMode/fanMode/heaterAirMode` becomes optimistic only; reconcile from retained ack/state `effective_intent`, `release_reason`, `expires_ms`. |
-| S4-D3 | Show authoritative safety release | `[ ] Pending` | When Core 1 emits `SafetyLimitReached`, UI returns control to AUTO and displays exact firmware-provided reason. It must not rely on browser time or guessed sensor threshold. |
-| S4-D4 | Preserve UI pre-checks as UX only | `[ ] Pending` | The midday/crop-day checks in `handleOverrideChange()` can reduce failed clicks, but device-side RTC/profile rules remain authoritative. |
+| S4-D1 | Rename actuator contract deliberately | `[x] Done` | Migrate UI `heater_air` to firmware's thermal-lamp channel (`lamp`/`lamp_stage`) with an explicit backend migration, not a silent client-only rename. |
+| S4-D2 | Reconcile intent from firmware | `[x] Done` | Existing local React `mistMode/fanMode/heaterAirMode` becomes optimistic only; reconcile from retained ack/state `effective_intent`, `release_reason`, `expires_ms`. |
+| S4-D3 | Show authoritative safety release | `[x] Done` | When Core 1 emits `SafetyLimitReached`, UI returns control to AUTO and displays exact firmware-provided reason. It must not rely on browser time or guessed sensor threshold. |
+| S4-D4 | Preserve UI pre-checks as UX only | `[x] Done` | The midday/crop-day checks in `handleOverrideChange()` can reduce failed clicks, but device-side RTC/profile rules remain authoritative. |
 
 ### Track E: Tests & Field Verification
 

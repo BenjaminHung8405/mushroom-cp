@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdint.h>
+#include "models.h"
+
 /**
  * @file Trajectory.h
  * @brief Interpolation of target setpoints along a 20-day growth curve.

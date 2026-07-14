@@ -97,6 +97,12 @@ enum class ManualDecision : uint8_t {
     RejectedLocked = 6,    // crop-day lock (heater_air > day 8) hoặc blackout cứng
 };
 
+enum class TimeConfidence : uint8_t {
+    Trusted = 0,       // clock đã sync, hoặc external RTC hợp lệ
+    Holdover = 1,      // mất mạng nhưng MCU chưa reset từ trusted time
+    Uncertain = 2,     // reset sau mất điện, chưa có trusted time
+};
+
 enum class ManualReleaseReason : uint8_t {
     None = 0,
     TTLExpired = 1,
@@ -118,11 +124,7 @@ struct ManualAck {
 
 constexpr uint16_t MAX_CROP_CHECKPOINTS = 10;
 
-enum class TimeConfidence : uint8_t {
-    Trusted = 0,       // clock đã sync, hoặc external RTC hợp lệ
-    Holdover = 1,      // mất mạng nhưng MCU chưa reset từ trusted time
-    Uncertain = 2,     // reset sau mất điện, chưa có trusted time
-};
+
 
 struct CropCheckpoint {
     uint16_t crop_day;

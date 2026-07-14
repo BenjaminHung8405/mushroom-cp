@@ -166,6 +166,12 @@ void taskCore0Communication(void* /*pvParameters*/)
                                   static_cast<int>(ack.release_reason));
                 }
                 mqtt::MqttClient::getInstance().publishManualAck(ack);
+
+                // If latch was auto-released (TTL expire or safety gate), reset the button
+                // toggle state so the next physical press sends FORCE_ON again.
+                if (ack.release_reason != ManualReleaseReason::None) {
+                    cabinet_buttons::notify_latch_released(ack.channel);
+                }
             }
         }
 

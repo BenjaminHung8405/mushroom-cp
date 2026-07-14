@@ -98,12 +98,21 @@ void taskEncoderInput(void* pvParameters);
  * @brief FreeRTOS task on Core 0 that processes physical cabinet buttons with Shift-Register debounce.
  */
 void taskCabinetButtons(void* pvParameters);
-#else
+#endif
+
 namespace cabinet_buttons {
+    /**
+     * @brief Reset the toggle state for a channel back to FORCE_ON.
+     * Must be called by Core 0 whenever a manual latch is auto-released (TTL expire or safety gate),
+     * so that the next physical press correctly sends FORCE_ON again.
+     */
+    void notify_latch_released(AppChannel channel);
+
+#ifdef UNIT_TEST
     void process_cabinet_buttons();
     void reset_for_test();
-}
 #endif
+}
 
 
 /**

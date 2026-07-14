@@ -13,11 +13,13 @@ namespace config
     {
 
         // Actuators (Relays)
-        constexpr uint8_t PIN_RELAY_MIST = 10;   // Sương (Fogger/Mist)
-        constexpr uint8_t PIN_RELAY_FAN = 11;    // Quạt (Fan)
-        constexpr uint8_t PIN_RELAY_LAMP_1 = 13; // Đèn nhiệt 1 (Lamp 1)
-        constexpr uint8_t PIN_RELAY_LAMP_2 = 14; // Đèn nhiệt 2 (Lamp 2)
-        constexpr uint8_t PIN_RELAY_HWAT = 12;   // Sưởi nước (Heater Water)
+        constexpr uint8_t PIN_RELAY_MIST   = 10; // Sương (Fogger/Mist)
+        constexpr uint8_t PIN_RELAY_FAN    = 11; // Quạt (Fan)
+        constexpr uint8_t PIN_RELAY_HWAT   = 12; // Sưởi nước (Heater Water)
+        // Đèn nhiệt: 2 kênh TPC (stage1/stage2) dùng chung 1 relay vật lý GPIO 13.
+        // LAMP_2 cố ý trỏ vào LAMP_1 để merge 2 stage thành 1 pin.
+        constexpr uint8_t PIN_RELAY_LAMP_1 = 13; // Đèn nhiệt — relay duy nhất
+        constexpr uint8_t PIN_RELAY_LAMP_2 = 13; // Alias LAMP_1 — merged single-relay wiring
 
         // I2C Bus (e.g. SHT30, SCD30)
         constexpr uint8_t PIN_I2C_SDA = 8;
@@ -28,9 +30,9 @@ namespace config
         // Hold 5 seconds during runtime to force SoftAP config portal.
         constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
-        // Manual buttons (re-added to compile button_manager)
-        constexpr uint8_t PIN_BUTTON_UP = 15;
-        constexpr uint8_t PIN_BUTTON_DOWN = 16;
+        // PIN_BUTTON_UP / PIN_BUTTON_DOWN đã bị xóa:
+        // GPIO 15 và 16 được dùng cho nút tủ điện (cabinet_buttons: LAMP, FAN).
+        // Tham chiếu đúng: config::hardware::PIN_BTN_LAMP (15), PIN_BTN_FAN (16).
 
         // KY-040 rotary encoder. Supply the module at 3.3 V only.
         constexpr uint8_t PIN_ENCODER_CLK = 5;
@@ -95,11 +97,12 @@ namespace config
 
     namespace hardware
     {
-        // Manual cabinet buttons pin assignment
-        // Active-LOW, uses internal INPUT_PULLUP; production needs physical 4.7k pull-up + 100nF RC + 10k debounce.
-        constexpr uint8_t PIN_BTN_MIST = 4;
-        constexpr uint8_t PIN_BTN_LAMP = 15;
-        constexpr uint8_t PIN_BTN_FAN = 16;
+        // Nút bấm tủ điện vật lý (active-LOW, INPUT_PULLUP).
+        // Cần thêm trở kéo ngoài 4.7kΩ + tụ lọc 100nF + trở debounce 10kΩ ở môi trường production.
+        // Tất cả 3 chân theo cùng pattern: GPIO4 = chuẩn tham chiếu, 15 và 16 đồng bộ theo.
+        constexpr uint8_t PIN_BTN_MIST = 4;  // Nút Sương — chuẩn tham chiếu
+        constexpr uint8_t PIN_BTN_LAMP = 15; // Nút Đèn — INPUT_PULLUP, debounce 8-sample shift-register
+        constexpr uint8_t PIN_BTN_FAN  = 16; // Nút Quạt — INPUT_PULLUP, debounce 8-sample shift-register
 
         // Manual latch duration (15 minutes)
         constexpr uint32_t MANUAL_LATCH_TTL_MS = 900000;

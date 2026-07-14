@@ -9,12 +9,13 @@
 namespace actuators
 {
     // Danh sách whitelist các chân rơ-le hợp lệ — ranh giới an toàn cứng
+    // Lưu ý: LAMP_1 và LAMP_2 đã được merge về cùng GPIO 13.
+    // Whitelist giữ cả 2 entry (giá trị giống nhau) để backward-compatible với TPC_Task.
     static constexpr uint8_t VALID_RELAY_PINS[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
         config::pins::PIN_RELAY_HWAT,
-        config::pins::PIN_RELAY_LAMP_1,
-        config::pins::PIN_RELAY_LAMP_2
+        config::pins::PIN_RELAY_LAMP_1  // LAMP_2 đã merge vào LAMP_1 (cùng GPIO 13)
     };
     static constexpr size_t VALID_RELAY_COUNT =
         sizeof(VALID_RELAY_PINS) / sizeof(VALID_RELAY_PINS[0]);
@@ -27,8 +28,7 @@ namespace actuators
         if (pin == config::pins::PIN_RELAY_MIST)     return "MIST";
         if (pin == config::pins::PIN_RELAY_FAN)      return "FAN";
         if (pin == config::pins::PIN_RELAY_HWAT)     return "HWAT";
-        if (pin == config::pins::PIN_RELAY_LAMP_1)   return "LAMP_1";
-        if (pin == config::pins::PIN_RELAY_LAMP_2)   return "LAMP_2";
+        if (pin == config::pins::PIN_RELAY_LAMP_1)   return "LAMP (merged)"; // LAMP_1==LAMP_2==GPIO13
         return "UNKNOWN";
     }
 
@@ -61,22 +61,18 @@ namespace actuators
         digitalWrite(config::pins::PIN_RELAY_FAN, LOW);
         Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_FAN);
 
-        // Pin 3: Lamp 1 Relay
+        // Pin 3: Lamp Relay (đèn nhiệt — merged: LAMP_1 và LAMP_2 cùng GPIO 13)
         pinMode(config::pins::PIN_RELAY_LAMP_1, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_LAMP_1, LOW);
-        Serial.printf("[ACTUATORS] Relay LAMP 1 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_LAMP_1);
+        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d, merged single-relay) initialized to LOW.\n",
+                      (int)config::pins::PIN_RELAY_LAMP_1);
 
-        // Pin 4: Lamp 2 Relay
-        pinMode(config::pins::PIN_RELAY_LAMP_2, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_LAMP_2, LOW);
-        Serial.printf("[ACTUATORS] Relay LAMP 2 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_LAMP_2);
-
-        // Pin 5: Heater Water Relay
+        // Pin 4: Heater Water Relay
         pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_HWAT, LOW);
         Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HWAT);
 
-        Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state.");
+        Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state (4 relays, LAMP merged).");
 
         // BOOT / RESET WIFI button (active LOW). Keep INPUT only — never OUTPUT.
         init_wifi_config_button_gpio();
@@ -113,13 +109,12 @@ namespace actuators
         if (!is_valid_relay_pin(relay_pin))
         {
             Serial.printf(
-                "[ACTUATOR] REJECTED: Pin %d is not a valid relay pin. Allowed: [%d, %d, %d, %d, %d].\n",
+                "[ACTUATOR] REJECTED: Pin %d is not a valid relay pin. Allowed: [MIST=%d, FAN=%d, HWAT=%d, LAMP=%d].\n",
                 (int)relay_pin,
                 (int)config::pins::PIN_RELAY_MIST,
                 (int)config::pins::PIN_RELAY_FAN,
                 (int)config::pins::PIN_RELAY_HWAT,
-                (int)config::pins::PIN_RELAY_LAMP_1,
-                (int)config::pins::PIN_RELAY_LAMP_2
+                (int)config::pins::PIN_RELAY_LAMP_1  // LAMP_2 == LAMP_1 == GPIO13 (merged)
             );
             return false;
         }

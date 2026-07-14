@@ -9,7 +9,12 @@ constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 11U * 60U;
 constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 13U * 60U + 30U;
 
 constexpr float MIST_WARNING_LIMIT_RH = 92.0f;
+// LAMP_WARNING_DELTA_C: ngưỡng warning mềm (+3°C so với setpoint).
 constexpr float LAMP_WARNING_DELTA_C = 3.0f;
+// LAMP_HARD_CUTOFF_C: ngưỡng an toàn cứng tuyệt đối — không bypassđược.
+// Khi nhiệt độ >= mức này, đèn phải tắt ngay, bất kể setpoint hay manual latch.
+// Giá trị 45°C = giới hạn sinh học nấm rơm (tết tiêu hoàn toàn > 45°C).
+constexpr float LAMP_HARD_CUTOFF_C = 45.0f;
 constexpr float LAMP_MANUAL_DUTY = 0.6f;
 
 bool isMiddayBlackout(const TPC_Task::RtcTimePod& rtcTime) {
@@ -50,6 +55,11 @@ ManualDecision evaluateSafetyGate(
     else if (request.channel == AppChannel::LAMP) {
         if (!std::isfinite(telemetry.temp_air)) {
             return ManualDecision::RejectedNAN;
+        }
+        // Hard safety cutoff tuyệt đối: không cho bật đèn khi nhiệt độ >= 45°C.
+        // Kiểm tra này ưu tiên trước mọi điều kiện khác.
+        if (telemetry.temp_air >= LAMP_HARD_CUTOFF_C) {
+            return ManualDecision::RejectedTemp;
         }
         if (cropDay > 8) {
             return ManualDecision::RejectedLocked;
@@ -123,6 +133,10 @@ void autoClearOnSensorViolation(
     size_t lampIdx = static_cast<size_t>(AppChannel::LAMP);
     if (latch[lampIdx].active && latch[lampIdx].forced_state == AppIntent::FORCE_ON) {
         if (!std::isfinite(telemetry.temp_air) ||
+            // Hard safety cutoff tuyệt đối: buộc tắt đèn nếu nhiệt độ >= 45°C.
+            // Điều này đảm bảo đèn TẪT dù manual latch vẫn active.
+            telemetry.temp_air >= LAMP_HARD_CUTOFF_C ||
+            // Warning delta mềm: tắt khi vượt setpoint + 3°C
             telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C)
         {
             latch[lampIdx].active = false;

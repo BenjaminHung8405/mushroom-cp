@@ -16,15 +16,16 @@ namespace cabinet_buttons {
 
 struct ButtonState {
     uint8_t pin;
-    uint8_t history;       // 8-bit history for shift-register integration
-    bool current_state;    // Debounced state (active-LOW: true = released, false = pressed)
-    AppChannel channel;    // Corresponding control channel
+    uint8_t history;           // 8-bit history for shift-register integration
+    bool current_state;        // Debounced state (active-LOW: true = released, false = pressed)
+    AppChannel channel;        // Corresponding control channel
+    AppIntent next_intent;     // Toggle state: alternates FORCE_ON ↔ AUTO on each press
 };
 
 static ButtonState buttons[] = {
-    { config::hardware::PIN_BTN_MIST, 0xFF, true, AppChannel::MIST },
-    { config::hardware::PIN_BTN_FAN,  0xFF, true, AppChannel::FAN  },
-    { config::hardware::PIN_BTN_LAMP, 0xFF, true, AppChannel::LAMP }
+    { config::hardware::PIN_BTN_MIST, 0xFF, true, AppChannel::MIST, AppIntent::FORCE_ON },
+    { config::hardware::PIN_BTN_FAN,  0xFF, true, AppChannel::FAN,  AppIntent::FORCE_ON },
+    { config::hardware::PIN_BTN_LAMP, 0xFF, true, AppChannel::LAMP, AppIntent::FORCE_ON }
 };
 
 void process_cabinet_buttons()
@@ -41,19 +42,28 @@ void process_cabinet_buttons()
             // 8 consecutive LOW samples -> stable PRESS
             btn.current_state = false;
 
+            // Capture current intent before flipping, then toggle for next press
+            AppIntent intent_to_send = btn.next_intent;
+            btn.next_intent = (intent_to_send == AppIntent::FORCE_ON)
+                              ? AppIntent::AUTO
+                              : AppIntent::FORCE_ON;
+
             if (g_manual_request_queue != nullptr) {
                 ManualRequest req;
                 req.channel = btn.channel;
-                req.intent = AppIntent::FORCE_ON;
+                req.intent = intent_to_send;
                 req.request_ms = millis();
                 xQueueSend(g_manual_request_queue, &req, 0);
             }
 
             ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[BUTTON] Debounced PRESS on Channel %d\n", static_cast<int>(btn.channel));
+            Serial.printf("[BUTTON] Debounced PRESS on Channel %d → intent=%d (next=%d)\n",
+                          static_cast<int>(btn.channel),
+                          static_cast<int>(intent_to_send),
+                          static_cast<int>(btn.next_intent));
         }
         else if (btn.history == 0xFF && btn.current_state == false) {
-            // 8 consecutive HIGH samples -> stable RELEASE
+            // 8 consecutive HIGH samples -> stable RELEASE (no request sent; toggle is latch-based)
             btn.current_state = true;
 
             ScopedSerialLock guard(SerialLock::get_instance());
@@ -67,6 +77,22 @@ void reset_for_test()
     for (auto &btn : buttons) {
         btn.history = 0xFF;
         btn.current_state = true;
+        btn.next_intent = AppIntent::FORCE_ON;  // Reset toggle state
+    }
+}
+
+void notify_latch_released(AppChannel channel)
+{
+    for (auto &btn : buttons) {
+        if (btn.channel == channel) {
+            // Latch was auto-released externally (TTL/safety). Reset toggle so the
+            // next physical press sends FORCE_ON, not a stale AUTO.
+            btn.next_intent = AppIntent::FORCE_ON;
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[BUTTON] Latch released on Channel %d → next_intent reset to FORCE_ON\n",
+                          static_cast<int>(channel));
+            return;
+        }
     }
 }
 
