@@ -236,25 +236,30 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
     const value = candidate as Record<string, unknown>;
-    const fields = [
-      'mist_active',
-      'fan_active',
-      'heater_air_active',
-      'heater_water_active',
-      'midday_blackout_active',
-    ] as const;
-    if (!fields.every((field) => typeof value[field] === 'boolean')) {
+    const mist = value.mist_active;
+    const fan = value.fan_active;
+    const heater_air = value.lamp_stage_active !== undefined ? value.lamp_stage_active : value.heater_air_active;
+    const heater_water = value.heater_water_active;
+    const blackout = value.midday_blackout_active;
+
+    if (
+      typeof mist !== 'boolean' ||
+      typeof fan !== 'boolean' ||
+      typeof heater_air !== 'boolean' ||
+      typeof heater_water !== 'boolean' ||
+      typeof blackout !== 'boolean'
+    ) {
       this.logger.warn(
         `Actuator state unavailable from '${deviceId}': missing or non-boolean field.`,
       );
       return null;
     }
     return {
-      mist_active: value.mist_active as boolean,
-      fan_active: value.fan_active as boolean,
-      heater_air_active: value.heater_air_active as boolean,
-      heater_water_active: value.heater_water_active as boolean,
-      midday_blackout_active: value.midday_blackout_active as boolean,
+      mist_active: mist,
+      fan_active: fan,
+      heater_air_active: heater_air,
+      heater_water_active: heater_water,
+      midday_blackout_active: blackout,
     };
   }
 
@@ -291,6 +296,35 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     if (!this.client?.connected) {
       throw new Error('MQTT client is not connected.');
     }
+    await new Promise<void>((resolve, reject) => {
+      this.client?.publish(
+        `mushroom/device/${deviceId}/setpoint`,
+        JSON.stringify(payload),
+        { qos: 1 },
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
+
+  async dispatchActuatorOverride(
+    deviceId: string,
+    actuator: 'fan' | 'heater_air' | 'mist',
+    state: boolean | null,
+  ): Promise<void> {
+    if (!this.client?.connected) {
+      throw new Error('MQTT client is not connected.');
+    }
+
+    const overrideValue = state === true ? 1 : state === false ? 2 : 0;
+    const payloadKey = `${actuator}_override`;
+    const payload = {
+      [payloadKey]: overrideValue,
+    };
+
+    this.logger.log(
+      `Dispatching actuator override to device '${deviceId}': ${JSON.stringify(payload)}`,
+    );
+
     await new Promise<void>((resolve, reject) => {
       this.client?.publish(
         `mushroom/device/${deviceId}/setpoint`,

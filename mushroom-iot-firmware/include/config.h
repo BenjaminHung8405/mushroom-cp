@@ -61,6 +61,9 @@ namespace config
         constexpr const char *KEY_BACKEND_URL = "backend_url";
         constexpr const char *KEY_LAST_SP = "last_sp";
         constexpr const char *KEY_HW_OVR = "hw_ovr";
+        constexpr const char *KEY_ACT_OVR = "act_ovr";
+        constexpr const char *KEY_START_TIME = "start_time";
+        constexpr const char *KEY_ELAPSED_SEC = "elapsed_sec";
 
         // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
         extern String STA_SSID;

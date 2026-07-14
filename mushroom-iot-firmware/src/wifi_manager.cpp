@@ -1076,7 +1076,11 @@ setInterval(function(){
             {
                 softap_last_activity_ms = now;
             }
+#ifdef UNIT_TEST
+            else if (now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
+#else
             else if (softap_forced && now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
+#endif
             {
                 Serial.println("[WIFI] SoftAP idle timeout. Reverting to STA reconnect.");
 #ifndef UNIT_TEST

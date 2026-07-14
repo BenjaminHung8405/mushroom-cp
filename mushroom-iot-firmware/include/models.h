@@ -22,10 +22,11 @@
 struct RelayOutputsPod {
     bool mist_active;
     bool fan_active;
-    bool heater_air_active;
+    bool lamp_stage_active;       ///< Bóng đèn nhiệt tầng 1 (LAMP_1) đang bật
+    bool lamp_stage2_active;      ///< Bóng đèn nhiệt tầng 2 (LAMP_2) đang bật
     bool heater_water_active;
     bool midday_blackout_active;
-    uint8_t padding[3];
+    uint8_t padding[2];
 } __attribute__((aligned(4)));
 
 struct TelemetryData {
@@ -45,5 +46,16 @@ struct ControlSetpointCommand {
     float co2_target;
     bool active;
     uint8_t padding[3];    ///< Explicit padding to align to 32-bit boundary (16 bytes total)
+} __attribute__((aligned(4)));
+
+/**
+ * @brief Plain Old Data (POD) structure for actuator manual override commands.
+ * Transmitted from Core 0 to Core 1 control loop via FreeRTOS queue.
+ */
+struct ActuatorOverrideCommand {
+    int8_t mist_override;       // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+    int8_t fan_override;        // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+    int8_t heater_air_override; // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+    bool active;
 } __attribute__((aligned(4)));
 

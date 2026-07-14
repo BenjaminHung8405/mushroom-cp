@@ -112,6 +112,12 @@ extern QueueHandle_t xBaselineQueue;
 extern QueueHandle_t xOverrideQueue;
 
 /**
+ * @brief Handle for the FreeRTOS queue carrying manual actuator overrides from Core 0 to Core 1.
+ * Created during setup(); destroyed on shutdown.
+ */
+extern QueueHandle_t xActuatorOverrideQueue;
+
+/**
  * @brief Hydrate setpoints from NVS and push them to xBaselineQueue and xOverrideQueue.
  * Fallbacks to trajectory Day 0 if NVS baseline is missing/invalid.
  */

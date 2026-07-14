@@ -24,6 +24,14 @@ namespace storage
         bool active;
     } __attribute__((aligned(4)));
 
+    struct ActuatorOverrideSnapshot
+    {
+        int8_t mist_override;       // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+        int8_t fan_override;        // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+        int8_t heater_air_override; // 0: AUTO, 1: FORCE_ON, 2: FORCE_OFF
+        bool active;
+    } __attribute__((aligned(4)));
+
     /**
      * @brief Manager class for handling non-volatile storage (NVS) using ESP32 Preferences library.
      * Enforces type safety, centralized namespace/keys, and proper error/log tracing.
@@ -181,6 +189,41 @@ namespace storage
          * @brief Clears hardware override snapshot from NVS.
          */
         bool clear_hardware_override();
+
+        /**
+         * @brief Saves actuator manual override snapshot to NVS.
+         */
+        bool save_actuator_override(const ActuatorOverrideSnapshot &snapshot);
+
+        /**
+         * @brief Loads actuator manual override snapshot from NVS.
+         */
+        bool load_actuator_override(ActuatorOverrideSnapshot &snapshot);
+
+        /**
+         * @brief Clears actuator manual override snapshot from NVS.
+         */
+        bool clear_actuator_override();
+
+        /**
+         * @brief Saves start epoch time (in seconds) to NVS.
+         */
+        bool save_start_epoch_time(uint32_t start_time);
+
+        /**
+         * @brief Loads start epoch time (in seconds) from NVS.
+         */
+        bool load_start_epoch_time(uint32_t &start_time);
+
+        /**
+         * @brief Saves elapsed seconds since batch started to NVS.
+         */
+        bool save_elapsed_seconds(uint32_t elapsed_sec);
+
+        /**
+         * @brief Loads elapsed seconds since batch started from NVS.
+         */
+        bool load_elapsed_seconds(uint32_t &elapsed_sec);
 
         /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.

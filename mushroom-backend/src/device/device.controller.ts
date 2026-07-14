@@ -9,6 +9,7 @@ import {
   Logger,
   HttpCode,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Observable, merge, of } from 'rxjs';
@@ -20,9 +21,13 @@ import {
   Matches,
   Max,
   Min,
+  IsBoolean,
+  IsIn,
 } from 'class-validator';
+import { toZonedTime } from 'date-fns-tz';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
+import { BatchService } from '../batch/services/batch.service';
 
 /**
  * DTO for validating the device ID route parameter.
@@ -84,6 +89,19 @@ export class DeviceSetpointDto {
 }
 
 /**
+ * DTO for validating actuator manual overrides.
+ */
+export class ActuatorOverrideDto {
+  @IsString()
+  @IsIn(['fan', 'heater_air', 'mist'])
+  actuator: 'fan' | 'heater_air' | 'mist';
+
+  @IsOptional()
+  @IsBoolean()
+  state: boolean | null;
+}
+
+/**
  * DeviceController — HTTP interface for device management and real-time status.
  */
 @Controller('devices')
@@ -93,6 +111,7 @@ export class DeviceController {
   constructor(
     private readonly mqttService: MqttService,
     private readonly deviceRegistryService: DeviceRegistryService,
+    private readonly batchService: BatchService,
   ) {}
 
   /**
@@ -198,6 +217,82 @@ export class DeviceController {
         control_mode: 'fuzzy_tpc',
         setpoint_ttl_sec: 120,
       },
+    };
+  }
+
+  /**
+   * REST: Publish manual actuator overrides to a device via MQTT.
+   * Subject to server-side bio-safety guardrail validation.
+   */
+  @Post(':id/actuator-override')
+  @HttpCode(202)
+  async publishActuatorOverride(
+    @Param() params: DeviceParamsDto,
+    @Body() body: ActuatorOverrideDto,
+  ) {
+    const { id } = params;
+    const { actuator, state } = body;
+
+    // 1. Check device registry
+    const device =
+      this.deviceRegistryService.get(id) ??
+      (await this.deviceRegistryService.refreshOne(id));
+    if (!device) {
+      throw new NotFoundException(`Device '${id}' not found.`);
+    }
+
+    // 2. Validate biological guardrails (Server-side defense)
+    if (actuator === 'mist' && state === true) {
+      // Check Midday Blackout Window (11:00 AM - 1:30 PM local Vietnam time)
+      const timezone = 'Asia/Ho_Chi_Minh';
+      const localTime = toZonedTime(new Date(), timezone);
+      const hour = localTime.getHours();
+      const minute = localTime.getMinutes();
+      
+      const minutesSinceMidnight = hour * 60 + minute;
+      const startBlackout = 11 * 60; // 11:00
+      const endBlackout = 13 * 60 + 30; // 13:30
+      
+      if (minutesSinceMidnight >= startBlackout && minutesSinceMidnight <= endBlackout) {
+        throw new BadRequestException(
+          `Không thể bật máy tạo ẩm thủ công trong khung giờ bảo vệ sốc nhiệt (11:00 - 13:30).`,
+        );
+      }
+    }
+
+    if (actuator === 'heater_air' && state === true) {
+      // Check if active batch has cropDay > 8
+      try {
+        const activeBatch = await this.batchService.getActiveBatchByHouseId(
+          device.houseId,
+        );
+        if (activeBatch) {
+          const telemetryTime = new Date();
+          const elapsedMs =
+            telemetryTime.getTime() - new Date(activeBatch.startDate).getTime();
+          const cropDay = Math.floor(elapsedMs / 86400000) + 1;
+          if (cropDay > 8) {
+            throw new BadRequestException(
+              `Thiết bị sưởi không được bật thủ công trong giai đoạn ra quả thể (ngày vụ nuôi: ${cropDay} > 8).`,
+            );
+          }
+        }
+      } catch (err) {
+        if (err instanceof BadRequestException) {
+          throw err;
+        }
+        this.logger.warn(
+          `Failed to check active batch for heater-air guard: ${err.message}`,
+        );
+      }
+    }
+
+    // 3. Dispatch to MQTT
+    await this.mqttService.dispatchActuatorOverride(id, actuator, state);
+
+    return {
+      message: `Lệnh ghi đè thiết bị '${actuator}' đã được gửi đi.`,
+      payload: { actuator, state },
     };
   }
 }

@@ -9,7 +9,7 @@ TelemetryState makeInitialState()
     state.lastPubState.temp_air = NAN;
     state.lastPubState.humidity_air = NAN;
     state.lastPubState.co2_level = NAN;
-    state.lastPubState.actuators = RelayOutputsPod{false, false, false, false, false, {0, 0, 0}};
+    state.lastPubState.actuators = RelayOutputsPod{false, false, false, false, false, false, {0, 0}};
     state.lastPubTimeMs = 0UL;
     state.forceFullPublish = false;
     return state;
@@ -52,7 +52,8 @@ PublishType evaluateDeltaThresholds(const TelemetryData& current, const Telemetr
     const bool actuators_changed =
         now.mist_active != previous.mist_active ||
         now.fan_active != previous.fan_active ||
-        now.heater_air_active != previous.heater_air_active ||
+        now.lamp_stage_active != previous.lamp_stage_active ||
+        now.lamp_stage2_active != previous.lamp_stage2_active ||
         now.heater_water_active != previous.heater_water_active ||
         now.midday_blackout_active != previous.midday_blackout_active;
 
@@ -80,7 +81,8 @@ void addActuatorPayload(const RelayOutputsPod& actuators, JsonObject& root)
     JsonObject actuatorRoot = root.createNestedObject("actuators");
     actuatorRoot["mist_active"] = actuators.mist_active;
     actuatorRoot["fan_active"] = actuators.fan_active;
-    actuatorRoot["heater_air_active"] = actuators.heater_air_active;
+    actuatorRoot["lamp_stage_active"] = actuators.lamp_stage_active;
+    actuatorRoot["lamp_stage2_active"] = actuators.lamp_stage2_active;
     actuatorRoot["heater_water_active"] = actuators.heater_water_active;
     actuatorRoot["midday_blackout_active"] = actuators.midday_blackout_active;
 }
@@ -89,7 +91,8 @@ bool actuatorStateChanged(const RelayOutputsPod& current, const RelayOutputsPod&
 {
     return current.mist_active != previous.mist_active ||
            current.fan_active != previous.fan_active ||
-           current.heater_air_active != previous.heater_air_active ||
+           current.lamp_stage_active != previous.lamp_stage_active ||
+           current.lamp_stage2_active != previous.lamp_stage2_active ||
            current.heater_water_active != previous.heater_water_active ||
            current.midday_blackout_active != previous.midday_blackout_active;
 }

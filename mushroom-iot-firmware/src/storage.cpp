@@ -506,7 +506,7 @@ namespace storage
 
         if (bytes == sizeof(snapshot) && is_valid_hardware(snapshot))
         {
-            return snapshot.active;
+            return true;
         }
         if (bytes == sizeof(snapshot))
         {
@@ -526,6 +526,108 @@ namespace storage
         prefs.end();
         Serial.println("[STORAGE] Cleared hardware override from NVS.");
         return result;
+    }
+
+    bool StorageManager::save_actuator_override(const ActuatorOverrideSnapshot &snapshot)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing actuator override.");
+            return false;
+        }
+
+        size_t bytes = prefs.putBytes(config::network::KEY_ACT_OVR, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            Serial.printf("[STORAGE] Saved actuator override (M:%d, F:%d, H:%d, A:%d) successfully.\n",
+                          snapshot.mist_override, snapshot.fan_override, snapshot.heater_air_override, snapshot.active);
+            return true;
+        }
+        Serial.println("[STORAGE] Error: Failed to save actuator override.");
+        return false;
+    }
+
+    bool StorageManager::load_actuator_override(ActuatorOverrideSnapshot &snapshot)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading actuator override.");
+            return false;
+        }
+
+        size_t bytes = prefs.getBytes(config::network::KEY_ACT_OVR, &snapshot, sizeof(snapshot));
+        prefs.end();
+
+        if (bytes == sizeof(snapshot))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    bool StorageManager::clear_actuator_override()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.remove(config::network::KEY_ACT_OVR);
+        prefs.end();
+        Serial.println("[STORAGE] Cleared actuator override from NVS.");
+        return result;
+    }
+
+    bool StorageManager::save_start_epoch_time(uint32_t start_time)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.putUInt(config::network::KEY_START_TIME, start_time) > 0;
+        prefs.end();
+        return result;
+    }
+
+    bool StorageManager::load_start_epoch_time(uint32_t &start_time)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        start_time = prefs.getUInt(config::network::KEY_START_TIME, 0);
+        prefs.end();
+        return start_time > 0;
+    }
+
+    bool StorageManager::save_elapsed_seconds(uint32_t elapsed_sec)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.putUInt(config::network::KEY_ELAPSED_SEC, elapsed_sec) > 0;
+        prefs.end();
+        return result;
+    }
+
+    bool StorageManager::load_elapsed_seconds(uint32_t &elapsed_sec)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        elapsed_sec = prefs.getUInt(config::network::KEY_ELAPSED_SEC, 0);
+        prefs.end();
+        return elapsed_sec > 0;
     }
 
     bool StorageManager::factory_reset()

@@ -70,6 +70,17 @@ void initQueues()
         Serial.printf("[MAIN] xOverrideQueue created (depth=1, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ControlSetpointCommand)));
     }
+
+    xActuatorOverrideQueue = xQueueCreate(1, sizeof(ActuatorOverrideCommand));
+    if (xActuatorOverrideQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create xActuatorOverrideQueue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] xActuatorOverrideQueue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ActuatorOverrideCommand)));
+    }
 }
 
 void initSemaphores()
@@ -250,6 +261,33 @@ void hydrateSetpointsFromNVS()
         }
         Serial.println("[MAIN] No active hardware override in NVS. Sent inactive override command.");
     }
+
+    // 3. Hydrate actuator manual overrides
+    storage::ActuatorOverrideSnapshot actSnap;
+    if (storage.load_actuator_override(actSnap))
+    {
+        ActuatorOverrideCommand actCmd;
+        actCmd.mist_override = actSnap.mist_override;
+        actCmd.fan_override = actSnap.fan_override;
+        actCmd.heater_air_override = actSnap.heater_air_override;
+        actCmd.active = actSnap.active;
+
+        if (xActuatorOverrideQueue != nullptr)
+        {
+            xQueueOverwrite(xActuatorOverrideQueue, &actCmd);
+        }
+        Serial.printf("[MAIN] Hydrated actuator overrides: Mist:%d, Fan:%d, HAir:%d, Active:%d\n",
+                      actCmd.mist_override, actCmd.fan_override, actCmd.heater_air_override, actCmd.active);
+    }
+    else
+    {
+        ActuatorOverrideCommand actCmd = { 0, 0, 0, false };
+        if (xActuatorOverrideQueue != nullptr)
+        {
+            xQueueOverwrite(xActuatorOverrideQueue, &actCmd);
+        }
+        Serial.println("[MAIN] No active actuator overrides in NVS. Sent inactive override command.");
+    }
 }
 
 void setup()
@@ -314,7 +352,7 @@ void loop()
     {
         last_delta_scan = now;
         static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
-        TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}}};
+        TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}}};
         processTelemetryPublication(now, mock_tel, telemetryState);
     }
     #endif

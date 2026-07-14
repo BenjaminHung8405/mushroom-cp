@@ -60,6 +60,24 @@ public:
         return defaultValue;
     }
 
+    size_t putUInt(const char* key, uint32_t value) {
+        if (!_opened || _read_only) return 0;
+        _global_storage[_current_namespace][key] = std::to_string(value);
+        return sizeof(value);
+    }
+
+    uint32_t getUInt(const char* key, uint32_t defaultValue = 0) {
+        if (!_opened) return defaultValue;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                return static_cast<uint32_t>(std::stoul(key_it->second));
+            }
+        }
+        return defaultValue;
+    }
+
     size_t putBytes(const char* key, const void* value, size_t len) {
         if (!_opened || _read_only || mock_fail_put_bytes) return 0;
         _global_storage[_current_namespace][key] = std::string(static_cast<const char*>(value), len);

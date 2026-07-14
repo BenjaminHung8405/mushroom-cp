@@ -415,7 +415,8 @@ namespace web_interface
         JsonObject actuators = doc.createNestedObject("actuators");
         actuators["mist_active"] = state.actuators.mist_active;
         actuators["fan_active"] = state.actuators.fan_active;
-        actuators["heater_air_active"] = state.actuators.heater_air_active;
+        actuators["lamp_stage_active"] = state.actuators.lamp_stage_active;
+        actuators["lamp_stage2_active"] = state.actuators.lamp_stage2_active;
         actuators["heater_water_active"] = state.actuators.heater_water_active;
         actuators["midday_blackout_active"] = state.actuators.midday_blackout_active;
     }

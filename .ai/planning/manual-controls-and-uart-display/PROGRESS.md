@@ -23,7 +23,7 @@
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S1-A1 | Đổi tên trường struct `RelayOutputsPod::heater_air_active` → `lamp_stage_active` (thêm `lamp_stage2_active`, xoá `heater_air_active`), giữ `heater_water_active` | `[ ] Pending` | File `include/models.h`. Cập nhật padding về 3 byte. Grep repo và cập nhật mọi consumer (`WebInterface`, `Telemetry`, `core1_tasks`). |
+| S1-A1 | Đổi tên trường struct `RelayOutputsPod::heater_air_active` → `lamp_stage_active` (thêm `lamp_stage2_active`, xoá `heater_air_active`), giữ `heater_water_active` | `[ ] QA Review` | File `include/models.h`. Cập nhật padding về 3 byte. Grep repo và cập nhật mọi consumer (`WebInterface`, `Telemetry`, `core1_tasks`). |
 | S1-A2 | Đổi tên `FuzzyController::DualHeaterOutputsPod::HAir` → `HLamp` | `[ ] Pending` | File `include/FuzzyController.h`, `src/FuzzyController.cpp`. Semantic không đổi (vẫn là "thermal actuator continuous demand"). |
 | S1-A3 | Đổi tên `ArbitratedOutputsPod::HAir` → `HLamp` | `[ ] Pending` | Cùng file. Đảm bảo `applyTpcOutputs()` update tên tham số. |
 | S1-A4 | Đổi tên `AdaptiveTuner::GainsPod::gain_HAir` → `gain_HLamp` | `[ ] Pending` | File `include/AdaptiveTuner.h`, `src/AdaptiveTuner.cpp`. Không thay công thức tuner. |

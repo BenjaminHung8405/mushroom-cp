@@ -328,7 +328,7 @@ int main() {
     // Test init_wifi when NVS has credentials (should result in STA_CONNECTING)
     assert(wifi::init_wifi() == wifi::WifiState::STA_CONNECTING);
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
-    assert(WiFi.mock_mode == WIFI_AP_STA);
+    assert(WiFi.mock_mode == WIFI_STA);
     assert(WiFi.mock_ssid == "WiFi_STA_Test");
     assert(WiFi.mock_pass == "sta_password");
 
@@ -1721,7 +1721,7 @@ int main() {
 
         // 30.2 evaluateDeltaThresholds is side-effect free; commit only after MQTT ACK.
         Telemetry::TelemetryState state = Telemetry::makeInitialState();
-        TelemetryData current = { 25.0f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData current = { 25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}} };
         assert(Telemetry::evaluateDeltaThresholds(current, state, 1000UL) == Telemetry::PublishType::FULL);
         assert(state.lastPubTimeMs == 0UL);
         Telemetry::commitSuccessfulPublish(state, current, 1000UL);
@@ -1732,12 +1732,12 @@ int main() {
 
         // 30.3 No change and small changes remain suppressed.
         assert(Telemetry::evaluateDeltaThresholds(current, state, 2000UL) == Telemetry::PublishType::NONE);
-        TelemetryData small_change = { 25.1f, 80.5f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData small_change = { 25.1f, 80.5f, NAN, {false, false, false, false, false, false, {0, 0}} };
         assert(Telemetry::evaluateDeltaThresholds(small_change, state, 3000UL) == Telemetry::PublishType::NONE);
         assert(state.lastPubTimeMs == 1000UL);
 
         // 30.4 Regression: failed publish must leave delta pending for retry.
-        TelemetryData temp_exceeded = { 25.25f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData temp_exceeded = { 25.25f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}} };
         assert(Telemetry::evaluateDeltaThresholds(temp_exceeded, state, 4000UL) == Telemetry::PublishType::DELTA);
         assert(state.lastPubState.temp_air == 25.0f);
         assert(state.lastPubTimeMs == 1000UL);
@@ -1759,10 +1759,10 @@ int main() {
         assert(state.lastPubTimeMs == 7000UL);
 
         // 30.6 Delta and heartbeat are also committed only after success.
-        TelemetryData humid_exceeded = { 25.25f, 81.1f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData humid_exceeded = { 25.25f, 81.1f, NAN, {false, false, false, false, false, false, {0, 0}} };
         assert(Telemetry::evaluateDeltaThresholds(humid_exceeded, state, 8000UL) == Telemetry::PublishType::DELTA);
         Telemetry::commitSuccessfulPublish(state, humid_exceeded, 8000UL);
-        TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData co2_connected = { 25.25f, 81.1f, 400.0f, {false, false, false, false, false, false, {0, 0}} };
         assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL) == Telemetry::PublishType::DELTA);
         Telemetry::commitSuccessfulPublish(state, co2_connected, 9000UL);
         assert(Telemetry::evaluateDeltaThresholds(co2_connected, state, 9000UL + 9999UL) == Telemetry::PublishType::NONE);
@@ -1772,7 +1772,7 @@ int main() {
         assert(state.lastPubTimeMs == 19000UL);
 
         // 30.11 Test buildDeltaPayload
-        TelemetryData baseline = { 25.0f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData baseline = { 25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}} };
         
         // 30.11.1 NONE publish type should yield empty string
         assert(Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::NONE) == "");
@@ -1780,7 +1780,7 @@ int main() {
         // 30.11.2 FULL publish type should contain all keys
         String full_payload = Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::FULL);
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             DeserializationError err = deserializeJson(doc, full_payload);
             assert(!err);
             assert(doc.containsKey("temp_air"));
@@ -1796,23 +1796,24 @@ int main() {
 
         // 30.11.3a Relay transitions publish a complete edge-authoritative actuator snapshot.
         TelemetryData actuator_changed = baseline;
-        actuator_changed.actuators = {true, true, true, true, true, {0, 0, 0}};
+        actuator_changed.actuators = {true, true, true, true, true, true, {0, 0}};
         assert(Telemetry::evaluateDeltaThresholds(actuator_changed, Telemetry::makeInitialState(), 1000UL) == Telemetry::PublishType::FULL);
         Telemetry::TelemetryState actuator_state = Telemetry::makeInitialState();
         Telemetry::commitSuccessfulPublish(actuator_state, baseline, 1000UL);
         assert(Telemetry::evaluateDeltaThresholds(actuator_changed, actuator_state, 2000UL) == Telemetry::PublishType::DELTA);
         String actuator_delta_payload = Telemetry::buildDeltaPayload(actuator_changed, baseline, Telemetry::PublishType::DELTA);
-        StaticJsonDocument<256> actuator_doc;
+        StaticJsonDocument<512> actuator_doc;
         assert(!deserializeJson(actuator_doc, actuator_delta_payload));
         JsonObject actuator_root = actuator_doc["actuators"];
         assert(actuator_root["mist_active"] == true);
         assert(actuator_root["fan_active"] == true);
-        assert(actuator_root["heater_air_active"] == true);
+        assert(actuator_root["lamp_stage_active"] == true);
+        assert(actuator_root["lamp_stage2_active"] == true);
         assert(actuator_root["heater_water_active"] == true);
         assert(actuator_root["midday_blackout_active"] == true);
 
         // 30.11.4 DELTA publish type - only temperature changed
-        TelemetryData temp_changed = { 25.3f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData temp_changed = { 25.3f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}} };
         String temp_delta_payload = Telemetry::buildDeltaPayload(temp_changed, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
@@ -1825,7 +1826,7 @@ int main() {
         }
 
         // 30.11.5 DELTA publish type - temperature and humidity changed
-        TelemetryData temp_humid_changed = { 25.3f, 81.5f, NAN, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData temp_humid_changed = { 25.3f, 81.5f, NAN, {false, false, false, false, false, false, {0, 0}} };
         String multi_delta_payload = Telemetry::buildDeltaPayload(temp_humid_changed, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
@@ -1839,7 +1840,7 @@ int main() {
         }
 
         // 30.11.6 DELTA publish type - CO2 becomes valid
-        TelemetryData co2_became_valid = { 25.0f, 80.0f, 400.0f, {false, false, false, false, false, {0, 0, 0}} };
+        TelemetryData co2_became_valid = { 25.0f, 80.0f, 400.0f, {false, false, false, false, false, false, {0, 0}} };
         String co2_delta_payload = Telemetry::buildDeltaPayload(co2_became_valid, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
@@ -1858,7 +1859,7 @@ int main() {
             PubSubClient::mock_publish_result = true;
 
             Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
-            TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, {0, 0, 0}}};
+            TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}}};
 
             // 1. full_sync + publish failed -> next scan remains FULL
             setSharedForceFullPublish(true);
@@ -1905,7 +1906,7 @@ int main() {
     Serial.println("[TEST] Starting Task D4 - Shared System State Unit Tests...");
     {
         // 31.1 Test update_shared_system_state and get_shared_system_state
-        SharedSystemState state = { 24.5f, 85.0f, 600.0f, 25.0f, 80.0f, 1000.0f, 0.45f, 0.0f, 0.12f, 0.0f, {true, false, true, false, false, {0, 0, 0}} };
+        SharedSystemState state = { 24.5f, 85.0f, 600.0f, 25.0f, 80.0f, 1000.0f, 0.45f, 0.0f, 0.12f, 0.0f, {true, false, true, true, false, false, {0, 0}} };
         updateSharedSystemState(state);
         
         SharedSystemState loaded = getSharedSystemState();
@@ -1920,7 +1921,8 @@ int main() {
         assert(std::fabs(loaded.mist_duty - 0.12f) < 0.01f);
         assert(std::fabs(loaded.exhaust_duty - 0.0f) < 0.01f);
         assert(loaded.actuators.mist_active == true);
-        assert(loaded.actuators.heater_air_active == true);
+        assert(loaded.actuators.lamp_stage_active == true);
+        assert(loaded.actuators.lamp_stage2_active == true);
         
         // 31.2 Test WebInterface stubs and rate-limiting
         web_interface::initServer();
@@ -2132,6 +2134,13 @@ int main() {
     Serial.println("[TEST] Starting Task F6 - KY-040 Encoder Unit Tests...");
     {
         storage.factory_reset();
+        {
+            SharedSystemState defaultState = {};
+            defaultState.temp_target = 24.0f;
+            defaultState.humidity_target = 90.0f;
+            defaultState.co2_target = 1000.0f;
+            updateSharedSystemState(defaultState);
+        }
         if (xOverrideQueue == nullptr) {
             xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
         }

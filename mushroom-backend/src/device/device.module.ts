@@ -4,12 +4,17 @@ import { DeviceController } from './device.controller';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { Device } from './entities/device.entity';
 import { DeviceRegistryService } from './device-registry.service';
+import { BatchModule } from '../batch/batch.module';
 
 /**
  * DeviceModule — registry + HTTP endpoints for device status/control.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Device]), forwardRef(() => MqttModule)],
+  imports: [
+    TypeOrmModule.forFeature([Device]),
+    forwardRef(() => MqttModule),
+    BatchModule,
+  ],
   controllers: [DeviceController],
   providers: [DeviceRegistryService],
   exports: [DeviceRegistryService, TypeOrmModule],

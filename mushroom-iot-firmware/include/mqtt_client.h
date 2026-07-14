@@ -127,6 +127,11 @@ namespace mqtt
         void processSetpoints(StaticJsonDocument<768>& doc);
 
         /**
+         * @brief Internal helper to process actuator override JSON fields.
+         */
+        void processActuatorOverrides(StaticJsonDocument<768>& doc);
+
+        /**
          * @brief Internal helper to validate a single setpoint value.
          */
         bool validateSingleSetpoint(const char* name, float val, float min_val, float max_val);

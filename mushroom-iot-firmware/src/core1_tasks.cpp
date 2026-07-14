@@ -8,6 +8,7 @@
 #include "FuzzyController.h"
 #include "TPC_Task.h"
 #include "serial_mutex.h"
+#include "storage.h"
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
@@ -28,6 +29,7 @@
 QueueHandle_t xTelemetryQueue = nullptr;
 QueueHandle_t xBaselineQueue  = nullptr;
 QueueHandle_t xOverrideQueue  = nullptr;
+QueueHandle_t xActuatorOverrideQueue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 volatile bool shared_forceFullPublish = false;
@@ -87,9 +89,9 @@ void setSharedForceFullPublish(bool val)
 }
 
 #ifndef UNIT_TEST
-SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, {0, 0, 0}}};
+SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}};
 #else
-static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, {0, 0, 0}}};
+static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}};
 #endif
 
 void updateSharedSystemState(const SharedSystemState& state)
@@ -290,9 +292,8 @@ TPC_Task::RtcTimePod readRtcTimeFailSafe()
 // ---------------------------------------------------------------------------
 // Helper: sample sensors and enqueue telemetry without changing GPIO state.
 // ---------------------------------------------------------------------------
-static void sampleAndEnqueueTelemetry(TelemetryData& data, const RelayOutputsPod& actuators)
+static void sampleAndEnqueueTelemetry(TelemetryData& data, const RelayOutputsPod& actuators, bool ok)
 {
-    const bool ok = sensors::read_all_telemetry(data);
     data.actuators = actuators;
 
     {
@@ -335,6 +336,48 @@ static bool isValidOverrideCommand(const ControlSetpointCommand& cmd)
             std::isfinite(cmd.humidity_target) && cmd.humidity_target >= 50.0f && cmd.humidity_target <= 95.0f);
 }
 
+static float calculateCurrentCropDay()
+{
+    storage::StorageManager &storage = storage::StorageManager::get_instance();
+    uint32_t start_time = 0;
+    storage.load_start_epoch_time(start_time);
+
+    time_t now = time(nullptr);
+    bool ntp_valid = (now > 1600000000); // NTP synced if time is after 2020
+
+    if (ntp_valid && start_time > 0 && now >= start_time)
+    {
+        uint32_t elapsed = now - start_time;
+        // Periodically (e.g. every 5 minutes) write back to NVS to keep it fresh
+        static unsigned long last_nvs_save = 0;
+        if (millis() - last_nvs_save > 300000) // 5 minutes
+        {
+            last_nvs_save = millis();
+            storage.save_elapsed_seconds(elapsed);
+        }
+        return (float)elapsed / 86400.0f;
+    }
+    else
+    {
+        // Offline autonomy path
+        uint32_t stored_elapsed = 0;
+        storage.load_elapsed_seconds(stored_elapsed);
+        // Calculate elapsed seconds since boot
+        uint32_t elapsed_since_boot = millis() / 1000;
+        uint32_t total_elapsed = stored_elapsed + elapsed_since_boot;
+        
+        // Periodically save total_elapsed to NVS
+        static unsigned long last_offline_save = 0;
+        if (millis() - last_offline_save > 300000) // 5 minutes
+        {
+            last_offline_save = millis();
+            storage.save_elapsed_seconds(total_elapsed);
+        }
+        
+        return (float)total_elapsed / 86400.0f;
+    }
+}
+
 static Trajectory::SetpointPod getControlSetpointsAndErrors(
     const TelemetryData& telemetry,
     const ControlSetpointCommand& baselineCmd,
@@ -343,8 +386,9 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
     float& errorHumid,
     float& errorCO2)
 {
+    float currentDay = calculateCurrentCropDay();
     const Trajectory::SetpointPod trajectory =
-        Trajectory::interpolateSetpoints(SAFE_DEFAULT_CROP_DAY);
+        Trajectory::interpolateSetpoints(currentDay);
 
     Trajectory::SetpointPod setpoints;
 
@@ -430,6 +474,7 @@ static void runControlPipelineStep(
     TPC_Task::TpcSchedulerState& tpcState,
     ControlSetpointCommand& baselineCmd,
     ControlSetpointCommand& overrideCmd,
+    ActuatorOverrideCommand& actuatorOverrides,
     unsigned long& lastSensorMs,
     unsigned long& lastControlMs)
 {
@@ -468,8 +513,22 @@ static void runControlPipelineStep(
             }
         }
     }
+    if (xActuatorOverrideQueue != nullptr)
+    {
+        ActuatorOverrideCommand temp;
+        while (xQueueReceive(xActuatorOverrideQueue, &temp, 0) == pdTRUE)
+        {
+            actuatorOverrides = temp;
+        }
+    }
 
     const unsigned long now = millis();
+    static bool lastSensorReadOk = true;
+    if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
+    {
+        lastSensorReadOk = sensors::read_all_telemetry(telemetry);
+    }
+
     float errorTemp = NAN;
     float errorHumid = NAN;
     float errorCO2 = NAN;
@@ -489,6 +548,128 @@ static void runControlPipelineStep(
     FuzzyController::ArbitratedOutputsPod outputs =
         FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
 
+    // Apply manual actuator overrides with Fuzzy-Bounds Guarding
+    if (actuatorOverrides.active)
+    {
+        // 1. Mist Generator Override
+        if (actuatorOverrides.mist_override == 1) // FORCE_ON
+        {
+            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air < 90.0f)
+            {
+                outputs.Mist = 1.0f;
+            }
+            else
+            {
+                actuatorOverrides.mist_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+        else if (actuatorOverrides.mist_override == 2) // FORCE_OFF
+        {
+            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air > 60.0f)
+            {
+                outputs.Mist = 0.0f;
+            }
+            else
+            {
+                actuatorOverrides.mist_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+
+        // 2. Convection Fan Override
+        if (actuatorOverrides.fan_override == 1) // FORCE_ON
+        {
+            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air > 60.0f)
+            {
+                outputs.Exh = 1.0f;
+            }
+            else
+            {
+                actuatorOverrides.fan_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+        else if (actuatorOverrides.fan_override == 2) // FORCE_OFF
+        {
+            if (!std::isfinite(telemetry.co2_level) || telemetry.co2_level < 1500.0f)
+            {
+                outputs.Exh = 0.0f;
+            }
+            else
+            {
+                actuatorOverrides.fan_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+
+        // 3. Heater Air Override
+        if (actuatorOverrides.heater_air_override == 1) // FORCE_ON
+        {
+            if (std::isfinite(telemetry.temp_air) && telemetry.temp_air < 35.0f)
+            {
+                outputs.HAir = 1.0f;
+            }
+            else
+            {
+                actuatorOverrides.heater_air_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+        else if (actuatorOverrides.heater_air_override == 2) // FORCE_OFF
+        {
+            if (std::isfinite(telemetry.temp_air) && telemetry.temp_air > 20.0f)
+            {
+                outputs.HAir = 0.0f;
+            }
+            else
+            {
+                actuatorOverrides.heater_air_override = 0;
+                storage::ActuatorOverrideSnapshot snap = {
+                    actuatorOverrides.mist_override,
+                    actuatorOverrides.fan_override,
+                    actuatorOverrides.heater_air_override,
+                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
+                };
+                storage::StorageManager::get_instance().save_actuator_override(snap);
+            }
+        }
+
+        actuatorOverrides.active = (actuatorOverrides.mist_override != 0 ||
+                                    actuatorOverrides.fan_override != 0 ||
+                                    actuatorOverrides.heater_air_override != 0);
+    }
+
     // Mandatory ordering: all fuzzy/gain work completes before this hard
     // interlock, then only TPC translates protected duties to GPIO levels.
     const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
@@ -504,25 +685,30 @@ static void runControlPipelineStep(
     const RelayOutputsPod actuatorSnapshot = {
         tpcState.Mist.output_high,
         tpcState.Exh.output_high,
-        tpcState.HAir.output_high,
+        tpcState.HAir.output_high,  // lamp_stage_active — S1-D1 sẽ trỏ sang tpcState.Lamp1
+        false,                      // lamp_stage2_active — placeholder tới khi Lamp2 xuất hiện
         tpcState.HWat.output_high,
         !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||
             (rtcTime.hour == 13U && rtcTime.minute <= 30U)),
-        {0, 0, 0},
+        {0, 0},
     };
     telemetry.actuators = actuatorSnapshot;
 
-    static RelayOutputsPod lastEnqueuedActuators = {false, false, false, false, false, {0, 0, 0}};
+    static RelayOutputsPod lastEnqueuedActuators = {false, false, false, false, false, false, {0, 0}};
     const bool actuatorChanged =
         actuatorSnapshot.mist_active != lastEnqueuedActuators.mist_active ||
         actuatorSnapshot.fan_active != lastEnqueuedActuators.fan_active ||
-        actuatorSnapshot.heater_air_active != lastEnqueuedActuators.heater_air_active ||
+        actuatorSnapshot.lamp_stage_active != lastEnqueuedActuators.lamp_stage_active ||
+        actuatorSnapshot.lamp_stage2_active != lastEnqueuedActuators.lamp_stage2_active ||
         actuatorSnapshot.heater_water_active != lastEnqueuedActuators.heater_water_active ||
         actuatorSnapshot.midday_blackout_active != lastEnqueuedActuators.midday_blackout_active;
     if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS || actuatorChanged)
     {
-        lastSensorMs = now;
-        sampleAndEnqueueTelemetry(telemetry, actuatorSnapshot);
+        if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
+        {
+            lastSensorMs = now;
+        }
+        sampleAndEnqueueTelemetry(telemetry, actuatorSnapshot, lastSensorReadOk);
         lastEnqueuedActuators = actuatorSnapshot;
     }
 
@@ -547,12 +733,13 @@ void taskCore1Control(void* /*pvParameters*/)
     }
 #endif
 
-    TelemetryData telemetry = {NAN, NAN, NAN, {false, false, false, false, false, {0, 0, 0}}};
+    TelemetryData telemetry = {NAN, NAN, NAN, {false, false, false, false, false, false, {0, 0}}};
     FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
     AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
     TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();
     ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
+    ActuatorOverrideCommand actuatorOverrides = { 0, 0, 0, false };
     unsigned long lastSensorMs = 0U;
     unsigned long lastControlMs = millis();
 
@@ -570,6 +757,7 @@ void taskCore1Control(void* /*pvParameters*/)
             tpcState,
             baselineCmd,
             overrideCmd,
+            actuatorOverrides,
             lastSensorMs,
             lastControlMs);
 

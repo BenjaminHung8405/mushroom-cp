@@ -136,3 +136,34 @@ export function subscribeDeviceStatusStream(
     es.close()
   }
 }
+
+export async function postActuatorOverride(
+  deviceId: string,
+  actuator: 'fan' | 'heater_air' | 'mist',
+  state: boolean | null,
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/devices/${deviceId}/actuator-override`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ actuator, state }),
+    })
+    
+    if (!res.ok) {
+      const errData = (await res.json()) as { message?: string }
+      return {
+        success: false,
+        message: errData.message ?? 'Không thể gửi lệnh ghi đè thiết bị.',
+      }
+    }
+    
+    return { success: true, message: 'Lệnh ghi đè đã được gửi thành công.' }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message ?? 'Lỗi kết nối đến máy chủ.',
+    }
+  }
+}
