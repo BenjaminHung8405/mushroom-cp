@@ -12,8 +12,9 @@ namespace actuators
     static constexpr uint8_t VALID_RELAY_PINS[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
+        config::pins::PIN_RELAY_HWAT,
         config::pins::PIN_RELAY_LAMP_1,
-        config::pins::PIN_RELAY_HWAT
+        config::pins::PIN_RELAY_LAMP_2
     };
     static constexpr size_t VALID_RELAY_COUNT =
         sizeof(VALID_RELAY_PINS) / sizeof(VALID_RELAY_PINS[0]);
@@ -25,8 +26,9 @@ namespace actuators
     {
         if (pin == config::pins::PIN_RELAY_MIST)     return "MIST";
         if (pin == config::pins::PIN_RELAY_FAN)      return "FAN";
+        if (pin == config::pins::PIN_RELAY_HWAT)     return "HWAT";
         if (pin == config::pins::PIN_RELAY_LAMP_1)   return "LAMP_1";
-        if (pin == config::pins::PIN_RELAY_HWAT)   return "HWAT";
+        if (pin == config::pins::PIN_RELAY_LAMP_2)   return "LAMP_2";
         return "UNKNOWN";
     }
 
@@ -90,12 +92,13 @@ namespace actuators
         if (!is_valid_relay_pin(relay_pin))
         {
             Serial.printf(
-                "[ACTUATOR] REJECTED: Pin %d is not a valid relay pin. Allowed: [%d, %d, %d, %d].\n",
+                "[ACTUATOR] REJECTED: Pin %d is not a valid relay pin. Allowed: [%d, %d, %d, %d, %d].\n",
                 (int)relay_pin,
                 (int)config::pins::PIN_RELAY_MIST,
                 (int)config::pins::PIN_RELAY_FAN,
+                (int)config::pins::PIN_RELAY_HWAT,
                 (int)config::pins::PIN_RELAY_LAMP_1,
-                (int)config::pins::PIN_RELAY_HWAT
+                (int)config::pins::PIN_RELAY_LAMP_2
             );
             return false;
         }

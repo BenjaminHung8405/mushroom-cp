@@ -2368,6 +2368,7 @@ int main() {
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
         // Existing F6 gesture tests exercise edit/save/clear; the test cleanup leaves no override.
+        assert(storage.clear_hardware_override() == true);
         storage::HardwareOverrideSnapshot cleanOverride;
         assert(storage.load_hardware_override(cleanOverride) == false);
         assert(storage.factory_reset() == true);
