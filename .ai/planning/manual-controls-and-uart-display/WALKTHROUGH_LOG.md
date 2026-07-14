@@ -1,5 +1,29 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:23:46+07:00] Task S2-B2: Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `definitions.h`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Khai báo extern cho hàng đợi `g_mqtt_override_queue` trong file `definitions.h` để hỗ trợ cơ chế đồng bộ manual override từ các nguồn MQTT/Web UI qua Core 1.
+  - Xác nhận hai hàng đợi `g_manual_request_queue` và `g_manual_ack_queue` cũng đang được khai báo extern chính xác tại đây.
+- **Kết quả tự kiểm thử**:
+  - Chạy `./run_tests` vượt qua 100% assertions hiện tại của dự án (`--- All Unit Tests Passed Successfully! ---`).
+
+## [2026-07-14T17:23:30+07:00] Task S2-B1: Thêm models vào `include/models.h` (`AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck`)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/manual_control.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/manual_control.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Di chuyển định nghĩa của các models: `AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, và `ManualAck` từ file `include/manual_control.h` sang `include/models.h` để tổ chức và tập trung hoá toàn bộ mô hình dữ liệu (data models) của hệ thống như mô tả trong Task S2-B1.
+  - Loại bỏ các khai báo trùng lặp trong `include/manual_control.h` (file này đã có `#include "models.h"` nên vẫn tiếp tục sử dụng bình thường).
+- **Kết quả tự kiểm thử**:
+  - Đã thực hiện biên dịch lại bộ kiểm thử ngoại tuyến sử dụng compiler `g++` local thành công tốt đẹp.
+  - Chạy `./run_tests` vượt qua 100% assertions hiện tại của dự án (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T17:21:02+07:00] Task S2-A2: Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

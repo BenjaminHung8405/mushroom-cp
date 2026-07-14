@@ -59,3 +59,49 @@ struct ActuatorOverrideCommand {
     bool active;
 } __attribute__((aligned(4)));
 
+enum class AppChannel : uint8_t {
+    MIST = 0,
+    LAMP = 1,
+    FAN  = 2,
+    COUNT
+};
+
+// Unified override intent — shared by UI (MQTT) and physical buttons.
+// Replaces the old toggle-only `intent_on` boolean with explicit three-state intent.
+enum class AppIntent : uint8_t {
+    AUTO = 0,     // Trả quyền về Fuzzy/TPC
+    FORCE_ON = 1,  // Ép bật có kiểm soát (Fuzzy-Bounds Guarding)
+    FORCE_OFF = 2, // Ép tắt
+};
+
+struct ManualRequest {
+    AppChannel channel;
+    AppIntent  intent;      // AUTO / FORCE_ON / FORCE_OFF
+    uint32_t   request_ms;  // millis() lúc phát request
+} __attribute__((aligned(4)));
+
+// Payload từ Web UI qua MQTT override topic — cùng schema với ManualRequest.
+struct ActuatorOverridePayload {
+    AppChannel channel;
+    AppIntent  intent;      // AUTO / FORCE_ON / FORCE_OFF
+    uint32_t   request_ms;  // epoch ms từ client (cho audit trail)
+} __attribute__((aligned(4)));
+
+enum class ManualDecision : uint8_t {
+    Accepted     = 0,
+    RejectedNAN  = 1,
+    RejectedTemp = 2,
+    RejectedHumi = 3,
+    RejectedBlackout = 4,
+    RejectedRateLimit = 5,
+    RejectedLocked = 6,    // crop-day lock (heater_air > day 8) hoặc blackout cứng
+};
+
+struct ManualAck {
+    AppChannel     channel;
+    AppIntent      requested_intent;
+    ManualDecision decision;
+    uint32_t       ack_ms;
+} __attribute__((aligned(4)));
+
+

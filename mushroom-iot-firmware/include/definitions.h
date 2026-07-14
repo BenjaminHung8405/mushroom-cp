@@ -123,6 +123,11 @@ extern QueueHandle_t xActuatorOverrideQueue;
 extern QueueHandle_t g_manual_request_queue;
 
 /**
+ * @brief Handle for the FreeRTOS queue carrying manual/MQTT overrides (Core 0/MQTT to Core 1).
+ */
+extern QueueHandle_t g_mqtt_override_queue;
+
+/**
  * @brief Handle for the FreeRTOS queue carrying manual acks (Core 1 to Core 0).
  */
 extern QueueHandle_t g_manual_ack_queue;
