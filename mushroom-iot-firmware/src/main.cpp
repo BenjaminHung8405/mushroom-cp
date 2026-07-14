@@ -398,8 +398,10 @@ void setup()
         struct tm* tm_info = localtime(&saved);
         if (tm_info && tm_info->tm_year >= (2026 - 1900)) {
             time_conf::setTimeConfidence(TimeConfidence::Holdover);
+#ifndef UNIT_TEST
             timeval tv = { static_cast<time_t>(timeState.last_trusted_epoch_s), 0 };
             settimeofday(&tv, nullptr);
+#endif
         }
     }
 

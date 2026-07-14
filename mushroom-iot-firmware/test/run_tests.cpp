@@ -1012,6 +1012,7 @@ int main() {
     mock_operation_counter = 0;
     mock_millis_offset = 0;
 
+    time_conf::setTimeConfidence(TimeConfidence::Trusted);
     // Execute a single iteration of the TPC control pipeline
     taskCore1Control(nullptr);
 
@@ -1848,7 +1849,7 @@ int main() {
         // 30.11.2 FULL publish type should contain all keys
         String full_payload = Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::FULL);
         {
-            StaticJsonDocument<512> doc;
+            StaticJsonDocument<1024> doc;
             DeserializationError err = deserializeJson(doc, full_payload);
             assert(!err);
             assert(doc.containsKey("temp_air"));

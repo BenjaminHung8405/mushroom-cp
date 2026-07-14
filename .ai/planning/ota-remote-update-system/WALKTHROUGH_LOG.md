@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-07-14T22:00:00+07:00 — Task A5
+
+- **Task ID:** A5
+- **Mô tả:** Thêm include `ota_manager.h` vào `core0_tasks.cpp`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Files đã sửa đổi:**
+  - `mushroom-iot-firmware/src/core0_tasks.cpp` (chèn `#include "ota_manager.h"`)
+  - `mushroom-iot-firmware/src/main.cpp` (bọc `settimeofday` để biên dịch thành công trên native)
+  - `mushroom-iot-firmware/src/time_confidence.cpp` (sửa lỗi struct padding CRC size check)
+  - `mushroom-iot-firmware/src/crop_profile_storage.cpp` (sửa lỗi struct padding CRC size check)
+  - `mushroom-iot-firmware/test/run_tests.cpp` (nâng cỡ StaticJsonDocument của telemetry, ép TimeConfidence để pass test control pipeline)
+- **Files đã tạo mới:**
+  - Không có.
+- **Giải trình ngắn gọn về giải pháp logic đã viết:**
+  - Đã thêm `#include "ota_manager.h"` thành công vào `core0_tasks.cpp` để sẵn sàng cho tích hợp hệ thống kiểm tra trigger OTA.
+  - Khắc phục các vấn đề liên quan đến việc biên dịch và chạy bộ kiểm thử ngoại tuyến trên macOS host (lỗi alignment `PersistedTimeState` gây sai lệch kích thước kiểm tra CRC khi chạy native unit test; lỗi `settimeofday` không được hỗ trợ mặc định trên macOS).
+  - Vượt qua 100% các unit tests thành công không có hồi quy.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Biên dịch sạch và chạy `./run_tests` thành công 100% với thông báo `--- All Unit Tests Passed Successfully! ---`.
+
+---
+
 ## 2026-07-14T13:45:00+07:00 — Task A4
 
 - **Task ID:** A4

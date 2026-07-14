@@ -1,6 +1,8 @@
 #include "crop_profile_storage.h"
 #include <Preferences.h>
 #include "config.h"
+#include <iostream>
+#include <cstddef>
 
 namespace storage {
 
@@ -114,7 +116,7 @@ bool CropProfileStorage::loadTimeState(PersistedTimeState &state) {
     }
 
     // Verify CRC
-    uint32_t calculated = calculateCRC32(reinterpret_cast<const uint8_t*>(&state), sizeof(state) - sizeof(uint32_t));
+    uint32_t calculated = calculateCRC32(reinterpret_cast<const uint8_t*>(&state), offsetof(PersistedTimeState, crc32));
     if (calculated != state.crc32) {
         return false;
     }

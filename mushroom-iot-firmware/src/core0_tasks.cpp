@@ -1,6 +1,7 @@
 #include "definitions.h"
 #include "wifi_manager.h"
 #include "mqtt_client.h"
+#include "ota_manager.h"
 #include "serial_mutex.h"
 #include "WebInterface.h"
 #include "Telemetry.h"

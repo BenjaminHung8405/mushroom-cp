@@ -1,6 +1,9 @@
 #include "time_confidence.h"
 #include "crop_profile_storage.h"
 #include "storage.h"
+#include <iostream>
+#include <cmath>
+#include <cstddef>
 
 namespace time_conf {
 
@@ -34,7 +37,7 @@ void onTimeSyncSuccess(int64_t current_epoch_s) {
         state.last_trusted_uptime_ms = millis();
         state.crc32 = storage::CropProfileStorage::calculateCRC32(
             reinterpret_cast<const uint8_t*>(&state),
-            sizeof(PersistedTimeState) - sizeof(uint32_t)
+            offsetof(PersistedTimeState, crc32)
         );
         storage::CropProfileStorage::getInstance().saveTimeState(state);
     }
