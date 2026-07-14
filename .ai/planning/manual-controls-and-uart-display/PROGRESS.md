@@ -131,9 +131,9 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-F1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue` mỗi vòng | `[ ] Pending` |
-| S2-F2 | Publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] Pending` |
-| S2-F3 | Cập nhật UI contract/labels trước integration | `[ ] Pending` |
+| S2-F1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue` mỗi vòng | `[ ] QA Review` |
+| S2-F2 | Publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] QA Review` |
+| S2-F3 | Cập nhật UI contract/labels trước integration | `[ ] QA Review` |
 
 ### Track G: Tests & Verification
 

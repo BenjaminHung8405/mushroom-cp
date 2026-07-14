@@ -73,6 +73,7 @@ namespace mqtt
         resolved_topics.status = "mushroom/device/" + client_id + "/status";
         resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
         resolved_topics.setpoint = "mushroom/device/" + client_id + "/setpoint";
+        resolved_topics.manual_ack = "mushroom/" + client_id + "/manual/ack";
 
         {
             ScopedSerialLock guard(SerialLock::get_instance());
@@ -80,6 +81,7 @@ namespace mqtt
             Serial.printf("  - Status (LWT): %s\n", resolved_topics.status.c_str());
             Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
             Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
+            Serial.printf("  - Manual Ack:   %s\n", resolved_topics.manual_ack.c_str());
         }
 
         // 3. Configure PubSubClient server, buffer, keepalive, and callback.
@@ -217,6 +219,38 @@ namespace mqtt
         }
 
         return mqtt_client.publish(resolved_topics.status.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
+    }
+
+    bool MqttClient::publishManualAck(const ManualAck& ack)
+    {
+        if (!isConnected())
+        {
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Cannot publish manual ack: Client not connected.");
+            }
+            return false;
+        }
+
+        StaticJsonDocument<256> doc;
+        doc["channel"] = static_cast<int>(ack.channel);
+        doc["requested_intent"] = static_cast<int>(ack.requested_intent);
+        doc["decision"] = static_cast<int>(ack.decision);
+        doc["effective_intent"] = static_cast<int>(ack.effective_intent);
+        doc["release_reason"] = static_cast<int>(ack.release_reason);
+        doc["expires_ms"] = ack.expires_ms;
+        doc["ack_ms"] = ack.ack_ms;
+
+        String payload;
+        serializeJson(doc, payload);
+
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Manual Ack publish (Topic: %s, Payload: %s)\n",
+                          resolved_topics.manual_ack.c_str(), payload.c_str());
+        }
+
+        return mqtt_client.publish(resolved_topics.manual_ack.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
     }
 
     bool MqttClient::isConnected()
@@ -433,7 +467,9 @@ namespace mqtt
                     channel = AppChannel::FAN;
                     valid_channel = true;
                 }
-                else if (strcmp(actuator_str, "heater_air") == 0)
+                else if (strcmp(actuator_str, "heater_air") == 0 ||
+                         strcmp(actuator_str, "lamp") == 0 ||
+                         strcmp(actuator_str, "lamp_stage") == 0)
                 {
                     channel = AppChannel::LAMP;
                     valid_channel = true;

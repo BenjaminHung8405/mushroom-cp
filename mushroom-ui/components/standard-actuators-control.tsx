@@ -194,7 +194,7 @@ export function StandardActuatorsControl({
   }, [mistActive, heaterAirActive, humidityCurrent, temperatureCurrent, cropDayInt])
 
   const handleOverrideChange = async (
-    actuator: 'fan' | 'heater_air' | 'mist',
+    actuator: 'fan' | 'heater_air' | 'lamp' | 'lamp_stage' | 'mist',
     mode: 'auto' | 'on' | 'off',
   ) => {
     // 1. Biological rule checks on UI (First defense)
@@ -215,7 +215,7 @@ export function StandardActuatorsControl({
       }
     }
 
-    if (actuator === 'heater_air' && mode === 'on') {
+    if ((actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') && mode === 'on') {
       if (cropDayInt > 8) {
         setToast({
           message: `Thiết bị sưởi không được bật thủ công trong giai đoạn ra quả thể (ngày vụ nuôi: ${cropDayInt} > 8).`,
@@ -232,14 +232,14 @@ export function StandardActuatorsControl({
     if (res.success) {
       if (actuator === 'mist') setMistMode(mode)
       if (actuator === 'fan') setFanMode(mode)
-      if (actuator === 'heater_air') setHeaterAirMode(mode)
+      if (actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') setHeaterAirMode(mode)
 
       const displayName =
         actuator === 'mist'
           ? 'Máy tạo ẩm siêu âm'
           : actuator === 'fan'
           ? 'Quạt đối lưu'
-          : 'Thiết bị sưởi không khí'
+          : 'Đèn nhiệt sưởi ấm (HLamp)'
       const modeText =
         mode === 'auto' ? 'chế độ Tự động (Auto)' : mode === 'on' ? 'Bật thủ công' : 'Tắt thủ công'
       setToast({
@@ -277,12 +277,12 @@ export function StandardActuatorsControl({
           onOverrideChange={(mode) => handleOverrideChange('fan', mode)}
         />
         <ActuatorStatusRow
-          name="Thiết bị sưởi ấm không khí"
+          name="Đèn nhiệt sưởi ấm (HLamp)"
           description="Tự động sưởi khi phòng nấm cần tăng nhiệt (Khóa khi ra quả)"
           icon={<Zap className="w-5 h-5 text-amber-400" />}
           state={heaterAirActive}
           overrideMode={heaterAirMode}
-          onOverrideChange={(mode) => handleOverrideChange('heater_air', mode)}
+          onOverrideChange={(mode) => handleOverrideChange('lamp', mode)}
           locked={cropDayInt > 8}
           lockReason={
             cropDayInt > 8

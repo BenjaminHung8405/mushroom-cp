@@ -150,6 +150,25 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 4. Drain telemetry queue from Core 1
         drainTelemetryQueue(last_known_telemetry);
 
+        // 4b. Drain manual ack queue from Core 1
+        if (g_manual_ack_queue != nullptr)
+        {
+            ManualAck ack;
+            while (xQueueReceive(g_manual_ack_queue, &ack, 0) == pdTRUE)
+            {
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.printf("[MANUAL] ch=%d requested=%d effective=%d decision=%d release=%d\n",
+                                  static_cast<int>(ack.channel),
+                                  static_cast<int>(ack.requested_intent),
+                                  static_cast<int>(ack.effective_intent),
+                                  static_cast<int>(ack.decision),
+                                  static_cast<int>(ack.release_reason));
+                }
+                mqtt::MqttClient::getInstance().publishManualAck(ack);
+            }
+        }
+
         // 5. Telemetry publication scan
         unsigned long now = millis();
         handleTelemetryScan(now, last_known_telemetry, telemetryState);

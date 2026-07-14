@@ -339,3 +339,19 @@
   - Thiết lập cơ chế phát hiện tự động giải phóng chốt (auto-release do quá nhiệt/ẩm hoặc hết TTL) bằng cách so sánh trạng thái trước và sau khi áp dụng latch, tự động gửi ack cập nhật lên queue.
 - **Kết quả tự kiểm thử**:
   - Biên dịch và chạy bộ test offline thành công: Toàn bộ 100% test cases đều vượt qua và hiển thị thông báo `--- All Unit Tests Passed Successfully! ---`.
+
+## [2026-07-14T17:50:00+07:00] Track F: Core 0 Ack Consumer & UI Contract
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/mqtt_client.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core0_tasks.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/device/device.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/device/device.controller.ts) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/lib/telemetry-api.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/lib/telemetry-api.ts) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/standard-actuators-control.tsx](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/components/standard-actuators-control.tsx) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - **S2-F1 / S2-F2 (Firmware)**: Trong `taskCore0Communication` trên Core 0, đã thêm cơ chế drain `g_manual_ack_queue` ở mỗi chu kỳ lặp mà không gây block. Mọi ack nhận được đều được in ra Serial qua `ScopedSerialLock` theo đúng định dạng `[MANUAL] ch=%d requested=%d effective=%d decision=%d release=%d` và được publish dạng retained MQTT message lên topic `mushroom/{deviceId}/manual/ack` thông qua phương thức `publishManualAck` mới của `MqttClient`.
+  - **S2-F3 (Backend & UI)**: Cập nhật UI và Backend DTO/API để hỗ trợ alias `'lamp'` và `'lamp_stage'` thay thế cho `'heater_air'` vốn dĩ đã lỗi thời. Backend sẽ tự động chuẩn hóa `'lamp'` và `'lamp_stage'` về `'heater_air'` trước khi thực hiện kiểm tra an toàn và gửi đi qua MQTT. UI đã được cập nhật nhãn hiển thị thành "Đèn nhiệt sưởi ấm (HLamp)" cùng với mô tả thích hợp, đồng thời enqueues request với tên actuator `'lamp'` mới.
+- **Kết quả tự kiểm thử**:
+  - Chạy `./run_tests` thành công 100% vượt qua tất cả các suite kiểm thử hiện có trên local host (`--- All Unit Tests Passed Successfully! ---`).

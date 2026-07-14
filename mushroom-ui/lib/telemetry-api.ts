@@ -139,7 +139,7 @@ export function subscribeDeviceStatusStream(
 
 export async function postActuatorOverride(
   deviceId: string,
-  actuator: 'fan' | 'heater_air' | 'mist',
+  actuator: 'fan' | 'heater_air' | 'lamp' | 'lamp_stage' | 'mist',
   state: boolean | null,
 ): Promise<{ success: boolean; message: string }> {
   try {

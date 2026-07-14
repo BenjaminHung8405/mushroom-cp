@@ -34,6 +34,7 @@ namespace mqtt
         // --- Outgoing / Publish Topics ---
         String status;      ///< Topic to publish online/offline status (retained LWT)
         String telemetry;   ///< Topic to publish telemetry data (sensors & actuator states)
+        String manual_ack;  ///< Topic to publish manual control feedback/ack (retained)
         
         // --- Incoming / Subscribe Topics ---
         String setpoint;    ///< Topic to subscribe for incoming control setpoint commands
@@ -81,6 +82,13 @@ namespace mqtt
          * @return true if publication succeeded.
          */
         bool publishStatus(bool is_online);
+
+        /**
+         * @brief Publishes manual ack payload to the resolved manual_ack topic.
+         * @param ack ManualAck structure to publish.
+         * @return true if publication succeeded.
+         */
+        bool publishManualAck(const ManualAck& ack);
 
         /**
          * @brief Checks if the client is currently connected to the broker.

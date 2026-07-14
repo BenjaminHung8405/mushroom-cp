@@ -93,8 +93,8 @@ export class DeviceSetpointDto {
  */
 export class ActuatorOverrideDto {
   @IsString()
-  @IsIn(['fan', 'heater_air', 'mist'])
-  actuator: 'fan' | 'heater_air' | 'mist';
+  @IsIn(['fan', 'heater_air', 'mist', 'lamp', 'lamp_stage'])
+  actuator: 'fan' | 'heater_air' | 'mist' | 'lamp' | 'lamp_stage';
 
   @IsOptional()
   @IsBoolean()
@@ -231,7 +231,10 @@ export class DeviceController {
     @Body() body: ActuatorOverrideDto,
   ) {
     const { id } = params;
-    const { actuator, state } = body;
+    let { actuator, state } = body;
+    if (actuator === 'lamp' || actuator === 'lamp_stage') {
+      actuator = 'heater_air';
+    }
 
     // 1. Check device registry
     const device =
