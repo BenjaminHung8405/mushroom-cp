@@ -160,3 +160,37 @@ $$\text{value} = \frac{\text{Math.round}(\text{inputValue} \times 2)}{2}$$
 
 - The `lightSchedule` blocks array must always represent a continuous timeline from Day 1 to Day 21.
 - No two `LightTimelineBlock` objects can possess overlapping day ranges. (e.g., If Block A ends on Day 8, Block B must start precisely on Day 9).
+
+---
+
+## 4. Local Web Interface (ESP32 Web Server) JSON Contract
+
+The local ESP32 Web Server serves the system state snapshot at `/state` with the following JSON contract.
+
+### Key Changes
+- **Heater Air to Heat Lamp**: `h_air_duty` has been renamed to `h_lamp_duty` to reflect the transition from air heater to heat lamp.
+
+### JSON Structure
+```json
+{
+  "temp_air": number | null,
+  "humidity_air": number | null,
+  "co2_level": number | null,
+  "temp_target": number | null,
+  "humidity_target": number | null,
+  "co2_target": number | null,
+  "h_lamp_duty": number,      // Renamed from h_air_duty
+  "h_wat_duty": number,
+  "mist_duty": number,
+  "exhaust_duty": number,
+  "actuators": {
+    "mist_active": boolean,
+    "fan_active": boolean,
+    "lamp_stage_active": boolean,
+    "lamp_stage2_active": boolean,
+    "heater_water_active": boolean,
+    "midday_blackout_active": boolean
+  }
+}
+```
+

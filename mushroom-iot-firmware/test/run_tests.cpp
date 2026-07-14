@@ -1666,6 +1666,145 @@ int main() {
         assert(mock_pin_values[12U] == HIGH);
     }
 
+    // 28.5 Test Task S1-E1 to S1-E6 - applyLampStaging staged demand tests
+    Serial.println("[TEST] Starting Task S1-E1 to S1-E6 - applyLampStaging Unit Tests...");
+    {
+        const TpcChannelConfig config1 = {13U, 10000U, 0U, 0U, 0U}; // window 10s, offset 0
+        const TpcChannelConfig config2 = {14U, 10000U, 0U, 0U, 5000U}; // window 10s, offset 5s
+
+        // S1-E1: demand=0.0 -> stage1&2 LOW
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL;
+            TPC_Task::applyLampStaging(0.0f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == false);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == LOW);
+            assert(mock_pin_values[14U] == LOW);
+        }
+
+        // S1-E2: demand=0.3 -> stage1 duty=0.6, stage2 duty=0
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL; // t=0 in window
+            TPC_Task::applyLampStaging(0.3f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 15999UL; // t=5999 in window
+            TPC_Task::applyLampStaging(0.3f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 16000UL; // t=6000 in window (stage1 duty boundary)
+            TPC_Task::applyLampStaging(0.3f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == false);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == LOW);
+            assert(mock_pin_values[14U] == LOW);
+        }
+
+        // S1-E3: Test demand=0.5 -> stage1 duty=1.0, stage2 duty=0 (biên chính xác)
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL;
+            TPC_Task::applyLampStaging(0.5f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 19999UL;
+            TPC_Task::applyLampStaging(0.5f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+        }
+
+        // S1-E4: Test demand=0.75 -> stage1 duty=1.0, stage2 duty=0.5
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL; // t=0
+            TPC_Task::applyLampStaging(0.75f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false); // offset prevents stage2 from being ON early
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 14999UL; // t=4999 (just before stage2 offset)
+            TPC_Task::applyLampStaging(0.75f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 15000UL; // t=5000 (stage2 offset start, stage2 goes HIGH)
+            TPC_Task::applyLampStaging(0.75f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == true);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == HIGH);
+
+            mock_millis_offset = 19999UL; // t=9999
+            TPC_Task::applyLampStaging(0.75f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == true);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == HIGH);
+        }
+
+        // S1-E5: Test demand=1.0 -> stage1&2 duty=1.0
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL; // t=0
+            TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false); // stage2 still off due to offset at t=0
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 15000UL; // t=5000 (stage2 offset start)
+            TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == true);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == HIGH);
+        }
+
+        // S1-E6: Test dual-lamp offset chống inrush (window elapsed 0 -> stage2 vẫn OFF trong 5s đầu)
+        {
+            TpcChannelState stage1 = {};
+            TpcChannelState stage2 = {};
+            mock_millis_offset = 10000UL; // t=0
+            // Even at full demand 1.0, stage2 must be OFF at t=0 because of the 5s offset
+            TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
+            assert(stage1.output_high == true);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[13U] == HIGH);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 14999UL; // t=4999 (almost 5s elapsed)
+            TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
+            assert(stage2.output_high == false);
+            assert(mock_pin_values[14U] == LOW);
+
+            mock_millis_offset = 15000UL; // t=5000 (5s elapsed)
+            TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
+            assert(stage2.output_high == true);
+            assert(mock_pin_values[14U] == HIGH);
+        }
+    }
+
 
     // 29. Test Task B5 - Core1_ControlTask TPC pipeline single iteration
     Serial.println("[TEST] Starting Task B5 - Core1 TPC Pipeline Unit Tests...");

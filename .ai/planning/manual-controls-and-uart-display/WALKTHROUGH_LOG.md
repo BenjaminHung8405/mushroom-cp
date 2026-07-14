@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:44:35+07:00] Task S1-D4: Cập nhật Telemetry JSON key `h_air_duty` → `h_lamp_duty`; document trong backend contract
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/docs/DATA_STRUCTURES.md](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-ui/docs/DATA_STRUCTURES.md) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Rà soát toàn bộ codebase để xác nhận việc rename từ `h_air_duty` thành `h_lamp_duty` đã được hoàn thành đầy đủ trong firmware từ task S1-D2 (không còn trường `h_air_duty` nào tồn tại trong code).
+  - Cập nhật tài liệu kỹ thuật `DATA_STRUCTURES.md` ở `mushroom-ui/docs/` để bổ sung phần đặc tả API Local JSON Contract `/state` của ESP32 Web Server, làm tài liệu chính thức xác nhận trường `h_air_duty` đã được đổi tên thành `h_lamp_duty`.
+- **Kết quả tự kiểm thử**:
+  - Chạy toàn bộ host-side unit tests suite `run_tests` của firmware và suite test `pnpm test` của backend: tất cả 100% test cases đều pass hoàn hảo, không có lỗi logic hay xung đột schema.
+
 ## [2026-07-14T16:41:42+07:00] Task S1-D3: Cập nhật WebInterface HTML: label "Air Heater (HAir)" → "Heat Lamp (HLamp)", thêm badge "Lamp1 / Lamp2 staged"
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

@@ -55,14 +55,14 @@
 | S1-D1 | Cập nhật `RelayOutputsPod` snapshot ở `runControlPipelineStep()` — dùng `state.Lamp1.output_high` cho `lamp_stage_active`, `state.Lamp2.output_high` cho `lamp_stage2_active` | `[ ] QA Review` |
 | S1-D2 | `SharedSystemState` field `h_air_duty` → `h_lamp_duty` | `[ ] QA Review` |
 | S1-D3 | Cập nhật WebInterface HTML: label "Air Heater (HAir)" → "Heat Lamp (HLamp)", thêm badge "Lamp1 / Lamp2 staged" | `[ ] QA Review` |
-| S1-D4 | Cập nhật Telemetry JSON key `h_air_duty` → `h_lamp_duty`; document trong backend contract | `[ ] In Progress` |
+| S1-D4 | Cập nhật Telemetry JSON key `h_air_duty` → `h_lamp_duty`; document trong backend contract | `[ ] QA Review` |
 
 ### Track E: Tests
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S1-E1 | Test `applyLampStaging`: demand=0.0 → stage1&2 LOW | `[ ] Pending` |
-| S1-E2 | Test demand=0.3 → stage1 duty=0.6, stage2 duty=0 | `[ ] Pending` |
+| S1-E1 | Test `applyLampStaging`: demand=0.0 → stage1&2 LOW | `[ ] In Progress` |
+| S1-E2 | Test demand=0.3 → stage1 duty=0.6, stage2 duty=0 | `[ ] In Progress` |
 | S1-E3 | Test demand=0.5 → stage1 duty=1.0, stage2 duty=0 (biên chính xác) | `[ ] Pending` |
 | S1-E4 | Test demand=0.75 → stage1 duty=1.0, stage2 duty=0.5 | `[ ] Pending` |
 | S1-E5 | Test demand=1.0 → stage1&2 duty=1.0 | `[ ] Pending` |
