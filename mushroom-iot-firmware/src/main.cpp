@@ -366,7 +366,7 @@ void setup()
 {
     // Initialize Serial interface
     Serial.begin(115200);
-    // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức LOW (OFF) ngay lập tức
+    // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức HIGH (OFF) ngay lập tức
     actuators::init_actuators_gpio();
 
     Serial.println("[MAIN] ESP32 Firmware Starting...");

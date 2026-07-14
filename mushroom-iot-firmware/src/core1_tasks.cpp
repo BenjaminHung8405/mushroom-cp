@@ -759,7 +759,7 @@ void taskCore1Control(void* /*pvParameters*/)
         Serial.println("[CORE1_TASK] Starting TPC control pipeline on Core 1...");
     }
 
-    // GPIO is initialized LOW before this task accepts any demand.
+    // GPIO is initialized HIGH (OFF) before this task accepts any demand.
     sensors::init_sensors_placeholder();
     actuators::init_actuators_gpio();
 

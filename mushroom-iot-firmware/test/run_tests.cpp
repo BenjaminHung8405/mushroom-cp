@@ -851,7 +851,7 @@ int main() {
     // Call initialization
     actuators::init_actuators_gpio();
 
-    // Check that all relay pins are configured as OUTPUT and set to LOW
+    // Check that all relay pins are configured as OUTPUT and set to HIGH (OFF)
     uint8_t relay_pins[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,

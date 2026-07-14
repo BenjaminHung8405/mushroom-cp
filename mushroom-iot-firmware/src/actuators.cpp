@@ -50,25 +50,25 @@ namespace actuators
         Serial.println("[ACTUATORS] Initializing GPIO pins for 5 Relays with Fail-Safe protection...");
 
         // Pin 1: Mist Relay
-        pinMode(config::pins::PIN_RELAY_MIST, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_MIST, HIGH);
-        Serial.printf("[ACTUATORS] Relay MIST (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_MIST);
+        pinMode(config::pins::PIN_RELAY_MIST, OUTPUT);
+        Serial.printf("[ACTUATORS] Relay MIST (Pin %d) initialized to HIGH (OFF).\n", (int)config::pins::PIN_RELAY_MIST);
 
         // Pin 2: Fan Relay
-        pinMode(config::pins::PIN_RELAY_FAN, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_FAN, HIGH);
-        Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_FAN);
+        pinMode(config::pins::PIN_RELAY_FAN, OUTPUT);
+        Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to HIGH (OFF).\n", (int)config::pins::PIN_RELAY_FAN);
 
         // Pin 3: Lamp relay
-        pinMode(config::pins::PIN_RELAY_LAMP, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_LAMP, HIGH);
-        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d) initialized to HIGH.\n",
+        pinMode(config::pins::PIN_RELAY_LAMP, OUTPUT);
+        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d) initialized to HIGH (OFF).\n",
                       (int)config::pins::PIN_RELAY_LAMP);
 
         // Pin 4: Heater Water Relay
-        pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_HWAT, HIGH);
-        Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_HWAT);
+        pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
+        Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to HIGH (OFF).\n", (int)config::pins::PIN_RELAY_HWAT);
 
         Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state (4 relays, LAMP merged).");
 
