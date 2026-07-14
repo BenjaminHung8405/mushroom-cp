@@ -1,5 +1,16 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:50:27+07:00] Task S1-E5: Test demand=1.0 → stage1&2 duty=1.0
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Đã có sẵn)
+- **Giải trình giải pháp**:
+  - Xác minh test case cho kịch bản demand = 1.0 trong `test/run_tests.cpp`. Khi demand đạt tối đa là 1.0, cả hai bóng đèn nhiệt (Lamp1 và Lamp2) đều hoạt động hết công suất (duty cycle = 1.0).
+  - Test case kiểm tra trễ chống dòng inrush: tại t=0 (millis = 10000), Lamp2 vẫn OFF do chưa đủ 5 giây trễ (offset 5000ms), trong khi Lamp1 hoạt động ngay lập tức. Sau 5 giây (millis = 15000), cả hai đèn cùng hoạt động đồng loạt (HIGH).
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và thực thi offline suite test thành công tốt đẹp: 100% assertions passed (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:48:18+07:00] Task S1-E4: Test demand=0.75 → stage1 duty=1.0, stage2 duty=0.5
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

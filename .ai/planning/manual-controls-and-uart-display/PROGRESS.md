@@ -65,7 +65,7 @@
 | S1-E2 | Test demand=0.3 → stage1 duty=0.6, stage2 duty=0 | `[ ] QA Review` |
 | S1-E3 | Test demand=0.5 → stage1 duty=1.0, stage2 duty=0 (biên chính xác) | `[ ] QA Review` |
 | S1-E4 | Test demand=0.75 → stage1 duty=1.0, stage2 duty=0.5 | `[ ] QA Review` |
-| S1-E5 | Test demand=1.0 → stage1&2 duty=1.0 | `[ ] In Progress` |
+| S1-E5 | Test demand=1.0 → stage1&2 duty=1.0 | `[ ] QA Review` |
 | S1-E6 | Test dual-lamp offset chống inrush (window ellapsed 0 → stage2 vẫn OFF trong 5s đầu) | `[ ] Pending` |
 | S1-E7 | Toàn bộ `pio test -e native` PASS | `[ ] Pending` |
 
