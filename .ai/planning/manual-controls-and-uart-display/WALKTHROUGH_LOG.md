@@ -1,5 +1,15 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:21:00+07:00] Task S2-A1: Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - Không có (Chỉ cập nhật trạng thái tiến độ do cấu hình chân nút và hằng số TTL đã được thêm đầy đủ từ trước đó)
+- **Giải trình giải pháp**:
+  - Xác nhận hằng số cấu hình các chân nút tủ điện (`PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, `PIN_BTN_FAN = 16`) và thời gian chốt giữ (`MANUAL_LATCH_TTL_MS = 900000`) đã tồn tại đầy đủ và chính xác trong `config::hardware` thuộc file `include/config.h`. Do đó, không cần thay đổi codebase ở task này mà chỉ cập nhật tiến độ tương ứng.
+- **Kết quả tự kiểm thử**:
+  - Đã chạy thử nghiệm unit test suite ngoại tuyến qua lệnh g++ biên dịch tất cả các module cpp. Toàn bộ assertions đều PASS 100% thành công.
+
 ## [2026-07-14T17:06:20+07:00] Task S2-A4: Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

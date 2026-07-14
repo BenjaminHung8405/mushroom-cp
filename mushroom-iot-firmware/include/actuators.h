@@ -19,6 +19,11 @@ namespace actuators
     void init_wifi_config_button_gpio();
 
     /**
+     * @brief Khởi tạo các chân GPIO cho 3 nút bấm tủ điện (MIST, LAMP, FAN) dưới dạng INPUT_PULLUP.
+     */
+    void init_cabinet_buttons_gpio();
+
+    /**
      * @brief Đặt trạng thái ON/OFF cho một rơ-le theo chân GPIO.
      * @param relay_pin Chân GPIO của rơ-le (phải nằm trong danh sách 4 rơ-le đã khai báo).
      * @param state true = ON (HIGH), false = OFF (LOW).

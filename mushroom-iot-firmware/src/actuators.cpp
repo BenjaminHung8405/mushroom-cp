@@ -80,6 +80,9 @@ namespace actuators
 
         // BOOT / RESET WIFI button (active LOW). Keep INPUT only — never OUTPUT.
         init_wifi_config_button_gpio();
+
+        // Cabinet buttons (active LOW). Keep INPUT only.
+        init_cabinet_buttons_gpio();
     }
 
     void init_wifi_config_button_gpio()
@@ -88,6 +91,19 @@ namespace actuators
         Serial.printf(
             "[ACTUATORS] WiFi config button (GPIO%d) configured as INPUT_PULLUP (active LOW).\n",
             static_cast<int>(config::pins::PIN_WIFI_CONFIG_BUTTON)
+        );
+    }
+
+    void init_cabinet_buttons_gpio()
+    {
+        pinMode(config::hardware::PIN_BTN_MIST, INPUT_PULLUP);
+        pinMode(config::hardware::PIN_BTN_LAMP, INPUT_PULLUP);
+        pinMode(config::hardware::PIN_BTN_FAN, INPUT_PULLUP);
+        Serial.printf(
+            "[ACTUATORS] Cabinet buttons initialized: MIST (GPIO%d), LAMP (GPIO%d), FAN (GPIO%d) as INPUT_PULLUP.\n",
+            static_cast<int>(config::hardware::PIN_BTN_MIST),
+            static_cast<int>(config::hardware::PIN_BTN_LAMP),
+            static_cast<int>(config::hardware::PIN_BTN_FAN)
         );
     }
 

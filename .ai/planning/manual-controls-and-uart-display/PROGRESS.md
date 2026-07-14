@@ -82,8 +82,8 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`) | `[ ] Pending` |
-| S2-A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `[ ] Pending` |
+| S2-A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` (`PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16`, `MANUAL_LATCH_TTL_MS=900000`) | `[ ] QA Review` |
+| S2-A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `[ ] In Progress` |
 
 ### Track B: Unified Override Models, Queues & MQTT Bridge
 
