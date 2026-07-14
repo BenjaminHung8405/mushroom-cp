@@ -21,6 +21,7 @@
 #include "crop_profile_storage.h"
 #include "crop_profile_validator.h"
 #include "time_confidence.h"
+#include "ota_manager.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -2901,6 +2902,27 @@ int main() {
             cps.clearProfile();
             cps.clearManualOverride(AppChannel::MIST);
         }
+    }
+
+    // 38. Test Track C - OTA Manager Unit Tests
+    {
+        Serial.println("--- Starting Track C - OTA Manager Unit Tests ---");
+        ota::init();
+        ota::init();
+
+        String url = "";
+        assert(ota::check_ota_trigger(url) == false);
+        assert(url == "");
+
+        ota::request_ota_update("");
+        assert(ota::check_ota_trigger(url) == false);
+
+        ota::request_ota_update("https://example.com/firmware.bin");
+        assert(ota::check_ota_trigger(url) == true);
+        assert(url == "https://example.com/firmware.bin");
+
+        url = "";
+        assert(ota::check_ota_trigger(url) == false);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
