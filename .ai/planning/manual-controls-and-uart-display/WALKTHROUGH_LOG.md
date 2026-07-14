@@ -1,5 +1,31 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:38:00+07:00] Task S1-C1: Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/TPC_Task.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/TPC_Task.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Đã thêm khai báo helper `applyLampStaging` trong `include/TPC_Task.h`.
+  - Triển khai thuật toán staged dispatch trong `src/TPC_Task.cpp` để chia nhỏ demand tổng `lampDemand` [0..1] thành hai kênh độc lập `duty1` và `duty2` theo đúng công thức:
+    - Nếu `lampDemand <= 0.5f`: `duty1 = lampDemand * 2.0f`, `duty2 = 0.0f`.
+    - Nếu `lampDemand > 0.5f`: `duty1 = 1.0f`, `duty2 = (lampDemand - 0.5f) * 2.0f`.
+  - Gọi hàm `updateTpcChannel` tương ứng cho cả hai kênh đèn nhiệt 1 và đèn nhiệt 2 sử dụng các cấu hình và trạng thái kênh tương ứng.
+- **Kết quả tự kiểm thử**:
+  - Chạy `./run_tests` thành công vượt qua toàn bộ 100% test cases hiện có (`--- All Unit Tests Passed Successfully! ---`).
+
+## [2026-07-14T16:37:00+07:00] Task S1-B3: Cập nhật test `run_tests.cpp:851` — đổi ONE_WIRE (14) sang GPIO 21 (không hợp lệ) để giữ nguyên assertion "reject không hợp lệ"
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Đã cập nhật file test `run_tests.cpp` để thay thế việc sử dụng `PIN_ONE_WIRE` (GPIO 14) cũ bằng GPIO `21` (không thuộc whitelist relay pin hợp lệ). Điều này giúp giữ nguyên mục đích kiểm thử là kiểm tra việc reject các pin không hợp lệ khi cấu hình rơ-le, đồng thời tránh lỗi biên dịch do `PIN_ONE_WIRE` đã bị thu hồi và xóa đi để nhường chỗ cho `PIN_RELAY_LAMP_2` (đèn nhiệt thứ hai).
+- **Kết quả tự kiểm thử**:
+  - Biên dịch offline thành công suite test bằng `g++` local host.
+  - Chạy `./run_tests` thành công 100% vượt qua tất cả các assertion hiện có (`--- All Unit Tests Passed Successfully! ---`), xác nhận hệ thống hoạt động ổn định.
+
 ## [2026-07-14T16:36:00+07:00] Task S1-B2: `init_actuators_gpio()`: khởi tạo 5 chân về LOW
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

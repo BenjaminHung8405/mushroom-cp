@@ -37,13 +37,13 @@
 |------|-------|:------:|
 | S1-B1 | Cập nhật whitelist `VALID_RELAY_PINS[]` và hàm `relay_name()` trong `src/actuators.cpp`: LAMP_1, LAMP_2, HWAT, MIST, FAN | `[ ] QA Review` |
 | S1-B2 | `init_actuators_gpio()`: khởi tạo 5 chân (bỏ HEATER_1/HEATER_2 cũ, thêm 3 chân mới) về LOW | `[ ] QA Review` |
-| S1-B3 | Cập nhật test `run_tests.cpp:851` — đổi ONE_WIRE (14) sang GPIO 21 (không hợp lệ) để giữ nguyên assertion "reject không hợp lệ" | `[ ] In Progress` |
+| S1-B3 | Cập nhật test `run_tests.cpp:851` — đổi ONE_WIRE (14) sang GPIO 21 (không hợp lệ) để giữ nguyên assertion "reject không hợp lệ" | `[ ] QA Review` |
 
 ### Track C: TPC Dual-Lamp Staging
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S1-C1 | Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)` | `[ ] Pending` |
+| S1-C1 | Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)` | `[ ] QA Review` |
 | S1-C2 | Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)` | `[ ] Pending` |
 | S1-C3 | Đổi tên `TpcSchedulerState::HAir` → `Lamp1`, thêm `Lamp2` | `[ ] Pending` |
 | S1-C4 | Thêm `LAMP1_TPC_CONFIG` và `LAMP2_TPC_CONFIG` trong `core1_tasks.cpp` | `[ ] Pending` LAMP1 offset 0, LAMP2 offset +5000ms (stagger inrush). |

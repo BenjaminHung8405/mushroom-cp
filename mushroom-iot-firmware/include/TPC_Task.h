@@ -81,6 +81,16 @@ namespace TPC_Task
         float dutyDemand);
 
     /**
+     * @brief Staged dispatch of lamp demand across two physical lamp channels.
+     */
+    void applyLampStaging(
+        float lampDemand,
+        TpcChannelState& stage1,
+        TpcChannelState& stage2,
+        const TpcChannelConfig& config1,
+        const TpcChannelConfig& config2);
+
+    /**
      * @brief Applies protected duty demands to all SSR channels using TPC.
      */
     void applyTpcOutputs(
@@ -92,3 +102,4 @@ namespace TPC_Task
         TpcSchedulerState &state);
 
 } // namespace TPC_Task
+
