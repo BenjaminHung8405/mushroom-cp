@@ -456,7 +456,7 @@ static void updateWebInterfaceState(
     localState.temp_target = setpoints.temp_target;
     localState.humidity_target = setpoints.humidity_target;
     localState.co2_target = setpoints.co2_target;
-    localState.h_air_duty = outputs.HAir;
+    localState.h_air_duty = outputs.HLamp;
     localState.h_wat_duty = outputs.HWat;
     localState.mist_duty = outputs.Mist;
     localState.exhaust_duty = outputs.Exh;
@@ -632,7 +632,7 @@ static void runControlPipelineStep(
         {
             if (std::isfinite(telemetry.temp_air) && telemetry.temp_air < 35.0f)
             {
-                outputs.HAir = 1.0f;
+                outputs.HLamp = 1.0f;
             }
             else
             {
@@ -650,7 +650,7 @@ static void runControlPipelineStep(
         {
             if (std::isfinite(telemetry.temp_air) && telemetry.temp_air > 20.0f)
             {
-                outputs.HAir = 0.0f;
+                outputs.HLamp = 0.0f;
             }
             else
             {
@@ -685,7 +685,7 @@ static void runControlPipelineStep(
     const RelayOutputsPod actuatorSnapshot = {
         tpcState.Mist.output_high,
         tpcState.Exh.output_high,
-        tpcState.HAir.output_high,  // lamp_stage_active — S1-D1 sẽ trỏ sang tpcState.Lamp1
+        tpcState.HLamp.output_high,  // lamp_stage_active — S1-D1 sẽ trỏ sang tpcState.Lamp1
         false,                      // lamp_stage2_active — placeholder tới khi Lamp2 xuất hiện
         tpcState.HWat.output_high,
         !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||

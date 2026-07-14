@@ -44,7 +44,7 @@ struct CO2RuleState {
  * demands to ON/OFF relays later (duty > 0.5 => ON); there is no PWM here.
  */
 struct ArbitratedOutputsPod {
-    float HAir;
+    float HLamp;
     float HWat;
     float Mist;
     float Exh;
@@ -70,7 +70,7 @@ struct ArbitratedOutputsPod {
  *
  * @param errorTemp Temperature error in degrees Celsius (target - measured).
  * @param errorHumid Humidity error in %RH (target - measured).
- * @return Continuous TPC duty demands for air heat, water heat, mist, and exhaust.
+ * @return Continuous TPC duty demands for lamp heat, water heat, mist, and exhaust.
  */
 DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid);
 
@@ -102,7 +102,7 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2);
 /**
  * @brief Applies adaptive gains and resolves the two exhaust requests.
  *
- * HAir, HWat, and Mist are multiplied by their respective adaptive gains.
+ * HLamp, HWat, and Mist are multiplied by their respective adaptive gains.
  * Thermal/humidity and CO2 exhaust demands are decoupled and merged with
  * std::max so either subsystem can independently request the shared exhaust
  * channel. Results after gain multiplication are hard-clamped to [0.0, 1.0].
@@ -113,7 +113,7 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2);
  *
  * @param thermalOutputs Raw normalized temperature/humidity outputs.
  * @param exhCO2 Raw normalized CO2 exhaust demand.
- * @param gains Adaptive gains for HAir, HWat, and Mist.
+ * @param gains Adaptive gains for HLamp, HWat, and Mist.
  * @return Normalized post-arbitration demands for the protection/GPIO stage.
  */
 ArbitratedOutputsPod arbitrateOutputs(

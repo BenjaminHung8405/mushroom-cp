@@ -2,6 +2,53 @@
 
 > Ghi log theo thứ tự thời gian đảo ngược (bản ghi mới nhất ở đầu).
 
+## 2026-07-14 16:02 (Asia/Ho_Chi_Minh) — Task `S1-A3`
+
+- **Task ID:** S1-A3
+- **Mô tả:** Đổi tên trường struct `ArbitratedOutputsPod::HAir` → `HLamp`, cập nhật tham số `applyTpcOutputs()` từ `hAirConfig` → `hLampConfig`, đồng bộ toàn bộ consumer.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập.
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/FuzzyController.h` | Đổi tên field `ArbitratedOutputsPod::HAir` → `HLamp`. Cập nhật doc comment: "air heat" → "lamp heat", "HAir" → "HLamp" trong `@param gains`. |
+| 2 | `mushroom-iot-firmware/include/TPC_Task.h` | Đổi tên tham số `applyTpcOutputs()`: `hAirConfig` → `hLampConfig`. (Header cũng đã có S1-A2 diff reshape namespace braces.) |
+| 3 | `mushroom-iot-firmware/src/FuzzyController.cpp` | Đổi biến local `hAirDemand` → `hLampDemand` trong `arbitrateOutputs()`, feed vào return struct `ArbitratedOutputsPod{}`. |
+| 4 | `mushroom-iot-firmware/src/TPC_Task.cpp` | (a) Tham số `hAirConfig` → `hLampConfig`; (b) call `updateTpcChannel(hLampConfig, state.HLamp, outputs.HLamp)` — `state.HLamp` đồng bộ với TpcSchedulerState đã rename ở S1-A2. |
+| 5 | `mushroom-iot-firmware/src/core1_tasks.cpp` | Consumer `ArbitratedOutputsPod`: (a) `localState.h_air_duty = outputs.HLamp` trong `updateWebInterfaceState()`; (b) `outputs.HLamp = 1.0f` / `0.0f` trong manual override block; (c) `tpcState.HLamp.output_high` trong `actuatorSnapshot` — đồng bộ với TpcSchedulerState đã rename ở S1-A2. |
+| 6 | `mushroom-iot-firmware/test/run_tests.cpp` | Test suite `Task B3 - FuzzyController Arbitration Unit Tests` (line 1429–1506): đổi 5 assertion truy cập `nominalOut.HAir`, `adjustedOut.HAir`, `safeOut.HAir`, `boundedOut.HAir`, `protectedOut.HAir` sang `HLamp`. Comment 27.3 cũng được cập nhật. |
+| 7 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Cập nhật status S1-A3 → `[ ] QA Review`. |
+
+### Giải trình logic
+
+- **Scope chuẩn xác:** Task S1-A3 chỉ đổi tên field `ArbitratedOutputsPod::HAir` → `HLamp`. Có 4 struct khác trong repo cũng chứa field tên `HAir` được đọc kỹ và **cố ý bỏ qua** vì thuộc task riêng biệt:
+  - `DualHeaterOutputsPod::HAir` → đã đổi thành `HLamp` ở S1-A2.
+  - `AdaptiveTuner::GainsPod::gain_HAir` → task S1-A4 (đổi tên `gain_HLamp` sau).
+  - `TpcSchedulerState::HAir` → đã đổi thành `HLamp` ở S1-A2 (diff chưa commit).
+  - Các reference còn lại (`outputs.HAir`, `tpcState.HAir` trong `core1_tasks.cpp` line 459/635/653/688, `TPC_Task.cpp` line 147, `test/run_tests.cpp` line 1432/1448/1460/1470/1506) đều là consumer của `ArbitratedOutputsPod` → cần patch trong task này.
+- **Consumer `core1_tasks.cpp::runControlPipelineStep()`:** Biến `outputs` (kiểu `ArbitratedOutputsPod`) được `grep` toàn file — 3 site truy cập field `.HAir` trực tiếp: (a) `updateWebInterfaceState()` line 459 gán vào `localState.h_air_duty`; (b) manual override block line 635 set `= 1.0f`; (c) manual override block line 653 set `= 0.0f`. Tất cả đều được patch sang `HLamp`.
+- **Consumer `core1_tasks.cpp::actuatorSnapshot`:** Line 688 dùng `tpcState.HAir.output_high` — đây là `TpcSchedulerState` đã được rename thành `HLamp` ở S1-A2 (diff chưa commit). Patch đồng bộ `tpcState.HLamp.output_high` để compile-pass.
+- **Consumer `TPC_Task.cpp::applyTpcOutputs()`:** Line 147 gọi `updateTpcChannel(hAirConfig, state.HAir, outputs.HAir)` — 3 reference đều cần đổi: param name `hAirConfig` → `hLampConfig`, state member `state.HAir` → `state.HLamp`, output member `outputs.HAir` → `outputs.HLamp`.
+- **POD/alignment preservation:** `ArbitratedOutputsPod` vẫn là 4 float liên tiếp → `sizeof==16`, `alignof==4`, `is_pod==true`. Tất cả 3 assertion này trong test suite compile-clean và runtime PASS.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- **Grep audit:**
+  - `grep -rn "ArbitratedOutputsPod" src/ include/ test/` → 18 hit, tất cả đều nhất quán với field mới. Không còn hit nào truy cập `.HAir` trên struct này.
+  - `grep -rn "\.HAir\|->HAir\|::HAir" src/ include/ test/` → 0 hit còn lại cho `ArbitratedOutputsPod` hoặc `TpcSchedulerState`. Các reference `HAir` duy nhất còn lại là `AdaptiveTuner::GainsPod::gain_HAir` (thuộc S1-A4, không phải scope).
+  - `grep -rn "HLamp" src/ include/ test/` → 21 hit trải đều ở header, source, test file.
+- **Compile native:** `clang++ -std=c++17 -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src src/*.cpp test/run_tests.cpp -DUNIT_TEST -o /tmp/run_tests_s1a3` → **PASS** (chỉ có warning `-Wformat-security` trong `mqtt_client.cpp` — pre-existing từ trước S1-A1, không liên quan).
+- **Runtime test:** Chạy `/tmp/run_tests_s1a3` — toàn bộ test suite `Task B3 (FuzzyController Arbitration Unit Tests)` line 1420–1477 chạy qua **5 assertion HLamp** không lỗi. Test suite dừng tại line 2372 (`storage.load_hardware_override`) — chính là bug pre-existing đã được ghi nhận ở walkthrough S1-A1 và S1-A2, không phải hồi quy do S1-A3.
+
+### Ghi chú cho QA Review
+
+- Điểm cần audit trọng tâm: adapter tạm thời trong `arbitrateOutputs()` line 146 — `safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HAir)` — mix tên `HLamp` (input struct đã rename) với `gain_HAir` (gain struct chưa rename). Đây là expected state sau S1-A3, sẽ được hoàn thiện đồng bộ ở S1-A4 (`gain_HAir` → `gain_HLamp`).
+- Consumer `core1_tasks.cpp::actuatorSnapshot` line 688: `tpcState.HLamp.output_high` — đồng bộ với TpcSchedulerState đã rename ở S1-A2. Placeholder `lamp_stage2_active=false` giữ nguyên (sẽ nối với `state.Lamp2.output_high` khi S1-D1 làm TPC refactor).
+- Bug pre-existing `storage.load_hardware_override` (test dòng 2372) vẫn chưa được fix — track riêng, không thuộc scope Sprint 1 Track A.
+
+---
+
 ## 2026-07-14 15:27 (Asia/Ho_Chi_Minh) — Task `S1-A2`
 
 - **Task ID:** S1-A2

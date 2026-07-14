@@ -142,7 +142,7 @@ ArbitratedOutputsPod arbitrateOutputs(
     const AdaptiveTuner::GainsPod& gains) {
     // Apply adaptive gains only to the heaters/mist channels. Post-gain
     // products are hard-clamped to the unit interval for the relay stage.
-    const float hAirDemand = clampUnit(
+    const float hLampDemand = clampUnit(
         safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HAir));
     const float hWatDemand = clampUnit(
         safeUnit(thermalOutputs.HWat) * safeGain(gains.gain_HWat));
@@ -157,7 +157,7 @@ ArbitratedOutputsPod arbitrateOutputs(
         safeUnit(exhCO2));
 
     return ArbitratedOutputsPod{
-        hAirDemand,
+        hLampDemand,
         hWatDemand,
         mistDemand,
         clampUnit(exhaustDemand),

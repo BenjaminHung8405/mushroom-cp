@@ -139,12 +139,12 @@ void updateTpcChannel(
 
 void applyTpcOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
-    const TpcChannelConfig& hAirConfig,
+    const TpcChannelConfig& hLampConfig,
     const TpcChannelConfig& hWatConfig,
     const TpcChannelConfig& mistConfig,
     const TpcChannelConfig& exhConfig,
     TpcSchedulerState& state) {
-    updateTpcChannel(hAirConfig, state.HAir, outputs.HAir);
+    updateTpcChannel(hLampConfig, state.HLamp, outputs.HLamp);
     updateTpcChannel(hWatConfig, state.HWat, outputs.HWat);
     updateTpcChannel(mistConfig, state.Mist, outputs.Mist);
     updateTpcChannel(exhConfig, state.Exh, outputs.Exh);

@@ -1429,7 +1429,7 @@ int main() {
 
         // 27.1 Nominal gains preserve actuator demands and CO2 takes the
         // shared exhaust relay whenever its demand exceeds the TH request.
-        assert(std::abs(nominalOut.HAir - 0.40f) < 1e-6f);
+        assert(std::abs(nominalOut.HLamp - 0.40f) < 1e-6f);
         assert(std::abs(nominalOut.HWat - 0.30f) < 1e-6f);
         assert(std::abs(nominalOut.Mist - 0.20f) < 1e-6f);
         assert(std::abs(nominalOut.Exh - 0.60f) < 1e-6f);
@@ -1439,13 +1439,13 @@ int main() {
             FuzzyController::arbitrateOutputs(raw, 0.10f, nominal);
         assert(std::abs(thermalExhaust.Exh - 0.35f) < 1e-6f);
 
-        // 27.3 Per-channel adaptive gains apply only to HAir/HWat/Mist, and
+        // 27.3 Per-channel adaptive gains apply only to HLamp/HWat/Mist, and
         // post-gain products are clamped to the normalized range.
         const AdaptiveTuner::GainsPod adjusted = {2.5f, 0.5f, 2.0f};
         const DualHeaterOutputsPod gainRaw = {0.80f, 0.80f, 0.60f, 0.20f};
         const ArbitratedOutputsPod adjustedOut =
             FuzzyController::arbitrateOutputs(gainRaw, 0.10f, adjusted);
-        assert(adjustedOut.HAir == 1.0f);  // 0.80 * 2.5 -> clamp to 1.0
+        assert(adjustedOut.HLamp == 1.0f);  // 0.80 * 2.5 -> clamp to 1.0
         assert(std::abs(adjustedOut.HWat - 0.40f) < 1e-6f);
         assert(adjustedOut.Mist == 1.0f);  // 0.60 * 2.0 -> clamp to 1.0
         assert(std::abs(adjustedOut.Exh - 0.20f) < 1e-6f);
@@ -1457,7 +1457,7 @@ int main() {
         const AdaptiveTuner::GainsPod malformedGains = {NAN, 100.0f, NAN};
         const ArbitratedOutputsPod safeOut = FuzzyController::arbitrateOutputs(
             malformedRaw, NAN, malformedGains);
-        assert(safeOut.HAir == 0.0f);   // NaN raw -> safeUnit -> 0
+        assert(safeOut.HLamp == 0.0f);   // NaN raw -> safeUnit -> 0
         assert(safeOut.HWat == 0.0f);   // -1.0 raw -> clampUnit -> 0
         assert(safeOut.Mist == 0.0f);   // NaN gain -> safeGain -> 0
         assert(safeOut.Exh == 0.0f);    // NaN exhCO2 -> safeUnit -> 0
@@ -1467,7 +1467,7 @@ int main() {
         const AdaptiveTuner::GainsPod outOfBandGains = {100.0f, -100.0f, 100.0f};
         const ArbitratedOutputsPod boundedOut = FuzzyController::arbitrateOutputs(
             boundedRaw, 0.0f, outOfBandGains);
-        assert(boundedOut.HAir == 1.0f);  // 0.5 * max gain 2.5 -> clamp
+        assert(boundedOut.HLamp == 1.0f);  // 0.5 * max gain 2.5 -> clamp
         assert(std::abs(boundedOut.HWat - 0.25f) < 1e-6f);
         assert(boundedOut.Mist == 1.0f);
 
@@ -1503,7 +1503,7 @@ int main() {
         protectedOut.Mist = 1.0f;
         TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 24U, 0U});
         assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
-        assert(std::abs(protectedOut.HAir - 0.4f) < 1e-6f);
+        assert(std::abs(protectedOut.HLamp - 0.4f) < 1e-6f);
         assert(std::abs(protectedOut.Exh - 0.6f) < 1e-6f);
 
         // 28.2 A 100 ms TPC window converts 50% duty into a phase. Minimum
