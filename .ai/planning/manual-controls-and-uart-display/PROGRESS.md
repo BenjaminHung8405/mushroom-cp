@@ -45,16 +45,16 @@
 |------|-------|:------:|
 | S1-C1 | Thêm helper `TPC_Task::applyLampStaging(float lampDemand, TpcChannelState& stage1, TpcChannelState& stage2, TpcChannelConfig, TpcChannelConfig)` | `[ ] QA Review` |
 | S1-C2 | Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)` | `[ ] QA Review` |
-| S1-C3 | Đổi tên `TpcSchedulerState::HAir` → `Lamp1`, thêm `Lamp2` | `[ ] In Progress` |
-| S1-C4 | Thêm `LAMP1_TPC_CONFIG` và `LAMP2_TPC_CONFIG` trong `core1_tasks.cpp` | `[ ] Pending` LAMP1 offset 0, LAMP2 offset +5000ms (stagger inrush). |
+| S1-C3 | Đổi tên `TpcSchedulerState::HAir` → `Lamp1`, thêm `Lamp2` | `[ ] QA Review` |
+| S1-C4 | Thêm `LAMP1_TPC_CONFIG` và `LAMP2_TPC_CONFIG` trong `core1_tasks.cpp` | `[ ] QA Review` | LAMP1 offset 0, LAMP2 offset +5000ms (stagger inrush). |
 
 ### Track D: Snapshot & Telemetry
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S1-D1 | Cập nhật `RelayOutputsPod` snapshot ở `runControlPipelineStep()` — dùng `state.Lamp1.output_high` cho `lamp_stage_active`, `state.Lamp2.output_high` cho `lamp_stage2_active` | `[ ] Pending` |
-| S1-D2 | `SharedSystemState` field `h_air_duty` → `h_lamp_duty` | `[ ] Pending` |
-| S1-D3 | Cập nhật WebInterface HTML: label "Air Heater (HAir)" → "Heat Lamp (HLamp)", thêm badge "Lamp1 / Lamp2 staged" | `[ ] Pending` |
+| S1-D1 | Cập nhật `RelayOutputsPod` snapshot ở `runControlPipelineStep()` — dùng `state.Lamp1.output_high` cho `lamp_stage_active`, `state.Lamp2.output_high` cho `lamp_stage2_active` | `[ ] QA Review` |
+| S1-D2 | `SharedSystemState` field `h_air_duty` → `h_lamp_duty` | `[ ] QA Review` |
+| S1-D3 | Cập nhật WebInterface HTML: label "Air Heater (HAir)" → "Heat Lamp (HLamp)", thêm badge "Lamp1 / Lamp2 staged" | `[ ] In Progress` |
 | S1-D4 | Cập nhật Telemetry JSON key `h_air_duty` → `h_lamp_duty`; document trong backend contract | `[ ] Pending` |
 
 ### Track E: Tests

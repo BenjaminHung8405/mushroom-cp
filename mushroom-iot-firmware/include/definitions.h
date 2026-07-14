@@ -51,7 +51,7 @@ struct SharedSystemState {
     float temp_target;
     float humidity_target;
     float co2_target;
-    float h_air_duty;
+    float h_lamp_duty;
     float h_wat_duty;
     float mist_duty;
     float exhaust_duty;

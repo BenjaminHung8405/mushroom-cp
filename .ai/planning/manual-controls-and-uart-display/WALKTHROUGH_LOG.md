@@ -1,5 +1,21 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:39:18+07:00] Task S1-D2: `SharedSystemState` field `h_air_duty` → `h_lamp_duty`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Đổi tên trường `h_air_duty` thành `h_lamp_duty` trong struct `SharedSystemState` ở `include/definitions.h` để phản ánh chính xác thiết kế mới dùng đèn nhiệt thay cho heater gió.
+  - Cập nhật hàm `updateSharedSystemState` trong `src/core1_tasks.cpp` để ghi nhận giá trị của `outputs.HLamp` vào trường `h_lamp_duty`.
+  - Cập nhật serialization của JSON API trong `src/WebInterface.cpp` để xuất ra `h_lamp_duty` thay thế cho `h_air_duty` cũ, đồng thời sửa code Javascript để đọc từ `data.h_lamp_duty`.
+  - Cập nhật test case kiểm thử `SharedSystemState` trong `test/run_tests.cpp` để kiểm chứng trường `h_lamp_duty` hoạt động chính xác.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và thực thi offline suite test qua lệnh g++ thành công 100%, toàn bộ assertions của test pass hoàn hảo (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:39:10+07:00] Task S1-C2: Trong `applyTpcOutputs()`, thay call `updateTpcChannel(H_AIR_TPC_CONFIG, state.HAir, ...)` bằng `applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, LAMP1_CFG, LAMP2_CFG)`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

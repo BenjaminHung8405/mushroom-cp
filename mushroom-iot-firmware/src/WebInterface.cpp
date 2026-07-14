@@ -333,7 +333,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
                     document.getElementById('humid-target').innerText = (data.humidity_target !== undefined && data.humidity_target !== null && !isNaN(data.humidity_target)) ? Math.round(data.humidity_target) : '--';
                     document.getElementById('co2-target').innerText = (data.co2_target !== undefined && data.co2_target !== null && !isNaN(data.co2_target)) ? Math.round(data.co2_target) : '----';
                     
-                    updateBar('hair-bar', 'hair-val', data.h_air_duty);
+                    updateBar('hair-bar', 'hair-val', data.h_lamp_duty);
                     updateBar('hwat-bar', 'hwat-val', data.h_wat_duty);
                     updateBar('mist-bar', 'mist-val', data.mist_duty);
                     updateBar('exh-bar', 'exh-val', data.exhaust_duty);
@@ -408,7 +408,7 @@ namespace web_interface
         if (std::isnan(state.co2_target)) doc["co2_target"] = nullptr;
         else doc["co2_target"] = state.co2_target;
 
-        doc["h_air_duty"] = state.h_air_duty;
+        doc["h_lamp_duty"] = state.h_lamp_duty;
         doc["h_wat_duty"] = state.h_wat_duty;
         doc["mist_duty"] = state.mist_duty;
         doc["exhaust_duty"] = state.exhaust_duty;

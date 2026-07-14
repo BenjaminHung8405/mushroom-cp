@@ -1917,7 +1917,7 @@ int main() {
         assert(std::fabs(loaded.temp_target - 25.0f) < 0.01f);
         assert(std::fabs(loaded.humidity_target - 80.0f) < 0.01f);
         assert(std::fabs(loaded.co2_target - 1000.0f) < 0.01f);
-        assert(std::fabs(loaded.h_air_duty - 0.45f) < 0.01f);
+        assert(std::fabs(loaded.h_lamp_duty - 0.45f) < 0.01f);
         assert(std::fabs(loaded.h_wat_duty - 0.0f) < 0.01f);
         assert(std::fabs(loaded.mist_duty - 0.12f) < 0.01f);
         assert(std::fabs(loaded.exhaust_duty - 0.0f) < 0.01f);

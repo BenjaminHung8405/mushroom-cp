@@ -458,7 +458,7 @@ static void updateWebInterfaceState(
     localState.temp_target = setpoints.temp_target;
     localState.humidity_target = setpoints.humidity_target;
     localState.co2_target = setpoints.co2_target;
-    localState.h_air_duty = outputs.HLamp;
+    localState.h_lamp_duty = outputs.HLamp;
     localState.h_wat_duty = outputs.HWat;
     localState.mist_duty = outputs.Mist;
     localState.exhaust_duty = outputs.Exh;
