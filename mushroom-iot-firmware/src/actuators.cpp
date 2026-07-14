@@ -9,13 +9,11 @@
 namespace actuators
 {
     // Danh sách whitelist các chân rơ-le hợp lệ — ranh giới an toàn cứng
-    // Lưu ý: LAMP_1 và LAMP_2 đã được merge về cùng GPIO 13.
-    // Whitelist giữ cả 2 entry (giá trị giống nhau) để backward-compatible với TPC_Task.
     static constexpr uint8_t VALID_RELAY_PINS[] = {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
         config::pins::PIN_RELAY_HWAT,
-        config::pins::PIN_RELAY_LAMP_1  // LAMP_2 đã merge vào LAMP_1 (cùng GPIO 13)
+        config::pins::PIN_RELAY_LAMP
     };
     static constexpr size_t VALID_RELAY_COUNT =
         sizeof(VALID_RELAY_PINS) / sizeof(VALID_RELAY_PINS[0]);
@@ -28,7 +26,7 @@ namespace actuators
         if (pin == config::pins::PIN_RELAY_MIST)     return "MIST";
         if (pin == config::pins::PIN_RELAY_FAN)      return "FAN";
         if (pin == config::pins::PIN_RELAY_HWAT)     return "HWAT";
-        if (pin == config::pins::PIN_RELAY_LAMP_1)   return "LAMP (merged)"; // LAMP_1==LAMP_2==GPIO13
+        if (pin == config::pins::PIN_RELAY_LAMP)     return "LAMP";
         return "UNKNOWN";
     }
 
@@ -61,11 +59,11 @@ namespace actuators
         digitalWrite(config::pins::PIN_RELAY_FAN, LOW);
         Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_FAN);
 
-        // Pin 3: Lamp Relay (đèn nhiệt — merged: LAMP_1 và LAMP_2 cùng GPIO 13)
-        pinMode(config::pins::PIN_RELAY_LAMP_1, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_LAMP_1, LOW);
-        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d, merged single-relay) initialized to LOW.\n",
-                      (int)config::pins::PIN_RELAY_LAMP_1);
+        // Pin 3: Lamp relay
+        pinMode(config::pins::PIN_RELAY_LAMP, OUTPUT);
+        digitalWrite(config::pins::PIN_RELAY_LAMP, LOW);
+        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d) initialized to LOW.\n",
+                      (int)config::pins::PIN_RELAY_LAMP);
 
         // Pin 4: Heater Water Relay
         pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
@@ -114,7 +112,7 @@ namespace actuators
                 (int)config::pins::PIN_RELAY_MIST,
                 (int)config::pins::PIN_RELAY_FAN,
                 (int)config::pins::PIN_RELAY_HWAT,
-                (int)config::pins::PIN_RELAY_LAMP_1  // LAMP_2 == LAMP_1 == GPIO13 (merged)
+                (int)config::pins::PIN_RELAY_LAMP
             );
             return false;
         }

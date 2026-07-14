@@ -42,11 +42,10 @@ namespace TPC_Task
         bool initialized;
     } __attribute__((aligned(4)));
 
-    /** Scheduler state for all four physical SSR outputs. */
+    /** Scheduler state for all physical SSR outputs. */
     struct TpcSchedulerState
     {
-        TpcChannelState Lamp1;
-        TpcChannelState Lamp2;
+        TpcChannelState Lamp;
         TpcChannelState HWat;
         TpcChannelState Mist;
         TpcChannelState Exh;
@@ -82,26 +81,14 @@ namespace TPC_Task
         float dutyDemand);
 
     /**
-     * @brief Staged dispatch of lamp demand across two physical lamp channels.
-     */
-    void applyLampStaging(
-        float lampDemand,
-        TpcChannelState& stage1,
-        TpcChannelState& stage2,
-        const TpcChannelConfig& config1,
-        const TpcChannelConfig& config2);
-
-    /**
      * @brief Applies protected duty demands to all SSR channels using TPC.
      */
     void applyTpcOutputs(
         const FuzzyController::ArbitratedOutputsPod &outputs,
-        const TpcChannelConfig &lamp1Config,
-        const TpcChannelConfig &lamp2Config,
+        const TpcChannelConfig &lampConfig,
         const TpcChannelConfig &hWatConfig,
         const TpcChannelConfig &mistConfig,
         const TpcChannelConfig &exhConfig,
         TpcSchedulerState &state);
 
 } // namespace TPC_Task
-

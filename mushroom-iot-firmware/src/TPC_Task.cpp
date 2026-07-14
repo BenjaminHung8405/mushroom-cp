@@ -137,35 +137,14 @@ void updateTpcChannel(
     state.last_transition_ms = now;
 }
 
-void applyLampStaging(
-    float lampDemand,
-    TpcChannelState& stage1,
-    TpcChannelState& stage2,
-    const TpcChannelConfig& config1,
-    const TpcChannelConfig& config2) {
-    const float safeDemand = clampUnit(lampDemand);
-    float duty1 = 0.0f;
-    float duty2 = 0.0f;
-    if (safeDemand <= 0.5f) {
-        duty1 = safeDemand * 2.0f;
-        duty2 = 0.0f;
-    } else {
-        duty1 = 1.0f;
-        duty2 = (safeDemand - 0.5f) * 2.0f;
-    }
-    updateTpcChannel(config1, stage1, duty1);
-    updateTpcChannel(config2, stage2, duty2);
-}
-
 void applyTpcOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
-    const TpcChannelConfig& lamp1Config,
-    const TpcChannelConfig& lamp2Config,
+    const TpcChannelConfig& lampConfig,
     const TpcChannelConfig& hWatConfig,
     const TpcChannelConfig& mistConfig,
     const TpcChannelConfig& exhConfig,
     TpcSchedulerState& state) {
-    applyLampStaging(outputs.HLamp, state.Lamp1, state.Lamp2, lamp1Config, lamp2Config);
+    updateTpcChannel(lampConfig, state.Lamp, outputs.HLamp);
     updateTpcChannel(hWatConfig, state.HWat, outputs.HWat);
     updateTpcChannel(mistConfig, state.Mist, outputs.Mist);
     updateTpcChannel(exhConfig, state.Exh, outputs.Exh);

@@ -16,10 +16,7 @@ namespace config
         constexpr uint8_t PIN_RELAY_MIST   = 10; // Sương (Fogger/Mist)
         constexpr uint8_t PIN_RELAY_FAN    = 11; // Quạt (Fan)
         constexpr uint8_t PIN_RELAY_HWAT   = 12; // Sưởi nước (Heater Water)
-        // Đèn nhiệt: 2 kênh TPC (stage1/stage2) dùng chung 1 relay vật lý GPIO 13.
-        // LAMP_2 cố ý trỏ vào LAMP_1 để merge 2 stage thành 1 pin.
-        constexpr uint8_t PIN_RELAY_LAMP_1 = 13; // Đèn nhiệt — relay duy nhất
-        constexpr uint8_t PIN_RELAY_LAMP_2 = 13; // Alias LAMP_1 — merged single-relay wiring
+        constexpr uint8_t PIN_RELAY_LAMP = 13; // Đèn nhiệt — relay duy nhất
 
         // I2C Bus (e.g. SHT30, SCD30)
         constexpr uint8_t PIN_I2C_SDA = 8;
