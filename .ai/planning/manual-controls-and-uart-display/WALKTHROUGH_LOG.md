@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:31:30+07:00] Task S2-B6: Xác nhận telemetry/ack contract cho UI
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/models.h) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Bổ sung enum `ManualReleaseReason` gồm các lý do tự động nhả chốt điều khiển thủ công (`None`, `TTLExpired`, `SafetyLimitReached`, `HardwareProtection`).
+  - Mở rộng cấu trúc `ManualAck` với các trường `effective_intent`, `release_reason`, và `expires_ms` theo đúng hợp đồng thiết kế ack để gửi thông tin chính xác về cho UI.
+  - Đảm bảo cấu trúc được căn lề 4-byte (`__attribute__((aligned(4)))`) và đệm padding đầy đủ, có kích thước 16 byte tối ưu.
+- **Kết quả tự kiểm thử**:
+  - Thực thi `./run_tests` thành công vượt qua 100% test cases hiện có của dự án.
+
 ## [2026-07-14T17:28:40+07:00] Task S2-B5: Thêm MQTT/UI override adapter trong `mqtt_client.cpp`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

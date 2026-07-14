@@ -97,11 +97,22 @@ enum class ManualDecision : uint8_t {
     RejectedLocked = 6,    // crop-day lock (heater_air > day 8) hoặc blackout cứng
 };
 
+enum class ManualReleaseReason : uint8_t {
+    None = 0,
+    TTLExpired = 1,
+    SafetyLimitReached = 2,
+    HardwareProtection = 3,
+};
+
 struct ManualAck {
-    AppChannel     channel;
-    AppIntent      requested_intent;
-    ManualDecision decision;
-    uint32_t       ack_ms;
+    AppChannel          channel;
+    AppIntent           requested_intent;
+    ManualDecision      decision;
+    AppIntent           effective_intent;
+    ManualReleaseReason release_reason;
+    uint8_t             padding[3];
+    uint32_t            expires_ms;
+    uint32_t            ack_ms;
 } __attribute__((aligned(4)));
 
 

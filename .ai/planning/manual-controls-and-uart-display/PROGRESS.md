@@ -94,7 +94,7 @@
 | S2-B3 | Định nghĩa queue trong `src/core1_tasks.cpp` | `[ ] QA Review` |
 | S2-B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | `[ ] QA Review` |
 | S2-B5 | Thêm MQTT/UI override adapter trong `mqtt_client.cpp` | `[ ] QA Review` |
-| S2-B6 | Xác nhận telemetry/ack contract cho UI | `[ ] Pending` |
+| S2-B6 | Xác nhận telemetry/ack contract cho UI | `[ ] QA Review` |
 
 ### Track C: Safety Gate & Latch Module
 
