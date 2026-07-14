@@ -848,7 +848,7 @@ int main() {
     assert(actuators::set_relay_state(0xFF, true) == false);
     assert(actuators::set_relay_state(99, false) == false);
     assert(actuators::set_relay_state(config::pins::PIN_I2C_SDA, true) == false);
-    assert(actuators::set_relay_state(config::pins::PIN_ONE_WIRE, true) == false);
+    assert(actuators::set_relay_state(21, true) == false); // GPIO 21 is invalid, reject invalid pin
     // Verify no extra digitalWrite calls were made for rejected pins
     assert(mock_operation_counter == write_count_before);
 

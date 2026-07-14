@@ -16,14 +16,12 @@ namespace config
         constexpr uint8_t PIN_RELAY_MIST = 10;     // Sương (Fogger/Mist)
         constexpr uint8_t PIN_RELAY_FAN = 11;      // Quạt (Fan)
         constexpr uint8_t PIN_RELAY_LAMP_1 = 13;   // Đèn nhiệt 1 (Lamp 1)
+        constexpr uint8_t PIN_RELAY_LAMP_2 = 14;   // Đèn nhiệt 2 (Lamp 2)
         constexpr uint8_t PIN_RELAY_HWAT = 12;     // Sưởi nước (Heater Water)
 
         // I2C Bus (e.g. SHT30, SCD30)
         constexpr uint8_t PIN_I2C_SDA = 8;
         constexpr uint8_t PIN_I2C_SCL = 9;
-
-        // OneWire Bus (e.g. DS18B20)
-        constexpr uint8_t PIN_ONE_WIRE = 14;
 
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).

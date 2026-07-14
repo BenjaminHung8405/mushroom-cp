@@ -2,6 +2,32 @@
 
 > Ghi log theo thứ tự thời gian đảo ngược (bản ghi mới nhất ở đầu).
 
+## 2026-07-14 16:22 (Asia/Ho_Chi_Minh) — Task `S1-A7`
+
+- **Task ID:** S1-A7
+- **Mô tả:** Thêm `PIN_RELAY_LAMP_2 = 14`, thu hồi từ `PIN_ONE_WIRE` và xoá `PIN_ONE_WIRE`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập (Đang chờ QA Review).
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/config.h` | Thêm `PIN_RELAY_LAMP_2 = 14` và xoá `PIN_ONE_WIRE` cùng comment OneWire Bus. |
+| 2 | `mushroom-iot-firmware/test/run_tests.cpp` | Cập nhật assertion lỗi kiểm tra từ chối chân pin không hợp lệ từ `PIN_ONE_WIRE` sang GPIO `21`. |
+| 3 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Cập nhật trạng thái Task `S1-A7` sang `[ ] QA Review`. |
+
+### Giải trình logic
+
+- **Thêm/Xoá Pin Config:** Khai báo chân rơ-le đèn nhiệt thứ hai `PIN_RELAY_LAMP_2 = 14` và xoá bus cũ `PIN_ONE_WIRE` khỏi file cấu hình phần cứng `config.h`.
+- **Tương thích Unit Test:** Cập nhật file tests `run_tests.cpp` để thay thế tham chiếu `PIN_ONE_WIRE` cũ bằng GPIO `21` không hợp lệ, giữ nguyên logic kiểm thử "reject invalid pin" ban đầu mà không làm vỡ build.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- **Biên dịch nội bộ:** Chạy `clang++` biên dịch thành công không lỗi.
+- **Chạy thử nghiệm:** Chạy binary unit test thành công, toàn bộ suite pass (trừ lỗi pre-existing `storage.load_hardware_override` tại dòng 2372).
+
+---
+
 ## 2026-07-14 16:20 (Asia/Ho_Chi_Minh) — Task `S1-A6`
 
 - **Task ID:** S1-A6
@@ -28,6 +54,37 @@
 - **Grep verify:** `grep -rn "PIN_RELAY_HEATER_2"` trả về 0 hit trong thư mục source code.
 - **Biên dịch nội bộ:** Biên dịch thành công với `clang++` không có lỗi logic mới.
 - **Chạy thử nghiệm:** Chạy binary unit test thành công, các test case của phần Actuator hoạt động hoàn hảo (độc lập với lỗi pre-existing `storage.load_hardware_override` tại dòng 2372).
+
+---
+
+## 2026-07-14 16:23 (Asia/Ho_Chi_Minh) — Task `S1-A4`
+
+- **Task ID:** S1-A4
+- **Mô tả:** Đổi tên `AdaptiveTuner::GainsPod::gain_HAir` thành `gain_HLamp`, giữ nguyên công thức adaptive tuner.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập.
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/AdaptiveTuner.h` | Đổi tên field, cập nhật mô tả thành heat-lamp cluster, và cập nhật công thức trong API documentation. |
+| 2 | `mushroom-iot-firmware/src/AdaptiveTuner.cpp` | Đổi assignment sang `gain_HLamp`; cập nhật mô tả mapping nhưng không thay đổi integral law, clamp, hoặc hằng số. |
+| 3 | `mushroom-iot-firmware/src/FuzzyController.cpp` | Đổi consumer trong `arbitrateOutputs()` sang `gains.gain_HLamp`. |
+| 4 | `mushroom-iot-firmware/test/run_tests.cpp` | Đổi toàn bộ assertion AdaptiveTuner sang `gain_HLamp`, giữ nguyên các giá trị kỳ vọng và kiểm tra clamp. |
+| 5 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Chuyển S1-A4 từ In Progress sang QA Review. |
+| 6 | `.ai/planning/manual-controls-and-uart-display/WALKTHROUGH_LOG.md` | Thêm bản ghi thực thi này. |
+
+### Giải trình logic
+
+- `gain_HLamp` vẫn áp dụng cùng luật integral nhiệt độ như `gain_HAir` trước đây: `clamp(1.0 + kT * I_T, 0.5, 2.5)`. Không đổi hệ số, anti-windup, giới hạn `dt`, hay cấu trúc POD.
+- Consumer arbitration hiện nhất quán giữa raw thermal demand `HLamp` và adaptive gain `gain_HLamp`; output vẫn được `safeUnit`, `safeGain`, rồi `clampUnit` bảo vệ như trước.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- `grep` trong `mushroom-iot-firmware` không còn tham chiếu `gain_HAir`.
+- Native compile bằng `clang++ -std=c++17 -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src src/*.cpp test/run_tests.cpp -DUNIT_TEST -o /tmp/run_tests_s1a4` PASS; chỉ còn warning `-Wformat-security` đã tồn tại ở `mqtt_client.cpp`.
+- Chạy `/tmp/run_tests_s1a4` xác nhận Task A4 bắt đầu và vượt qua; test suite sau đó dừng tại assertion pre-existing `storage.load_hardware_override` ở `run_tests.cpp:2372`, không liên quan đến thay đổi rename này.
+- `pio test -e native` không chạy được vì CLI `pio` không có trong PATH của môi trường hiện tại.
 
 ---
 

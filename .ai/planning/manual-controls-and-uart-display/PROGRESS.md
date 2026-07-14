@@ -29,13 +29,13 @@
 | S1-A4 | Đổi tên `AdaptiveTuner::GainsPod::gain_HAir` → `gain_HLamp` | `[ ] QA Review` | File `include/AdaptiveTuner.h`, `src/AdaptiveTuner.cpp`. Không thay công thức tuner. |
 | S1-A5 | Đổi `config::pins::PIN_RELAY_HEATER_1` → `PIN_RELAY_LAMP_1 = 13` | `[ ] QA Review` | File `include/config.h`. |
 | S1-A6 | Đổi `config::pins::PIN_RELAY_HEATER_2` → `PIN_RELAY_HWAT = 12` | `[ ] QA Review` | HWat giữ nguyên số chân sau đổi tên. |
-| S1-A7 | Thêm `PIN_RELAY_LAMP_2 = 14` | `[ ] Pending` | Thu hồi từ `PIN_ONE_WIRE`. Xoá `PIN_ONE_WIRE`. |
+| S1-A7 | Thêm `PIN_RELAY_LAMP_2 = 14` | `[ ] QA Review` | Thu hồi từ `PIN_ONE_WIRE`. Xoá `PIN_ONE_WIRE`. |
 
 ### Track B: Actuator Whitelist & Init
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S1-B1 | Cập nhật whitelist `VALID_RELAY_PINS[]` và hàm `relay_name()` trong `src/actuators.cpp`: LAMP_1, LAMP_2, HWAT, MIST, FAN | `[ ] Pending` |
+| S1-B1 | Cập nhật whitelist `VALID_RELAY_PINS[]` và hàm `relay_name()` trong `src/actuators.cpp`: LAMP_1, LAMP_2, HWAT, MIST, FAN | `[ ] In Progress` |
 | S1-B2 | `init_actuators_gpio()`: khởi tạo 5 chân (bỏ HEATER_1/HEATER_2 cũ, thêm 3 chân mới) về LOW | `[ ] Pending` |
 | S1-B3 | Cập nhật test `run_tests.cpp:851` — đổi ONE_WIRE (14) sang GPIO 21 (không hợp lệ) để giữ nguyên assertion "reject không hợp lệ" | `[ ] Pending` |
 
