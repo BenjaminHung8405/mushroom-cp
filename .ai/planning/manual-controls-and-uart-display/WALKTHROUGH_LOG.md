@@ -1,5 +1,27 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:48:18+07:00] Task S1-E4: Test demand=0.75 → stage1 duty=1.0, stage2 duty=0.5
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Đã có sẵn)
+- **Giải trình giải pháp**:
+  - Xác minh test case cho kịch bản demand = 0.75 trong `test/run_tests.cpp`. Khi demand là 0.75, bóng đèn 1 (stage1) sẽ hoạt động hết công suất (duty cycle = 1.0) và bóng đèn 2 (stage2) sẽ chia sẻ phần tải còn lại (duty cycle = 0.5) với trễ (offset) inrush là 5000ms.
+  - Các giá trị assert đã kiểm tra chính xác trạng thái logic của Lamp1 và Lamp2 ở các thời điểm t=0 (chỉ Lamp1 hoạt động), t=4999 (chỉ Lamp1 hoạt động), t=5000 (cả hai hoạt động), và t=9999 (cả hai hoạt động) trong chu kỳ 10 giây.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch thành công và thực thi offline suite test thành công tốt đẹp: 100% assertions passed (`--- All Unit Tests Passed Successfully! ---`).
+
+## [2026-07-14T16:47:00+07:00] Task S1-E3: Test demand=0.5 → stage1 duty=1.0, stage2 duty=0 (biên chính xác)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Đã có sẵn)
+- **Giải trình giải pháp**:
+  - Xác minh test case cho kịch bản demand = 0.5 trong `test/run_tests.cpp`. Khi demand là 0.5, bóng đèn 1 (stage1) sẽ chịu tải tối đa với duty cycle = 1.0 và bóng đèn 2 (stage2) sẽ có duty cycle = 0.0 (đây là điểm biên chính xác).
+  - Các giá trị assert đã được kiểm chứng tương ứng với các khoảng thời gian khác nhau trong một chu kỳ (window) để đảm bảo đầu ra GPIO của Lamp1 luôn HIGH và Lamp2 luôn LOW.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và thực thi offline suite test thành công tốt đẹp: 100% assertions passed (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:44:35+07:00] Task S1-D4: Cập nhật Telemetry JSON key `h_air_duty` → `h_lamp_duty`; document trong backend contract
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

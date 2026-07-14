@@ -1669,13 +1669,13 @@ int main() {
     // 28.5 Test Task S1-E1 to S1-E6 - applyLampStaging staged demand tests
     Serial.println("[TEST] Starting Task S1-E1 to S1-E6 - applyLampStaging Unit Tests...");
     {
-        const TpcChannelConfig config1 = {13U, 10000U, 0U, 0U, 0U}; // window 10s, offset 0
-        const TpcChannelConfig config2 = {14U, 10000U, 0U, 0U, 5000U}; // window 10s, offset 5s
+        const TPC_Task::TpcChannelConfig config1 = {13U, 10000U, 0U, 0U, 0U}; // window 10s, offset 0
+        const TPC_Task::TpcChannelConfig config2 = {14U, 10000U, 0U, 0U, 5000U}; // window 10s, offset 5s
 
         // S1-E1: demand=0.0 -> stage1&2 LOW
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL;
             TPC_Task::applyLampStaging(0.0f, stage1, stage2, config1, config2);
             assert(stage1.output_high == false);
@@ -1686,8 +1686,8 @@ int main() {
 
         // S1-E2: demand=0.3 -> stage1 duty=0.6, stage2 duty=0
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL; // t=0 in window
             TPC_Task::applyLampStaging(0.3f, stage1, stage2, config1, config2);
             assert(stage1.output_high == true);
@@ -1712,8 +1712,8 @@ int main() {
 
         // S1-E3: Test demand=0.5 -> stage1 duty=1.0, stage2 duty=0 (biên chính xác)
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL;
             TPC_Task::applyLampStaging(0.5f, stage1, stage2, config1, config2);
             assert(stage1.output_high == true);
@@ -1731,8 +1731,8 @@ int main() {
 
         // S1-E4: Test demand=0.75 -> stage1 duty=1.0, stage2 duty=0.5
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL; // t=0
             TPC_Task::applyLampStaging(0.75f, stage1, stage2, config1, config2);
             assert(stage1.output_high == true);
@@ -1764,8 +1764,8 @@ int main() {
 
         // S1-E5: Test demand=1.0 -> stage1&2 duty=1.0
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL; // t=0
             TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
             assert(stage1.output_high == true);
@@ -1783,8 +1783,8 @@ int main() {
 
         // S1-E6: Test dual-lamp offset chống inrush (window elapsed 0 -> stage2 vẫn OFF trong 5s đầu)
         {
-            TpcChannelState stage1 = {};
-            TpcChannelState stage2 = {};
+            TPC_Task::TpcChannelState stage1 = {};
+            TPC_Task::TpcChannelState stage2 = {};
             mock_millis_offset = 10000UL; // t=0
             // Even at full demand 1.0, stage2 must be OFF at t=0 because of the 5s offset
             TPC_Task::applyLampStaging(1.0f, stage1, stage2, config1, config2);
