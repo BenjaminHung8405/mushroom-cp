@@ -28,6 +28,10 @@ namespace config
         // Hold 5 seconds during runtime to force SoftAP config portal.
         constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
+        // Manual buttons (re-added to compile button_manager)
+        constexpr uint8_t PIN_BUTTON_UP = 15;
+        constexpr uint8_t PIN_BUTTON_DOWN = 16;
+
         // KY-040 rotary encoder. Supply the module at 3.3 V only.
         constexpr uint8_t PIN_ENCODER_CLK = 5;
         constexpr uint8_t PIN_ENCODER_DT = 6;

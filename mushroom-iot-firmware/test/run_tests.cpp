@@ -804,6 +804,7 @@ int main() {
         config::pins::PIN_RELAY_MIST,
         config::pins::PIN_RELAY_FAN,
         config::pins::PIN_RELAY_LAMP_1,
+        config::pins::PIN_RELAY_LAMP_2,
         config::pins::PIN_RELAY_HWAT
     };
 

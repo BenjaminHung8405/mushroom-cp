@@ -49,7 +49,7 @@ namespace actuators
 
     void init_actuators_gpio()
     {
-        Serial.println("[ACTUATORS] Initializing GPIO pins for 4 Relays with Fail-Safe protection...");
+        Serial.println("[ACTUATORS] Initializing GPIO pins for 5 Relays with Fail-Safe protection...");
 
         // Pin 1: Mist Relay
         pinMode(config::pins::PIN_RELAY_MIST, OUTPUT);
@@ -66,7 +66,12 @@ namespace actuators
         digitalWrite(config::pins::PIN_RELAY_LAMP_1, LOW);
         Serial.printf("[ACTUATORS] Relay LAMP 1 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_LAMP_1);
 
-        // Pin 4: Heater Water Relay
+        // Pin 4: Lamp 2 Relay
+        pinMode(config::pins::PIN_RELAY_LAMP_2, OUTPUT);
+        digitalWrite(config::pins::PIN_RELAY_LAMP_2, LOW);
+        Serial.printf("[ACTUATORS] Relay LAMP 2 (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_LAMP_2);
+
+        // Pin 5: Heater Water Relay
         pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
         digitalWrite(config::pins::PIN_RELAY_HWAT, LOW);
         Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HWAT);

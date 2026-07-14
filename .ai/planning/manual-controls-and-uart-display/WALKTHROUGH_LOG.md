@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:36:00+07:00] Task S1-B2: `init_actuators_gpio()`: khởi tạo 5 chân về LOW
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/actuators.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/actuators.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/config.h) (Sửa đổi để khắc phục lỗi biên dịch button_manager)
+- **Giải trình giải pháp**:
+  - Cập nhật hàm `init_actuators_gpio()` trong `src/actuators.cpp` để khởi tạo cấu hình `pinMode` thành `OUTPUT` và ngay lập tức ghi giá trị `LOW` (fail-safe) cho cả 5 chân rơ-le: `PIN_RELAY_MIST`, `PIN_RELAY_FAN`, `PIN_RELAY_LAMP_1`, `PIN_RELAY_LAMP_2`, và `PIN_RELAY_HWAT`.
+  - Cập nhật Test Case 17 trong `test/run_tests.cpp` để bổ sung chân `PIN_RELAY_LAMP_2` vào danh sách kiểm thử khởi tạo GPIO, đảm bảo chân này cũng được kiểm chứng là cấu hình `OUTPUT` và ở mức logic `LOW` khi khởi động.
+  - Bổ sung định nghĩa `PIN_BUTTON_UP` và `PIN_BUTTON_DOWN` trong `include/config.h` để khắc phục lỗi thiếu định nghĩa gây lỗi biên dịch cho module `button_manager.cpp`.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và chạy thành công suite test bằng `g++` local host: Toàn bộ 100% test cases đều PASS thành công (`--- All Unit Tests Passed Successfully! ---`).
+  - Biên dịch PlatformIO target `pio run` cho environment `otg` thành công tốt đẹp (`SUCCESS`).
+
 ## [2026-07-14T16:35:00+07:00] Task S1-B1: Cập nhật whitelist VALID_RELAY_PINS[] và hàm relay_name() trong src/actuators.cpp
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
