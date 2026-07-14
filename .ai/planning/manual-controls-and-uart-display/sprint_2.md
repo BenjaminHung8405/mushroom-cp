@@ -1,0 +1,275 @@
+# Sprint 2 — Cabinet Buttons + Manual Request Pipeline (Core 0 → Core 1 Safety Gate)
+
+## Mục tiêu Sprint
+
+Thêm ba nút vật lý trên tủ điện cho Mist / Lamp / Fan. Nút không bao giờ ghi GPIO relay
+trực tiếp; thay vào đó gửi yêu cầu qua queue tới Core 1, nơi luật fuzzy/safety gate quyết
+định có cho phép bật/tắt hay không. Bất kỳ yêu cầu ON nào vi phạm ranh giới an toàn (over
+temp, over humidity, blackout, sensor NAN) sẽ bị chặn và log lý do. Yêu cầu OFF luôn được
+chấp nhận (hướng fail-safe).
+
+## Non-goals
+
+- Không hiển thị trạng thái nút lên LED display (Sprint 3).
+- Không đẩy manual command lên MQTT ack (chỉ log Serial ở sprint này; MQTT tùy chọn).
+- Không thêm rotary encoder logic mới.
+
+## Thiết kế luồng dữ liệu
+
+```
+Core 0                                Core 1
+======                                ======
+taskCabinetButtons                    taskCore1Control (runControlPipelineStep)
+  poll 10ms (vTaskDelayUntil)           drainManualRequestQueue()
+  history = (history<<1) | sample         for each ManualRequest:
+  history==0x00 → confirmed PRESS         decision = evaluateManualSafetyGate(req, tel, sp, rtc)
+  history==0xFF → confirmed RELEASE       if Accepted:
+    → push {chan, request_on} into            update/toggle manualLatch[chan]
+      xManualRequestQueue                   else:
+                                              push ManualAck{reject reason} → xManualAckQueue
+                                        autoClearOnSensorViolation(...)
+                                        applyManualLatchToOutputs(outputs, manualLatch, now)
+                                        hardwareProtectionOverride(outputs, rtcTime)  # ưu tiên cao nhất
+                                        TPC.applyTpcOutputs(outputs, ...)
+```
+
+**Debounce = Shift Register Integrator (industrial-grade).** Mỗi nút giữ `uint8_t history`;
+task Core 0 lấy mẫu mỗi 10 ms và dịch bit trái. Chỉ khi 8 mẫu liên tiếp cùng cực (0x00 hoặc
+0xFF) mới chốt trạng thái. EMI từ SSR đóng ngắt tải công suất cao trong tủ điện sinh ra xung
+< 5–10 ms sẽ bị lọc sạch. Thời gian nhận diện nhấn thật ổn định ≈ 80 ms — vẫn cảm giác tức
+thời với người vận hành.
+
+- `xManualRequestQueue`: depth 4, item `ManualRequest`.
+- `xManualAckQueue`: depth 4, item `ManualAck` (Core 0 dùng cho Serial log + future MQTT).
+- `manualLatch[]`: array 3 phần tử `{active, forced_state, expires_ms}` sống trong scope
+  `taskCore1Control` (không toàn cục).
+
+## Data models
+
+Trong `include/models.h`:
+
+```cpp
+enum class ManualChannel : uint8_t {
+    Mist = 0,
+    Lamp = 1,
+    Fan  = 2,
+    COUNT
+};
+
+struct ManualRequest {
+    ManualChannel channel;
+    bool          request_on;   // true=user muốn ON, false=user muốn OFF
+    uint32_t      request_ms;   // millis() lúc phát request
+} __attribute__((aligned(4)));
+
+enum class ManualDecision : uint8_t {
+    Accepted     = 0,
+    RejectedNAN  = 1,
+    RejectedTemp = 2,
+    RejectedHumi = 3,
+    RejectedBlackout = 4,
+    RejectedRateLimit = 5,
+};
+
+struct ManualAck {
+    ManualChannel  channel;
+    bool           requested_on;
+    ManualDecision decision;
+    uint32_t       ack_ms;
+} __attribute__((aligned(4)));
+```
+
+## Safety gate rules (Core 1, pure function)
+
+Hàm `manual::evaluateSafetyGate(request, telemetry, setpoints, rtcTime)`:
+
+- **OFF request**: luôn `Accepted`. Không cần đọc sensor.
+- **Mist ON**:
+  - `!isfinite(humidity_air)` → `RejectedNAN`.
+  - `humidity_air > 92.0f` → `RejectedHumi`.
+  - `!rtcTime.valid || isMiddayBlackout(rtcTime)` → `RejectedBlackout`.
+  - Ngược lại → `Accepted`.
+- **Lamp ON**:
+  - `!isfinite(temp_air)` → `RejectedNAN`.
+  - `temp_air > setpoints.temp_target + 3.0f` → `RejectedTemp`.
+  - Ngược lại → `Accepted`. (Lamp không bị blackout.)
+- **Fan ON**: luôn `Accepted` (quạt an toàn, kể cả blackout — giúp hạ nhiệt).
+
+Manual latch:
+- TTL 15 phút. Sau TTL, latch tự release, fuzzy giành lại quyền điều khiển.
+- Nếu Core 1 đọc sensor thấy điều kiện lật ngược ranh giới (VD humidity vọt lên 95%
+  trong khi Mist latch ON), latch bị **auto-clear** — không đợi TTL. Log rõ ràng.
+- Rate limit: cùng 1 kênh không được nhận > 1 request/second → `RejectedRateLimit`.
+
+## Ứng dụng latch vào output
+
+Hàm `manual::applyManualLatchToOutputs(FuzzyController::ArbitratedOutputsPod& outputs,
+const ManualLatchArray& latch, uint32_t now)`:
+
+- Với mỗi channel còn active:
+  - Nếu `forced_state == ON`: set duty tương ứng = `1.0f` (Mist/Fan) hoặc `0.6f`
+    (Lamp — bật 1 bóng full + 1 bóng ~20% để user không cảm giác sáng quá).
+  - Nếu `forced_state == OFF`: set duty = `0.0f`.
+- Áp dụng **sau** fuzzy + adaptive tuner, **trước** `hardwareProtectionOverride()`. Blackout
+  interlock luôn thắng manual latch.
+
+## Danh sách task
+
+### Track A — Config & Boot GPIO
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| A1 | Thêm 3 constant chân nút trong `include/config.h::pins` | `PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, `PIN_BTN_FAN = 16`. Comment: active-LOW, dùng `INPUT_PULLUP` mềm; production cần thêm pull-up 4.7 kΩ vật lý + RC 100 nF + 10k debounce. |
+| A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `pinMode(pin, INPUT_PULLUP)` cho cả 3 chân. Log rõ ràng. Gọi từ `init_actuators_gpio()` cùng với `init_wifi_config_button_gpio()`. |
+
+### Track B — Data Models & Queues
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| B1 | Thêm 4 struct/enum vào `include/models.h` | `ManualChannel`, `ManualRequest`, `ManualDecision`, `ManualAck` (đúng như spec trên). Bọc trong POD, giữ `__attribute__((aligned(4)))`. |
+| B2 | Khai báo `xManualRequestQueue` và `xManualAckQueue` trong `include/definitions.h` | Bọc `#ifndef UNIT_TEST` phần khai báo `QueueHandle_t` như các queue hiện có. Depth 4. Item size = `sizeof(ManualRequest)` và `sizeof(ManualAck)`. |
+| B3 | Định nghĩa hai queue trong `src/core1_tasks.cpp` (cùng nơi định nghĩa `xTelemetryQueue`) | Khởi tạo `nullptr`. |
+| B4 | Tạo hai queue trong `initQueues()` của `main.cpp` | Log FATAL nếu tạo fail; không tiếp tục khởi tạo task nút. |
+
+### Track C — Safety Gate & Latch Module
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| C1 | Tạo mới `include/manual_control.h` | Namespace `manual`. Khai báo: `evaluateSafetyGate()`, `applyManualLatchToOutputs()`, struct `ManualLatchEntry`, alias `ManualLatchArray` (std::array<ManualLatchEntry, 3>). `#pragma once`. Không include `Arduino.h` ở header; forward-declare types nếu cần. |
+| C2 | Tạo mới `src/manual_control.cpp` | Chỉ chứa pure logic + constant. `constexpr uint32_t MANUAL_TTL_MS = 15UL * 60UL * 1000UL;` `constexpr float LAMP_MANUAL_DUTY = 0.6f;` `constexpr float RATE_LIMIT_MS = 1000U;`. Không include `<Arduino.h>` khi không cần thiết — dùng `<cstdint>`, `<cmath>`. |
+| C3 | Hiện thực `evaluateSafetyGate()` | Đúng theo rule ở phần thiết kế. Không side-effect, không log. Trả `ManualDecision`. |
+| C4 | Hiện thực helper `updateLatchOnAccepted()` | Nhận request đã accepted + `now` + reference `ManualLatchArray`. Set `active=true`, `forced_state=req.request_on`, `expires_ms=now+MANUAL_TTL_MS`. |
+| C5 | Hiện thực `applyManualLatchToOutputs()` | Duyệt 3 channel: nếu latch expired → tự clear. Nếu active, ép duty theo forced_state. |
+| C6 | Thêm `autoClearOnSensorViolation()` | Nhận latch + telemetry + setpoints + rtcTime. Nếu latch active theo hướng ON nhưng điều kiện chuyển sang cảnh báo (nhiệt/ẩm vượt biên), clear latch và log lý do. |
+
+### Track D — Core 0 Button Task
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| D1 | Thêm khai báo `taskCabinetButtons(void*)` trong `definitions.h` | Bọc `#ifndef UNIT_TEST`. |
+| D2 | Tạo file `src/cabinet_buttons.cpp` | Chỉ chứa task Core 0. Import `manual_control.h`, `definitions.h`, `config.h`. Không import fuzzy/TPC. |
+| D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | Cấu trúc: `struct ButtonSample { uint8_t pin; ManualChannel channel; uint8_t history; bool debounced_pressed; uint32_t last_request_ms; };` array 3 phần tử. Mỗi 10 ms: `raw = (digitalRead(pin)==LOW)`; `history = (history<<1) \| (raw ? 0x00 : 0x01)` — nhấn = 0 vì active-LOW, nên PRESS = `history == 0x00` và RELEASE = `history == 0xFF`. Chỉ khi có edge transition mới sinh `ManualRequest{channel, request_on=true}` cho press (Core 1 tự toggle latch). Không sinh request cho release — nút là momentary, không phải toggle switch. Log 1 lần mỗi transition qua `ScopedSerialLock`. |
+| D4 | Rate-limit local: bỏ qua PRESS mới nếu cách PRESS trước < 200 ms | Guard-rail thứ hai chống bounce residual sau khi shift-register đã lọc. Core 1 vẫn giữ rate-limit 1000 ms độc lập ở tầng safety gate. |
+| D5 | Gọi `xTaskCreatePinnedToCore(taskCabinetButtons, "TaskCabBtn", 2048, nullptr, 1, nullptr, 0)` trong `createCoreTasks()` | Pin Core 0. Cùng priority với encoder task. Vòng lặp phải dùng `vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(10))` để chu kỳ 10 ms tuyệt đối chính xác — chu kỳ jitter ảnh hưởng trực tiếp hiệu quả lọc EMI của shift-register. |
+| D6 | Cấp GPIO INPUT_PULLUP trong `taskCabinetButtons` khởi động task | Trước vòng lặp, `pinMode(pin, INPUT_PULLUP)` cho cả 3 chân. Đọc mẫu đầu tiên và pre-seed `history = 0xFF` (giả định nút đang nhả) để tránh false PRESS ngay sau boot khi pull-up chưa ổn định. |
+
+### Track E — Core 1 Integration
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | Không toàn cục. Init zero. |
+| E2 | Thêm bước drain queue vào đầu `runControlPipelineStep()` | Sau khi drain baseline/override, drain `xManualRequestQueue`. Với mỗi request: gọi `evaluateSafetyGate`, nếu Accepted và toggle-semantics: nếu latch cùng channel đang active với `forced_state==request_on` thì clear latch (toggle OFF), ngược lại update latch. Sinh `ManualAck` push vào `xManualAckQueue` (non-blocking). |
+| E3 | Chèn `autoClearOnSensorViolation(manualLatch, telemetry, setpoints, rtcTime)` sau khi có `setpoints` | Trước khi gọi fuzzy. |
+| E4 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, millis())` sau `arbitrateOutputs` | Trước `hardwareProtectionOverride`. |
+| E5 | Verify `hardwareProtectionOverride` vẫn thắng | Thêm 1 comment giải thích thứ tự: fuzzy → tuner → arbitrate → manual latch → protection → TPC. |
+
+### Track F — Core 0 Ack Consumer
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| F1 | Trong `taskCore0Communication`, thêm bước drain `xManualAckQueue` mỗi vòng | Log qua `ScopedSerialLock`: `[MANUAL] ch=%d req_on=%d decision=%d`. Không block. |
+| F2 | (Optional) Publish MQTT topic `mushroom/{device}/manual_ack` | Nếu MQTT connected. Payload JSON `{channel, requested_on, decision, ts}`. Không bắt buộc pass trong sprint này. |
+
+### Track G — Tests
+
+| Task ID | Mô tả | Chỉ thị chi tiết |
+|---------|-------|------------------|
+| G1 | `test_manual_gate_mist_over_humidity` | telemetry.humidity_air = 94, request Mist ON → `RejectedHumi`. |
+| G2 | `test_manual_gate_mist_nan_humidity` | humidity NAN → `RejectedNAN`. |
+| G3 | `test_manual_gate_lamp_over_temp` | temp_air = target+5 → `RejectedTemp`. |
+| G4 | `test_manual_gate_fan_always_accepted` | Fan ON được chấp nhận kể cả blackout + sensor NAN. |
+| G5 | `test_manual_gate_off_always_accepted` | Bất kỳ OFF request → Accepted, không đọc sensor. |
+| G6 | `test_latch_ttl_expires` | Latch active, giả lập `now` vượt TTL → apply không ép duty. |
+| G7 | `test_latch_auto_clear_on_sensor_violation` | Latch Mist=ON, telemetry.humidity vọt 95 → autoClear clear latch. |
+| G8 | `test_apply_latch_order_vs_protection` | Latch Mist=ON, blackout active → sau protection outputs.Mist = 0 (protection thắng). |
+| G9 | Chạy `pio test -e native` toàn bộ | PASS, không có warning liên quan. |
+
+## Definition of Done
+
+- Sau khi flash và nhấn nút Mist ở nhà nấm với humidity 70%, Mist relay ON trong TTL 15 phút.
+- Nhấn nút Mist khi humidity 94% → relay không ON, Serial log `[MANUAL] ch=0 req_on=1 decision=3`.
+- Nhấn nút Fan luôn ON.
+- Blackout 11:00-13:30: nút Mist bị chặn với `decision=RejectedBlackout`.
+- `pio test -e native` PASS.
+- Không có race condition: manualLatch chỉ được sửa bởi Core 1, request chỉ push bởi Core 0.
+
+## Phụ lục — Thuật toán Shift-Register Integrator Debounce
+
+Được thay thế cho polling 20 ms + confirm 30 ms sau review phản hồi từ senior IoT dev.
+Môi trường tủ điện thực địa có EMI mạnh khi SSR đóng ngắt tải cảm (quạt, mist, đèn nhiệt).
+Debounce đơn giản dễ bị **ghost trigger** — chip đọc xung nhiễu thành lệnh nhấn giả.
+
+### Nguyên lý
+
+Mỗi 10 ms task lấy 1 mẫu điện áp raw từ GPIO. 8 mẫu gần nhất được dồn vào biến `uint8_t
+history`. Chỉ khi cả 8 mẫu liên tiếp đều cùng một mức (`0x00` hoặc `0xFF`) thì trạng thái
+debounced mới được chốt. Cửa sổ xác nhận thực tế = **80 ms**, đủ dài để lọc mọi burst EMI
+điển hình (< 10 ms) và đủ ngắn để user không cảm nhận độ trễ.
+
+Với active-LOW (INPUT_PULLUP + nút GND): raw sample = 1 khi nhả (HIGH), 0 khi nhấn (LOW).
+Convention của repo: `history` lưu chuỗi mẫu raw **đã lọc**; nhấn ổn định = `0x00`, nhả
+ổn định = `0xFF`. Không dùng inverted history.
+
+### Pseudocode Core 0
+
+```cpp
+struct ButtonSample {
+    uint8_t pin;
+    ManualChannel channel;
+    uint8_t history;
+    bool debounced_pressed;
+    uint32_t last_request_ms;
+};
+
+static ButtonSample buttons[3] = {
+    {config::pins::PIN_BTN_MIST, ManualChannel::Mist, 0xFF, false, 0},
+    {config::pins::PIN_BTN_LAMP, ManualChannel::Lamp, 0xFF, false, 0},
+    {config::pins::PIN_BTN_FAN,  ManualChannel::Fan,  0xFF, false, 0},
+};
+
+void taskCabinetButtons(void*) {
+    for (auto& b : buttons) pinMode(b.pin, INPUT_PULLUP);
+
+    TickType_t lastWake = xTaskGetTickCount();
+    while (true) {
+        const uint32_t now = millis();
+        for (auto& b : buttons) {
+            const uint8_t raw = (digitalRead(b.pin) == LOW) ? 0 : 1;
+            b.history = static_cast<uint8_t>((b.history << 1) | raw);
+
+            if (b.history == 0x00 && !b.debounced_pressed) {
+                b.debounced_pressed = true;
+                if (now - b.last_request_ms >= 200U) {
+                    b.last_request_ms = now;
+                    ManualRequest req = {b.channel, true, now};
+                    if (xManualRequestQueue) {
+                        xQueueSend(xManualRequestQueue, &req, 0);
+                    }
+                }
+            } else if (b.history == 0xFF && b.debounced_pressed) {
+                b.debounced_pressed = false;
+            }
+        }
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(10));
+    }
+}
+```
+
+### Nghiệm thu
+
+- **EMI stress test:** Với dây chống nhiễu tháo ra, kích SSR quạt 2 A tại tủ điện. Nút không
+  được sinh request giả trong 60 giây liên tục. Đo bằng Serial log Count = 0.
+- **Cảm nhận user:** Nhấn nút ngắt khoát → thấy phản hồi trong < 200 ms (10 ms poll × 8 samples
+  + jitter). Không được > 300 ms.
+- **Chống double-press:** Nhấn nhanh 2 lần cách nhau 100 ms → chỉ 1 request đi qua (rate-limit).
+- **Chống stuck press:** Nút giữ 30 giây → chỉ 1 request tại thời điểm PRESS. Không lặp request.
+
+## Rủi ro & Mitigation
+
+- **Rủi ro:** Toggle semantics khiến user bối rối (nhấn 2 lần mà không thấy đảo trạng thái do
+  latch expired giữa chừng). **Mitigation:** Sprint 3 hiển thị trạng thái latch lên LED display
+  bằng dấu chấm decimal — user quan sát được ngay.
+- **Rủi ro:** Nút bounce vật lý > 30 ms. **Mitigation:** production layout PCB có RC filter; nếu
+  vẫn bounce, tăng debounce lên 50 ms trong task D3.
+- **Rủi ro:** GPIO 4 có thể là input-only trên vài SKU. **Mitigation:** GPIO 4 trên ESP32-S3
+  N16R8 là general-purpose I/O, đã verify với datasheet ESP32-S3-WROOM-1. Backup pin: GPIO 21.

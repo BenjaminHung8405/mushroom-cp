@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-07-14T13:27:51+07:00 — Task A3
+
+- **Task ID:** A3
+- **Mô tả:** Định nghĩa file-scope `TaskHandle_t hTaskCore1Control` và `TaskHandle_t hTaskHWButton` (khởi tạo `nullptr`) trong `mushroom-iot-firmware/src/main.cpp`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Files đã sửa đổi:**
+  - `mushroom-iot-firmware/src/main.cpp` (chèn 8 dòng: comment giải thích + block `#ifndef UNIT_TEST` chứa hai định nghĩa TaskHandle).
+- **Files đã tạo mới:**
+  - Không có.
+- **Giải pháp logic đã viết:**
+  - Chèn đúng một block gồm 3 dòng comment mô tả mục đích + `#ifndef UNIT_TEST ... #endif` bao quanh hai định nghĩa `TaskHandle_t hTaskCore1Control = nullptr;` và `TaskHandle_t hTaskHWButton = nullptr;` ngay sau nhóm `#include` (dòng 14-21), trước các `static constexpr` hằng số cấu hình task.
+  - Khởi tạo về `nullptr` là bắt buộc theo chỉ thị Kỹ sư trưởng để `ota_manager` ở Sprint 2 có thể kiểm tra an toàn (`if (handle != nullptr)`) trước khi gọi `vTaskSuspend/vTaskResume`, tránh gọi vào task chưa được tạo.
+  - Toàn bộ định nghĩa nằm trong `#ifndef UNIT_TEST` khớp với extern declaration đã có sẵn ở `include/definitions.h` (Task A2) — đảm bảo native unit test build không đòi hỏi symbol và không lộ FreeRTOS type ra host.
+  - Không đụng vào bất kỳ include, hằng số, hàm hiện hữu nào khác; không sửa `createCoreTasks()` (đó là phạm vi Task B1/B2). Patch tối thiểu tuyệt đối.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `grep -n "TaskHandle_t hTask"` xác nhận đúng một cặp definition tại `src/main.cpp:19-20` và đúng một cặp extern declaration tại `include/definitions.h:36-37` — không xung đột đa định nghĩa, cả hai đều bên trong `#ifndef UNIT_TEST`.
+  - Syntax check bằng `gcc -x c++ -std=c++17 -fsyntax-only` cho phần định nghĩa (giả lập với typedef `TaskHandle_t`): pass ở cả nhánh non-UNIT_TEST và nhánh UNIT_TEST (nhánh UNIT_TEST đơn giản bỏ qua block do `#ifndef` false).
+  - Chạy `./run_tests` sau khi thay đổi: assertion fail tại `run_tests.cpp:270` (`storage.load_hardware_override`) — đây là lỗi pre-existing đã được ghi nhận trong bản ghi Task A2 và KHÔNG liên quan tới `main.cpp`. Test `main.cpp setup()/loop()` ở block 14 (dòng 711) nằm SAU điểm assert fail line 270 nên không có đánh giá được ở lần chạy này, nhưng đường dẫn UNIT_TEST của `main.cpp` không bị thay đổi (khối `#ifndef UNIT_TEST` mới thêm sẽ không được compile trong test build).
+  - `git diff mushroom-iot-firmware/src/main.cpp` xác nhận diff chỉ gồm đúng 8 dòng added liên tiếp, không có thay đổi ngẫu nhiên (whitespace/format/encoding) ở phần còn lại của file. Không phát sinh binary hay artefact nào.
+
+---
+
 ## 2026-07-14T13:09:48+07:00 — Task A2
 
 - **Task ID:** A2

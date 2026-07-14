@@ -11,6 +11,15 @@
 #include "Trajectory.h"
 #include "encoder.h"
 
+// Task handles for Core 1 tasks. Externally declared in definitions.h so
+// other modules (e.g. ota_manager) can suspend/resume them safely during
+// firmware update. Wrapped in #ifndef UNIT_TEST because TaskHandle_t is a
+// FreeRTOS type that is unavailable in the native unit-test environment.
+#ifndef UNIT_TEST
+TaskHandle_t hTaskCore1Control = nullptr;
+TaskHandle_t hTaskHWButton     = nullptr;
+#endif
+
 // Telemetry samples are produced every 5 s; depth of 4 is enough for Core 0 to
 // drain without blocking Core 1.
 static constexpr UBaseType_t TELEMETRY_QUEUE_DEPTH = 4;
