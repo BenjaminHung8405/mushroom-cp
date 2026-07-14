@@ -42,11 +42,19 @@ void process_cabinet_buttons()
             // 8 consecutive LOW samples -> stable PRESS
             btn.current_state = false;
 
-            // Capture current intent before flipping, then toggle for next press
-            AppIntent intent_to_send = btn.next_intent;
-            btn.next_intent = (intent_to_send == AppIntent::FORCE_ON)
-                              ? AppIntent::AUTO
-                              : AppIntent::FORCE_ON;
+            // Capture current dynamic intent (invert current logic state)
+            SharedSystemState system_state = getSharedSystemState();
+            bool is_active = false;
+            if (btn.channel == AppChannel::MIST) {
+                is_active = system_state.actuators.mist_active;
+            } else if (btn.channel == AppChannel::FAN) {
+                is_active = system_state.actuators.fan_active;
+            } else if (btn.channel == AppChannel::LAMP) {
+                is_active = system_state.actuators.lamp_stage_active;
+            }
+
+            AppIntent intent_to_send = is_active ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+            btn.next_intent = (intent_to_send == AppIntent::FORCE_ON) ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
 
             if (g_manual_request_queue != nullptr) {
                 ManualRequest req;

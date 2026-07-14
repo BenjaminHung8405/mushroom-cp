@@ -2519,22 +2519,22 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
-        // S2-G7: Test latch TTL expire sau 15 phút
+        // S2-G7: Test latch TTL expire sau 30 giây
         {
             manual::ManualLatchArray latch = {};
             ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
             manual::updateLatchOnAccepted(req, 1000UL, latch);
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
             
-            // expire_ms should be 1000 + 900000 = 901000
-            assert(latch[static_cast<size_t>(AppChannel::MIST)].expires_ms == 901000UL);
+            // expire_ms should be 1000 + 30000 = 31000
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].expires_ms == 31000UL);
 
-            // updateLatchDecay at 900000 -> still active
-            manual::updateLatchDecay(latch, 900000UL);
+            // updateLatchDecay at 30000 -> still active
+            manual::updateLatchDecay(latch, 30000UL);
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
 
-            // updateLatchDecay at 901000 -> expired
-            manual::updateLatchDecay(latch, 901000UL);
+            // updateLatchDecay at 31000 -> expired
+            manual::updateLatchDecay(latch, 31000UL);
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == false);
         }
 

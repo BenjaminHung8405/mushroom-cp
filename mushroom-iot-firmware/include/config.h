@@ -101,8 +101,8 @@ namespace config
         constexpr uint8_t PIN_BTN_LAMP = 15; // Nút Đèn — INPUT_PULLUP, debounce 8-sample shift-register
         constexpr uint8_t PIN_BTN_FAN  = 16; // Nút Quạt — INPUT_PULLUP, debounce 8-sample shift-register
 
-        // Manual latch duration (15 minutes)
-        constexpr uint32_t MANUAL_LATCH_TTL_MS = 900000;
+        // Manual latch duration (30 seconds)
+        constexpr uint32_t MANUAL_LATCH_TTL_MS = 30000;
     } // namespace hardware
 
     namespace safe_offline
