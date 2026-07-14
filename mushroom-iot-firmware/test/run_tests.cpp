@@ -2285,7 +2285,7 @@ int main() {
         char setpointTopic[100];
         strcpy(setpointTopic, topics.setpoint.c_str());
         std::string failedPersistPayload = "{\"temperatureSetpoint\":29.0}";
-        PubSubClient::mock_callback(setpointTopic, reinterpret_cast<uint8_t*>(failedPersistPayload.data()), failedPersistPayload.length());
+        PubSubClient::mock_callback(setpointTopic, reinterpret_cast<uint8_t*>(&failedPersistPayload[0]), failedPersistPayload.length());
         Preferences::mock_fail_put_bytes = false;
         assert(uxQueueMessagesWaiting(xBaselineQueue) == 0);
         assert(storage.load_backend_snapshot(storedBaseline) == true);
@@ -2347,6 +2347,7 @@ int main() {
         encoder::process(500UL);
         encoder::process(530UL);
         encoder::process(3530UL);
+        storage::HardwareOverrideSnapshot persistedOverride;
         assert(storage.load_hardware_override(persistedOverride) == true);
         assert(std::fabs(persistedOverride.temp_target - 31.5f) < 0.001f);
         assert(std::fabs(persistedOverride.humidity_target - 77.0f) < 0.001f);
@@ -2358,8 +2359,8 @@ int main() {
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
         // Existing F6 gesture tests exercise edit/save/clear; the test cleanup leaves no override.
-        storage::HardwareOverrideSnapshot persistedOverride;
-        assert(storage.load_hardware_override(persistedOverride) == false);
+        storage::HardwareOverrideSnapshot cleanOverride;
+        assert(storage.load_hardware_override(cleanOverride) == false);
         assert(storage.factory_reset() == true);
     }
 
