@@ -21,7 +21,7 @@ namespace FuzzyController {
  * stage must not threshold or map demands to relay boolean HIGH/LOW.
  */
 struct DualHeaterOutputsPod {
-    float HAir;
+    float HLamp;
     float HWat;
     float Mist;
     float ExhTH;

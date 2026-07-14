@@ -1283,7 +1283,7 @@ int main() {
         // 25.1 Cold & dry: prioritize air heat and suppress mist while cold.
         const DualHeaterOutputsPod coldDry =
             FuzzyController::executeDualHeaterRules(4.0f, 20.0f);
-        assert(std::abs(coldDry.HAir - 1.0f) < 1e-6f);
+        assert(std::abs(coldDry.HLamp - 1.0f) < 1e-6f);
         assert(coldDry.HWat == 0.0f);
         assert(coldDry.Mist == 0.0f);
         assert(coldDry.ExhTH == 0.0f);
@@ -1291,7 +1291,7 @@ int main() {
         // 25.2 Cold & wet: use water heat only; do not mist or exhaust heat.
         const DualHeaterOutputsPod coldWet =
             FuzzyController::executeDualHeaterRules(4.0f, -20.0f);
-        assert(coldWet.HAir == 0.0f);
+        assert(coldWet.HLamp == 0.0f);
         assert(std::abs(coldWet.HWat - 1.0f) < 1e-6f);
         assert(coldWet.Mist == 0.0f);
         assert(coldWet.ExhTH == 0.0f);
@@ -1300,19 +1300,19 @@ int main() {
         // both be excessive in the same control cycle.
         const DualHeaterOutputsPod mixed =
             FuzzyController::executeDualHeaterRules(2.0f, 20.0f);
-        assert(std::abs(mixed.HAir - 0.5f) < 1e-6f);
+        assert(std::abs(mixed.HLamp - 0.5f) < 1e-6f);
         assert(std::abs(mixed.Mist - 0.5f) < 1e-6f);
-        assert((mixed.HAir + mixed.Mist) <= 1.0f + 1e-6f);
+        assert((mixed.HLamp + mixed.Mist) <= 1.0f + 1e-6f);
 
         // 25.4 Continuous intermediate TPC duties (not boolean thresholds).
         // eT=1°C => cold=0.25; eH=10% => dry=0.5 => Mist residual budget.
         const DualHeaterOutputsPod partial =
             FuzzyController::executeDualHeaterRules(1.0f, 10.0f);
-        assert(std::abs(partial.HAir - 0.25f) < 1e-6f);
+        assert(std::abs(partial.HLamp - 0.25f) < 1e-6f);
         assert(std::abs(partial.Mist - 0.375f) < 1e-6f);  // 0.5 * (1-0.25)
         assert(partial.HWat == 0.0f);
         assert(partial.ExhTH == 0.0f);
-        assert(partial.HAir > 0.0f && partial.HAir < 1.0f);
+        assert(partial.HLamp > 0.0f && partial.HLamp < 1.0f);
         assert(partial.Mist > 0.0f && partial.Mist < 1.0f);
 
         // 25.5 Warm or humid conditions invoke the independent exhaust rules.
@@ -1326,18 +1326,18 @@ int main() {
         const DualHeaterOutputsPod warmish =
             FuzzyController::executeDualHeaterRules(-2.0f, 0.0f);
         assert(std::abs(warmish.ExhTH - 0.5f) < 1e-6f);
-        assert(warmish.HAir == 0.0f && warmish.HWat == 0.0f && warmish.Mist == 0.0f);
+        assert(warmish.HLamp == 0.0f && warmish.HWat == 0.0f && warmish.Mist == 0.0f);
 
         // 25.6 Outputs remain normalized, including extreme and invalid input.
         const DualHeaterOutputsPod extreme =
             FuzzyController::executeDualHeaterRules(100.0f, -100.0f);
-        const float values[] = {extreme.HAir, extreme.HWat, extreme.Mist, extreme.ExhTH};
+        const float values[] = {extreme.HLamp, extreme.HWat, extreme.Mist, extreme.ExhTH};
         for (float value : values) {
             assert(value >= 0.0f && value <= 1.0f);
         }
         const DualHeaterOutputsPod invalid =
             FuzzyController::executeDualHeaterRules(NAN, INFINITY);
-        assert(invalid.HAir == 0.0f && invalid.HWat == 0.0f);
+        assert(invalid.HLamp == 0.0f && invalid.HWat == 0.0f);
         assert(invalid.Mist == 0.0f && invalid.ExhTH == 0.0f);
 
         assert(std::is_pod<DualHeaterOutputsPod>::value == true);

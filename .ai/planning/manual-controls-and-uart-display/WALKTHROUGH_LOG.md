@@ -2,6 +2,47 @@
 
 > Ghi log theo thứ tự thời gian đảo ngược (bản ghi mới nhất ở đầu).
 
+## 2026-07-14 15:27 (Asia/Ho_Chi_Minh) — Task `S1-A2`
+
+- **Task ID:** S1-A2
+- **Mô tả:** Đổi tên field `FuzzyController::DualHeaterOutputsPod::HAir` → `HLamp`. Semantic không đổi (vẫn là "thermal actuator continuous demand"), chỉ đổi label để đồng bộ với ngữ nghĩa mới "2 bóng đèn nhiệt" thay cho "air heater" cũ.
+- **Trạng thái hiện tại:** `[ ] QA Review` — chờ Review Agent kiểm toán độc lập.
+
+### Danh sách file đã chỉnh sửa
+
+| # | File | Loại thay đổi |
+|---|------|---------------|
+| 1 | `mushroom-iot-firmware/include/FuzzyController.h` | Đổi tên field `DualHeaterOutputsPod::HAir` → `HLamp`. Giữ nguyên thứ tự field, alignment `__attribute__((aligned(4)))`, size 16 byte, POD tính chất bảo toàn. |
+| 2 | `mushroom-iot-firmware/src/FuzzyController.cpp` | Cập nhật 4 site truy cập field trong `executeDualHeaterRules()` (assign 2 chỗ, clampUnit 1 chỗ) và trong `arbitrateOutputs()` (read `thermalOutputs.HLamp` 1 chỗ để feed vào channel `hAirDemand`/`ArbitratedOutputsPod::HAir` — tên field arbitrated giữ nguyên vì thuộc task S1-A3). |
+| 3 | `mushroom-iot-firmware/test/run_tests.cpp` | Test suite `Task B1 - FuzzyController Unit Tests` (line 1281–1345): đổi 10 assertion truy cập `coldDry.HAir`, `coldWet.HAir`, `mixed.HAir`, `partial.HAir` (x2), `warmish.HAir`, `extreme.HAir`, `invalid.HAir` sang `HLamp`. Assertion `is_pod`, `sizeof==16`, `alignof==4` giữ nguyên (không phụ thuộc tên field). |
+| 4 | `.ai/planning/manual-controls-and-uart-display/PROGRESS.md` | Cập nhật status S1-A2 → `[ ] QA Review`. |
+
+### Giải trình logic
+
+- **Scope chuẩn xác:** Task chỉ rename 1 field trên 1 struct (`DualHeaterOutputsPod::HAir`). Có 4 struct khác trong repo cũng chứa field tên `HAir` được đọc kỹ và **cố ý bỏ qua** vì thuộc task riêng biệt:
+  - `ArbitratedOutputsPod::HAir` → task S1-A3 (đổi tên `HLamp` sau).
+  - `AdaptiveTuner::GainsPod::gain_HAir` → task S1-A4.
+  - `TPC_Task::TpcSchedulerState::HAir` → task S1-C3.
+  - Các reference còn lại (`outputs.HAir`, `tpcState.HAir`, `state.HAir` trong `core1_tasks.cpp` line 459/635/653/688, `TPC_Task.cpp` line 147, `test/run_tests.cpp` line 1432/1448/1460/1470/1506/1618/1632/1646/1694) đều là consumer của các struct trên → giữ nguyên trong task này.
+- **Consumer `core1_tasks.cpp::runControlPipelineStep()`:** Biến `thermalDemands` (kiểu `DualHeaterOutputsPod`) được `grep` toàn file — chỉ dùng để truyền tham chiếu vào `FuzzyController::arbitrateOutputs(thermalDemands, ...)` chứ **không truy cập field `.HAir` trực tiếp**. Đúng nguyên tắc single-consumer → không cần patch consumer file.
+- **Semantic tương thích:** Field `HLamp` mới vẫn giữ nguyên contract "continuous TPC duty demand ∈ [0,1] cho kênh thermal actuator". `arbitrateOutputs()` đọc `thermalOutputs.HLamp` và feed vào biến local `hAirDemand` — biến này rồi lại được gán vào `ArbitratedOutputsPod::HAir` (chưa đổi tên). Đây là adapter tạm thời hợp lệ ở phase intermediate refactor: struct thượng nguồn đã đổi tên đi trước, struct hạ nguồn sẽ đổi tên ở S1-A3.
+- **POD/alignment preservation:** `DualHeaterOutputsPod` vẫn là 4 float liên tiếp → `sizeof==16`, `alignof==4`, `is_pod==true`. Tất cả 3 assertion này trong test suite compile-clean và runtime PASS.
+
+### Kết quả tự kiểm tra mã nguồn
+
+- **Grep audit:**
+  - `grep -rn "DualHeaterOutputsPod" src/ include/ test/` → 12 hit, tất cả đều nhất quán với field mới. Không còn hit nào truy cập `.HAir` trên struct này.
+  - `grep -rn "\.HAir\|->HAir\|::HAir" src/ include/ test/` → 10 hit còn lại, đều thuộc `ArbitratedOutputsPod`/`TpcSchedulerState` (S1-A3/S1-C3). Verify manually từng dòng → không nhầm lẫn.
+  - `grep -rn "HLamp" src/ include/ test/` → 14 hit trải đều ở header, source, test file (đúng expected: 1 field decl + 4 site cpp + 10 site test - `mixed.HLamp + mixed.Mist` là 1 hit gộp).
+- **Compile native:** `clang++ -std=c++17 -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src src/*.cpp test/run_tests.cpp -DUNIT_TEST -o /tmp/run_tests_s1a2` → **PASS** (chỉ có warning `-Wformat-security` trong `mqtt_client.cpp` — pre-existing từ trước S1-A1, không liên quan).
+- **Runtime test:** Chạy `/tmp/run_tests_s1a2` — toàn bộ test suite `Task B1 (FuzzyController Unit Tests)` line 1281–1345 chạy qua **10 assertion HLamp** không lỗi. Test suite dừng tại line 2372 (`storage.load_hardware_override`) — chính là bug pre-existing đã được ghi nhận ở walkthrough S1-A1, không phải hồi quy do S1-A2.
+
+### Ghi chú cho QA Review
+
+- Điểm cần audit trọng tâm: adapter tạm thời trong `arbitrateOutputs()` line 146 — `safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HAir)` — mix tên `HLamp` (input struct đã rename) với `gain_HAir` (gain struct chưa rename). Đây là expected state sau S1-A2, sẽ được hoàn thiện đồng bộ ở S1-A3 (`ArbitratedOutputsPod::HAir` → `HLamp`) và S1-A4 (`gain_HAir` → `gain_HLamp`).
+- Semantic: field `HLamp` **không** đại diện cho một relay vật lý cụ thể. Nó là raw continuous demand tổng cho toàn bộ hệ thống thermal actuator (bóng đèn). Việc phân stage vào 2 relay `Lamp1`/`Lamp2` sẽ được TPC scheduler đảm nhiệm ở S1-C1/C2.
+- Bug pre-existing `storage.load_hardware_override` (test dòng 2372) vẫn chưa được fix — track riêng, không thuộc scope Sprint 1 Track A.
+
 ---
 
 ## 2026-07-14 14:20 (Asia/Ho_Chi_Minh) — Task `S1-A1`

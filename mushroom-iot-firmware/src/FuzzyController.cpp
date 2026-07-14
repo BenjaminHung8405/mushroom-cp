@@ -81,7 +81,7 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
 
     // Cold & dry: air heat has priority; mist only receives residual budget.
     // This keeps mutually cancelling actuators from both sitting at high duty.
-    outputs.HAir = cold * (1.0f - wet);
+    outputs.HLamp = cold * (1.0f - wet);
     outputs.Mist = dry * (1.0f - cold);
 
     // Cold & wet: water heat only; no mist and no thermal exhaust.
@@ -93,7 +93,7 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
     const float humidityExhaust = wet * (1.0f - cold);
     outputs.ExhTH = (hot > humidityExhaust) ? hot : humidityExhaust;
 
-    outputs.HAir = clampUnit(outputs.HAir);
+    outputs.HLamp = clampUnit(outputs.HLamp);
     outputs.HWat = clampUnit(outputs.HWat);
     outputs.Mist = clampUnit(outputs.Mist);
     outputs.ExhTH = clampUnit(outputs.ExhTH);
@@ -143,7 +143,7 @@ ArbitratedOutputsPod arbitrateOutputs(
     // Apply adaptive gains only to the heaters/mist channels. Post-gain
     // products are hard-clamped to the unit interval for the relay stage.
     const float hAirDemand = clampUnit(
-        safeUnit(thermalOutputs.HAir) * safeGain(gains.gain_HAir));
+        safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HAir));
     const float hWatDemand = clampUnit(
         safeUnit(thermalOutputs.HWat) * safeGain(gains.gain_HWat));
     const float mistDemand = clampUnit(
