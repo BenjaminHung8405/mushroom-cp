@@ -13,6 +13,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <esp_task_wdt.h>
 #else
 #include "Arduino.h"
 #endif
@@ -130,6 +131,11 @@ void taskCore0Communication(void* /*pvParameters*/)
     // Initialize MQTT
     mqtt::MqttClient::getInstance().init();
 
+    #ifndef UNIT_TEST
+    esp_task_wdt_init(8, true);  // Cấu hình ngưỡng WDT lên 8 giây, hard-reset nếu timeout
+    esp_task_wdt_add(nullptr);   // Đăng ký task hiện tại (Core 0) với WDT daemon
+    #endif
+
     static TelemetryData last_known_telemetry = {NAN, NAN, NAN, {false, false, false, false, false, false, {0, 0}}};
     static Telemetry::TelemetryState telemetryState = Telemetry::makeInitialState();
 
@@ -184,6 +190,9 @@ void taskCore0Communication(void* /*pvParameters*/)
         logStackWatermark(now);
 
         // 7. Yield and feed Watchdog
+        #ifndef UNIT_TEST
+        esp_task_wdt_reset();
+        #endif
         delayCore0Task();
     }
 }

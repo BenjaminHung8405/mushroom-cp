@@ -33,11 +33,11 @@
 
 | Task ID | Mô tả Task | Status | Chỉ thị kỹ thuật & Lưu ý của Kỹ sư trưởng |
 | :--- | :--- | :--- | :--- |
-| B1 | Gán Task Handle khi tạo `taskCore1Control` | `[ ] Pending` | **[Sprint 1]** Trong hàm `createCoreTasks()` của `main.cpp`, truyền địa chỉ `&hTaskCore1Control` vào tham số thứ 6 của hàm `xTaskCreatePinnedToCore` thay cho `nullptr`. Kiểm tra kết quả trả về của hàm tạo task trước khi sử dụng handle. |
-| B2 | Gán Task Handle khi tạo `taskHardwareButton` | `[ ] Pending` | **[Sprint 1]** Tương tự B1, truyền địa chỉ `&hTaskHWButton` vào tham số thứ 6 của hàm `xTaskCreatePinnedToCore` trong `main.cpp`. |
-| B3 | Thêm include `<esp_task_wdt.h>` vào `core0_tasks.cpp` | `[ ] Pending` | **[Sprint 1]** Import thư viện SDK Watchdog để quản lý WDT thủ công. Bắt buộc đặt trong block `#ifndef UNIT_TEST` để tránh lỗi build môi trường native. |
-| B4 | Cấu hình WDT 8 giây và đăng ký task Core 0 | `[ ] Pending` | **[Sprint 1]** Gọi `esp_task_wdt_init(8, true)` và `esp_task_wdt_add(nullptr)` trước vòng lặp chính của `taskCore0Communication()`. **Chỉ gọi 1 lần duy nhất**, cấm đặt trong vòng lặp. Bọc toàn bộ trong `#ifndef UNIT_TEST`. |
-| B5 | Feed WDT trong vòng lặp chính của Core 0 | `[ ] Pending` | **[Sprint 1]** Gọi `esp_task_wdt_reset()` tại bước yield (cuối loop). Tuyệt đối không chèn thêm bất kỳ delay hay block dài nào làm giảm tần suất feed, giữ nguyên latency của loop Core 0. Bọc trong `#ifndef UNIT_TEST`. |
+| B1 | Gán Task Handle khi tạo `taskCore1Control` | `[ ] QA Review` | **[Sprint 1]** Trong hàm `createCoreTasks()` của `main.cpp`, truyền địa chỉ `&hTaskCore1Control` vào tham số thứ 6 của hàm `xTaskCreatePinnedToCore` thay cho `nullptr`. Kiểm tra kết quả trả về của hàm tạo task trước khi sử dụng handle. |
+| B2 | Gán Task Handle khi tạo `taskHardwareButton` | `[ ] QA Review` | **[Sprint 1]** Tương tự B1, truyền địa chỉ `&hTaskHWButton` vào tham số thứ 6 của hàm `xTaskCreatePinnedToCore` trong `main.cpp`. |
+| B3 | Thêm include `<esp_task_wdt.h>` vào `core0_tasks.cpp` | `[ ] QA Review` | **[Sprint 1]** Import thư viện SDK Watchdog để quản lý WDT thủ công. Bắt buộc đặt trong block `#ifndef UNIT_TEST` để tránh lỗi build môi trường native. |
+| B4 | Cấu hình WDT 8 giây và đăng ký task Core 0 | `[ ] QA Review` | **[Sprint 1]** Gọi `esp_task_wdt_init(8, true)` và `esp_task_wdt_add(nullptr)` trước vòng lặp chính của `taskCore0Communication()`. **Chỉ gọi 1 lần duy nhất**, cấm đặt trong vòng lặp. Bọc toàn bộ trong `#ifndef UNIT_TEST`. |
+| B5 | Feed WDT trong vòng lặp chính của Core 0 | `[ ] QA Review` | **[Sprint 1]** Gọi `esp_task_wdt_reset()` tại bước yield (cuối loop). Tuyệt đối không chèn thêm bất kỳ delay hay block dài nào làm giảm tần suất feed, giữ nguyên latency của loop Core 0. Bọc trong `#ifndef UNIT_TEST`. |
 
 ### Track C: Tầng Hiện Thực OTA Manager (OTA Manager Module)
 

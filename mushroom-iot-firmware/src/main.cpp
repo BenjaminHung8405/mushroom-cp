@@ -192,7 +192,7 @@ void createCoreTasks()
             CORE1_STACK_BYTES,   // Stack size in bytes
             nullptr,             // Parameter to pass
             CORE1_TASK_PRIORITY, // Task priority (higher than Core 0)
-            nullptr,             // Task handle
+            &hTaskCore1Control,  // Task handle
             1                    // Pin to Core 1
         );
 
@@ -232,7 +232,7 @@ void createCoreTasks()
             2048,                  // Stack size in bytes
             nullptr,               // Parameter to pass
             CORE1_TASK_PRIORITY,   // Priority (same as Core 1 control)
-            nullptr,               // Task handle
+            &hTaskHWButton,        // Task handle
             1                      // Pin to Core 1
         );
 
