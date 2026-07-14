@@ -17,6 +17,7 @@
 #include "Telemetry.h"
 #include "WebInterface.h"
 #include "encoder.h"
+#include "manual_control.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -2559,6 +2560,132 @@ int main() {
         storage::HardwareOverrideSnapshot cleanOverride;
         assert(storage.load_hardware_override(cleanOverride) == false);
         assert(storage.factory_reset() == true);
+    }
+
+    {
+        Serial.println("[TEST] Starting Track C - Safety Gate & Latch Module Unit Tests...");
+
+        // Setup common test structures
+        TelemetryData telemetry = {};
+        Trajectory::SetpointPod setpoints = {};
+        setpoints.temp_target = 25.0f;
+        setpoints.humidity_target = 80.0f;
+        
+        TPC_Task::RtcTimePod rtcTime = {};
+        rtcTime.valid = true;
+        rtcTime.hour = 8;
+        rtcTime.minute = 0;
+
+        uint16_t cropDay = 5;
+
+        // S2-G1: Test gate Mist block khi humidity=95
+        {
+            telemetry.humidity_air = 95.0f;
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::RejectedHumi);
+        }
+
+        // S2-G2: Test gate Mist block khi humidity=NAN
+        {
+            telemetry.humidity_air = NAN;
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::RejectedNAN);
+        }
+
+        // S2-G3: Test gate Mist PASS khi humidity=70
+        {
+            telemetry.humidity_air = 70.0f;
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::Accepted);
+        }
+
+        // S2-G4: Test gate Lamp block khi temp=setpoint+4
+        {
+            telemetry.temp_air = setpoints.temp_target + 4.0f;
+            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::RejectedTemp);
+        }
+
+        // Test crop Day lock for lamp (> 8 days)
+        {
+            telemetry.temp_air = setpoints.temp_target + 1.0f;
+            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, 9); // Day 9
+            assert(dec == ManualDecision::RejectedLocked);
+        }
+
+        // S2-G5: Test gate Fan PASS mọi tình huống
+        {
+            telemetry.temp_air = 40.0f; // very hot
+            telemetry.humidity_air = 99.0f; // very humid
+            rtcTime.hour = 12; // blackout window
+            ManualRequest req = { AppChannel::FAN, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::Accepted);
+        }
+
+        // S2-G6: Test gate OFF luôn PASS
+        {
+            telemetry.humidity_air = 95.0f;
+            rtcTime.hour = 12;
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_OFF, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::Accepted);
+        }
+
+        // S2-G7: Test latch TTL expire sau 15 phút
+        {
+            manual::ManualLatchArray latch = {};
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            manual::updateLatchOnAccepted(req, 1000UL, latch);
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
+            
+            // expire_ms should be 1000 + 900000 = 901000
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].expires_ms == 901000UL);
+
+            // updateLatchDecay at 900000 -> still active
+            manual::updateLatchDecay(latch, 900000UL);
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
+
+            // updateLatchDecay at 901000 -> expired
+            manual::updateLatchDecay(latch, 901000UL);
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].active == false);
+        }
+
+        // S2-G8: Test latch không đè blackout Mist
+        {
+            manual::ManualLatchArray latch = {};
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            manual::updateLatchOnAccepted(req, 1000UL, latch);
+
+            telemetry.humidity_air = 70.0f;
+            rtcTime.hour = 12; // Blackout time
+            rtcTime.minute = 0;
+
+            FuzzyController::ArbitratedOutputsPod outputs = {0.5f, 0.5f, 0.5f, 0.5f};
+            manual::applyManualLatchToOutputs(outputs, latch, 2000UL, telemetry, setpoints, rtcTime, cropDay);
+            
+            // The latch should be cleared because of sensor/blackout violation during force_on!
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].active == false);
+            assert(outputs.Mist == 0.5f); // Latch cleared, returns to fuzzy command
+        }
+
+        // S2-G10: Test ui and button requests follow same gate
+        {
+            telemetry.humidity_air = 95.0f;
+            rtcTime.hour = 8;
+            ManualRequest reqButton = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision decButton = manual::evaluateSafetyGate(reqButton, telemetry, setpoints, rtcTime, cropDay);
+
+            ManualRequest reqUI = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision decUI = manual::evaluateSafetyGate(reqUI, telemetry, setpoints, rtcTime, cropDay);
+
+            assert(decButton == decUI);
+        }
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

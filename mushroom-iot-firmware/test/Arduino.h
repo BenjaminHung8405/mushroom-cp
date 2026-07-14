@@ -319,6 +319,15 @@ inline void vQueueDelete(QueueHandle_t xQueue) {
     if (q != nullptr) delete q;
 }
 
+inline BaseType_t xQueueReset(QueueHandle_t xQueue) {
+    MockQueue* q = static_cast<MockQueue*>(xQueue);
+    if (q == nullptr) return pdFALSE;
+    while (!q->items.empty()) {
+        q->items.pop();
+    }
+    return pdTRUE;
+}
+
 inline void vTaskDelay(TickType_t /*xTicksToDelay*/) {}
 inline TickType_t pdMS_TO_TICKS(uint32_t ms) { return ms; }
 

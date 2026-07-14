@@ -100,12 +100,12 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-C1 | Tạo mới `include/manual_control.h` | `[ ] Pending` |
-| S2-C2 | Tạo mới `src/manual_control.cpp` | `[ ] Pending` |
-| S2-C3 | Hiện thực `evaluateSafetyGate()` | `[ ] Pending` |
-| S2-C4 | Hiện thực helper `updateLatchOnAccepted()` | `[ ] Pending` |
-| S2-C5 | Hiện thực `applyManualLatchToOutputs()` | `[ ] Pending` |
-| S2-C6 | Thêm `autoClearOnSensorViolation()` | `[ ] Pending` |
+| S2-C1 | Tạo mới `include/manual_control.h` | `[ ] QA Review` |
+| S2-C2 | Tạo mới `src/manual_control.cpp` | `[ ] QA Review` |
+| S2-C3 | Hiện thực `evaluateSafetyGate()` | `[ ] QA Review` |
+| S2-C4 | Hiện thực helper `updateLatchOnAccepted()` | `[ ] QA Review` |
+| S2-C5 | Hiện thực `applyManualLatchToOutputs()` | `[ ] QA Review` |
+| S2-C6 | Thêm `autoClearOnSensorViolation()` | `[ ] QA Review` |
 
 ### Track D: Core 0 Button Task
 
