@@ -1,5 +1,15 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:54:15+07:00] Task S1-E7: Toàn bộ `pio test -e native` PASS
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - Không có (chỉ chạy kiểm thử và xác minh toàn bộ test suite)
+- **Giải trình giải pháp**:
+  - Biên dịch và chạy toàn bộ bộ unit test native ngoại tuyến để xác nhận tất cả các thay đổi trước đó không làm ảnh hưởng đến các tính năng cũ và tất cả các test case đều vượt qua hoàn hảo.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch bằng `g++` local host thành công và chạy `./run_tests` vượt qua 100% assertions (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:53:20+07:00] Task S1-E6: Test dual-lamp offset chống inrush (window ellapsed 0 → stage2 vẫn OFF trong 5s đầu)
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

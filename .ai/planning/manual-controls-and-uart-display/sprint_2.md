@@ -156,14 +156,16 @@ ManualLatchArray& latch, uint32_t now, const TelemetryData&, const SetpointPod&,
 | A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` | `PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, `PIN_BTN_FAN = 16` trong namespace mới `config::hardware`. Comment: active-LOW, dùng `INPUT_PULLUP` mềm; production cần thêm pull-up 4.7 kΩ vật lý + RC 100 nF + 10k debounce. |
 | A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `pinMode(pin, INPUT_PULLUP)` cho cả 3 chân. Log rõ ràng. Gọi từ `init_actuators_gpio()` cùng với `init_wifi_config_button_gpio()`. |
 
-### Track B — Data Models & Queues
+### Track B — Unified Override Models, Queues & MQTT Bridge
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| B1 | Thêm 4 struct/enum vào `include/models.h` | `AppChannel`, `ManualRequest`, `ManualDecision`, `ManualAck` (đúng như spec trên). Bọc trong POD, giữ `__attribute__((aligned(4)))`. |
-| B2 | Khai báo `g_manual_request_queue` và `g_manual_ack_queue` trong `include/definitions.h` | Bọc `#ifndef UNIT_TEST` phần khai báo `QueueHandle_t` như các queue hiện có. Depth 4. Item size = `sizeof(ManualRequest)` và `sizeof(ManualAck)`. |
-| B3 | Định nghĩa hai queue trong `src/core1_tasks.cpp` (cùng nơi định nghĩa `xTelemetryQueue`) | Khởi tạo `nullptr`. |
-| B4 | Tạo hai queue trong `initQueues()` của `main.cpp` | Log FATAL nếu tạo fail; không tiếp tục khởi tạo task nút. |
+| B1 | Thêm models vào `include/models.h` | `AppChannel`, `AppIntent`, `ManualRequest`, `ActuatorOverridePayload`, `ManualDecision`, `ManualAck` theo spec. Bọc POD với `__attribute__((aligned(4)))`. Không dùng boolean/toggle semantic cho override. |
+| B2 | Khai báo `g_manual_request_queue`, `g_mqtt_override_queue`, `g_manual_ack_queue` trong `include/definitions.h` | Bọc `#ifndef UNIT_TEST`. Hai queue input tách nguồn (physical/MQTT) nhưng cùng `ManualRequest` schema và đều chỉ được Core 1 consume. Depth 8 mỗi queue; ack depth 8. |
+| B3 | Định nghĩa queue trong `src/core1_tasks.cpp` | Khởi tạo `nullptr`, cùng khu vực `xTelemetryQueue`. |
+| B4 | Tạo ba queue trong `initQueues()` của `main.cpp` | Fail FATAL nếu không tạo được; không start task phụ thuộc queue. |
+| B5 | Thêm MQTT/UI override adapter trong `mqtt_client.cpp` | Parse payload `actuator` + `state` (`true`→FORCE_ON, `false`→FORCE_OFF, `null`→AUTO) từ contract hiện có của `postActuatorOverride()`. Validate schema/range tại Core 0 rồi enqueue `ManualRequest`; không đánh giá bio-rule, không sửa latch. |
+| B6 | Xác nhận telemetry/ack contract cho UI | Retained ack phải có: `channel`, `requested_intent`, `decision`, `effective_intent`, `release_reason`, `expires_ms`, `ack_ms`. UI dựa vào ack/effective intent, không suy diễn auto-release từ trạng thái relay đơn thuần. |
 
 ### Track C — Safety Gate & Latch Module
 
