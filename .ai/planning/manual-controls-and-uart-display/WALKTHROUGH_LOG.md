@@ -323,3 +323,19 @@
 - **Kết quả tự kiểm thử**:
   - Biên dịch thành công toàn bộ dự án firmware.
   - Chạy bộ unit test offline (`./run_tests`) thành công 100%, bao gồm Test Case 21 mới được thêm vào, xác nhận logic chống dội hoạt động chính xác.
+
+## [2026-07-14T17:40:00+07:00] Track E: Core 1 Integration (Unified Override Pipeline)
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core1_tasks.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Đã thêm biến local `manual::ManualLatchArray manualLatch{}` vào hàm `taskCore1Control()` để lưu trữ trạng thái chốt điều khiển thủ công qua các chu kỳ chạy trên Core 1.
+  - Sửa đổi hàm `runControlPipelineStep()` để nhận `manualLatch` qua tham chiếu (reference).
+  - Thu hồi / thay thế cơ chế override cũ bằng pipeline mới: định kỳ lấy dữ liệu từ cả hai queue `g_manual_request_queue` (từ nút vật lý) và `g_mqtt_override_queue` (từ MQTT/Web UI).
+  - Với mỗi yêu cầu nhận được, gọi hàm `manual::evaluateSafetyGate()` để đánh giá an toàn sinh học và điều kiện vận hành.
+  - Gửi các phản hồi thành công/thất bại thông qua queue `g_manual_ack_queue` để Core 0 nhận và cập nhật trạng thái UI.
+  - Tích hợp hàm `manual::applyManualLatchToOutputs()` vào pipeline điều khiển sau bước arbitrate outputs của Fuzzy và trước khi chạy `hardwareProtectionOverride`.
+  - Thiết lập cơ chế phát hiện tự động giải phóng chốt (auto-release do quá nhiệt/ẩm hoặc hết TTL) bằng cách so sánh trạng thái trước và sau khi áp dụng latch, tự động gửi ack cập nhật lên queue.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và chạy bộ test offline thành công: Toàn bộ 100% test cases đều vượt qua và hiển thị thông báo `--- All Unit Tests Passed Successfully! ---`.

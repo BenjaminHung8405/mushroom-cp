@@ -122,10 +122,10 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | `[ ] Pending` |
-| S2-E2 | Drains **hai** queue input: `g_manual_request_queue` (physical buttons) + `g_mqtt_override_queue` (UI/MQTT) | `[ ] Pending` |
-| S2-E3 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTime, cropDay)` sau `arbitrateOutputs` | `[ ] Pending` |
-| S2-E4 | Verify `hardwareProtectionOverride` vẫn thắng | `[ ] Pending` |
+| S2-E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | `[ ] QA Review` |
+| S2-E2 | Drains **hai** queue input: `g_manual_request_queue` (physical buttons) + `g_mqtt_override_queue` (UI/MQTT) | `[ ] QA Review` |
+| S2-E3 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTime, cropDay)` sau `arbitrateOutputs` | `[ ] QA Review` |
+| S2-E4 | Verify `hardwareProtectionOverride` vẫn thắng | `[ ] QA Review` |
 
 ### Track F: Core 0 Ack Consumer & UI Contract
 

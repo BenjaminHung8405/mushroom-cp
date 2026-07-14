@@ -9,6 +9,7 @@
 #include "TPC_Task.h"
 #include "serial_mutex.h"
 #include "storage.h"
+#include "manual_control.h"
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
@@ -479,7 +480,7 @@ static void runControlPipelineStep(
     TPC_Task::TpcSchedulerState& tpcState,
     ControlSetpointCommand& baselineCmd,
     ControlSetpointCommand& overrideCmd,
-    ActuatorOverrideCommand& actuatorOverrides,
+    manual::ManualLatchArray& manualLatch,
     unsigned long& lastSensorMs,
     unsigned long& lastControlMs)
 {
@@ -523,7 +524,7 @@ static void runControlPipelineStep(
         ActuatorOverrideCommand temp;
         while (xQueueReceive(xActuatorOverrideQueue, &temp, 0) == pdTRUE)
         {
-            actuatorOverrides = temp;
+            // Drained and ignored
         }
     }
 
@@ -553,126 +554,88 @@ static void runControlPipelineStep(
     FuzzyController::ArbitratedOutputsPod outputs =
         FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
 
-    // Apply manual actuator overrides with Fuzzy-Bounds Guarding
-    if (actuatorOverrides.active)
-    {
-        // 1. Mist Generator Override
-        if (actuatorOverrides.mist_override == 1) // FORCE_ON
-        {
-            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air < 90.0f)
-            {
-                outputs.Mist = 1.0f;
-            }
-            else
-            {
-                actuatorOverrides.mist_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
-            }
-        }
-        else if (actuatorOverrides.mist_override == 2) // FORCE_OFF
-        {
-            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air > 60.0f)
-            {
-                outputs.Mist = 0.0f;
-            }
-            else
-            {
-                actuatorOverrides.mist_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
-            }
-        }
+    // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → TPC
 
-        // 2. Convection Fan Override
-        if (actuatorOverrides.fan_override == 1) // FORCE_ON
-        {
-            if (std::isfinite(telemetry.humidity_air) && telemetry.humidity_air > 60.0f)
-            {
-                outputs.Exh = 1.0f;
-            }
-            else
-            {
-                actuatorOverrides.fan_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
+    // E2: Drain the two manual override queues: g_manual_request_queue and g_mqtt_override_queue
+    auto drainManualQueue = [&](QueueHandle_t q) {
+        if (q != nullptr) {
+            ManualRequest req;
+            while (xQueueReceive(q, &req, 0) == pdTRUE) {
+                float currentDay = calculateCurrentCropDay();
+                uint16_t cropDay = static_cast<uint16_t>(currentDay);
+                const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
+                ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+                
+                if (decision == ManualDecision::Accepted) {
+                    manual::updateLatchOnAccepted(req, now, manualLatch);
+                    ManualAck ack;
+                    ack.channel = req.channel;
+                    ack.requested_intent = req.intent;
+                    ack.decision = ManualDecision::Accepted;
+                    ack.effective_intent = req.intent;
+                    ack.release_reason = ManualReleaseReason::None;
+                    ack.expires_ms = manualLatch[static_cast<size_t>(req.channel)].expires_ms;
+                    ack.ack_ms = now;
+                    if (g_manual_ack_queue != nullptr) {
+                        xQueueSend(g_manual_ack_queue, &ack, 0);
+                    }
+                } else {
+                    ManualAck ack;
+                    ack.channel = req.channel;
+                    ack.requested_intent = req.intent;
+                    ack.decision = decision;
+                    size_t idx = static_cast<size_t>(req.channel);
+                    if (idx < manualLatch.size() && manualLatch[idx].active) {
+                        ack.effective_intent = manualLatch[idx].forced_state;
+                        ack.expires_ms = manualLatch[idx].expires_ms;
+                    } else {
+                        ack.effective_intent = AppIntent::AUTO;
+                        ack.expires_ms = 0;
+                    }
+                    ack.release_reason = ManualReleaseReason::None;
+                    ack.ack_ms = now;
+                    if (g_manual_ack_queue != nullptr) {
+                        xQueueSend(g_manual_ack_queue, &ack, 0);
+                    }
+                }
             }
         }
-        else if (actuatorOverrides.fan_override == 2) // FORCE_OFF
-        {
-            if (!std::isfinite(telemetry.co2_level) || telemetry.co2_level < 1500.0f)
-            {
-                outputs.Exh = 0.0f;
-            }
-            else
-            {
-                actuatorOverrides.fan_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
-            }
-        }
+    };
 
-        // 3. Heater Air Override
-        if (actuatorOverrides.heater_air_override == 1) // FORCE_ON
-        {
-            if (std::isfinite(telemetry.temp_air) && telemetry.temp_air < 35.0f)
-            {
-                outputs.HLamp = 1.0f;
-            }
-            else
-            {
-                actuatorOverrides.heater_air_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
-            }
-        }
-        else if (actuatorOverrides.heater_air_override == 2) // FORCE_OFF
-        {
-            if (std::isfinite(telemetry.temp_air) && telemetry.temp_air > 20.0f)
-            {
-                outputs.HLamp = 0.0f;
-            }
-            else
-            {
-                actuatorOverrides.heater_air_override = 0;
-                storage::ActuatorOverrideSnapshot snap = {
-                    actuatorOverrides.mist_override,
-                    actuatorOverrides.fan_override,
-                    actuatorOverrides.heater_air_override,
-                    (actuatorOverrides.mist_override != 0 || actuatorOverrides.fan_override != 0 || actuatorOverrides.heater_air_override != 0)
-                };
-                storage::StorageManager::get_instance().save_actuator_override(snap);
-            }
-        }
+    drainManualQueue(g_manual_request_queue);
+    drainManualQueue(g_mqtt_override_queue);
 
-        actuatorOverrides.active = (actuatorOverrides.mist_override != 0 ||
-                                    actuatorOverrides.fan_override != 0 ||
-                                    actuatorOverrides.heater_air_override != 0);
+    // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
+    float currentDay = calculateCurrentCropDay();
+    uint16_t cropDay = static_cast<uint16_t>(currentDay);
+    const TPC_Task::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
+
+    manual::ManualLatchArray prevLatch = manualLatch;
+
+    manual::applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTimeBeforeLatch, cropDay);
+
+    // Check for auto-releases and push events
+    for (size_t i = 0; i < manualLatch.size(); ++i) {
+        if (prevLatch[i].active && !manualLatch[i].active) {
+            ManualReleaseReason reason = ManualReleaseReason::None;
+            if (static_cast<int32_t>(now - prevLatch[i].expires_ms) >= 0) {
+                reason = ManualReleaseReason::TTLExpired;
+            } else {
+                reason = ManualReleaseReason::SafetyLimitReached;
+            }
+
+            ManualAck ack;
+            ack.channel = static_cast<AppChannel>(i);
+            ack.requested_intent = prevLatch[i].forced_state;
+            ack.decision = ManualDecision::Accepted;
+            ack.effective_intent = AppIntent::AUTO;
+            ack.release_reason = reason;
+            ack.expires_ms = 0;
+            ack.ack_ms = now;
+            if (g_manual_ack_queue != nullptr) {
+                xQueueSend(g_manual_ack_queue, &ack, 0);
+            }
+        }
     }
 
     // Mandatory ordering: all fuzzy/gain work completes before this hard
@@ -745,7 +708,7 @@ void taskCore1Control(void* /*pvParameters*/)
     TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();
     ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
-    ActuatorOverrideCommand actuatorOverrides = { 0, 0, 0, false };
+    manual::ManualLatchArray manualLatch{};
     unsigned long lastSensorMs = 0U;
     unsigned long lastControlMs = millis();
 
@@ -763,7 +726,7 @@ void taskCore1Control(void* /*pvParameters*/)
             tpcState,
             baselineCmd,
             overrideCmd,
-            actuatorOverrides,
+            manualLatch,
             lastSensorMs,
             lastControlMs);
 
