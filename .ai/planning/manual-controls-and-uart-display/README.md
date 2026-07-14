@@ -39,10 +39,10 @@ Kế hoạch này bổ sung ba khối chức năng vật lý cho hệ điều kh
 | **Build System**  | PlatformIO, `env:otg` / `env:uart`                           |
 | **Language**      | C++17 với Arduino HAL                                        |
 | **RTOS**          | FreeRTOS (tích hợp ESP-IDF 5.x)                              |
-| **Queue mới**     | `xManualRequestQueue` (Core 0 → Core 1, depth 4)             |
-| **Queue mới**     | `xManualAckQueue` (Core 1 → Core 0, depth 4) — feedback UI   |
+| **Queue mới**     | `g_manual_request_queue` (Core 0 → Core 1, depth 4)             |
+| **Queue mới**     | `g_manual_ack_queue` (Core 1 → Core 0, depth 4) — feedback UI   |
 | **UART Display**  | `HardwareSerial` (Serial1) trên GPIO 17 TX, 9600 8N1         |
-| **Debounce**      | Software polling 20 ms + xác nhận trạng thái 30 ms           |
+| **Debounce**      | Shift Register Integrator (lấy mẫu 10 ms, tích luỹ 8 mẫu)   |
 | **Unit Test**     | PlatformIO Native (`pio test -e native`), guard `#ifndef UNIT_TEST` |
 | **Serial Lock**   | `ScopedSerialLock` / `SerialLock` (đã có)                    |
 

@@ -95,3 +95,55 @@
 - **Rủi ro:** GPIO 14 trên một số biến thể ESP32-S3 dev kit có LED debug — có thể nhấp nháy khi boot. **Mitigation:** đã có external pull-down 10 kΩ theo HW_DEPLOYMENT; đo đường boot ~2s vẫn LOW.
 - **Rủi ro:** Rename lan rộng có thể sót ở comment/docstring. **Mitigation:** Task cuối cùng grep toàn repo và fail sprint nếu còn dấu vết `HAir`.
 - **Rủi ro:** Test `run_tests.cpp:851` phụ thuộc `PIN_ONE_WIRE` — nếu quên đổi sẽ fail compile. **Mitigation:** đã liệt kê rõ ở task E1.
+
+## Phụ lục — Staged Dispatch Cho HLamp (2 Bóng)
+
+### Vì sao không "chia đôi duty"?
+
+Cách tự nhiên đầu tiên là gán mỗi bóng một nửa duty: LAMP_1 = LAMP_2 = HLamp. Cách này sai
+về mặt công suất trung bình: nếu HLamp=0.6 và ta gán mỗi bóng 0.3, tổng công suất trung bình
+qua cả cụm chỉ còn `(0.3 × P) + (0.3 × P) = 0.6P` — bằng công suất một bóng, không phải hai
+bóng. Người trồng nấm không đạt được biên nhiệt như mong đợi ở duty cao.
+
+### Công thức staged dispatch (đúng toán học)
+
+```
+duty_lamp_1 = clamp(2.0f * hLampDuty,             0.0f, 1.0f)
+duty_lamp_2 = clamp(2.0f * (hLampDuty - 0.5f),    0.0f, 1.0f)
+```
+
+Tổng công suất trung bình qua cụm = `(duty_lamp_1 × P + duty_lamp_2 × P) / 2 = hLampDuty × P`.
+
+Bảng kiểm chứng (với P là công suất 1 bóng):
+
+| HLamp | duty_lamp_1 | duty_lamp_2 | Tổng công suất TB / P |
+|-------|-------------|-------------|-----------------------|
+| 0.0   | 0.0         | 0.0         | 0.0                   |
+| 0.25  | 0.5         | 0.0         | 0.5 → chỉ 1 bóng, TB 0.5 |
+| 0.5   | 1.0         | 0.0         | 1.0 → 1 bóng full, TB 1.0 |
+| 0.75  | 1.0         | 0.5         | 1.5 → TB 0.75 công suất cụm |
+| 1.0   | 1.0         | 1.0         | 2.0 → 2 bóng full, TB 2.0 |
+
+Ghi chú: cột "Tổng công suất TB / P" thể hiện tổng công suất trung bình chia cho công suất
+1 bóng đơn lẻ; giá trị 2.0 nghĩa là toàn bộ cụm 2 bóng chạy full-on.
+
+### Inrush protection
+
+Bóng đèn nhiệt (halogen/red heat) có dòng khởi động (cold-filament inrush) lên tới **10–15×
+dòng định mức** trong 50–150 ms đầu. Nếu cả 2 bóng bật đồng thời từ OFF → ON tại cùng ranh
+giới cửa sổ TPC, biến áp/nguồn có thể sụt áp tức thời gây reset ESP32 hoặc trip aptomat.
+
+**Giải pháp trong config TPC:**
+
+- `LAMP_1_TPC_CONFIG.offset_ms = 0U`
+- `LAMP_2_TPC_CONFIG.offset_ms = 5000U`
+
+Với TPC window = 300 s, offset 5 s đảm bảo hai bóng không bao giờ đồng thời chuyển pha ON.
+`min_on_ms = 10000U` và `min_off_ms = 10000U` cũng ngăn cycling nhanh phá tuổi thọ tiếp
+điểm SSR.
+
+### Tuổi thọ bóng
+
+Ở duty thấp (0..0.5), chỉ LAMP_1 chạy. Vận hành đều đặn 6 tháng liên tục sẽ hỏng LAMP_1
+trước LAMP_2 → dễ swap từng cái. Sprint 4 (chưa lên lịch) có thể thêm cân bằng tuổi thọ
+bằng cách xoay vòng vai trò LAMP_1/LAMP_2 mỗi tuần dựa vào NVS counter.

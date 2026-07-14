@@ -24,9 +24,9 @@ taskCabinetButtons                    taskCore1Control (runControlPipelineStep)
   history = (history<<1) | sample         for each ManualRequest:
   history==0x00 → confirmed PRESS         decision = evaluateManualSafetyGate(req, tel, sp, rtc)
   history==0xFF → confirmed RELEASE       if Accepted:
-    → push {chan, request_on} into            update/toggle manualLatch[chan]
-      xManualRequestQueue                   else:
-                                              push ManualAck{reject reason} → xManualAckQueue
+    → push {chan, intent_on} into             update/toggle manualLatch[chan]
+      g_manual_request_queue                else:
+                                              push ManualAck{reject reason} → g_manual_ack_queue
                                         autoClearOnSensorViolation(...)
                                         applyManualLatchToOutputs(outputs, manualLatch, now)
                                         hardwareProtectionOverride(outputs, rtcTime)  # ưu tiên cao nhất
@@ -39,8 +39,8 @@ task Core 0 lấy mẫu mỗi 10 ms và dịch bit trái. Chỉ khi 8 mẫu liê
 < 5–10 ms sẽ bị lọc sạch. Thời gian nhận diện nhấn thật ổn định ≈ 80 ms — vẫn cảm giác tức
 thời với người vận hành.
 
-- `xManualRequestQueue`: depth 4, item `ManualRequest`.
-- `xManualAckQueue`: depth 4, item `ManualAck` (Core 0 dùng cho Serial log + future MQTT).
+- `g_manual_request_queue`: depth 4, item `ManualRequest`.
+- `g_manual_ack_queue`: depth 4, item `ManualAck` (Core 0 dùng cho Serial log + future MQTT).
 - `manualLatch[]`: array 3 phần tử `{active, forced_state, expires_ms}` sống trong scope
   `taskCore1Control` (không toàn cục).
 
@@ -49,17 +49,17 @@ thời với người vận hành.
 Trong `include/models.h`:
 
 ```cpp
-enum class ManualChannel : uint8_t {
-    Mist = 0,
-    Lamp = 1,
-    Fan  = 2,
+enum class AppChannel : uint8_t {
+    MIST = 0,
+    LAMP = 1,
+    FAN  = 2,
     COUNT
 };
 
 struct ManualRequest {
-    ManualChannel channel;
-    bool          request_on;   // true=user muốn ON, false=user muốn OFF
-    uint32_t      request_ms;   // millis() lúc phát request
+    AppChannel channel;
+    bool       intent_on;   // true=user muốn ON, false=user muốn OFF
+    uint32_t   request_ms;  // millis() lúc phát request
 } __attribute__((aligned(4)));
 
 enum class ManualDecision : uint8_t {
@@ -72,7 +72,7 @@ enum class ManualDecision : uint8_t {
 };
 
 struct ManualAck {
-    ManualChannel  channel;
+    AppChannel     channel;
     bool           requested_on;
     ManualDecision decision;
     uint32_t       ack_ms;
@@ -119,15 +119,15 @@ const ManualLatchArray& latch, uint32_t now)`:
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| A1 | Thêm 3 constant chân nút trong `include/config.h::pins` | `PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, `PIN_BTN_FAN = 16`. Comment: active-LOW, dùng `INPUT_PULLUP` mềm; production cần thêm pull-up 4.7 kΩ vật lý + RC 100 nF + 10k debounce. |
+| A1 | Thêm 3 constant chân nút trong `include/config.h::hardware` | `PIN_BTN_MIST = 4`, `PIN_BTN_LAMP = 15`, `PIN_BTN_FAN = 16` trong namespace mới `config::hardware`. Comment: active-LOW, dùng `INPUT_PULLUP` mềm; production cần thêm pull-up 4.7 kΩ vật lý + RC 100 nF + 10k debounce. |
 | A2 | Thêm helper `init_cabinet_buttons_gpio()` trong `actuators.h`/`actuators.cpp` | `pinMode(pin, INPUT_PULLUP)` cho cả 3 chân. Log rõ ràng. Gọi từ `init_actuators_gpio()` cùng với `init_wifi_config_button_gpio()`. |
 
 ### Track B — Data Models & Queues
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| B1 | Thêm 4 struct/enum vào `include/models.h` | `ManualChannel`, `ManualRequest`, `ManualDecision`, `ManualAck` (đúng như spec trên). Bọc trong POD, giữ `__attribute__((aligned(4)))`. |
-| B2 | Khai báo `xManualRequestQueue` và `xManualAckQueue` trong `include/definitions.h` | Bọc `#ifndef UNIT_TEST` phần khai báo `QueueHandle_t` như các queue hiện có. Depth 4. Item size = `sizeof(ManualRequest)` và `sizeof(ManualAck)`. |
+| B1 | Thêm 4 struct/enum vào `include/models.h` | `AppChannel`, `ManualRequest`, `ManualDecision`, `ManualAck` (đúng như spec trên). Bọc trong POD, giữ `__attribute__((aligned(4)))`. |
+| B2 | Khai báo `g_manual_request_queue` và `g_manual_ack_queue` trong `include/definitions.h` | Bọc `#ifndef UNIT_TEST` phần khai báo `QueueHandle_t` như các queue hiện có. Depth 4. Item size = `sizeof(ManualRequest)` và `sizeof(ManualAck)`. |
 | B3 | Định nghĩa hai queue trong `src/core1_tasks.cpp` (cùng nơi định nghĩa `xTelemetryQueue`) | Khởi tạo `nullptr`. |
 | B4 | Tạo hai queue trong `initQueues()` của `main.cpp` | Log FATAL nếu tạo fail; không tiếp tục khởi tạo task nút. |
 
@@ -148,17 +148,17 @@ const ManualLatchArray& latch, uint32_t now)`:
 |---------|-------|------------------|
 | D1 | Thêm khai báo `taskCabinetButtons(void*)` trong `definitions.h` | Bọc `#ifndef UNIT_TEST`. |
 | D2 | Tạo file `src/cabinet_buttons.cpp` | Chỉ chứa task Core 0. Import `manual_control.h`, `definitions.h`, `config.h`. Không import fuzzy/TPC. |
-| D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | Cấu trúc: `struct ButtonSample { uint8_t pin; ManualChannel channel; uint8_t history; bool debounced_pressed; uint32_t last_request_ms; };` array 3 phần tử. Mỗi 10 ms: `raw = (digitalRead(pin)==LOW)`; `history = (history<<1) \| (raw ? 0x00 : 0x01)` — nhấn = 0 vì active-LOW, nên PRESS = `history == 0x00` và RELEASE = `history == 0xFF`. Chỉ khi có edge transition mới sinh `ManualRequest{channel, request_on=true}` cho press (Core 1 tự toggle latch). Không sinh request cho release — nút là momentary, không phải toggle switch. Log 1 lần mỗi transition qua `ScopedSerialLock`. |
-| D4 | Rate-limit local: bỏ qua PRESS mới nếu cách PRESS trước < 200 ms | Guard-rail thứ hai chống bounce residual sau khi shift-register đã lọc. Core 1 vẫn giữ rate-limit 1000 ms độc lập ở tầng safety gate. |
-| D5 | Gọi `xTaskCreatePinnedToCore(taskCabinetButtons, "TaskCabBtn", 2048, nullptr, 1, nullptr, 0)` trong `createCoreTasks()` | Pin Core 0. Cùng priority với encoder task. Vòng lặp phải dùng `vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(10))` để chu kỳ 10 ms tuyệt đối chính xác — chu kỳ jitter ảnh hưởng trực tiếp hiệu quả lọc EMI của shift-register. |
-| D6 | Cấp GPIO INPUT_PULLUP trong `taskCabinetButtons` khởi động task | Trước vòng lặp, `pinMode(pin, INPUT_PULLUP)` cho cả 3 chân. Đọc mẫu đầu tiên và pre-seed `history = 0xFF` (giả định nút đang nhả) để tránh false PRESS ngay sau boot khi pull-up chưa ổn định. |
+| D3 | Hiện thực Shift-Register Integrator debounce cho từng nút | Cấu hình `ButtonState` và `buttons[]` như đoạn mã thực chiến. Lấy mẫu mỗi 10ms: `raw_sample = (digitalRead(pin) == HIGH)`, `history = (history << 1) \| (raw_sample ? 1 : 0)`. Chốt PRESS khi `history == 0x00` và `current_state == true`. Chốt RELEASE khi `history == 0xFF` và `current_state == false`. |
+| D4 | Gửi request sang Core 1 | Khi chốt PRESS, gửi `ManualRequest` với `intent_on = true` sang `g_manual_request_queue`. |
+| D5 | Gọi `xTaskCreatePinnedToCore` trong `createCoreTasks()` | Chạy task `cabinet_buttons::task_cabinet_buttons` (Core 0, priority 1, stack 2048). Vòng lặp dùng `vTaskDelayUntil` với chu kỳ `xFrequency = pdMS_TO_TICKS(10)` để đảm bảo chính xác 10ms. |
+| D6 | Pre-seed lịch sử nút lúc start | Khởi tạo nút với `history = 0xFF`, `current_state = true` để tránh false trigger PRESS khi boot. |
 
 ### Track E — Core 1 Integration
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
 | E1 | Thêm biến local `ManualLatchArray manualLatch{}` trong `taskCore1Control()` | Không toàn cục. Init zero. |
-| E2 | Thêm bước drain queue vào đầu `runControlPipelineStep()` | Sau khi drain baseline/override, drain `xManualRequestQueue`. Với mỗi request: gọi `evaluateSafetyGate`, nếu Accepted và toggle-semantics: nếu latch cùng channel đang active với `forced_state==request_on` thì clear latch (toggle OFF), ngược lại update latch. Sinh `ManualAck` push vào `xManualAckQueue` (non-blocking). |
+| E2 | Thêm bước drain queue vào đầu `runControlPipelineStep()` | Sau khi drain baseline/override, drain `g_manual_request_queue`. Với mỗi request: gọi `evaluateSafetyGate`, nếu Accepted và toggle-semantics: nếu latch cùng channel đang active với `forced_state==intent_on` thì clear latch (toggle OFF), ngược lại update latch. Sinh `ManualAck` push vào `g_manual_ack_queue` (non-blocking). |
 | E3 | Chèn `autoClearOnSensorViolation(manualLatch, telemetry, setpoints, rtcTime)` sau khi có `setpoints` | Trước khi gọi fuzzy. |
 | E4 | Chèn `applyManualLatchToOutputs(outputs, manualLatch, millis())` sau `arbitrateOutputs` | Trước `hardwareProtectionOverride`. |
 | E5 | Verify `hardwareProtectionOverride` vẫn thắng | Thêm 1 comment giải thích thứ tự: fuzzy → tuner → arbitrate → manual latch → protection → TPC. |
@@ -167,7 +167,7 @@ const ManualLatchArray& latch, uint32_t now)`:
 
 | Task ID | Mô tả | Chỉ thị chi tiết |
 |---------|-------|------------------|
-| F1 | Trong `taskCore0Communication`, thêm bước drain `xManualAckQueue` mỗi vòng | Log qua `ScopedSerialLock`: `[MANUAL] ch=%d req_on=%d decision=%d`. Không block. |
+| F1 | Trong `taskCore0Communication`, thêm bước drain `g_manual_ack_queue` mỗi vòng | Log qua `ScopedSerialLock`: `[MANUAL] ch=%d req_on=%d decision=%d`. Không block. |
 | F2 | (Optional) Publish MQTT topic `mushroom/{device}/manual_ack` | Nếu MQTT connected. Payload JSON `{channel, requested_on, decision, ts}`. Không bắt buộc pass trong sprint này. |
 
 ### Track G — Tests
@@ -210,57 +210,77 @@ Với active-LOW (INPUT_PULLUP + nút GND): raw sample = 1 khi nhả (HIGH), 0 k
 Convention của repo: `history` lưu chuỗi mẫu raw **đã lọc**; nhấn ổn định = `0x00`, nhả
 ổn định = `0xFF`. Không dùng inverted history.
 
-### Pseudocode Core 0
+### Mã nguồn Triển khai Thực chiến cho `cabinet_buttons.cpp`
 
 ```cpp
-struct ButtonSample {
-    uint8_t pin;
-    ManualChannel channel;
-    uint8_t history;
-    bool debounced_pressed;
-    uint32_t last_request_ms;
-};
+#pragma once
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "config.h"
+#include "definitions.h"
 
-static ButtonSample buttons[3] = {
-    {config::pins::PIN_BTN_MIST, ManualChannel::Mist, 0xFF, false, 0},
-    {config::pins::PIN_BTN_LAMP, ManualChannel::Lamp, 0xFF, false, 0},
-    {config::pins::PIN_BTN_FAN,  ManualChannel::Fan,  0xFF, false, 0},
-};
+namespace cabinet_buttons {
+    // Cấu trúc quản lý trạng thái nút công nghiệp
+    struct ButtonState {
+        uint8_t pin;
+        uint8_t history;       // Bộ lưu lịch sử dịch bit (8 mẫu liên tiếp)
+        bool current_state;    // Trạng thái đã chốt (Debounced State)
+        AppChannel channel;    // Kênh điều khiển tương ứng
+    };
 
-void taskCabinetButtons(void*) {
-    for (auto& b : buttons) pinMode(b.pin, INPUT_PULLUP);
+    // Khởi tạo ma trận nút bấm vật lý
+    static ButtonState buttons[] = {
+        { config::hardware::PIN_BTN_MIST, 0xFF, true, AppChannel::MIST },
+        { config::hardware::PIN_BTN_FAN,  0xFF, true, AppChannel::FAN  },
+        { config::hardware::PIN_BTN_LAMP, 0xFF, true, AppChannel::LAMP }
+    };
 
-    TickType_t lastWake = xTaskGetTickCount();
-    while (true) {
-        const uint32_t now = millis();
-        for (auto& b : buttons) {
-            const uint8_t raw = (digitalRead(b.pin) == LOW) ? 0 : 1;
-            b.history = static_cast<uint8_t>((b.history << 1) | raw);
-
-            if (b.history == 0x00 && !b.debounced_pressed) {
-                b.debounced_pressed = true;
-                if (now - b.last_request_ms >= 200U) {
-                    b.last_request_ms = now;
-                    ManualRequest req = {b.channel, true, now};
-                    if (xManualRequestQueue) {
-                        xQueueSend(xManualRequestQueue, &req, 0);
-                    }
-                }
-            } else if (b.history == 0xFF && b.debounced_pressed) {
-                b.debounced_pressed = false;
-            }
+    void task_cabinet_buttons(void *pvParameters) {
+        // Cấu hình cứng GPIO với Pull-up nội bộ chống nhiễu ban đầu
+        for (auto &btn : buttons) {
+            pinMode(btn.pin, INPUT_PULLUP);
         }
-        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(10));
+
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        const TickType_t xFrequency = pdMS_TO_TICKS(10); // Lấy mẫu liên tục mỗi 10ms
+
+        while (true) {
+            for (auto &btn : buttons) {
+                // Đọc trạng thái raw tại chân vật lý (Active LOW do dùng Pull-up)
+                bool raw_sample = (digitalRead(btn.pin) == HIGH);
+                
+                // Dịch bit lịch sử để lưu mẫu mới
+                btn.history = (btn.history << 1) | (raw_sample ? 1 : 0);
+
+                // Kiểm tra điều kiện chốt trạng thái (Industrial Filter State Machine)
+                if (btn.history == 0x00 && btn.current_state == true) {
+                    // 8 mẫu liên tiếp đều LOW -> Xác nhận Cử chỉ Nhấn Nút (Pressed)
+                    btn.current_state = false;
+                    
+                    // Đóng gói ý định người dùng gửi sang Core 1 qua Queue
+                    ManualRequest req{ .channel = btn.channel, .intent_on = true };
+                    xQueueSend(g_manual_request_queue, &req, 0); // Non-blocking send
+                    Serial.printf("[BUTTON] Debounced PRESS on Channel %d\n", btn.channel);
+                } 
+                else if (btn.history == 0xFF && btn.current_state == false) {
+                    // 8 mẫu liên tiếp đều HIGH -> Xác nhận Cử chỉ Nhả Nút (Released)
+                    btn.current_state = true;
+                    Serial.printf("[BUTTON] Debounced RELEASE on Channel %d\n", btn.channel);
+                }
+            }
+
+            // Trả quyền điều khiển cho FreeRTOS, ngủ đúng 10ms (Không chiếm dụng CPU)
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
     }
 }
 ```
 
 ### Nghiệm thu
 
-- **EMI stress test:** Với dây chống nhiễu tháo ra, kích SSR quạt 2 A tại tủ điện. Nút không
-  được sinh request giả trong 60 giây liên tục. Đo bằng Serial log Count = 0.
-- **Cảm nhận user:** Nhấn nút ngắt khoát → thấy phản hồi trong < 200 ms (10 ms poll × 8 samples
-  + jitter). Không được > 300 ms.
+- **Nghiệm thu phần cứng Debounce:** Lấy một đoạn dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện nhiễu giả lập. Hệ thống lọc nhiễu 8-bit tích lũy bắt buộc phải bỏ qua các xung nhiễu này, chỉ khi nhấn giữ nút thật sự cứng tay quá 80ms thì Rơ-le mới được quyền kích hoạt.
+- **Độc quyền TPC Chốt chặn:** Dùng lệnh tìm kiếm toàn cục trong IDE: `grep -r "digitalWrite" src/`. Ngoại trừ file `actuators.cpp` tại hàm khởi tạo, tuyệt đối không được xuất hiện bất kỳ dòng lệnh ghi chân nào khác ngoài file `TPC_Task.cpp`.
 - **Chống double-press:** Nhấn nhanh 2 lần cách nhau 100 ms → chỉ 1 request đi qua (rate-limit).
 - **Chống stuck press:** Nút giữ 30 giây → chỉ 1 request tại thời điểm PRESS. Không lặp request.
 

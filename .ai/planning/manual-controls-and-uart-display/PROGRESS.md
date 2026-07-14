@@ -77,18 +77,18 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::pins` | `[ ] Pending` |
-| S2-A2 | Thêm `namespace config::manual` với `MANUAL_LATCH_TTL_MS = 900000` (15 min), `BUTTON_POLL_INTERVAL_MS=20`, `BUTTON_DEBOUNCE_MS=30` | `[ ] Pending` |
-| S2-A3 | Tạo `include/manual_control.h`: enum `ManualActuator { Mist, Lamp, Fan }`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] Pending` |
-| S2-A4 | Định nghĩa `xManualRequestQueue` (depth=8), `xManualAckQueue` (depth=8) trong `main.cpp::initQueues()` | `[ ] Pending` |
+| S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware` | `[ ] Pending` |
+| S2-A2 | Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min) | `[ ] Pending` |
+| S2-A3 | Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] Pending` |
+| S2-A4 | Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()` | `[ ] Pending` |
 
 ### Track B: Core 0 Button Task
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-B1 | Tạo `src/manual_buttons.cpp` chứa `taskCabinetButtons(void*)` | `[ ] Pending` |
+| S2-B1 | Tạo `src/cabinet_buttons.cpp` chứa `task_cabinet_buttons(void*)` | `[ ] Pending` |
 | S2-B2 | Init pinMode INPUT_PULLUP cho 3 chân trong task startup | `[ ] Pending` |
-| S2-B3 | Poll 3 nút mỗi 20ms, debounce 30ms falling-edge → xQueueSend request TOGGLE | `[ ] Pending` |
+| S2-B3 | Lấy mẫu mỗi 10ms, Shift Register tích luỹ (0x00/0xFF) chốt PRESS/RELEASE → gửi request | `[ ] Pending` |
 | S2-B4 | Rate limit: nếu drain queue thất bại (full) → log 1 lần/5s, không block | `[ ] Pending` |
 | S2-B5 | Đăng ký task Core 0 priority=1, stack 2048 trong `createCoreTasks()` | `[ ] Pending` |
 
@@ -103,15 +103,15 @@
 | S2-C5 | Rules: mọi OFF/CLEAR luôn PASS | `[ ] Pending` |
 | S2-C6 | Implement `applyLatchToOutputs()` sau `hardwareProtectionOverride()` — latch không đè blackout | `[ ] Pending` |
 | S2-C7 | Implement `updateLatchDecay()` — TTL 15 phút | `[ ] Pending` |
-| S2-C8 | Trong `runControlPipelineStep()`: drain `xManualRequestQueue`, gate, update latch, publish ack qua `xManualAckQueue` | `[ ] Pending` |
+| S2-C8 | Trong `runControlPipelineStep()`: drain `g_manual_request_queue`, gate, update latch, publish ack qua `g_manual_ack_queue` | `[ ] Pending` |
 
 ### Track D: Ack Forwarding
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-D1 | Trong `taskCore0Communication`, drain `xManualAckQueue`, log rõ ràng (PASS/BLOCK), publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] Pending` |
+| S2-D1 | Trong `taskCore0Communication`, drain `g_manual_ack_queue`, log rõ ràng (PASS/BLOCK), publish MQTT retained `mushroom/{deviceId}/manual/ack` | `[ ] Pending` |
 
-### Track E: Tests
+### Track E: Tests & Verification
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
@@ -123,8 +123,10 @@
 | S2-E6 | Test gate OFF luôn PASS | `[ ] Pending` |
 | S2-E7 | Test latch TTL expire sau 15 phút | `[ ] Pending` |
 | S2-E8 | Test latch không đè blackout Mist | `[ ] Pending` |
-| S2-E9 | Test debounce nhả nút trong 20ms không phát request | `[ ] Pending` |
+| S2-E9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] Pending` |
 | S2-E10 | `pio test -e native` PASS | `[ ] Pending` |
+| S2-V1 | **Nghiệm thu phần cứng Debounce:** Lấy dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện giả lập. Lọc nhiễu phải bỏ qua các xung này, chỉ khi nhấn giữ thật sự >80ms thì mới trigger | `[ ] Pending` |
+| S2-V2 | **Độc quyền TPC Chốt chặn:** Chạy `grep -r "digitalWrite" src/` kiểm tra không được ghi relay ngoài `TPC_Task.cpp` (trừ init trong `actuators.cpp`) | `[ ] Pending` |
 
 ---
 
@@ -143,8 +145,8 @@
 |------|-------|:------:|
 | S3-B1 | Tạo `include/display.h` với `DisplayFrame`, `IDisplayDriver`, prototype `renderFrame()`, `taskDisplay(void*)` | `[ ] Pending` |
 | S3-B2 | Extend `include/manual_control.h`: `ManualLatchSnapshot` (3 bool atomic snapshot) | `[ ] Pending` |
-| S3-B3 | Tạo `src/display_uart.cpp` chứa `UartAsciiDisplayDriver` — Serial1.begin(9600, SERIAL_8N1, RX, TX), Serial1.write(4 bytes) | `[ ] Pending` |
-| S3-B4 | Tạo `src/display_render.cpp` chứa pure `renderFrame()` | `[ ] Pending` |
+| S3-B3 | Tạo `src/display_uart.cpp` chứa `UartFramedDisplayDriver` — `Serial1.write(4 bytes)` dùng cấu trúc mảng tĩnh cố định `[Header/Mã lệnh, Humid, Temp, Checksum]` để tối ưu Hardware FIFO. | `[ ] Pending` |
+| S3-B4 | Tạo `src/display_render.cpp` chứa pure `renderFrame()` — Kiểm tra `isnan()` của SHT30, nếu dính `NAN` ghi mã Hex `0x40` (Segment của `-`) | `[ ] Pending` |
 
 ### Track C: Manual Latch Snapshot Bridge
 
@@ -168,6 +170,7 @@
 | S3-E1 | Nhiệt độ âm range -9..-1 render `-N`, ≤-10 render `Lo`, ≥100 render `Hi` | `[ ] Pending` |
 | S3-E2 | Rate-limit driver error log (10s) | `[ ] Pending` |
 | S3-E3 | Stack watermark log 60s | `[ ] Pending` |
+| S3-E4 | Chớp nháy màn hình/dấu chấm 3 giây khi manual latch tự nhả (hết 15 phút) | `[ ] Pending` |
 
 ### Track F: Tests
 

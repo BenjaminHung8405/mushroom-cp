@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-07-14T13:45:00+07:00 — Task A4
+
+- **Task ID:** A4
+- **Mô tả:** Tạo file header `ota_manager.h` khai báo public API của namespace `ota`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Files đã sửa đổi:**
+  - Không có.
+- **Files đã tạo mới:**
+  - `mushroom-iot-firmware/include/ota_manager.h` (file header định nghĩa namespace `ota` chứa các public API).
+- **Giải trình ngắn gọn về giải pháp logic đã viết:**
+  - Khai báo các hàm public cho hệ thống OTA trong `namespace ota`: `init()`, `request_ota_update()`, `check_ota_trigger()`, `perform_ota_update()`.
+  - Để đảm bảo file có thể compile bình thường trong môi trường host unit tests (`UNIT_TEST`), chúng tôi bọc header `<WString.h>` và `<Arduino.h>` trong một cấu trúc điều kiện: `#ifndef UNIT_TEST` thì include cả hai, ngược lại (`#else`) thì chỉ include `<Arduino.h>` (trỏ đến mock header `test/Arduino.h` trên host). Điều này giải quyết triệt để lỗi thiếu file `<WString.h>` trên host compiler (macOS) đồng thời giữ cho định nghĩa `String` hoạt động bình thường.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Tích hợp thử `#include "ota_manager.h"` vào `test/run_tests.cpp` và biên dịch bằng trình biên dịch `g++` local host: build thành công không có bất cứ lỗi nào liên quan đến cú pháp hay file header không tìm thấy.
+  - Chạy `./run_tests` xác nhận hoạt động bình thường và chỉ gặp lỗi assertion `load_hardware_override` có sẵn từ trước (pre-existing).
+  - Khôi phục file `test/run_tests.cpp` sạch sẽ sau khi kiểm tra xong.
+
+---
+
 ## 2026-07-14T13:27:51+07:00 — Task A3
 
 - **Task ID:** A3
