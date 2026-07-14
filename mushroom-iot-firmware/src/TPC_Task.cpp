@@ -48,7 +48,7 @@ bool requestedOutputHigh(float dutyDemand, uint32_t elapsedInWindow, uint32_t wi
 }
 
 void writeOutput(const TpcChannelConfig& config, TpcChannelState& state, bool high) {
-    digitalWrite(config.pin, high ? HIGH : LOW);
+    digitalWrite(config.pin, high ? LOW : HIGH);
     state.output_high = high;
 }
 
@@ -92,7 +92,7 @@ void updateTpcChannel(
 
     // A zero window cannot define a safe time-proportional schedule.
     if (config.window_ms == 0U) {
-        digitalWrite(config.pin, LOW);
+        digitalWrite(config.pin, HIGH);
         state.output_high = false;
         state.initialized = true;
         state.window_started_ms = now;
@@ -105,7 +105,7 @@ void updateTpcChannel(
         // immediately. This prevents boot-time demand from being delayed while
         // retaining minimum-off enforcement for subsequent transitions.
         initTpcChannelState(state, now, config.min_off_ms);
-        digitalWrite(config.pin, LOW);
+        digitalWrite(config.pin, HIGH);
     }
 
     const uint32_t elapsedInWindow = wrapTpcWindow(state, now, config.window_ms);

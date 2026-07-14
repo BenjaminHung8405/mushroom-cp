@@ -864,9 +864,9 @@ int main() {
         assert(mock_pin_modes.count(pin) > 0);
         assert(mock_pin_modes[pin] == OUTPUT);
 
-        // Assert pin state is LOW (fail-safe)
+        // Assert pin state is HIGH (fail-safe for SSR)
         assert(mock_pin_values.count(pin) > 0);
-        assert(mock_pin_values[pin] == LOW);
+        assert(mock_pin_values[pin] == HIGH);
 
         // Assert that digitalWrite was called (write order is recorded)
         assert(mock_pin_write_order.count(pin) > 0);
@@ -881,17 +881,17 @@ int main() {
 
     // 18.1 Toggle MIST relay ON then OFF — verify return true and correct levels
     assert(actuators::set_relay_state(config::pins::PIN_RELAY_MIST, true) == true);
-    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
 
     assert(actuators::set_relay_state(config::pins::PIN_RELAY_MIST, false) == true);
-    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
     // 18.2 Toggle all four relays individually — each must succeed
     for (uint8_t pin : relay_pins) {
         assert(actuators::set_relay_state(pin, true) == true);
-        assert(mock_pin_values[pin] == HIGH);
-        assert(actuators::set_relay_state(pin, false) == true);
         assert(mock_pin_values[pin] == LOW);
+        assert(actuators::set_relay_state(pin, false) == true);
+        assert(mock_pin_values[pin] == HIGH);
     }
 
     // 18.3 Reject invalid pins — must return false and NOT call digitalWrite
@@ -1022,10 +1022,10 @@ int main() {
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_LAMP) > 0);
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
 
-    // TPC initialized its channels to OFF (LOW) by default.
-    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
-    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
-    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
+    // TPC initialized its channels to OFF (HIGH) by default.
+    assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
+    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
 
     // 19.8 Cleanup queues
     vQueueDelete(test_baseline_q);
@@ -1567,7 +1567,7 @@ int main() {
         mock_millis_offset = 300000UL;
         TPC_Task::updateTpcChannel(channel, state, 0.5f);
         assert(state.output_high == true);
-        assert(mock_pin_values[42U] == HIGH);
+        assert(mock_pin_values[42U] == LOW);
 
         mock_millis_offset = 300050UL;
         TPC_Task::updateTpcChannel(channel, state, 0.5f);
@@ -1575,7 +1575,7 @@ int main() {
         mock_millis_offset = 300080UL;
         TPC_Task::updateTpcChannel(channel, state, 0.5f);
         assert(state.output_high == false);
-        assert(mock_pin_values[42U] == LOW);
+        assert(mock_pin_values[42U] == HIGH);
 
         // At the next window, the OFF phase has lasted only 20 ms, so the
         // 60 ms minimum OFF time delays the next HIGH transition until 140 ms.
@@ -1598,7 +1598,7 @@ int main() {
         const TpcChannelConfig invalid = {43U, 0U, 10U, 10U, 0U};
         TPC_Task::updateTpcChannel(invalid, invalidState, 1.0f);
         assert(invalidState.output_high == false);
-        assert(mock_pin_values[43U] == LOW);
+        assert(mock_pin_values[43U] == HIGH);
         assert(std::is_pod<TPC_Task::RtcTimePod>::value == true);
         assert(std::is_pod<TPC_Task::TpcChannelConfig>::value == true);
         assert(std::is_pod<TPC_Task::TpcChannelState>::value == true);
@@ -1614,31 +1614,31 @@ int main() {
         mock_millis_offset = 10000UL; // start of window
         TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
         assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == LOW);
+        assert(mock_pin_values[44U] == HIGH);
         
         // At elapsed = 299 ms, it must still be LOW
         mock_millis_offset = 10299UL;
         TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
         assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == LOW);
+        assert(mock_pin_values[44U] == HIGH);
         
         // At elapsed = 300 ms, it must transition to HIGH
         mock_millis_offset = 10300UL;
         TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
         assert(staggeredState.output_high == true);
-        assert(mock_pin_values[44U] == HIGH);
+        assert(mock_pin_values[44U] == LOW);
         
         // At elapsed = 799 ms (within 300 + 500 = 800 ms), it must still be HIGH
         mock_millis_offset = 10799UL;
         TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
         assert(staggeredState.output_high == true);
-        assert(mock_pin_values[44U] == HIGH);
+        assert(mock_pin_values[44U] == LOW);
         
         // At elapsed = 800 ms, it must transition to LOW
         mock_millis_offset = 10800UL;
         TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
         assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == LOW);
+        assert(mock_pin_values[44U] == HIGH);
 
         // Test non-wrapping rule: if offset + ON duration exceeds window, it must be capped at window boundary
         // Let's set offset = 800 ms, demand = 0.4 (400 ms ON).
@@ -1649,22 +1649,22 @@ int main() {
         mock_millis_offset = 20000UL; // start of window
         TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
         assert(wrapState.output_high == false);
-        assert(mock_pin_values[45U] == LOW);
+        assert(mock_pin_values[45U] == HIGH);
 
         mock_millis_offset = 20800UL; // at offset, goes HIGH
         TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
         assert(wrapState.output_high == true);
-        assert(mock_pin_values[45U] == HIGH);
+        assert(mock_pin_values[45U] == LOW);
 
         mock_millis_offset = 20999UL; // still HIGH before window boundary
         TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
         assert(wrapState.output_high == true);
-        assert(mock_pin_values[45U] == HIGH);
+        assert(mock_pin_values[45U] == LOW);
 
         mock_millis_offset = 21000UL; // next window, should go LOW (or reset window)
         TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
         assert(wrapState.output_high == false);
-        assert(mock_pin_values[45U] == LOW);
+        assert(mock_pin_values[45U] == HIGH);
 
         // Verify out-of-phase activation of Heater 1, Heater 2, and Mist (offsets 0ms, 3000ms, 8000ms)
         // Set up configs with 300s window (300000 ms) and demands > 0
@@ -1682,40 +1682,40 @@ int main() {
         TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
         TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
 
-        // HAir must be HIGH immediately
+        // HAir must be LOW immediately (active)
         assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == HIGH);
-        // HWat and Mist must be LOW
+        assert(mock_pin_values[10U] == LOW);
+        // HWat and Mist must be HIGH (inactive)
         assert(hWatState.output_high == false);
-        assert(mock_pin_values[11U] == LOW);
+        assert(mock_pin_values[11U] == HIGH);
         assert(mistState.output_high == false);
-        assert(mock_pin_values[12U] == LOW);
+        assert(mock_pin_values[12U] == HIGH);
 
         mock_millis_offset = 403000UL; // At 3 seconds
         TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
         TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
         TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
 
-        // HAir still HIGH, HWat goes HIGH, Mist still LOW
+        // HAir still LOW, HWat goes LOW, Mist still HIGH
         assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == HIGH);
+        assert(mock_pin_values[10U] == LOW);
         assert(hWatState.output_high == true);
-        assert(mock_pin_values[11U] == HIGH);
+        assert(mock_pin_values[11U] == LOW);
         assert(mistState.output_high == false);
-        assert(mock_pin_values[12U] == LOW);
+        assert(mock_pin_values[12U] == HIGH);
 
         mock_millis_offset = 408000UL; // At 8 seconds
         TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
         TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
         TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
 
-        // All three are HIGH now
+        // All three are LOW now
         assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == HIGH);
+        assert(mock_pin_values[10U] == LOW);
         assert(hWatState.output_high == true);
-        assert(mock_pin_values[11U] == HIGH);
+        assert(mock_pin_values[11U] == LOW);
         assert(mistState.output_high == true);
-        assert(mock_pin_values[12U] == HIGH);
+        assert(mock_pin_values[12U] == LOW);
     }
 
     // 28.5 A single physical lamp relay receives the complete lamp demand.
@@ -1732,7 +1732,7 @@ int main() {
         TPC_Task::applyTpcOutputs(
             outputs, lampConfig, hWatConfig, mistConfig, exhConfig, state);
         assert(state.Lamp.output_high == true);
-        assert(mock_pin_values[13U] == HIGH);
+        assert(mock_pin_values[13U] == LOW);
     }
 
 
@@ -1757,14 +1757,14 @@ int main() {
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
 
         // RTC is unavailable (fail-safe), so hardwareProtectionOverride() forces
-        // HWat and Mist to 0.0 duty → TPC writes LOW to both heater pins.
-        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == LOW);
-        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+        // HWat and Mist to 0.0 duty → TPC writes HIGH to both heater pins.
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
         // HAir and Exhaust are unaffected by the blackout interlock; Exhaust is
-        // HIGH because the default crop day (0.0) target (24.0C) is lower than mock temperature.
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
-        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
+        // LOW because the default crop day (0.0) target (24.0C) is lower than mock temperature.
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
 
         // Verify no heap allocation or delay() was used — confirmed by static
         // analysis of core1_tasks.cpp (no malloc/new/String/delay in loop body).
@@ -2434,8 +2434,8 @@ int main() {
         // An active manual override cannot bypass the invalid-RTC TPC safety shutdown.
         assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);
         taskCore1Control(nullptr);
-        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == LOW);
-        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
         // Existing F6 gesture tests exercise edit/save/clear; the test cleanup leaves no override.
         assert(storage.clear_hardware_override() == true);

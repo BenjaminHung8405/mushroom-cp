@@ -106,15 +106,15 @@ void perform_ota_update(const String& url) {
     // BƯỚC 1: Publish offline status sạch sẽ
     mqtt::MqttClient::getInstance().publishStatus(false);
 
-    // BƯỚC 2: Relay Safety — Chuyển tất cả Relay về LOW (Default-Off)
+    // BƯỚC 2: Relay Safety — Chuyển tất cả Relay về HIGH (Default-Off cho SSR)
     // Thao tác trực tiếp GPIO để không phụ thuộc vào state machine của actuators module.
 #ifndef UNIT_TEST
     for (int i = 0; i < RELAY_GPIO_COUNT; ++i) {
-        digitalWrite(RELAY_GPIO_PINS[i], LOW);
+        digitalWrite(RELAY_GPIO_PINS[i], HIGH);
     }
     {
         ScopedSerialLock guard(SerialLock::get_instance());
-        Serial.println("[OTA] All relay GPIOs set to LOW (Default-Off). Safe to proceed.");
+        Serial.println("[OTA] All relay GPIOs set to HIGH (Default-Off for SSR). Safe to proceed.");
     }
 #endif
 

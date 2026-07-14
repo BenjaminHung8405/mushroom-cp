@@ -51,24 +51,24 @@ namespace actuators
 
         // Pin 1: Mist Relay
         pinMode(config::pins::PIN_RELAY_MIST, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_MIST, LOW);
-        Serial.printf("[ACTUATORS] Relay MIST (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_MIST);
+        digitalWrite(config::pins::PIN_RELAY_MIST, HIGH);
+        Serial.printf("[ACTUATORS] Relay MIST (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_MIST);
 
         // Pin 2: Fan Relay
         pinMode(config::pins::PIN_RELAY_FAN, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_FAN, LOW);
-        Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_FAN);
+        digitalWrite(config::pins::PIN_RELAY_FAN, HIGH);
+        Serial.printf("[ACTUATORS] Relay FAN (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_FAN);
 
         // Pin 3: Lamp relay
         pinMode(config::pins::PIN_RELAY_LAMP, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_LAMP, LOW);
-        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d) initialized to LOW.\n",
+        digitalWrite(config::pins::PIN_RELAY_LAMP, HIGH);
+        Serial.printf("[ACTUATORS] Relay LAMP (Pin %d) initialized to HIGH.\n",
                       (int)config::pins::PIN_RELAY_LAMP);
 
         // Pin 4: Heater Water Relay
         pinMode(config::pins::PIN_RELAY_HWAT, OUTPUT);
-        digitalWrite(config::pins::PIN_RELAY_HWAT, LOW);
-        Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to LOW.\n", (int)config::pins::PIN_RELAY_HWAT);
+        digitalWrite(config::pins::PIN_RELAY_HWAT, HIGH);
+        Serial.printf("[ACTUATORS] Relay HWAT (Pin %d) initialized to HIGH.\n", (int)config::pins::PIN_RELAY_HWAT);
 
         Serial.println("[ACTUATORS] All relays initialized successfully in safe OFF state (4 relays, LAMP merged).");
 
@@ -117,14 +117,14 @@ namespace actuators
             return false;
         }
 
-        const uint8_t level = state ? HIGH : LOW;
+        const uint8_t level = state ? LOW : HIGH;
         digitalWrite(relay_pin, level);
 
         Serial.printf(
             "[ACTUATOR] Pin %d (%s) set to %s.\n",
             (int)relay_pin,
             relay_name(relay_pin),
-            state ? "HIGH" : "LOW"
+            level == HIGH ? "HIGH" : "LOW"
         );
 
         return true;
