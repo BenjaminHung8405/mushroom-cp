@@ -268,7 +268,11 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
                 <div class="card-title">Actuator Demands (TPC)</div>
                 <div class="output-item">
                     <div class="output-header">
-                        <span class="output-label">Air Heater (HAir)</span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="output-label">Heat Lamp (HLamp)</span>
+                            <span id="lamp1-badge" class="badge badge-offline" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; display: inline-flex; border-radius: 4px; margin: 0;">○ L1 OFF</span>
+                            <span id="lamp2-badge" class="badge badge-offline" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; display: inline-flex; border-radius: 4px; margin: 0;">○ L2 OFF</span>
+                        </div>
                         <span id="hair-val" class="output-val">0%</span>
                     </div>
                     <div class="progress-bg">
@@ -340,6 +344,11 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
                     
                     updateBadge('wifi-badge', data.wifi_connected, 'WiFi Connected', 'WiFi Offline');
                     updateBadge('mqtt-badge', data.mqtt_connected, 'MQTT Connected', 'MQTT Offline');
+
+                    if (data.actuators) {
+                        updateBadge('lamp1-badge', data.actuators.lamp_stage_active, 'L1 ON', 'L1 OFF');
+                        updateBadge('lamp2-badge', data.actuators.lamp_stage2_active, 'L2 ON', 'L2 OFF');
+                    }
                     
                     document.getElementById('uptime-val').innerText = data.uptime || 0;
                     document.getElementById('heap-val').innerText = Math.round((data.free_heap || 0) / 1024);

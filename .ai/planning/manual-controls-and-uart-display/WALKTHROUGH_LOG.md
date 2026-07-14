@@ -1,5 +1,17 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T16:41:42+07:00] Task S1-D3: Cập nhật WebInterface HTML: label "Air Heater (HAir)" → "Heat Lamp (HLamp)", thêm badge "Lamp1 / Lamp2 staged"
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/WebInterface.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Cập nhật file `src/WebInterface.cpp` để đổi nhãn giao diện hiển thị từ "Air Heater (HAir)" thành "Heat Lamp (HLamp)".
+  - Bổ sung 2 badges `L1` và `L2` tương ứng cho 2 bóng đèn nhiệt `Lamp 1` và `Lamp 2` kế bên nhãn hiển thị.
+  - Cập nhật mã nguồn Javascript của Web Interface để tự động nhận dạng trạng thái logic từ `data.actuators.lamp_stage_active` và `data.actuators.lamp_stage2_active`, gọi hàm `updateBadge` để cập nhật trạng thái hiển thị của 2 đèn nhiệt (ON/OFF) một cách trực quan trên web.
+- **Kết quả tự kiểm thử**:
+  - Biên dịch và chạy thử thành công host-side unit tests suite bằng g++ trên local: 100% test cases trong `run_tests` đều PASS thành công tốt đẹp (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T16:39:18+07:00] Task S1-D2: `SharedSystemState` field `h_air_duty` → `h_lamp_duty`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review
