@@ -10,6 +10,7 @@
 #include "Telemetry.h"
 #include "Trajectory.h"
 #include "encoder.h"
+#include "manual_control.h"
 
 // Task handles for Core 1 tasks. Externally declared in definitions.h so
 // other modules (e.g. ota_manager) can suspend/resume them safely during
@@ -19,6 +20,10 @@
 TaskHandle_t hTaskCore1Control = nullptr;
 TaskHandle_t hTaskHWButton     = nullptr;
 #endif
+
+// Global Queue Handles for Manual Control
+QueueHandle_t g_manual_request_queue = nullptr;
+QueueHandle_t g_manual_ack_queue = nullptr;
 
 // Telemetry samples are produced every 5 s; depth of 4 is enough for Core 0 to
 // drain without blocking Core 1.
@@ -80,6 +85,28 @@ void initQueues()
     {
         Serial.printf("[MAIN] xActuatorOverrideQueue created (depth=1, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ActuatorOverrideCommand)));
+    }
+
+    g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
+    if (g_manual_request_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_manual_request_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_manual_request_queue created (depth=8, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ManualRequest)));
+    }
+
+    g_manual_ack_queue = xQueueCreate(8, sizeof(ManualAck));
+    if (g_manual_ack_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_manual_ack_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_manual_ack_queue created (depth=8, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ManualAck)));
     }
 }
 

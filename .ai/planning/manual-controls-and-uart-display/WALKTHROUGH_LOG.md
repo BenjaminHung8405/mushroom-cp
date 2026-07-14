@@ -1,5 +1,18 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:06:20+07:00] Task S2-A4: Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/include/definitions.h) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/main.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Khai báo extern cho 2 hàng đợi `g_manual_request_queue` và `g_manual_ack_queue` của cơ chế Manual Control trong file `definitions.h`.
+  - Khai báo định nghĩa toàn cục cho 2 hàng đợi này trong `main.cpp`.
+  - Thực hiện khởi tạo 2 hàng đợi bằng `xQueueCreate` trong hàm `main.cpp::initQueues()` với độ sâu hàng đợi (depth) bằng 8 và kích thước tương ứng với `sizeof(ManualRequest)` và `sizeof(ManualAck)`.
+- **Kết quả tự kiểm thử**:
+  - Đã biên dịch toàn bộ codebase thành công và thực thi bộ suite unit test offline (`run_tests`) vượt qua 100% assertions (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T17:04:30+07:00] Task S2-A3: Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

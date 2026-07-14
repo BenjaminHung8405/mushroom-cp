@@ -84,7 +84,7 @@
 | S2-A1 | Thêm `PIN_BTN_MIST=4`, `PIN_BTN_LAMP=15`, `PIN_BTN_FAN=16` trong `config.h::hardware` | `[ ] QA Review` |
 | S2-A2 | Thêm `namespace config::hardware` và `MANUAL_LATCH_TTL_MS = 900000` (15 min) | `[ ] QA Review` |
 | S2-A3 | Tạo `include/manual_control.h`: enum `AppChannel`, struct `ManualRequest`, struct `ManualLatchState`, prototype `evaluateSafetyGate()`, `applyLatchToOutputs()`, `updateLatchDecay()` | `[ ] QA Review` |
-| S2-A4 | Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()` | `[ ] Pending` |
+| S2-A4 | Định nghĩa `g_manual_request_queue` (depth=8), `g_manual_ack_queue` (depth=8) trong `main.cpp::initQueues()` | `[ ] QA Review` |
 
 ### Track B: Core 0 Button Task
 

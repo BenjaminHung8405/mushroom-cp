@@ -118,6 +118,16 @@ extern QueueHandle_t xOverrideQueue;
 extern QueueHandle_t xActuatorOverrideQueue;
 
 /**
+ * @brief Handle for the FreeRTOS queue carrying manual requests (Core 0/buttons to Core 1).
+ */
+extern QueueHandle_t g_manual_request_queue;
+
+/**
+ * @brief Handle for the FreeRTOS queue carrying manual acks (Core 1 to Core 0).
+ */
+extern QueueHandle_t g_manual_ack_queue;
+
+/**
  * @brief Hydrate setpoints from NVS and push them to xBaselineQueue and xOverrideQueue.
  * Fallbacks to trajectory Day 0 if NVS baseline is missing/invalid.
  */
