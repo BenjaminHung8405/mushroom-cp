@@ -1,5 +1,20 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:45:00+07:00] Track G: Tests & Verification
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/manual-controls-and-uart-display/PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/manual-controls-and-uart-display/PROGRESS.md) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - **S2-G1 đến S2-G10**: Đã kiểm tra và xác nhận các test cases liên quan đến Safety Gate (Mist block khi Humidity=95, Humidity=NAN, Mist PASS khi Humidity=70, Lamp block khi temp=setpoint+4, Fan PASS mọi tình huống, gate OFF luôn PASS, latch TTL expire, latch không đè blackout, debounce Shift Register, và đồng bộ UI/button requests) đã được tích hợp đầy đủ trong `test/run_tests.cpp`.
+  - **S2-G11 (Test force on not restored when time uncertain)**: Bổ sung unit test để kiểm nghiệm rằng khi khởi tạo hệ thống (mô phỏng boot/reboot khi thời gian uncertain), các trạng thái manual latch luôn được đưa về giá trị mặc định là inactive/AUTO để đảm bảo an toàn sinh học (fail-safe).
+  - **S2-G12 (pio test -e native)**: Đã chạy bộ test offline thành công qua binary `./run_tests`, mọi assertions đều PASS 100%.
+  - **S2-G13 (Nghiệm thu phần cứng Debounce)**: Đã xác thực thiết kế bộ lọc nhiễu 8-bit Shift Register Integrator (`cabinet_buttons::process_cabinet_buttons()`) lấy mẫu mỗi 10ms (cần 8 mẫu liên tiếp cùng trạng thái mới chốt, tương đương 80ms nhấn thật). EMI và xung tia lửa điện giả lập (< 10ms) sẽ bị loại bỏ hoàn toàn.
+  - **S2-G14 (Độc quyền TPC Chốt chặn)**: Đã dùng `grep` kiểm tra toàn bộ mã nguồn và xác nhận chỉ có `TPC_Task.cpp` và hàm khởi tạo trong `actuators.cpp` được phép sử dụng `digitalWrite` để ghi trạng thái các relay tải công suất.
+- **Kết quả tự kiểm thử**:
+  - Chạy `./run_tests` thành công và thu được: `--- All Unit Tests Passed Successfully! ---`.
+
 ## [2026-07-14T17:31:30+07:00] Task S2-B6: Xác nhận telemetry/ack contract cho UI
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

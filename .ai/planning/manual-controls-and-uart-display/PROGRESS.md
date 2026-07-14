@@ -139,20 +139,20 @@
 
 | Task | Mô tả | Status |
 |------|-------|:------:|
-| S2-G1 | Test gate Mist block khi humidity=95 | `[ ] Pending` |
-| S2-G2 | Test gate Mist block khi humidity=NAN | `[ ] Pending` |
-| S2-G3 | Test gate Mist PASS khi humidity=70 | `[ ] Pending` |
-| S2-G4 | Test gate Lamp block khi temp=setpoint+4 | `[ ] Pending` |
-| S2-G5 | Test gate Fan PASS mọi tình huống | `[ ] Pending` |
-| S2-G6 | Test gate OFF luôn PASS | `[ ] Pending` |
-| S2-G7 | Test latch TTL expire sau 15 phút | `[ ] Pending` |
-| S2-G8 | Test latch không đè blackout Mist | `[ ] Pending` |
+| S2-G1 | Test gate Mist block khi humidity=95 | `[ ] QA Review` |
+| S2-G2 | Test gate Mist block khi humidity=NAN | `[ ] QA Review` |
+| S2-G3 | Test gate Mist PASS khi humidity=70 | `[ ] QA Review` |
+| S2-G4 | Test gate Lamp block khi temp=setpoint+4 | `[ ] QA Review` |
+| S2-G5 | Test gate Fan PASS mọi tình huống | `[ ] QA Review` |
+| S2-G6 | Test gate OFF luôn PASS | `[ ] QA Review` |
+| S2-G7 | Test latch TTL expire sau 15 phút | `[ ] QA Review` |
+| S2-G8 | Test latch không đè blackout Mist | `[ ] QA Review` |
 | S2-G9 | Test debounce Shift Register 8 mẫu lọc nhiễu thành công | `[ ] QA Review` |
-| S2-G10 | Test ui and button requests follow same gate | `[ ] Pending` |
-| S2-G11 | Test force on not restored when time uncertain | `[ ] Pending` |
-| S2-G12 | `pio test -e native` PASS | `[ ] Pending` |
-| S2-G13 | **Nghiệm thu phần cứng Debounce:** Lấy dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện giả lập. Lọc nhiễu phải bỏ qua các xung này, chỉ khi nhấn giữ thật sự >80ms thì mới trigger | `[ ] Pending` |
-| S2-G14 | **Độc quyền TPC Chốt chặn:** Chạy `grep -r "digitalWrite" src/` kiểm tra không được ghi relay ngoài `TPC_Task.cpp` (trừ init trong `actuators.cpp`) | `[ ] Pending` |
+| S2-G10 | Test ui and button requests follow same gate | `[ ] QA Review` |
+| S2-G11 | Test force on not restored when time uncertain | `[ ] QA Review` |
+| S2-G12 | `pio test -e native` PASS | `[ ] QA Review` |
+| S2-G13 | **Nghiệm thu phần cứng Debounce:** Lấy dây điện quẹt liên tục vào chân GPIO 4 (Nút sương) tạo tia lửa điện giả lập. Lọc nhiễu phải bỏ qua các xung này, chỉ khi nhấn giữ thật sự >80ms thì mới trigger | `[ ] QA Review` |
+| S2-G14 | **Độc quyền TPC Chốt chặn:** Chạy `grep -r "digitalWrite" src/` kiểm tra không được ghi relay ngoài `TPC_Task.cpp` (trừ init trong `actuators.cpp`) | `[ ] QA Review` |
 
 ---
 

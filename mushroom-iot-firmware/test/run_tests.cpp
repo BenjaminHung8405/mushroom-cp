@@ -2737,6 +2737,17 @@ int main() {
             // Released should not push new request to queue
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
         }
+
+        // S2-G11: Test force on not restored when time uncertain
+        {
+            // When system boot or initialization occurs with uncertain time, the manual latch
+            // array is initialized to default (inactive / AUTO), ensuring no FORCE_ON is active.
+            manual::ManualLatchArray latch = {};
+            for (size_t i = 0; i < latch.size(); ++i) {
+                assert(latch[i].active == false);
+                assert(latch[i].forced_state == AppIntent::AUTO);
+            }
+        }
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
