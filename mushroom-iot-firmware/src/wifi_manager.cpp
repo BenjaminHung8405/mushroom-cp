@@ -3,6 +3,7 @@
 #include "config.h"
 #include "storage.h"
 #include "definitions.h"
+#include "time_confidence.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -977,6 +978,9 @@ setInterval(function(){
 #endif
                 reconnect_attempts = 0;
                 set_state(WifiState::STA_CONNECTED);
+                
+                // B2: Sync NTP success -> Trusted Time
+                time_conf::onTimeSyncSuccess(time(nullptr));
             }
             else if (now - connection_start_time >= WIFI_CONNECTION_TIMEOUT_MS)
             {
@@ -1005,6 +1009,9 @@ setInterval(function(){
                 Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
                 set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
+                
+                // B2: Connection loss while same boot -> Holdover
+                time_conf::onConnectionLoss();
             }
             break;
         }

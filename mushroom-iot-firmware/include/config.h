@@ -13,11 +13,11 @@ namespace config
     {
 
         // Actuators (Relays)
-        constexpr uint8_t PIN_RELAY_MIST = 10;     // Sương (Fogger/Mist)
-        constexpr uint8_t PIN_RELAY_FAN = 11;      // Quạt (Fan)
-        constexpr uint8_t PIN_RELAY_LAMP_1 = 13;   // Đèn nhiệt 1 (Lamp 1)
-        constexpr uint8_t PIN_RELAY_LAMP_2 = 14;   // Đèn nhiệt 2 (Lamp 2)
-        constexpr uint8_t PIN_RELAY_HWAT = 12;     // Sưởi nước (Heater Water)
+        constexpr uint8_t PIN_RELAY_MIST = 10;   // Sương (Fogger/Mist)
+        constexpr uint8_t PIN_RELAY_FAN = 11;    // Quạt (Fan)
+        constexpr uint8_t PIN_RELAY_LAMP_1 = 13; // Đèn nhiệt 1 (Lamp 1)
+        constexpr uint8_t PIN_RELAY_LAMP_2 = 14; // Đèn nhiệt 2 (Lamp 2)
+        constexpr uint8_t PIN_RELAY_HWAT = 12;   // Sưởi nước (Heater Water)
 
         // I2C Bus (e.g. SHT30, SCD30)
         constexpr uint8_t PIN_I2C_SDA = 8;
@@ -104,5 +104,13 @@ namespace config
         // Manual latch duration (15 minutes)
         constexpr uint32_t MANUAL_LATCH_TTL_MS = 900000;
     } // namespace hardware
+
+    namespace safe_offline
+    {
+        // Cấu hình phòng thủ bảo vệ sinh học tối đa cho Nấm Rơm miền Tây (Vụ 1 - 15/07)
+        constexpr float TEMP_TARGET_C = 30.0f;      // Điểm ngọt sinh học cho nấm rơm ra ghim
+        constexpr float HUMIDITY_TARGET_RH = 83.0f; // Ngưỡng ẩm an toàn chống thối tơ khi mất mạng
+        constexpr float CO2_TARGET_PPM = 1000.0f;   // Giới hạn thông gió chống ngộp khí
+    } // namespace safe_offline
 
 } // namespace config

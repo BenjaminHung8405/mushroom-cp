@@ -396,52 +396,62 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
     float& errorHumid,
     float& errorCO2)
 {
-    float currentDay = calculateCurrentCropDay();
-    const Trajectory::SetpointPod trajectory =
-        Trajectory::interpolateSetpoints(currentDay);
-
     Trajectory::SetpointPod setpoints;
 
-    // Temperature Target Priority: override > baseline > trajectory Day 0
-    if (overrideCmd.active && std::isfinite(overrideCmd.temp_target))
+    if (time_conf::getTimeConfidence() == TimeConfidence::Uncertain)
     {
-        setpoints.temp_target = overrideCmd.temp_target;
-    }
-    else if (baselineCmd.active && std::isfinite(baselineCmd.temp_target))
-    {
-        setpoints.temp_target = baselineCmd.temp_target;
+        // B4: Uncertain boot fallback to safe offline profile
+        setpoints.temp_target = config::safe_offline::TEMP_TARGET_C;
+        setpoints.humidity_target = config::safe_offline::HUMIDITY_TARGET_RH;
+        setpoints.co2_target = config::safe_offline::CO2_TARGET_PPM;
     }
     else
     {
-        setpoints.temp_target = trajectory.temp_target;
-    }
+        float currentDay = calculateCurrentCropDay();
+        const Trajectory::SetpointPod trajectory =
+            Trajectory::interpolateSetpoints(currentDay);
 
-    // Humidity Target Priority: override > baseline > trajectory Day 0
-    if (overrideCmd.active && std::isfinite(overrideCmd.humidity_target))
-    {
-        setpoints.humidity_target = overrideCmd.humidity_target;
-    }
-    else if (baselineCmd.active && std::isfinite(baselineCmd.humidity_target))
-    {
-        setpoints.humidity_target = baselineCmd.humidity_target;
-    }
-    else
-    {
-        setpoints.humidity_target = trajectory.humidity_target;
-    }
+        // Temperature Target Priority: override > baseline > trajectory Day 0
+        if (overrideCmd.active && std::isfinite(overrideCmd.temp_target))
+        {
+            setpoints.temp_target = overrideCmd.temp_target;
+        }
+        else if (baselineCmd.active && std::isfinite(baselineCmd.temp_target))
+        {
+            setpoints.temp_target = baselineCmd.temp_target;
+        }
+        else
+        {
+            setpoints.temp_target = trajectory.temp_target;
+        }
 
-    // CO2 Target Priority: override > baseline > trajectory Day 0
-    if (overrideCmd.active && std::isfinite(overrideCmd.co2_target))
-    {
-        setpoints.co2_target = overrideCmd.co2_target;
-    }
-    else if (baselineCmd.active && std::isfinite(baselineCmd.co2_target))
-    {
-        setpoints.co2_target = baselineCmd.co2_target;
-    }
-    else
-    {
-        setpoints.co2_target = trajectory.co2_target;
+        // Humidity Target Priority: override > baseline > trajectory Day 0
+        if (overrideCmd.active && std::isfinite(overrideCmd.humidity_target))
+        {
+            setpoints.humidity_target = overrideCmd.humidity_target;
+        }
+        else if (baselineCmd.active && std::isfinite(baselineCmd.humidity_target))
+        {
+            setpoints.humidity_target = baselineCmd.humidity_target;
+        }
+        else
+        {
+            setpoints.humidity_target = trajectory.humidity_target;
+        }
+
+        // CO2 Target Priority: override > baseline > trajectory Day 0
+        if (overrideCmd.active && std::isfinite(overrideCmd.co2_target))
+        {
+            setpoints.co2_target = overrideCmd.co2_target;
+        }
+        else if (baselineCmd.active && std::isfinite(baselineCmd.co2_target))
+        {
+            setpoints.co2_target = baselineCmd.co2_target;
+        }
+        else
+        {
+            setpoints.co2_target = trajectory.co2_target;
+        }
     }
 
     errorTemp = std::isfinite(telemetry.temp_air)

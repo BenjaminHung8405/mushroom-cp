@@ -1,4 +1,6 @@
 #include "Telemetry.h"
+#include "time_confidence.h"
+#include "crop_profile_storage.h"
 #include <ArduinoJson.h>
 
 namespace Telemetry {
@@ -116,6 +118,27 @@ void buildFullPayload(const TelemetryData& current, JsonObject& root)
     } else {
         root["co2_level"] = current.co2_level;
     }
+
+    // S4-B5: Telemetry exposure of time confidence parameters
+    TimeConfidence conf = time_conf::getTimeConfidence();
+    root["time_confidence"] = static_cast<uint8_t>(conf);
+    
+    // Read profile version/source if profile active (or default/stubs)
+    PersistedCropProfile activeProfile{};
+    bool hasProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
+    root["profile_version"] = hasProfile ? activeProfile.schema_version : 0;
+    root["profile_source"] = hasProfile ? "NVS" : "Default";
+    root["offline_safe_mode"] = (conf == TimeConfidence::Uncertain);
+
+    // Calculate crop day based on time confidence
+    float day = 0.0f;
+    if (conf != TimeConfidence::Uncertain && hasProfile && activeProfile.crop_start_epoch_s > 0) {
+        time_t now_epoch_s = time(nullptr);
+        if (now_epoch_s >= activeProfile.crop_start_epoch_s) {
+            day = 1.0f + static_cast<float>(now_epoch_s - activeProfile.crop_start_epoch_s) / 86400.0f;
+        }
+    }
+    root["crop_day"] = day;
 
     addActuatorPayload(current.actuators, root);
 }

@@ -11,6 +11,9 @@
 #include "Trajectory.h"
 #include "encoder.h"
 #include "manual_control.h"
+#include "crop_profile_storage.h"
+#include "time_confidence.h"
+#include <time.h>
 
 // Task handles for Core 1 tasks. Externally declared in definitions.h so
 // other modules (e.g. ota_manager) can suspend/resume them safely during
@@ -380,6 +383,24 @@ void setup()
     else
     {
         Serial.println("[MAIN] ERROR: NVS Storage initialization failed!");
+    }
+    storage::CropProfileStorage::getInstance().init();
+
+    // S4-B3: Check boot time state.
+    PersistedTimeState timeState{};
+    bool hasSavedTime = storage::CropProfileStorage::getInstance().loadTimeState(timeState);
+    
+    // Initialize initial time confidence based on hardware RTC existence (we mock this or set as false for ESP32 without DS3231)
+    time_conf::initializeTimeConfidence(false); 
+    
+    if (hasSavedTime) {
+        time_t saved = static_cast<time_t>(timeState.last_trusted_epoch_s);
+        struct tm* tm_info = localtime(&saved);
+        if (tm_info && tm_info->tm_year >= (2026 - 1900)) {
+            time_conf::setTimeConfidence(TimeConfidence::Holdover);
+            timeval tv = { static_cast<time_t>(timeState.last_trusted_epoch_s), 0 };
+            settimeofday(&tv, nullptr);
+        }
     }
 
     // 4. Load runtime configuration from NVS
