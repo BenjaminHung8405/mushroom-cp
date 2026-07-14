@@ -670,6 +670,53 @@ int main() {
         assert(consumeSharedForceFullPublish() == false);
     }
 
+    // Case L: Actuator overrides via new contract { actuator, state }
+    {
+        Serial.println("--- Case L: Actuator overrides via new contract { actuator, state } ---");
+        
+        if (g_mqtt_override_queue == nullptr)
+        {
+            g_mqtt_override_queue = xQueueCreate(8, sizeof(ManualRequest));
+        }
+        else
+        {
+            xQueueReset(g_mqtt_override_queue);
+        }
+        
+        // 1. Force ON mist
+        {
+            std::string payload = "{\"actuator\":\"mist\",\"state\":true}";
+            PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+            
+            ManualRequest req;
+            assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
+            assert(req.channel == AppChannel::MIST);
+            assert(req.intent == AppIntent::FORCE_ON);
+        }
+        
+        // 2. Force OFF fan
+        {
+            std::string payload = "{\"actuator\":\"fan\",\"state\":false}";
+            PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+            
+            ManualRequest req;
+            assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
+            assert(req.channel == AppChannel::FAN);
+            assert(req.intent == AppIntent::FORCE_OFF);
+        }
+        
+        // 3. Auto heater_air (which aliases to LAMP)
+        {
+            std::string payload = "{\"actuator\":\"heater_air\",\"state\":null}";
+            PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
+            
+            ManualRequest req;
+            assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
+            assert(req.channel == AppChannel::LAMP);
+            assert(req.intent == AppIntent::AUTO);
+        }
+    }
+
     // 13. Test Task D1 - Core 0 Communication Task
     Serial.println("[TEST] Starting Task D1 - Core 0 Communication Task Unit Tests...");
     assert(storage.factory_reset() == true);

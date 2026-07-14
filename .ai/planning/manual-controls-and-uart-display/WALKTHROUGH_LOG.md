@@ -1,5 +1,19 @@
 # WALKTHROUGH_LOG.md
 
+## [2026-07-14T17:28:40+07:00] Task S2-B5: Thêm MQTT/UI override adapter trong `mqtt_client.cpp`
+
+- **Trạng thái hiện tại**: Đang chờ QA Review
+- **Danh sách file sửa đổi**:
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/mqtt_client.cpp) (Sửa đổi)
+  - [/Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) (Sửa đổi)
+- **Giải trình giải pháp**:
+  - Tích hợp thêm logic parse và validate override payload mới chứa khoá `actuator` và `state` (`true` -> `FORCE_ON`, `false` -> `FORCE_OFF`, `null` -> `AUTO`) trong MQTT subscriber callback.
+  - Ánh xạ chính xác các chuỗi `"mist"`, `"fan"`, `"heater_air"` thành các kênh `AppChannel` tương ứng (`MIST`, `FAN`, `LAMP`).
+  - Đóng gói thông tin thành `ManualRequest` rồi gửi vào hàng đợi `g_mqtt_override_queue` để chuyển tiếp sang Core 1.
+- **Kết quả tự kiểm thử**:
+  - Đã thêm Case L kiểm tra tính đúng đắn của adapter override trong `test/run_tests.cpp` với 3 kịch bản: Mist Force ON, Fan Force OFF và Heater Air Auto.
+  - Chạy `./run_tests` vượt qua 100% assertions thành công (`--- All Unit Tests Passed Successfully! ---`).
+
 ## [2026-07-14T17:27:30+07:00] Task S2-B4: Tạo ba queue trong `initQueues()` của `main.cpp`
 
 - **Trạng thái hiện tại**: Đang chờ QA Review

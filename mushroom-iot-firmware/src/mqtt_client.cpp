@@ -287,7 +287,8 @@ namespace mqtt
             doc.containsKey("humidity") || doc.containsKey("co2") ||
             doc.containsKey("clearHardwareOverride") ||
             doc.containsKey("mist_override") || doc.containsKey("fan_override") ||
-            doc.containsKey("heater_air_override") || doc.containsKey("start_epoch_time"))
+            doc.containsKey("heater_air_override") || doc.containsKey("start_epoch_time") ||
+            doc.containsKey("actuator"))
         {
             processSetpoints(doc);
         }
@@ -412,6 +413,70 @@ namespace mqtt
                     ScopedSerialLock guard(SerialLock::get_instance());
                     Serial.println("[MQTT] Cleared hardware override and queued clear command.");
                 }
+            }
+        }
+
+        if (doc.containsKey("actuator"))
+        {
+            const char* actuator_str = doc["actuator"].as<const char*>();
+            if (actuator_str != nullptr)
+            {
+                AppChannel channel;
+                bool valid_channel = false;
+                if (strcmp(actuator_str, "mist") == 0)
+                {
+                    channel = AppChannel::MIST;
+                    valid_channel = true;
+                }
+                else if (strcmp(actuator_str, "fan") == 0)
+                {
+                    channel = AppChannel::FAN;
+                    valid_channel = true;
+                }
+                else if (strcmp(actuator_str, "heater_air") == 0)
+                {
+                    channel = AppChannel::LAMP;
+                    valid_channel = true;
+                }
+
+                if (valid_channel)
+                {
+                    AppIntent intent = AppIntent::AUTO;
+                    if (doc.containsKey("state") && !doc["state"].isNull())
+                    {
+                        intent = doc["state"].as<bool>() ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
+                    }
+
+                    ManualRequest req;
+                    req.channel = channel;
+                    req.intent = intent;
+                    req.request_ms = millis();
+
+                    if (g_mqtt_override_queue != nullptr)
+                    {
+                        if (xQueueSend(g_mqtt_override_queue, &req, 0) == pdTRUE)
+                        {
+                            ScopedSerialLock guard(SerialLock::get_instance());
+                            Serial.printf("[MQTT] Enqueued manual override request: Channel:%d, Intent:%d\n",
+                                          static_cast<int>(channel), static_cast<int>(intent));
+                        }
+                        else
+                        {
+                            ScopedSerialLock guard(SerialLock::get_instance());
+                            Serial.println("[MQTT] Error: Failed to enqueue manual override request (queue full).");
+                        }
+                    }
+                }
+                else
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.printf("[MQTT] Error: Invalid actuator value '%s'\n", actuator_str);
+                }
+            }
+            else
+            {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[MQTT] Error: 'actuator' field is not a string.");
             }
         }
 
