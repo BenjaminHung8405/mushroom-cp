@@ -1,6 +1,7 @@
 #include "mqtt_client.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include "ota_manager.h"
 #include "definitions.h"
 #include "serial_mutex.h"
 #include <ArduinoJson.h>
@@ -427,6 +428,20 @@ namespace mqtt
                     ScopedSerialLock guard(SerialLock::get_instance());
                     Serial.println("[MQTT] Command received: full_sync. Flag shared_forceFullPublish set to true.");
                 }
+            }
+            else if (cmd_val != nullptr && strcmp(cmd_val, "ota_update") == 0)
+            {
+                const char *url_val = doc["url"].as<const char *>();
+                if (url_val != nullptr && strlen(url_val) > 0)
+                {
+                    ota::request_ota_update(String(url_val));
+                }
+                else
+                {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.println("[MQTT] ota_update command missing 'url' field. Ignored.");
+                }
+                is_command = true;
             }
         }
         return is_command;

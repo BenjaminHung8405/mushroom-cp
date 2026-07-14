@@ -4,6 +4,7 @@
 #include "storage.h"
 #include "definitions.h"
 #include "time_confidence.h"
+#include "ota_manager.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -48,7 +49,7 @@ namespace wifi
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
     constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
     constexpr unsigned long AUTH_RETRY_INTERVAL_MS = 30000;     // 30 giây, retry backend token without dropping WiFi
-    constexpr unsigned long AUTH_HTTP_TIMEOUT_MS = 10000;       // 10 giây
+    constexpr unsigned long AUTH_HTTP_TIMEOUT_MS = 3000;        // 3 giây (giảm từ 10s)
     constexpr int MAX_RECONNECT_ATTEMPTS = 3;
     // Idle timeout for SoftAP. Reset whenever user opens / interacts with portal.
     constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 900000; // 15 phút idle
@@ -91,6 +92,9 @@ namespace wifi
             {
                 xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
                 xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
+#ifndef UNIT_TEST
+                fetch_auth_token();
+#endif
             }
             else if (new_state == WifiState::SOFTAP_ACTIVE)
             {
@@ -183,9 +187,9 @@ namespace wifi
     {
 #ifdef UNIT_TEST
         // Unit-test stub: inject a mock JWT so MQTT can proceed without HTTP.
-        if (config::network::AUTH_JWT_TOKEN.length() == 0)
+        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
         {
-            config::network::AUTH_JWT_TOKEN = "mock_jwt_token_for_unit_test";
+            config::network::MQTT_PASSWORD_VAL = "mock_jwt_token_for_unit_test";
         }
         Serial.println("[AUTH] UNIT_TEST stub: mock JWT injected.");
         return true;
@@ -196,30 +200,32 @@ namespace wifi
             return false;
         }
 
-        // Build URL: strip trailing slash if present, then append /auth/token
+        // Build URL: strip trailing slash if present, then append /api/v1/auth/device-token
         String base = config::network::BACKEND_API_URL;
         if (base.endsWith("/"))
         {
             base.remove(base.length() - 1);
         }
-        String url = base + "/auth/token";
+        String url = base + "/api/v1/auth/device-token";
 
         Serial.printf("[AUTH] Requesting JWT from: %s\n", url.c_str());
 
+        WiFiClientSecure secure_client;
+        secure_client.setInsecure(); // Bypass certificate verification
+
         HTTPClient http;
-        http.begin(url);
-        http.addHeader("Content-Type", "application/json");
         http.setTimeout(AUTH_HTTP_TIMEOUT_MS);
 
-        // Build request body
-        StaticJsonDocument<256> req;
-        req["clientId"] = config::network::MQTT_CLIENT_ID_VAL;
-        req["mqttUser"] = config::network::MQTT_USER_VAL;
+        if (!http.begin(secure_client, url))
+        {
+            Serial.println("[AUTH] http.begin() failed.");
+            return false;
+        }
 
-        String body;
-        serializeJson(req, body);
+        // Send X-Device-Id in header to identify the device
+        http.addHeader("X-Device-Id", config::resolve_device_identity());
 
-        int status = http.POST(body);
+        int status = http.GET();
         if (status != 200)
         {
             Serial.printf("[AUTH] Token request failed. HTTP status: %d\n", status);
@@ -228,7 +234,7 @@ namespace wifi
         }
 
         String response = http.getString();
-        http.end();
+        http.end(); // Clean up HTTP client resources
 
         StaticJsonDocument<768> doc;
         DeserializationError err = deserializeJson(doc, response);
@@ -253,8 +259,8 @@ namespace wifi
             return false;
         }
 
-        config::network::AUTH_JWT_TOKEN = token;
-        Serial.println("[AUTH] JWT token acquired successfully.");
+        config::network::MQTT_PASSWORD_VAL = token;
+        Serial.println("[AUTH] JWT token acquired successfully and stored in MQTT_PASSWORD_VAL.");
         return true;
 #endif
     }
@@ -895,6 +901,9 @@ setInterval(function(){
     WifiState init_wifi()
     {
         Serial.println("[WIFI] Initializing WiFi Manager...");
+
+        // Initialize OTA Mutex before starting network activities
+        ota::init();
 
 #ifndef UNIT_TEST
         // Disable Arduino SDK auto-reconnect so it cannot keep retrying a stale

@@ -186,6 +186,15 @@ void taskCore0Communication(void* /*pvParameters*/)
         unsigned long now = millis();
         handleTelemetryScan(now, last_known_telemetry, telemetryState);
 
+        // 5.5. Check for pending OTA update trigger
+        {
+            String ota_url;
+            if (ota::check_ota_trigger(ota_url))
+            {
+                ota::perform_ota_update(ota_url);
+            }
+        }
+
         // 6. Monitor Stack High Water Mark
         logStackWatermark(now);
 

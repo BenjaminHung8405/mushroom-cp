@@ -2923,6 +2923,17 @@ int main() {
 
         url = "";
         assert(ota::check_ota_trigger(url) == false);
+
+        // Test MQTT command "ota_update" integration
+        const mqtt::MqttTopics& topics = mqtt::MqttClient::getInstance().getResolvedTopics();
+        char cmd_topic[120];
+        strcpy(cmd_topic, topics.setpoint.c_str());
+
+        std::string ota_payload = "{\"cmd\":\"ota_update\",\"url\":\"https://example.com/ota-update.bin\"}";
+        PubSubClient::mock_callback(cmd_topic, (uint8_t*)ota_payload.c_str(), ota_payload.length());
+
+        assert(ota::check_ota_trigger(url) == true);
+        assert(url == "https://example.com/ota-update.bin");
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
