@@ -219,11 +219,11 @@
 
 | Task | Mô tả | Status | Chỉ thị |
 |------|-------|:------:|---------|
-| S4-A1 | Thêm profile/time models vào `models.h` hoặc module profile riêng | `[ ] Pending` | Không để UI payload đi thẳng vào struct runtime; parse DTO rồi validate/copy. |
-| S4-A2 | Tạo `crop_profile_storage.h/.cpp` | `[ ] Pending` | NVS namespace/version/magic/CRC, load/store atomic record, bounded write cadence. |
-| S4-A3 | Implement profile validator | `[ ] Pending` | Reject malformed/NaN/unsorted/out-of-range checkpoints trước persist và trước enqueue. |
-| S4-A4 | Extend MQTT sync contract | `[ ] Pending` | Backend gửi version, `crop_start_epoch_s`, `total_crop_days`, checkpoints, CRC/schema. Retained profile giúp device reconnect tự phục hồi. |
-| S4-A5 | Persist manual override separately | `[ ] Pending` | Chỉ persist latest intent + expiry in trusted epoch khi available. Nếu reboot time `Uncertain`, do not restore FORCE_ON; restore AUTO (fail-safe). FORCE_OFF có thể restore only if explicitly approved in safety review. |
+| S4-A1 | Thêm profile/time models vào `models.h` hoặc module profile riêng | `[x] Done` | Không để UI payload đi thẳng vào struct runtime; parse DTO rồi validate/copy. |
+| S4-A2 | Tạo `crop_profile_storage.h/.cpp` | `[x] Done` | NVS namespace/version/magic/CRC, load/store atomic record, bounded write cadence. |
+| S4-A3 | Implement profile validator | `[x] Done` | Reject malformed/NaN/unsorted/out-of-range checkpoints trước persist và trước enqueue. |
+| S4-A4 | Extend MQTT sync contract | `[x] Done` | Backend gửi version, `crop_start_epoch_s`, `total_crop_days`, checkpoints, CRC/schema. Retained profile giúp device reconnect tự phục hồi. |
+| S4-A5 | Persist manual override separately | `[x] Done` | Chỉ persist latest intent + expiry in trusted epoch khi available. Nếu reboot time `Uncertain`, do not restore FORCE_ON; restore AUTO (fail-safe). FORCE_OFF có thể restore only if explicitly approved in safety review. |
 
 ### Track B: Time Confidence
 

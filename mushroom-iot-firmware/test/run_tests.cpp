@@ -18,6 +18,9 @@
 #include "WebInterface.h"
 #include "encoder.h"
 #include "manual_control.h"
+#include "crop_profile_storage.h"
+#include "crop_profile_validator.h"
+#include "time_confidence.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -2747,6 +2750,162 @@ int main() {
                 assert(latch[i].active == false);
                 assert(latch[i].forced_state == AppIntent::AUTO);
             }
+        }
+
+        // S4-A1, A2, A3, A5 Unit Tests
+        {
+            Serial.println("[TEST] Starting Track A - Profile Contract & NVS Unit Tests...");
+
+            // Initialize storage
+            storage::CropProfileStorage& cps = storage::CropProfileStorage::getInstance();
+            assert(cps.init() == true);
+
+            // Clear old profile
+            cps.clearProfile();
+
+            // 1. Valid profile test
+            PersistedCropProfile validProf{};
+            validProf.magic = 0x43524F50;
+            validProf.schema_version = 1;
+            validProf.checkpoint_count = 3;
+            validProf.crop_start_epoch_s = 1000;
+            validProf.total_crop_days = 10;
+            
+            validProf.checkpoints[0] = {1, 24.0f, 85.0f};
+            validProf.checkpoints[1] = {5, 22.0f, 88.0f};
+            validProf.checkpoints[2] = {10, 20.0f, 90.0f};
+            
+            validProf.crc32 = storage::CropProfileStorage::calculateCRC32(
+                reinterpret_cast<const uint8_t*>(&validProf),
+                sizeof(PersistedCropProfile) - sizeof(uint32_t)
+            );
+
+            assert(storage::CropProfileValidator::validate(validProf) == true);
+            assert(cps.saveProfile(validProf) == true);
+
+            PersistedCropProfile loadedProf{};
+            assert(cps.loadProfile(loadedProf) == true);
+            assert(loadedProf.magic == 0x43524F50);
+            assert(loadedProf.checkpoint_count == 3);
+            assert(loadedProf.crc32 == validProf.crc32);
+
+            // 2. Reject invalid checkpoints (NaN temp)
+            PersistedCropProfile invalidProf1 = validProf;
+            invalidProf1.checkpoints[1].temp_target_c = NAN;
+            invalidProf1.crc32 = storage::CropProfileStorage::calculateCRC32(
+                reinterpret_cast<const uint8_t*>(&invalidProf1),
+                sizeof(PersistedCropProfile) - sizeof(uint32_t)
+            );
+            assert(storage::CropProfileValidator::validate(invalidProf1) == false);
+
+            // 3. Reject invalid checkpoints (unsorted days)
+            PersistedCropProfile invalidProf2 = validProf;
+            invalidProf2.checkpoints[1].crop_day = 12; // Out of order and out of total crop days (10)
+            invalidProf2.crc32 = storage::CropProfileStorage::calculateCRC32(
+                reinterpret_cast<const uint8_t*>(&invalidProf2),
+                sizeof(PersistedCropProfile) - sizeof(uint32_t)
+            );
+            assert(storage::CropProfileValidator::validate(invalidProf2) == false);
+
+            // 4. Reject invalid checkpoints (out-of-range humidity)
+            PersistedCropProfile invalidProf3 = validProf;
+            invalidProf3.checkpoints[0].humidity_target_rh = 99.0f; // Limit is 95.0
+            invalidProf3.crc32 = storage::CropProfileStorage::calculateCRC32(
+                reinterpret_cast<const uint8_t*>(&invalidProf3),
+                sizeof(PersistedCropProfile) - sizeof(uint32_t)
+            );
+            assert(storage::CropProfileValidator::validate(invalidProf3) == false);
+
+            // 5. CRC rejection / corruption test
+            PersistedCropProfile corruptProf = validProf;
+            corruptProf.crc32 ^= 0x12345678; // Invalidate CRC
+            assert(cps.saveProfile(corruptProf) == true); // Save succeeds because saveProfile doesn't validate internal CRC itself on write
+            PersistedCropProfile loadedCorrupt{};
+            assert(cps.loadProfile(loadedCorrupt) == false); // Load fails because of CRC mismatch
+
+            // Restore valid profile
+            cps.saveProfile(validProf);
+
+            // 6. Test manual override restore under Uncertainty vs Trusted time
+            // Case 6a: Trusted time
+            time_conf::setTimeConfidence(TimeConfidence::Trusted);
+            PersistedManualOverride ovr1{AppIntent::FORCE_ON, {0, 0, 0}, 2000}; // expires at epoch 2000
+            cps.saveManualOverride(AppChannel::MIST, ovr1);
+
+            // Simulate boot load logic under Trusted time where current time is 1000 (< 2000)
+            ovr1.expires_epoch_s = time(nullptr) + 500;
+            cps.saveManualOverride(AppChannel::MIST, ovr1);
+
+            // Now, simulate the load/restore logic
+            manual::ManualLatchArray manualLatch{};
+            time_t now_epoch_s = time(nullptr);
+            TimeConfidence tc = time_conf::getTimeConfidence();
+            assert(tc == TimeConfidence::Trusted);
+
+            for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
+                AppChannel ch = static_cast<AppChannel>(i);
+                PersistedManualOverride ovr{};
+                if (cps.loadManualOverride(ch, ovr)) {
+                    if (tc == TimeConfidence::Uncertain) {
+                        manualLatch[i].active = false;
+                        manualLatch[i].forced_state = AppIntent::AUTO;
+                        manualLatch[i].expires_ms = 0;
+                        cps.clearManualOverride(ch);
+                    } else {
+                        if (static_cast<uint32_t>(now_epoch_s) < ovr.expires_epoch_s) {
+                            manualLatch[i].active = true;
+                            manualLatch[i].forced_state = ovr.intent;
+                            uint32_t remaining_s = ovr.expires_epoch_s - static_cast<uint32_t>(now_epoch_s);
+                            manualLatch[i].expires_ms = millis() + (remaining_s * 1000);
+                        } else {
+                            manualLatch[i].active = false;
+                            manualLatch[i].forced_state = AppIntent::AUTO;
+                            manualLatch[i].expires_ms = 0;
+                            cps.clearManualOverride(ch);
+                        }
+                    }
+                }
+            }
+
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].active == true);
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].forced_state == AppIntent::FORCE_ON);
+
+            // Case 6b: Uncertain time
+            time_conf::setTimeConfidence(TimeConfidence::Uncertain);
+            tc = time_conf::getTimeConfidence();
+            assert(tc == TimeConfidence::Uncertain);
+
+            for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
+                AppChannel ch = static_cast<AppChannel>(i);
+                PersistedManualOverride ovr{};
+                if (cps.loadManualOverride(ch, ovr)) {
+                    if (tc == TimeConfidence::Uncertain) {
+                        manualLatch[i].active = false;
+                        manualLatch[i].forced_state = AppIntent::AUTO;
+                        manualLatch[i].expires_ms = 0;
+                        cps.clearManualOverride(ch);
+                    } else {
+                        if (static_cast<uint32_t>(now_epoch_s) < ovr.expires_epoch_s) {
+                            manualLatch[i].active = true;
+                            manualLatch[i].forced_state = ovr.intent;
+                            uint32_t remaining_s = ovr.expires_epoch_s - static_cast<uint32_t>(now_epoch_s);
+                            manualLatch[i].expires_ms = millis() + (remaining_s * 1000);
+                        } else {
+                            manualLatch[i].active = false;
+                            manualLatch[i].forced_state = AppIntent::AUTO;
+                            manualLatch[i].expires_ms = 0;
+                            cps.clearManualOverride(ch);
+                        }
+                    }
+                }
+            }
+
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].active == false);
+            assert(manualLatch[static_cast<size_t>(AppChannel::MIST)].forced_state == AppIntent::AUTO);
+
+            // Clean up
+            cps.clearProfile();
+            cps.clearManualOverride(AppChannel::MIST);
         }
     }
 

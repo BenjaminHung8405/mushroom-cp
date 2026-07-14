@@ -115,4 +115,41 @@ struct ManualAck {
     uint32_t            ack_ms;
 } __attribute__((aligned(4)));
 
+constexpr uint16_t MAX_CROP_CHECKPOINTS = 10;
+
+enum class TimeConfidence : uint8_t {
+    Trusted = 0,       // clock đã sync, hoặc external RTC hợp lệ
+    Holdover = 1,      // mất mạng nhưng MCU chưa reset từ trusted time
+    Uncertain = 2,     // reset sau mất điện, chưa có trusted time
+};
+
+struct CropCheckpoint {
+    uint16_t crop_day;
+    float temp_target_c;
+    float humidity_target_rh;
+} __attribute__((aligned(4)));
+
+struct PersistedCropProfile {
+    uint32_t magic;
+    uint16_t schema_version;
+    uint16_t checkpoint_count; // 1..MAX_CROP_CHECKPOINTS, tối đa 10
+    int64_t crop_start_epoch_s;
+    uint16_t total_crop_days;
+    CropCheckpoint checkpoints[MAX_CROP_CHECKPOINTS];
+    uint32_t crc32;
+} __attribute__((aligned(4)));
+
+struct PersistedTimeState {
+    int64_t last_trusted_epoch_s;
+    uint64_t last_trusted_uptime_ms;
+    uint32_t crc32;
+} __attribute__((aligned(4)));
+
+struct PersistedManualOverride {
+    AppIntent intent;
+    uint8_t padding[3];
+    uint32_t expires_epoch_s;
+} __attribute__((aligned(4)));
+
+
 

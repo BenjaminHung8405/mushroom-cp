@@ -10,6 +10,9 @@
 #include "serial_mutex.h"
 #include "storage.h"
 #include "manual_control.h"
+#include "crop_profile_storage.h"
+#include "time_confidence.h"
+#include <ctime>
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
@@ -34,6 +37,7 @@ QueueHandle_t xActuatorOverrideQueue = nullptr;
 QueueHandle_t g_manual_request_queue = nullptr;
 QueueHandle_t g_mqtt_override_queue = nullptr;
 QueueHandle_t g_manual_ack_queue = nullptr;
+QueueHandle_t g_profile_update_queue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 volatile bool shared_forceFullPublish = false;
@@ -568,6 +572,12 @@ static void runControlPipelineStep(
                 
                 if (decision == ManualDecision::Accepted) {
                     manual::updateLatchOnAccepted(req, now, manualLatch);
+                    if (time_conf::getTimeConfidence() == TimeConfidence::Trusted) {
+                        PersistedManualOverride ovr{};
+                        ovr.intent = req.intent;
+                        ovr.expires_epoch_s = (req.intent == AppIntent::AUTO) ? 0 : (static_cast<uint32_t>(time(nullptr)) + 900);
+                        storage::CropProfileStorage::getInstance().saveManualOverride(req.channel, ovr);
+                    }
                     ManualAck ack;
                     ack.channel = req.channel;
                     ack.requested_intent = req.intent;
@@ -617,6 +627,7 @@ static void runControlPipelineStep(
     // Check for auto-releases and push events
     for (size_t i = 0; i < manualLatch.size(); ++i) {
         if (prevLatch[i].active && !manualLatch[i].active) {
+            storage::CropProfileStorage::getInstance().clearManualOverride(static_cast<AppChannel>(i));
             ManualReleaseReason reason = ManualReleaseReason::None;
             if (static_cast<int32_t>(now - prevLatch[i].expires_ms) >= 0) {
                 reason = ManualReleaseReason::TTLExpired;
@@ -709,6 +720,36 @@ void taskCore1Control(void* /*pvParameters*/)
     ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     manual::ManualLatchArray manualLatch{};
+    
+    // Restore manual overrides from NVS
+    {
+        time_t now_epoch_s = time(nullptr);
+        TimeConfidence tc = time_conf::getTimeConfidence();
+        for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
+            AppChannel ch = static_cast<AppChannel>(i);
+            PersistedManualOverride ovr{};
+            if (storage::CropProfileStorage::getInstance().loadManualOverride(ch, ovr)) {
+                if (tc == TimeConfidence::Uncertain) {
+                    manualLatch[i].active = false;
+                    manualLatch[i].forced_state = AppIntent::AUTO;
+                    manualLatch[i].expires_ms = 0;
+                    storage::CropProfileStorage::getInstance().clearManualOverride(ch);
+                } else {
+                    if (static_cast<uint32_t>(now_epoch_s) < ovr.expires_epoch_s) {
+                        manualLatch[i].active = true;
+                        manualLatch[i].forced_state = ovr.intent;
+                        uint32_t remaining_s = ovr.expires_epoch_s - static_cast<uint32_t>(now_epoch_s);
+                        manualLatch[i].expires_ms = millis() + (remaining_s * 1000);
+                    } else {
+                        manualLatch[i].active = false;
+                        manualLatch[i].forced_state = AppIntent::AUTO;
+                        manualLatch[i].expires_ms = 0;
+                        storage::CropProfileStorage::getInstance().clearManualOverride(ch);
+                    }
+                }
+            }
+        }
+    }
     unsigned long lastSensorMs = 0U;
     unsigned long lastControlMs = millis();
 

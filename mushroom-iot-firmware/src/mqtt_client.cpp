@@ -4,6 +4,8 @@
 #include "definitions.h"
 #include "serial_mutex.h"
 #include <ArduinoJson.h>
+#include "crop_profile_storage.h"
+#include "crop_profile_validator.h"
 
 #ifndef UNIT_TEST
 #include <freertos/FreeRTOS.h>
@@ -74,6 +76,7 @@ namespace mqtt
         resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
         resolved_topics.setpoint = "mushroom/device/" + client_id + "/setpoint";
         resolved_topics.manual_ack = "mushroom/" + client_id + "/manual/ack";
+        resolved_topics.profile = "mushroom/device/" + client_id + "/profile";
 
         {
             ScopedSerialLock guard(SerialLock::get_instance());
@@ -82,6 +85,7 @@ namespace mqtt
             Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
             Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
             Serial.printf("  - Manual Ack:   %s\n", resolved_topics.manual_ack.c_str());
+            Serial.printf("  - Profile:      %s\n", resolved_topics.profile.c_str());
         }
 
         // 3. Configure PubSubClient server, buffer, keepalive, and callback.
@@ -303,7 +307,7 @@ namespace mqtt
             Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
         }
 
-        if (resolved_topics.setpoint != topic)
+        if (resolved_topics.setpoint != topic && resolved_topics.profile != topic)
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
@@ -345,21 +349,15 @@ namespace mqtt
             return;
         }
 
+        if (resolved_topics.profile == topic)
         {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            // Serial.printf("[DEBUG] handle_message contains key 'cmd'? %d, addr=%p\n", doc.containsKey("cmd"), (void*)&doc);
-            if (doc.containsKey("cmd"))
-            {
-                // Serial.printf("[DEBUG] cmd raw: %s\n", doc["cmd"].as<String>().c_str());
-                // Serial.printf("[DEBUG] cmd isString? %d\n", doc["cmd"].is<const char*>());
-            }
-            String s;
-            serializeJson(doc, s);
-            // Serial.printf("[DEBUG] handle_message doc serialized: %s\n", s.c_str());
+            processProfileMessage(doc);
         }
-
-        bool is_command = handleMqttCommand(doc);
-        routeSetpointMessage(doc, is_command);
+        else
+        {
+            bool is_command = handleMqttCommand(doc);
+            routeSetpointMessage(doc, is_command);
+        }
     }
 
     bool MqttClient::parseJsonPayload(uint8_t *payload, unsigned int length, StaticJsonDocument<768> &doc)
@@ -701,9 +699,11 @@ namespace mqtt
 
         // Subscribe to the incoming control setpoint commands
         mqtt_client.subscribe(resolved_topics.setpoint.c_str(), 1);
+        mqtt_client.subscribe(resolved_topics.profile.c_str(), 1);
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
+            Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.profile.c_str());
         }
 
         // Publish online status
@@ -858,6 +858,70 @@ namespace mqtt
                 Serial.printf("[MQTT] Queued Actuator Overrides: Mist:%d, Fan:%d, HAir:%d, Active:%d\n",
                               cmd.mist_override, cmd.fan_override, cmd.heater_air_override, cmd.active);
             }
+        }
+    }
+
+    void MqttClient::processProfileMessage(StaticJsonDocument<768> &doc)
+    {
+        PersistedCropProfile profile{};
+        profile.magic = 0x43524F50; // 'C','R','O','P'
+        
+        profile.schema_version = doc["schema_version"] | doc["version"] | 1;
+        profile.crop_start_epoch_s = doc["crop_start_epoch_s"] | doc["cropStartEpochS"] | 0LL;
+        profile.total_crop_days = doc["total_crop_days"] | doc["totalCropDays"] | 0;
+        
+        JsonArray checkpoints = doc["checkpoints"];
+        profile.checkpoint_count = 0;
+        
+        if (!checkpoints.isNull())
+        {
+            for (JsonObject cp : checkpoints)
+            {
+                if (profile.checkpoint_count >= MAX_CROP_CHECKPOINTS)
+                {
+                    break;
+                }
+                
+                CropCheckpoint &checkpoint = profile.checkpoints[profile.checkpoint_count];
+                checkpoint.crop_day = cp["crop_day"] | cp["cropDay"] | cp["day"] | 0;
+                checkpoint.temp_target_c = cp["temp_target_c"] | cp["tempTargetC"] | cp["temp_target"] | cp["tempTarget"] | cp["temp"] | NAN;
+                checkpoint.humidity_target_rh = cp["humidity_target_rh"] | cp["humidityTargetRH"] | cp["humidity_target"] | cp["humidityTarget"] | cp["humidity"] | NAN;
+                
+                profile.checkpoint_count++;
+            }
+        }
+        
+        // Calculate CRC32 over the struct minus the crc32 field itself
+        profile.crc32 = storage::CropProfileStorage::calculateCRC32(
+            reinterpret_cast<const uint8_t*>(&profile), 
+            sizeof(PersistedCropProfile) - sizeof(uint32_t)
+        );
+        
+        // Validate profile
+        if (!storage::CropProfileValidator::validate(profile))
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Error: Invalid crop profile rejected.");
+            return;
+        }
+        
+        // Persist to NVS
+        if (!storage::CropProfileStorage::getInstance().saveProfile(profile))
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Error: Failed to persist crop profile to NVS.");
+            return;
+        }
+        
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.println("[MQTT] Successfully persisted valid crop profile.");
+        }
+        
+        // Enqueue to Core 1 control loop
+        if (g_profile_update_queue != nullptr)
+        {
+            xQueueOverwrite(g_profile_update_queue, &profile);
         }
     }
 

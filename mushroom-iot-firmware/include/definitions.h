@@ -146,6 +146,11 @@ extern QueueHandle_t g_mqtt_override_queue;
 extern QueueHandle_t g_manual_ack_queue;
 
 /**
+ * @brief Handle for the FreeRTOS queue carrying complete validated crop profiles from Core 0 to Core 1.
+ */
+extern QueueHandle_t g_profile_update_queue;
+
+/**
  * @brief Hydrate setpoints from NVS and push them to xBaselineQueue and xOverrideQueue.
  * Fallbacks to trajectory Day 0 if NVS baseline is missing/invalid.
  */

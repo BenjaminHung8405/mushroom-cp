@@ -9,6 +9,7 @@
 
 #include <ArduinoJson.h>
 #include "storage.h"
+#include "models.h"
 
 namespace mqtt
 {
@@ -38,6 +39,7 @@ namespace mqtt
         
         // --- Incoming / Subscribe Topics ---
         String setpoint;    ///< Topic to subscribe for incoming control setpoint commands
+        String profile;     ///< Topic to subscribe for crop profile synchronization
     };
 
     /**
@@ -138,6 +140,11 @@ namespace mqtt
          * @brief Internal helper to process actuator override JSON fields.
          */
         void processActuatorOverrides(StaticJsonDocument<768>& doc);
+
+        /**
+         * @brief Internal helper to process crop profile JSON fields.
+         */
+        void processProfileMessage(StaticJsonDocument<768>& doc);
 
         /**
          * @brief Internal helper to validate a single setpoint value.

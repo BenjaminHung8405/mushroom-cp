@@ -116,6 +116,17 @@ void initQueues()
         Serial.printf("[MAIN] g_manual_ack_queue created (depth=8, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ManualAck)));
     }
+
+    g_profile_update_queue = xQueueCreate(1, sizeof(PersistedCropProfile));
+    if (g_profile_update_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_profile_update_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_profile_update_queue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(PersistedCropProfile)));
+    }
 }
 
 void initSemaphores()
