@@ -15,16 +15,15 @@ constexpr float LAMP_WARNING_DELTA_C = 3.0f;
 // Khi nhiệt độ >= mức này, đèn phải tắt ngay, bất kể setpoint hay manual latch.
 // Giá trị 45°C = giới hạn sinh học nấm rơm (tết tiêu hoàn toàn > 45°C).
 constexpr float LAMP_HARD_CUTOFF_C = 45.0f;
-constexpr float LAMP_MANUAL_DUTY = 0.6f;
 
-bool isMiddayBlackout(const TPC_Task::RtcTimePod& rtcTime) {
+bool isMiddayBlackout(const relay_control::RtcTimePod& rtcTime) {
     const uint16_t minuteOfDay =
         static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
     return minuteOfDay >= MIDDAY_BLACKOUT_START_MINUTE &&
            minuteOfDay <= MIDDAY_BLACKOUT_END_MINUTE;
 }
 
-bool isValidRtcTime(const TPC_Task::RtcTimePod& rtcTime) {
+bool isValidRtcTime(const relay_control::RtcTimePod& rtcTime) {
     return rtcTime.valid && rtcTime.hour < 24U && rtcTime.minute < 60U;
 }
 } // namespace
@@ -33,7 +32,7 @@ ManualDecision evaluateSafetyGate(
     const ManualRequest &request,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime,
+    const relay_control::RtcTimePod &rtcTime,
     uint16_t cropDay)
 {
     if (request.intent == AppIntent::AUTO || request.intent == AppIntent::FORCE_OFF) {
@@ -116,7 +115,7 @@ void autoClearOnSensorViolation(
     ManualLatchArray &latch,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime)
+    const relay_control::RtcTimePod &rtcTime)
 {
     size_t mistIdx = static_cast<size_t>(AppChannel::MIST);
     if (latch[mistIdx].active && latch[mistIdx].forced_state == AppIntent::FORCE_ON) {
@@ -153,7 +152,7 @@ void applyManualLatchToOutputs(
     uint32_t now,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime,
+    const relay_control::RtcTimePod &rtcTime,
     uint16_t cropDay)
 {
     // First, expire latch based on time
@@ -187,7 +186,7 @@ void applyManualLatchToOutputs(
     size_t lampIdx = static_cast<size_t>(AppChannel::LAMP);
     if (latch[lampIdx].active) {
         if (latch[lampIdx].forced_state == AppIntent::FORCE_ON) {
-            outputs.HLamp = LAMP_MANUAL_DUTY;
+            outputs.HLamp = 1.0f;
         } else if (latch[lampIdx].forced_state == AppIntent::FORCE_OFF) {
             outputs.HLamp = 0.0f;
         }

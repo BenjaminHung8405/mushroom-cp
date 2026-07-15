@@ -6,7 +6,7 @@
 #include "Trajectory.h"
 #include "AdaptiveTuner.h"
 #include "FuzzyController.h"
-#include "TPC_Task.h"
+#include "relay_control.h"
 #include "serial_mutex.h"
 #include "storage.h"
 #include "manual_control.h"
@@ -255,16 +255,7 @@ void taskHardwareButton(void* /*pvParameters*/)
 }
 
 
-// Physical SSR assignments. The TPC layer is the exclusive owner of their
-// HIGH/LOW phase; no other Core 1 path writes these output pins after init.
-constexpr TPC_Task::TpcChannelConfig LAMP_TPC_CONFIG = {
-    config::pins::PIN_RELAY_LAMP, 300000U, 10000U, 10000U, 0U};
-constexpr TPC_Task::TpcChannelConfig H_WAT_TPC_CONFIG = {
-    config::pins::PIN_RELAY_HWAT, 300000U, 10000U, 10000U, 3000U};
-constexpr TPC_Task::TpcChannelConfig MIST_TPC_CONFIG = {
-    config::pins::PIN_RELAY_MIST, 300000U, 5000U, 10000U, 8000U};
-constexpr TPC_Task::TpcChannelConfig EXHAUST_TPC_CONFIG = {
-    config::pins::PIN_RELAY_FAN, 120000U, 3000U, 3000U, 0U};
+// Physical relays are controlled only by the direct ON/OFF dispatcher below.
 
 constexpr float CONTROL_PERIOD_SECONDS = 0.050f;
 constexpr float SAFE_DEFAULT_CROP_DAY = 0.0f;
@@ -277,7 +268,7 @@ bool isFinite(float value)
 // RTC integration is intentionally fail-safe until an RTC/NTP provider is
 // wired into Core 1. An invalid sample makes hardwareProtectionOverride()
 // force HWat and Mist OFF, as required by the biosafety hard rule.
-TPC_Task::RtcTimePod readRtcTimeFailSafe()
+relay_control::RtcTimePod readRtcTimeFailSafe()
 {
 #ifndef UNIT_TEST
     time_t now;
@@ -289,14 +280,14 @@ TPC_Task::RtcTimePod readRtcTimeFailSafe()
     // We assume any year >= 2026 is synced since current local time is 2026.
     if (timeinfo.tm_year >= (2026 - 1900))
     {
-        return TPC_Task::RtcTimePod{
+        return relay_control::RtcTimePod{
             true, 
             static_cast<uint8_t>(timeinfo.tm_hour), 
             static_cast<uint8_t>(timeinfo.tm_min)
         };
     }
 #endif
-    return TPC_Task::RtcTimePod{false, 0U, 0U};
+    return relay_control::RtcTimePod{false, 0U, 0U};
 }
 
 // ---------------------------------------------------------------------------
@@ -525,7 +516,7 @@ static void runControlPipelineStep(
     TelemetryData& telemetry,
     FuzzyController::CO2RuleState& co2State,
     AdaptiveTuner::IntegralState& tunerState,
-    TPC_Task::TpcSchedulerState& tpcState,
+    relay_control::RelayStatePod& relayState,
     ControlSetpointCommand& baselineCmd,
     ControlSetpointCommand& overrideCmd,
     manual::ManualLatchArray& manualLatch,
@@ -666,7 +657,7 @@ static void runControlPipelineStep(
         outputs = {0.0f, 0.0f, 0.0f, 0.0f};
     }
 
-    // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → TPC
+    // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → direct ON/OFF
 
     // E2: Drain the two manual override queues: g_manual_request_queue and g_mqtt_override_queue
     auto drainManualQueue = [&](QueueHandle_t q) {
@@ -674,7 +665,7 @@ static void runControlPipelineStep(
             ManualRequest req;
             while (xQueueReceive(q, &req, 0) == pdTRUE) {
                 uint16_t cropDay = getCurrentCropDay();
-                const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
+                const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
                 ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
                 
                 if (decision == ManualDecision::Accepted) {
@@ -726,7 +717,7 @@ static void runControlPipelineStep(
 
     // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
     uint16_t cropDay = getCurrentCropDay();
-    const TPC_Task::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
+    const relay_control::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
 
     manual::ManualLatchArray prevLatch = manualLatch;
 
@@ -758,24 +749,17 @@ static void runControlPipelineStep(
         }
     }
 
-    // Mandatory ordering: all fuzzy/gain work completes before this hard
-    // interlock, then only TPC translates protected duties to GPIO levels.
-    const TPC_Task::RtcTimePod rtcTime = readRtcTimeFailSafe();
-    TPC_Task::hardwareProtectionOverride(outputs, rtcTime);
-    TPC_Task::applyTpcOutputs(
-        outputs,
-        LAMP_TPC_CONFIG,
-        H_WAT_TPC_CONFIG,
-        MIST_TPC_CONFIG,
-        EXHAUST_TPC_CONFIG,
-        tpcState);
+    // Safety interlock is applied before the direct binary relay dispatcher.
+    const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
+    relay_control::hardwareProtectionOverride(outputs, rtcTime);
+    relay_control::applyDirectOutputs(outputs, relayState);
 
     const RelayOutputsPod actuatorSnapshot = {
-        tpcState.Mist.output_high,
-        tpcState.Exh.output_high,
-        tpcState.Lamp.output_high,  // lamp_stage_active
-        false,                      // lamp_stage2_active (single-lamp hardware)
-        tpcState.HWat.output_high,
+        relayState.mist_active,
+        relayState.fan_active,
+        relayState.lamp_active,  // lamp_stage_active
+        false,                   // lamp_stage2_active (single-lamp hardware)
+        relayState.hwat_active,
         !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||
             (rtcTime.hour == 13U && rtcTime.minute <= 30U)),
         {0, 0},
@@ -807,7 +791,7 @@ void taskCore1Control(void* /*pvParameters*/)
 {
     {
         ScopedSerialLock guard(SerialLock::get_instance());
-        Serial.println("[CORE1_TASK] Starting TPC control pipeline on Core 1...");
+        Serial.println("[CORE1_TASK] Starting direct ON/OFF control pipeline on Core 1...");
     }
 
     // GPIO is initialized HIGH (OFF) before this task accepts any demand.
@@ -832,7 +816,7 @@ void taskCore1Control(void* /*pvParameters*/)
     TelemetryData telemetry = {NAN, NAN, NAN, {false, false, false, false, false, false, {0, 0}}};
     FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
     AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
-    TPC_Task::TpcSchedulerState tpcState = TPC_Task::makeInitialSchedulerState();
+    relay_control::RelayStatePod relayState = {false, false, false, false};
     ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     manual::ManualLatchArray manualLatch{};
@@ -880,7 +864,7 @@ void taskCore1Control(void* /*pvParameters*/)
             telemetry,
             co2State,
             tunerState,
-            tpcState,
+            relayState,
             baselineCmd,
             overrideCmd,
             manualLatch,

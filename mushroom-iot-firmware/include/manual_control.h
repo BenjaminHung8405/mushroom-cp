@@ -4,7 +4,7 @@
 #include <array>
 #include "models.h"
 #include "Trajectory.h"
-#include "TPC_Task.h"
+#include "relay_control.h"
 #include "FuzzyController.h"
 
 namespace manual {
@@ -24,7 +24,7 @@ ManualDecision evaluateSafetyGate(
     const ManualRequest &request,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime,
+    const relay_control::RtcTimePod &rtcTime,
     uint16_t cropDay);
 
 /**
@@ -53,7 +53,7 @@ void applyManualLatchToOutputs(
     uint32_t now,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime,
+    const relay_control::RtcTimePod &rtcTime,
     uint16_t cropDay);
 
 /**
@@ -63,6 +63,6 @@ void autoClearOnSensorViolation(
     ManualLatchArray &latch,
     const TelemetryData &telemetry,
     const Trajectory::SetpointPod &setpoints,
-    const TPC_Task::RtcTimePod &rtcTime);
+    const relay_control::RtcTimePod &rtcTime);
 
 } // namespace manual

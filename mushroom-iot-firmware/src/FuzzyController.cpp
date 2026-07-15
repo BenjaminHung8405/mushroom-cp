@@ -73,7 +73,7 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
         return outputs;
     }
 
-    // Continuous ramp memberships feed continuous TPC duty demands.
+    // Continuous ramp memberships feed continuous normalized relay demands.
     const float cold = risingDemand(errorTemp, TEMP_COLD_FULL);
     const float hot = risingDemand(-errorTemp, TEMP_HOT_FULL);
     const float dry = risingDemand(errorHumid, HUMID_DRY_FULL);
@@ -89,7 +89,7 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
 
     // When not cold, excess humidity is vented. Over-temperature also
     // independently requests exhaust. CO2 exhaust is merged later (B3).
-    // Values remain continuous duties for TPC; no boolean thresholding here.
+    // Values remain continuous duties for later binary dispatch; no GPIO writes here.
     const float humidityExhaust = wet * (1.0f - cold);
     outputs.ExhTH = (hot > humidityExhaust) ? hot : humidityExhaust;
 
@@ -131,7 +131,7 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2) {
     }
 
     // The hysteresis stage deliberately requests full normalized demand. It
-    // does not drive a relay or generate pulses: the downstream TPC scheduler
+    // does not drive a relay or generate pulses: the downstream direct relay dispatcher
     // is the sole owner of SSR HIGH/LOW timing.
     return 1.0f;
 }
@@ -141,7 +141,7 @@ ArbitratedOutputsPod arbitrateOutputs(
     float exhCO2,
     const AdaptiveTuner::GainsPod& gains) {
     // Apply adaptive gains only to the heaters/mist channels. Post-gain
-    // products are hard-clamped to the unit interval for the relay stage.
+    // products are hard-clamped to the unit interval for the direct relay stage.
     const float hLampDemand = clampUnit(
         safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HLamp));
     const float hWatDemand = clampUnit(

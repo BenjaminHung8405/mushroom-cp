@@ -16,7 +16,7 @@
 /**
  * @brief Edge-authoritative physical SSR output snapshot.
  *
- * Values are copied from the TPC scheduler's final output states, never
+ * Values are copied from the direct relay dispatcher's final output states, never
  * inferred from sensor readings or read back from GPIO.
  */
 struct RelayOutputsPod {
@@ -69,7 +69,7 @@ enum class AppChannel : uint8_t {
 // Unified override intent — shared by UI (MQTT) and physical buttons.
 // Replaces the old toggle-only `intent_on` boolean with explicit three-state intent.
 enum class AppIntent : uint8_t {
-    AUTO = 0,     // Trả quyền về Fuzzy/TPC
+    AUTO = 0,     // Trả quyền về Fuzzy/direct relay control
     FORCE_ON = 1,  // Ép bật có kiểm soát (Fuzzy-Bounds Guarding)
     FORCE_OFF = 2, // Ép tắt
 };

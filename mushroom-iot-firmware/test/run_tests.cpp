@@ -13,7 +13,7 @@
 #include "Trajectory.h"
 #include "AdaptiveTuner.h"
 #include "FuzzyController.h"
-#include "TPC_Task.h"
+#include "relay_control.h"
 #include "Telemetry.h"
 #include "WebInterface.h"
 #include "encoder.h"
@@ -1015,7 +1015,7 @@ int main() {
     mock_millis_offset = 0;
 
     time_conf::setTimeConfidence(TimeConfidence::Trusted);
-    // Execute a single iteration of the TPC control pipeline
+    // Execute a single iteration of the direct ON/OFF control pipeline
     taskCore1Control(nullptr);
 
     // Verify sensors and relays were initialized
@@ -1023,7 +1023,7 @@ int main() {
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_LAMP) > 0);
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
 
-    // TPC initialized its channels to OFF (HIGH) by default.
+    // The direct relay dispatcher leaves all channels OFF (HIGH) by default.
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
     assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
     assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
@@ -1358,7 +1358,7 @@ int main() {
         assert(std::abs(mixed.Mist - 0.5f) < 1e-6f);
         assert((mixed.HLamp + mixed.Mist) <= 1.0f + 1e-6f);
 
-        // 25.4 Continuous intermediate TPC duties (not boolean thresholds).
+        // 25.4 Continuous intermediate fuzzy demands (before binary dispatch).
         // eT=1°C => cold=0.25; eH=10% => dry=0.5 => Mist residual budget.
         const DualHeaterOutputsPod partial =
             FuzzyController::executeDualHeaterRules(1.0f, 10.0f);
@@ -1435,7 +1435,7 @@ int main() {
         assert(state.exhaust_active == true);
 
         // 26.6 While latched, remaining inside the deadband keeps the full
-        // TPC demand even though the excess is below the ON threshold.
+        // normalized demand even though the excess is below the ON threshold.
         out = FuzzyController::executeCO2Rules(state, -30.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);
@@ -1445,7 +1445,7 @@ int main() {
         assert(out == 0.0f);
         assert(state.exhaust_active == false);
 
-        // 26.8 Large excess remains the full TPC demand once engaged.
+        // 26.8 Large excess remains the full normalized demand once engaged.
         out = FuzzyController::executeCO2Rules(state, -450.0f);
         assert(out == 1.0f);
         assert(state.exhaust_active == true);
@@ -1530,215 +1530,47 @@ int main() {
         assert(alignof(ArbitratedOutputsPod) == 4);
     }
 
-    // 28. Test Task B4 - RTC protection and non-blocking SSR TPC scheduling
-    Serial.println("[TEST] Starting Task B4 - TPC Task Unit Tests...");
+    // 28. Direct ON/OFF relay control and RTC safety interlock.
+    Serial.println("[TEST] Starting direct relay control unit tests...");
     {
         using FuzzyController::ArbitratedOutputsPod;
-        using TPC_Task::RtcTimePod;
-        using TPC_Task::TpcChannelConfig;
-        using TPC_Task::TpcChannelState;
+        using relay_control::RelayStatePod;
+        using relay_control::RtcTimePod;
 
-        // 28.1 The biosafety blackout covers both endpoints and cannot be
-        // bypassed by a full fuzzy/arbitrated demand. Invalid RTC is fail-safe.
+        // The biosafety blackout cannot be bypassed by fuzzy/manual demand.
         ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
-        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
-        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
         assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
-        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
         assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
-        protectedOut.HWat = 1.0f;
-        protectedOut.Mist = 1.0f;
-        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
-        protectedOut.HWat = 1.0f;
-        protectedOut.Mist = 1.0f;
-        TPC_Task::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 24U, 0U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
-        assert(std::abs(protectedOut.HLamp - 0.4f) < 1e-6f);
-        assert(std::abs(protectedOut.Exh - 0.6f) < 1e-6f);
 
-        // 28.2 A 100 ms TPC window converts 50% duty into a phase. Minimum
-        // ON/OFF times defer normal phase changes, while explicit zero demand
-        // remains an immediate fail-safe OFF command.
-        const TpcChannelConfig channel = {42U, 100U, 80U, 60U, 0U};
-        TpcChannelState state = {};
-        mock_millis_offset = 300000UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.5f);
-        assert(state.output_high == true);
-        assert(mock_pin_values[42U] == LOW);
+        // There is no pulse/window scheduler: binary state remains stable until
+        // the demand crosses the hysteresis OFF threshold.
+        RelayStatePod state = {false, false, false, false};
+        const ArbitratedOutputsPod onDemand = {0.60f, 0.0f, 0.0f, 0.0f};
+        relay_control::applyDirectOutputs(onDemand, state);
+        assert(state.lamp_active == true);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+        relay_control::applyDirectOutputs(onDemand, state);
+        assert(state.lamp_active == true);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
 
-        mock_millis_offset = 300050UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.5f);
-        assert(state.output_high == true); // minimum ON defers phase-off
-        mock_millis_offset = 300080UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.5f);
-        assert(state.output_high == false);
-        assert(mock_pin_values[42U] == HIGH);
+        const ArbitratedOutputsPod holdDemand = {0.50f, 0.0f, 0.0f, 0.0f};
+        relay_control::applyDirectOutputs(holdDemand, state);
+        assert(state.lamp_active == true);
 
-        // At the next window, the OFF phase has lasted only 20 ms, so the
-        // 60 ms minimum OFF time delays the next HIGH transition until 140 ms.
-        mock_millis_offset = 300100UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.5f);
-        assert(state.output_high == false);
-        mock_millis_offset = 300140UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.5f);
-        assert(state.output_high == true);
-
-        // A duty forced to zero (including from a protection interlock) turns
-        // the SSR OFF immediately and is never held by minimum-ON timing.
-        mock_millis_offset = 300150UL;
-        TPC_Task::updateTpcChannel(channel, state, 0.0f);
-        assert(state.output_high == false);
-
-        // 28.3 Invalid scheduler configuration fails safe LOW. All scheduler
-        // state remains POD/caller-owned, avoiding hidden state or heap use.
-        TpcChannelState invalidState = {};
-        const TpcChannelConfig invalid = {43U, 0U, 10U, 10U, 0U};
-        TPC_Task::updateTpcChannel(invalid, invalidState, 1.0f);
-        assert(invalidState.output_high == false);
-        assert(mock_pin_values[43U] == HIGH);
-        assert(std::is_pod<TPC_Task::RtcTimePod>::value == true);
-        assert(std::is_pod<TPC_Task::TpcChannelConfig>::value == true);
-        assert(std::is_pod<TPC_Task::TpcChannelState>::value == true);
-        assert(std::is_pod<TPC_Task::TpcSchedulerState>::value == true);
-
-        // 28.4 Test Staggered Startup Offset and Non-wrapping window limits
-        // Let's configure a channel with window = 1000 ms, min_on = 0 ms, min_off = 0 ms, offset = 300 ms
-        const TpcChannelConfig staggeredChannel = {44U, 1000U, 0U, 0U, 300U};
-        TpcChannelState staggeredState = {};
-        
-        // At start of window (elapsed = 0 ms), demand = 0.5 (500 ms ON)
-        // Since offset is 300 ms, it must remain LOW until elapsed >= 300 ms.
-        mock_millis_offset = 10000UL; // start of window
-        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
-        assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == HIGH);
-        
-        // At elapsed = 299 ms, it must still be LOW
-        mock_millis_offset = 10299UL;
-        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
-        assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == HIGH);
-        
-        // At elapsed = 300 ms, it must transition to HIGH
-        mock_millis_offset = 10300UL;
-        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
-        assert(staggeredState.output_high == true);
-        assert(mock_pin_values[44U] == LOW);
-        
-        // At elapsed = 799 ms (within 300 + 500 = 800 ms), it must still be HIGH
-        mock_millis_offset = 10799UL;
-        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
-        assert(staggeredState.output_high == true);
-        assert(mock_pin_values[44U] == LOW);
-        
-        // At elapsed = 800 ms, it must transition to LOW
-        mock_millis_offset = 10800UL;
-        TPC_Task::updateTpcChannel(staggeredChannel, staggeredState, 0.5f);
-        assert(staggeredState.output_high == false);
-        assert(mock_pin_values[44U] == HIGH);
-
-        // Test non-wrapping rule: if offset + ON duration exceeds window, it must be capped at window boundary
-        // Let's set offset = 800 ms, demand = 0.4 (400 ms ON).
-        // Standard ON interval would be [800 ms, 1200 ms], but window is 1000 ms, so it must be capped at [800 ms, 1000 ms]
-        const TpcChannelConfig wrapChannel = {45U, 1000U, 0U, 0U, 800U};
-        TpcChannelState wrapState = {};
-
-        mock_millis_offset = 20000UL; // start of window
-        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
-        assert(wrapState.output_high == false);
-        assert(mock_pin_values[45U] == HIGH);
-
-        mock_millis_offset = 20800UL; // at offset, goes HIGH
-        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
-        assert(wrapState.output_high == true);
-        assert(mock_pin_values[45U] == LOW);
-
-        mock_millis_offset = 20999UL; // still HIGH before window boundary
-        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
-        assert(wrapState.output_high == true);
-        assert(mock_pin_values[45U] == LOW);
-
-        mock_millis_offset = 21000UL; // next window, should go LOW (or reset window)
-        TPC_Task::updateTpcChannel(wrapChannel, wrapState, 0.4f);
-        assert(wrapState.output_high == false);
-        assert(mock_pin_values[45U] == HIGH);
-
-        // Verify out-of-phase activation of Heater 1, Heater 2, and Mist (offsets 0ms, 3000ms, 8000ms)
-        // Set up configs with 300s window (300000 ms) and demands > 0
-        const TpcChannelConfig hAirTestConfig = {10U, 300000U, 0U, 0U, 0U};      // HAir (offset 0)
-        const TpcChannelConfig hWatTestConfig = {11U, 300000U, 0U, 0U, 3000U};   // HWat (offset 3s)
-        const TpcChannelConfig mistTestConfig = {12U, 300000U, 0U, 0U, 8000U};   // Mist (offset 8s)
-
-        TpcChannelState hAirState = {};
-        TpcChannelState hWatState = {};
-        TpcChannelState mistState = {};
-
-        mock_millis_offset = 400000UL; // Window start
-        // Update all channels with 0.5 duty
-        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
-        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
-        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
-
-        // HAir must be LOW immediately (active)
-        assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == LOW);
-        // HWat and Mist must be HIGH (inactive)
-        assert(hWatState.output_high == false);
-        assert(mock_pin_values[11U] == HIGH);
-        assert(mistState.output_high == false);
-        assert(mock_pin_values[12U] == HIGH);
-
-        mock_millis_offset = 403000UL; // At 3 seconds
-        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
-        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
-        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
-
-        // HAir still LOW, HWat goes LOW, Mist still HIGH
-        assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == LOW);
-        assert(hWatState.output_high == true);
-        assert(mock_pin_values[11U] == LOW);
-        assert(mistState.output_high == false);
-        assert(mock_pin_values[12U] == HIGH);
-
-        mock_millis_offset = 408000UL; // At 8 seconds
-        TPC_Task::updateTpcChannel(hAirTestConfig, hAirState, 0.5f);
-        TPC_Task::updateTpcChannel(hWatTestConfig, hWatState, 0.5f);
-        TPC_Task::updateTpcChannel(mistTestConfig, mistState, 0.5f);
-
-        // All three are LOW now
-        assert(hAirState.output_high == true);
-        assert(mock_pin_values[10U] == LOW);
-        assert(hWatState.output_high == true);
-        assert(mock_pin_values[11U] == LOW);
-        assert(mistState.output_high == true);
-        assert(mock_pin_values[12U] == LOW);
+        const ArbitratedOutputsPod offDemand = {0.40f, 0.0f, 0.0f, 0.0f};
+        relay_control::applyDirectOutputs(offDemand, state);
+        assert(state.lamp_active == false);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
     }
 
-    // 28.5 A single physical lamp relay receives the complete lamp demand.
-    Serial.println("[TEST] Starting single-lamp TPC dispatch unit tests...");
-    {
-        const TPC_Task::TpcChannelConfig lampConfig = {13U, 10000U, 0U, 0U, 0U};
-        const TPC_Task::TpcChannelConfig hWatConfig = {14U, 10000U, 0U, 0U, 0U};
-        const TPC_Task::TpcChannelConfig mistConfig = {15U, 10000U, 0U, 0U, 0U};
-        const TPC_Task::TpcChannelConfig exhConfig = {16U, 10000U, 0U, 0U, 0U};
-        TPC_Task::TpcSchedulerState state = {};
-        const FuzzyController::ArbitratedOutputsPod outputs = {0.3f, 0.0f, 0.0f, 0.0f};
-
-        mock_millis_offset = 10000UL;
-        TPC_Task::applyTpcOutputs(
-            outputs, lampConfig, hWatConfig, mistConfig, exhConfig, state);
-        assert(state.Lamp.output_high == true);
-        assert(mock_pin_values[13U] == LOW);
-    }
-
-
-    // 29. Test Task B5 - Core1_ControlTask TPC pipeline single iteration
-    Serial.println("[TEST] Starting Task B5 - Core1 TPC Pipeline Unit Tests...");
+    // 29. Test Task B5 - Core1 direct ON/OFF pipeline single iteration
+    Serial.println("[TEST] Starting Task B5 - Core1 direct ON/OFF pipeline unit tests...");
     {
         // Reset mock state for a clean pipeline run
         sensors::init_sensors_placeholder();
@@ -1758,7 +1590,7 @@ int main() {
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
 
         // RTC is unavailable (fail-safe), so hardwareProtectionOverride() forces
-        // HWat and Mist to 0.0 duty → TPC writes HIGH to both heater pins.
+        // HWat and Mist to 0.0 demand → direct dispatcher keeps both relay pins HIGH (OFF).
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
@@ -1770,7 +1602,7 @@ int main() {
         // Verify no heap allocation or delay() was used — confirmed by static
         // analysis of core1_tasks.cpp (no malloc/new/String/delay in loop body).
         // The pipeline correctly follows: sensors → trajectory → fuzzy → gains
-        // → arbitration → protection → TPC → vTaskDelay(50).
+        // → arbitration → protection → direct ON/OFF dispatch → vTaskDelay(50).
     }
 
     // 30. Test Task C2 - Telemetry evaluateDeltaThresholds
@@ -2292,7 +2124,7 @@ int main() {
         assert(discarded.active == false);
     }
 
-    // 36. Test Task F8 - Persistence, queue priority, encoder, and TPC regression
+    // 36. Test Task F8 - Persistence, queue priority, encoder, and relay regression
     Serial.println("[TEST] Starting Task F8 - Offline Setpoint Integration Tests...");
     {
         auto clearQueue = [](QueueHandle_t queue) {
@@ -2432,7 +2264,7 @@ int main() {
         assert(std::fabs(persistedOverride.temp_target - 31.5f) < 0.001f);
         assert(std::fabs(persistedOverride.humidity_target - 77.0f) < 0.001f);
 
-        // An active manual override cannot bypass the invalid-RTC TPC safety shutdown.
+        // An active manual override cannot bypass the invalid-RTC safety shutdown.
         assert(xQueueOverwrite(xOverrideQueue, &activeOverride) == pdTRUE);
         taskCore1Control(nullptr);
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
@@ -2454,7 +2286,7 @@ int main() {
         setpoints.temp_target = 25.0f;
         setpoints.humidity_target = 80.0f;
         
-        TPC_Task::RtcTimePod rtcTime = {};
+        relay_control::RtcTimePod rtcTime = {};
         rtcTime.valid = true;
         rtcTime.hour = 8;
         rtcTime.minute = 0;
@@ -2599,13 +2431,13 @@ int main() {
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             cabinet_buttons::process_cabinet_buttons();
             // Since k = 20 < CL (50), a single HIGH sample immediately resets k to 0.
-            // Let's verify by sending LOW again. If it was reset to 0, it will need 50 samples of LOW.
+            // Let's verify by sending LOW again. If it was reset to 0, it will need 201 samples of LOW.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 49; ++i) {
+            for (int i = 0; i < 200; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
                 assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
             }
-            // 50th sample should trigger PRESS
+            // 201st sample should trigger PRESS
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
 
@@ -2614,40 +2446,32 @@ int main() {
             assert(req.channel == AppChannel::MIST);
             assert(req.intent == AppIntent::FORCE_ON);
 
-            // Let it settle to CH (200) by sending 2 more LOW samples
-            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            cabinet_buttons::process_cabinet_buttons(); // k becomes 51
-            cabinet_buttons::process_cabinet_buttons(); // k becomes CH (200)
-
             // 3. Introduce bounce/noise when pressed (HIGH for 10 samples, then 1 sample LOW)
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             for (int i = 0; i < 10; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // k should have decremented from 200 to 190. Since 190 >= CL (50), state is still pressed.
+            // k should have decremented from 1000 to 990. Since 990 >= CL (50), state is still pressed.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
             cabinet_buttons::process_cabinet_buttons();
-            // Since k = 190 > CL (50), a single LOW sample immediately jumps k back to CH (200).
+            // Since k = 990 >= CH (200), a single LOW sample immediately jumps k back to CTOP (1000).
             
             // 4. Stable release: pin goes HIGH.
-            // Requires 150 samples to decrement from 200 to 50 (still pressed).
-            // Then 1 more sample to decrement to 49 (triggers release).
-            // Total = 151 samples of HIGH.
+            // Requires 951 samples to decrement from 1000 to 49 (still pressed).
+            // Then 1 more sample to decrement to 0 (triggers release).
+            // Total = 952 samples of HIGH.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 150; ++i) {
+            for (int i = 0; i < 951; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // At 150 samples HIGH, k is 50. Still pressed.
-            // 151st sample HIGH, k becomes 49. Triggers release!
+            // At 951 samples HIGH, k is 49. Still pressed.
+            // 952nd sample HIGH, k becomes 0, triggering release.
             cabinet_buttons::process_cabinet_buttons();
             
             // Released should not push new request to queue
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
-            
-            // Verify k resets to 0 on next HIGH sample
-            cabinet_buttons::process_cabinet_buttons(); // k becomes 0
         }
 
         // S2-G11: Test force on not restored when time uncertain
@@ -2988,7 +2812,7 @@ int main() {
 
         // 2. Run control pipeline loop once with fuzzy disabled.
         // It should result in all outputs off (duty = 0.0f).
-        // TPC mapping: 0.0f duty means relay is HIGH (OFF).
+        // Direct mapping: 0.0 demand means relay is HIGH (OFF).
         taskCore1Control(nullptr);
 
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);

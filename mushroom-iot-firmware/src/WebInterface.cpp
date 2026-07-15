@@ -265,7 +265,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
             </div>
             
             <div class="card card-outputs">
-                <div class="card-title">Actuator Demands (TPC)</div>
+                <div class="card-title">Actuator Demands</div>
                 <div class="output-item">
                     <div class="output-header">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">

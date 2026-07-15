@@ -14,11 +14,11 @@
 namespace FuzzyController {
 
 /**
- * @brief Raw TPC duty demands from the temperature/humidity fuzzy rules.
+ * @brief Raw normalized relay demands from the temperature/humidity fuzzy rules.
  *
- * Every field is a continuous duty demand in [0.0, 1.0] for the later TPC
- * scheduler (0.0 = always OFF, 1.0 = always ON within the TPC window). This
- * stage must not threshold or map demands to relay boolean HIGH/LOW.
+ * Every field is a normalized demand in [0.0, 1.0] for the later direct
+ * relay dispatcher. This stage does not touch GPIO or map demands to relay
+ * levels directly.
  */
 struct DualHeaterOutputsPod {
     float HLamp;
@@ -63,14 +63,14 @@ struct ArbitratedOutputsPod {
  * - Heating and mist share a normalized demand budget, preventing both from
  *   being driven at high power during the same cycle.
  *
- * TPC semantics:
- * - Each returned channel is a continuous duty demand in [0.0, 1.0].
- * - This function never thresholds to boolean relay commands and never touches
- *   GPIO; TPC is the only stage that converts duty into HIGH/LOW phases.
+ * Direct relay semantics:
+ * - Each returned channel is a normalized demand in [0.0, 1.0].
+ * - This function never touches GPIO; the direct dispatcher resolves each
+ *   demand to a stable ON/OFF state with hysteresis.
  *
  * @param errorTemp Temperature error in degrees Celsius (target - measured).
  * @param errorHumid Humidity error in %RH (target - measured).
- * @return Continuous TPC duty demands for lamp heat, water heat, mist, and exhaust.
+ * @return Continuous normalized relay demands for lamp heat, water heat, mist, and exhaust.
  */
 DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid);
 
@@ -95,7 +95,7 @@ CO2RuleState makeInitialCO2State();
  *
  * @param state Mutable hysteresis latch owned by the caller.
  * @param errorCO2 CO2 error in ppm (target - measured).
- * @return Normalized raw TPC demand: 1.0 while the latch requests exhaust, 0.0 otherwise.
+ * @return Normalized raw demand: 1.0 while the latch requests exhaust, 0.0 otherwise.
  */
 float executeCO2Rules(CO2RuleState& state, float errorCO2);
 
