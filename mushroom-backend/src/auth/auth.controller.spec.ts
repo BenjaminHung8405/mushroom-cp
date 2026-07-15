@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -45,5 +45,14 @@ describe('AuthController', () => {
         clientId: 'esp32_mushroom_client',
       }),
     ).toThrow(ServiceUnavailableException);
+  });
+
+  it('GET /v1/auth/device-token should return token when X-Device-Id header is present', () => {
+    const result = controller.issueDeviceToken('test_device_001');
+    expect(result).toEqual({ token: 'changeme_esp32_pass' });
+  });
+
+  it('GET /v1/auth/device-token should throw BadRequestException when X-Device-Id is missing', () => {
+    expect(() => controller.issueDeviceToken(undefined as unknown as string)).toThrow(BadRequestException);
   });
 });

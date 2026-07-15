@@ -9,7 +9,6 @@
 
 #ifndef UNIT_TEST
 #include <DNSServer.h>
-#include <ESP.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -29,6 +28,7 @@ namespace wifi
     static void stop_captive_portal_server();
 #endif
     static bool start_softap(bool allow_sta_reconnect = false);
+    static bool fetch_auth_token();
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
@@ -72,7 +72,6 @@ namespace wifi
         return false;
     }
 
-
 #endif
 
     static void set_state(WifiState new_state)
@@ -93,7 +92,21 @@ namespace wifi
                 xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
                 xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
 #ifndef UNIT_TEST
-                fetch_auth_token();
+                const BaseType_t task_created = xTaskCreatePinnedToCore(
+                    [](void *pvParameters) {
+                        fetch_auth_token();
+                        vTaskDelete(NULL);
+                    },
+                    "fetch_auth_task",
+                    4096,
+                    NULL,
+                    1,
+                    NULL,
+                    0);
+                if (task_created != pdPASS)
+                {
+                    Serial.println("[AUTH] Failed to create token-fetch task.");
+                }
 #endif
             }
             else if (new_state == WifiState::SOFTAP_ACTIVE)
@@ -223,7 +236,7 @@ namespace wifi
         }
 
         // Send X-Device-Id in header to identify the device
-        http.addHeader("X-Device-Id", config::resolve_device_identity());
+        http.addHeader("X-Device-Id", config::network::resolve_device_identity());
 
         int status = http.GET();
         if (status != 200)
@@ -987,7 +1000,7 @@ setInterval(function(){
 #endif
                 reconnect_attempts = 0;
                 set_state(WifiState::STA_CONNECTED);
-                
+
                 // B2: Sync NTP success -> Trusted Time
                 time_conf::onTimeSyncSuccess(time(nullptr));
             }
@@ -1018,7 +1031,7 @@ setInterval(function(){
                 Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
                 set_state(WifiState::STA_DISCONNECTED);
                 last_reconnect_attempt = now;
-                
+
                 // B2: Connection loss while same boot -> Holdover
                 time_conf::onConnectionLoss();
             }
