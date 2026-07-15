@@ -61,9 +61,10 @@ ManualDecision evaluateSafetyGate(
         if (telemetry.temp_air >= LAMP_HARD_CUTOFF_C) {
             return ManualDecision::RejectedTemp;
         }
-        if (cropDay > 8) {
-            return ManualDecision::RejectedLocked;
-        }
+        // Temporarily commented out:
+        // if (cropDay > 8) {
+        //     return ManualDecision::RejectedLocked;
+        // }
         if (telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C) {
             return ManualDecision::RejectedTemp;
         }

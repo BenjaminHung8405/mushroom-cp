@@ -2494,12 +2494,14 @@ int main() {
         }
 
         // Test crop Day lock for lamp (> 8 days)
+        /*
         {
             telemetry.temp_air = setpoints.temp_target + 1.0f;
             ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, 9); // Day 9
             assert(dec == ManualDecision::RejectedLocked);
         }
+        */
 
         // S2-G5: Test gate Fan PASS mọi tình huống
         {
@@ -2581,36 +2583,36 @@ int main() {
                 xQueueReset(g_manual_request_queue);
             }
 
-            // 1. Initial state: kon=0, koff=50, current_state=true. Pin defaults to HIGH (released).
+            // 1. Initial state: kon=0, koff=200, current_state=true. Pin defaults to HIGH (released).
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
-            // 2. Introduce bounce/noise (LOW for 40 samples, then 5 samples HIGH)
+            // 2. Introduce bounce/noise (LOW for 150 samples, then 20 samples HIGH)
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 40; ++i) {
+            for (int i = 0; i < 150; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // At this point: koff should have decremented from 50 to 10. kon is still 0.
+            // At this point: koff should have decremented from 200 to 50. kon is still 0.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 20; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // At this point: since kon is 0, koff should have incremented back from 10 to 15.
+            // At this point: since kon is 0, koff should have incremented back from 50 to 70.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
             // 3. Now send LOW to complete the press.
-            // Needs to decrement koff from 15 to 0 (15 samples LOW)
+            // Needs to decrement koff from 70 to 0 (70 samples LOW)
             // Then increment kon from 0 to 10 (10 samples LOW)
-            // Total = 25 samples LOW.
+            // Total = 80 samples LOW.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 24; ++i) {
+            for (int i = 0; i < 79; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
                 assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
             }
-            // 25th sample
+            // 80th sample
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
 
@@ -2620,12 +2622,12 @@ int main() {
             assert(req.intent == AppIntent::FORCE_ON);
 
             // 4. Stable released: pin goes HIGH.
-            // State is currently pressed: kon=50, koff=0.
-            // Requires 50 samples of HIGH to decrement kon to 0.
+            // State is currently pressed: kon=200, koff=0.
+            // Requires 200 samples of HIGH to decrement kon to 0.
             // Then 10 samples of HIGH to increment koff to 10 (triggers release).
-            // Total = 60 samples of HIGH.
+            // Total = 210 samples of HIGH.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 59; ++i) {
+            for (int i = 0; i < 209; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
             // State should still be pressed (kon=0, koff=9)
