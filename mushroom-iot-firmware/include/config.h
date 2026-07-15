@@ -44,14 +44,14 @@ namespace config
         constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
         constexpr const char *AP_PASS = "12345678";
 
-        // Injected at build time from the repository's NEXT_PUBLIC_API_URL.
+        // Injected at build time from the repository's shared .env file.
         // This keeps firmware and the web client on the same public API origin.
-#ifndef DEFAULT_BACKEND_API_URL
-#error "DEFAULT_BACKEND_API_URL must be provided by the PlatformIO environment script"
+#if !defined(DEFAULT_BACKEND_API_URL) || !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE)
+#error "Firmware network defaults must be provided by the PlatformIO environment script"
 #endif
         constexpr const char *DEFAULT_BACKEND_URL = DEFAULT_BACKEND_API_URL;
-        constexpr const char *DEFAULT_MQTT_BROKER = "192.168.1.136";
-        constexpr uint16_t DEFAULT_MQTT_PORT = 18883;
+        constexpr const char *DEFAULT_MQTT_BROKER = DEFAULT_MQTT_BROKER_URL;
+        constexpr uint16_t DEFAULT_MQTT_PORT = DEFAULT_MQTT_PORT_VALUE;
         constexpr const char *DEFAULT_MQTT_PASS = "";
 
         // NVS Storage namespace and keys (Preference keys must be <= 15 chars)

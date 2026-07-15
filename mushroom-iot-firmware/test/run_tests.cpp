@@ -292,8 +292,9 @@ int main() {
     Serial.println("[TEST] Task F1 - Snapshots Unit Tests Passed!");
 
     // 11b. Verify compiled MQTT default host port and init diagnostics settings
-    assert(config::network::DEFAULT_MQTT_PORT == 18883);
-    config::network::MQTT_BROKER_VAL = "192.168.1.164";
+    assert(config::network::DEFAULT_MQTT_BROKER == "mushroomapp.mitelai.com");
+    assert(config::network::DEFAULT_MQTT_PORT == 1883);
+    config::network::MQTT_BROKER_VAL = config::network::DEFAULT_MQTT_BROKER;
     config::network::MQTT_PORT_VAL = config::network::DEFAULT_MQTT_PORT;
     config::network::MQTT_CLIENT_ID_VAL = "esp32";
     PubSubClient::mock_buffer_size = 0;
@@ -305,8 +306,8 @@ int main() {
         assert(mqtt_client.init() == true);
         assert(PubSubClient::mock_buffer_size == 1024);
         assert(PubSubClient::mock_keep_alive == 60);
-        assert(PubSubClient::mock_server_host == "192.168.1.164");
-        assert(PubSubClient::mock_server_port == 18883);
+        assert(PubSubClient::mock_server_host == "mushroomapp.mitelai.com");
+        assert(PubSubClient::mock_server_port == 1883);
         assert(mqtt_client.getState() == mqtt::MqttState::IDLE);
     }
 
