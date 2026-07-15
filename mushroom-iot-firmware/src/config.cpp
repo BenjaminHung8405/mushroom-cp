@@ -124,5 +124,5 @@ namespace config
         }
     }
 
-    bool FUZZY_CONTROL_ENABLED = false;
+    bool FUZZY_CONTROL_ENABLED = true;
 }
