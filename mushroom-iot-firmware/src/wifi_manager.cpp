@@ -12,6 +12,7 @@
 #include <HTTPClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 #endif
 
 namespace wifi
@@ -94,11 +95,13 @@ namespace wifi
 #ifndef UNIT_TEST
                 const BaseType_t task_created = xTaskCreatePinnedToCore(
                     [](void *pvParameters) {
+                        esp_task_wdt_add(nullptr);
                         fetch_auth_token();
+                        esp_task_wdt_delete(nullptr);
                         vTaskDelete(NULL);
                     },
                     "fetch_auth_task",
-                    4096,
+                    10240,
                     NULL,
                     1,
                     NULL,
@@ -238,7 +241,18 @@ namespace wifi
         // Send X-Device-Id in header to identify the device
         http.addHeader("X-Device-Id", config::network::resolve_device_identity());
 
+#ifndef UNIT_TEST
+        vTaskDelay(pdMS_TO_TICKS(10));
+        esp_task_wdt_reset();
+#endif
+
         int status = http.GET();
+
+#ifndef UNIT_TEST
+        vTaskDelay(pdMS_TO_TICKS(10));
+        esp_task_wdt_reset();
+#endif
+
         if (status != 200)
         {
             Serial.printf("[AUTH] Token request failed. HTTP status: %d\n", status);

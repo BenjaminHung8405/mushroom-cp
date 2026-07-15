@@ -2570,7 +2570,7 @@ int main() {
             assert(decButton == decUI);
         }
 
-        // S2-G9: Test debounce Shift Register 8 mẫu lọc nhiễu thành công
+        // S2-G9: Test debounce integrating counters (kon/koff) with decrement logic lọc nhiễu thành công
         {
             cabinet_buttons::reset_for_test();
             
@@ -2581,29 +2581,36 @@ int main() {
                 xQueueReset(g_manual_request_queue);
             }
 
-            // 1. Initial state: history=0xFF, current_state=true. Pin defaults to HIGH (released).
+            // 1. Initial state: kon=0, koff=50, current_state=true. Pin defaults to HIGH (released).
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
-            // 2. Introduce bounce/noise (LOW for 7 samples, then 1 sample HIGH)
+            // 2. Introduce bounce/noise (LOW for 40 samples, then 5 samples HIGH)
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 7; ++i) {
+            for (int i = 0; i < 40; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
+            // At this point: koff should have decremented from 50 to 10. kon is still 0.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            cabinet_buttons::process_cabinet_buttons();
+            for (int i = 0; i < 5; ++i) {
+                cabinet_buttons::process_cabinet_buttons();
+            }
+            // At this point: since kon is 0, koff should have incremented back from 10 to 15.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
-            // 3. Stable press (8 consecutive LOW samples)
+            // 3. Now send LOW to complete the press.
+            // Needs to decrement koff from 15 to 0 (15 samples LOW)
+            // Then increment kon from 0 to 10 (10 samples LOW)
+            // Total = 25 samples LOW.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 7; ++i) {
+            for (int i = 0; i < 24; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
                 assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
             }
-            // 8th sample
+            // 25th sample
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
 
@@ -2612,11 +2619,26 @@ int main() {
             assert(req.channel == AppChannel::MIST);
             assert(req.intent == AppIntent::FORCE_ON);
 
-            // 4. Stable released (8 consecutive HIGH samples)
+            // 4. Stable released: pin goes HIGH.
+            // State is currently pressed: kon=50, koff=0.
+            // Requires 50 samples of HIGH to decrement kon to 0.
+            // Then 10 samples of HIGH to increment koff to 10 (triggers release).
+            // Total = 60 samples of HIGH.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 8; ++i) {
+            for (int i = 0; i < 59; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
+            // State should still be pressed (kon=0, koff=9)
+            
+            // Introduce 1 LOW bounce sample (should decrement koff from 9 to 8, kon is 0)
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
+            cabinet_buttons::process_cabinet_buttons();
+
+            // Now send 2 HIGH samples (first increments koff from 8 to 9, second to 10)
+            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
+            cabinet_buttons::process_cabinet_buttons();
+            cabinet_buttons::process_cabinet_buttons();
+
             // Released should not push new request to queue
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
         }
