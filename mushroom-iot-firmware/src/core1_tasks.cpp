@@ -591,9 +591,41 @@ static void runControlPipelineStep(
 
     const unsigned long now = millis();
     static bool lastSensorReadOk = true;
+    bool newSensorRead = false;
     if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
     {
         lastSensorReadOk = sensors::read_all_telemetry(telemetry);
+        newSensorRead = true;
+    }
+
+    // Rate of change calculation for inertia compensation
+    static float prevTemp = NAN;
+    static float prevHumid = NAN;
+    static float tempRateFiltered = 0.0f;
+    static float humidRateFiltered = 0.0f;
+    static unsigned long lastCalcMs = 0;
+
+    if (newSensorRead && lastSensorReadOk)
+    {
+        if (std::isfinite(telemetry.temp_air) && std::isfinite(telemetry.humidity_air))
+        {
+            if (std::isfinite(prevTemp) && std::isfinite(prevHumid) && lastCalcMs != 0)
+            {
+                float dt = static_cast<float>(now - lastCalcMs) / 1000.0f;
+                if (dt > 0.5f)
+                {
+                    float rawTempRate = (telemetry.temp_air - prevTemp) / dt;
+                    float rawHumidRate = (telemetry.humidity_air - prevHumid) / dt;
+
+                    constexpr float alpha = 0.3f;
+                    tempRateFiltered = alpha * rawTempRate + (1.0f - alpha) * tempRateFiltered;
+                    humidRateFiltered = alpha * rawHumidRate + (1.0f - alpha) * humidRateFiltered;
+                }
+            }
+            prevTemp = telemetry.temp_air;
+            prevHumid = telemetry.humidity_air;
+            lastCalcMs = now;
+        }
     }
 
     float errorTemp = NAN;
@@ -601,6 +633,18 @@ static void runControlPipelineStep(
     float errorCO2 = NAN;
     const Trajectory::SetpointPod setpoints =
         getControlSetpointsAndErrors(telemetry, baselineCmd, overrideCmd, errorTemp, errorHumid, errorCO2);
+
+    // Apply inertia compensation to errorTemp and errorHumid
+    if (std::isfinite(errorTemp))
+    {
+        float tempComp = telemetry.temp_air + config::control::K_INERTIA_TEMP * tempRateFiltered;
+        errorTemp = setpoints.temp_target - tempComp;
+    }
+    if (std::isfinite(errorHumid))
+    {
+        float humidComp = telemetry.humidity_air + config::control::K_INERTIA_HUMID * humidRateFiltered;
+        errorHumid = setpoints.humidity_target - humidComp;
+    }
 
     const unsigned long elapsedMs = now - lastControlMs;
     lastControlMs = now;

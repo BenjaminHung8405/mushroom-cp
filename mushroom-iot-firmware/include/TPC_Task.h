@@ -40,6 +40,9 @@ namespace TPC_Task
         uint32_t last_transition_ms;
         bool output_high;
         bool initialized;
+        uint8_t pulse_state; // 0 = OFF, 1 = ON, 2 = COOLDOWN
+        uint32_t pulse_on_ms;
+        uint32_t pulse_off_ms;
     } __attribute__((aligned(4)));
 
     /** Scheduler state for all physical SSR outputs. */

@@ -57,6 +57,9 @@ void initTpcChannelState(TpcChannelState& state, uint32_t now, uint32_t minOffMs
     state.output_high = false;
     state.window_started_ms = now;
     state.last_transition_ms = now - minOffMs;
+    state.pulse_state = 0; // OFF
+    state.pulse_on_ms = 0;
+    state.pulse_off_ms = 0;
 }
 
 uint32_t wrapTpcWindow(TpcChannelState& state, uint32_t now, uint32_t windowMs) {
@@ -97,44 +100,76 @@ void updateTpcChannel(
         state.initialized = true;
         state.window_started_ms = now;
         state.last_transition_ms = now;
+        state.pulse_state = 0;
+        state.pulse_on_ms = 0;
+        state.pulse_off_ms = 0;
         return;
     }
 
     if (!state.initialized) {
-        // Start from an OFF phase but make the first valid ON request eligible
-        // immediately. This prevents boot-time demand from being delayed while
-        // retaining minimum-off enforcement for subsequent transitions.
         initTpcChannelState(state, now, config.min_off_ms);
         digitalWrite(config.pin, HIGH);
     }
 
+    // Wrap the window to reset the offset start reference
     const uint32_t elapsedInWindow = wrapTpcWindow(state, now, config.window_ms);
 
     const float safeDuty = clampUnit(dutyDemand);
-    const bool requestedHigh = requestedOutputHigh(
-        safeDuty, elapsedInWindow, config.window_ms, config.offset_ms);
-    if (requestedHigh == state.output_high) {
-        return;
-    }
 
-    // An explicit zero demand is the safe SSR state. Do not retain a previous
-    // ON phase for minimum-on timing: this lets protection interlocks force a
-    // channel LOW immediately before the next GPIO decision.
-    if (safeDuty <= 0.0f) {
+    // If demand is close to 0, force OFF immediately.
+    if (safeDuty <= 0.05f) {
         writeOutput(config, state, false);
+        state.pulse_state = 0;
         state.last_transition_ms = now;
         return;
     }
 
-    const uint32_t requiredElapsed = requestedHigh
-        ? config.min_off_ms
-        : config.min_on_ms;
-    if (!elapsedAtLeast(now, state.last_transition_ms, requiredElapsed)) {
-        return;
+    // Dynamic On/Off Pulse Controller State Machine
+    if (state.pulse_state == 2) { // COOLDOWN
+        // Transition back to OFF when COOLDOWN/OFF duration finishes
+        if (elapsedAtLeast(now, state.last_transition_ms, state.pulse_off_ms)) {
+            state.pulse_state = 0; // OFF (ready for next cycle)
+        }
     }
 
-    writeOutput(config, state, requestedHigh);
-    state.last_transition_ms = now;
+    if (state.pulse_state == 0) { // OFF
+        // Respect staggered startup offset
+        if (elapsedInWindow >= config.offset_ms) {
+            // Respect min_off_ms guard
+            if (elapsedAtLeast(now, state.last_transition_ms, config.min_off_ms)) {
+                // Calculate ON/OFF durations based on fuzzy duty
+                uint32_t T_on = static_cast<uint32_t>(safeDuty * config.window_ms);
+                uint32_t T_off = static_cast<uint32_t>((1.0f - safeDuty) * config.window_ms);
+
+                // Enforce minimum limits
+                if (T_on < config.min_on_ms) {
+                    T_on = config.min_on_ms;
+                }
+                if (T_off < config.min_off_ms) {
+                    T_off = config.min_off_ms;
+                }
+
+                // Enforce non-wrapping rule: cap ON duration at window boundary
+                if (config.offset_ms + T_on > config.window_ms) {
+                    T_on = config.window_ms - config.offset_ms;
+                }
+
+                writeOutput(config, state, true);
+                state.pulse_state = 1; // ON
+                state.last_transition_ms = now;
+                state.pulse_on_ms = T_on;
+                state.pulse_off_ms = T_off;
+            }
+        }
+    }
+    else if (state.pulse_state == 1) { // ON
+        // Transition to cooldown when ON duration finishes
+        if (elapsedAtLeast(now, state.last_transition_ms, state.pulse_on_ms)) {
+            writeOutput(config, state, false);
+            state.pulse_state = 2; // COOLDOWN
+            state.last_transition_ms = now;
+        }
+    }
 }
 
 void applyTpcOutputs(

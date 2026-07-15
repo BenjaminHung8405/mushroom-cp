@@ -115,6 +115,16 @@ namespace config
         // from physical cabinet buttons, are applied later in the pipeline and
         // remain operational when this is false.
         constexpr bool ENABLE_FUZZY_CONTROL = false;
+
+        // Inertia compensation coefficients (in seconds)
+        constexpr float K_INERTIA_TEMP = 45.0f;  // seconds
+        constexpr float K_INERTIA_HUMID = 30.0f; // seconds
+
+        // Dynamic Pulse-Duration On/Off Controller cycle periods
+        constexpr uint32_t CYCLE_PERIOD_LAMP_MS = 60000;
+        constexpr uint32_t CYCLE_PERIOD_HWAT_MS = 60000;
+        constexpr uint32_t CYCLE_PERIOD_MIST_MS = 60000;
+        constexpr uint32_t CYCLE_PERIOD_FAN_MS  = 30000;
     } // namespace control
 
     namespace safe_offline

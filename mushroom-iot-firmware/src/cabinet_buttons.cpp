@@ -15,36 +15,22 @@
 namespace cabinet_buttons
 {
 
-    static constexpr uint16_t DEBOUNCE_THRESHOLD = 10;
-    static constexpr uint16_t DEBOUNCE_MAX = 200;
+    static constexpr uint16_t CL = 50;
+    static constexpr uint16_t CH = 200;
 
     struct ButtonState
     {
         uint8_t pin;
-        uint16_t kon;          // Counter for LOW state (pressed)
-        uint16_t koff;         // Counter for HIGH state (released)
+        uint16_t k;            // Debounce counter
         bool current_state;    // Debounced state (active-LOW: true = released, false = pressed)
         AppChannel channel;    // Corresponding control channel
         AppIntent next_intent; // Toggle state: alternates FORCE_ON ↔ AUTO on each press
     };
 
     static ButtonState buttons[] = {
-        {config::hardware::PIN_BTN_MIST, 0, DEBOUNCE_MAX, true, AppChannel::MIST, AppIntent::FORCE_ON},
-        {config::hardware::PIN_BTN_FAN, 0, DEBOUNCE_MAX, true, AppChannel::FAN, AppIntent::FORCE_ON},
-        {config::hardware::PIN_BTN_LAMP, 0, DEBOUNCE_MAX, true, AppChannel::LAMP, AppIntent::FORCE_ON}};
-
-    static bool is_button_pressed(uint16_t kon, uint16_t koff, bool was_pressed)
-    {
-        if (kon == DEBOUNCE_MAX)
-        {
-            return true;
-        }
-        if (koff == DEBOUNCE_MAX)
-        {
-            return false;
-        }
-        return was_pressed;
-    }
+        {config::hardware::PIN_BTN_MIST, 0, true, AppChannel::MIST, AppIntent::FORCE_ON},
+        {config::hardware::PIN_BTN_FAN, 0, true, AppChannel::FAN, AppIntent::FORCE_ON},
+        {config::hardware::PIN_BTN_LAMP, 0, true, AppChannel::LAMP, AppIntent::FORCE_ON}};
 
     void process_cabinet_buttons()
     {
@@ -55,45 +41,29 @@ namespace cabinet_buttons
 
             if (pin_is_low)
             {
-                if (btn.koff > 0)
+                if (btn.k <= CL)
                 {
-                    btn.koff--;
+                    btn.k++;
                 }
                 else
-                { // koff == 0
-                    if (btn.kon < DEBOUNCE_MAX)
-                    {
-                        btn.kon++;
-                        if (btn.kon == DEBOUNCE_THRESHOLD)
-                        {
-                            btn.kon = DEBOUNCE_MAX;
-                            btn.koff = 0;
-                        }
-                    }
+                {
+                    btn.k = CH;
                 }
             }
             else
-            { // HIGH (released)
-                if (btn.kon > 0)
+            {
+                if (btn.k >= CL)
                 {
-                    btn.kon--;
+                    btn.k--;
                 }
                 else
-                { // kon == 0
-                    if (btn.koff < DEBOUNCE_MAX)
-                    {
-                        btn.koff++;
-                        if (btn.koff == DEBOUNCE_THRESHOLD)
-                        {
-                            btn.koff = DEBOUNCE_MAX;
-                            btn.kon = 0;
-                        }
-                    }
+                {
+                    btn.k = 0;
                 }
             }
 
             bool was_pressed = !btn.current_state; // current_state: true = released, false = pressed
-            bool now_pressed = is_button_pressed(btn.kon, btn.koff, was_pressed);
+            bool now_pressed = (btn.k >= CL);
 
             if (now_pressed != was_pressed)
             {
@@ -152,8 +122,7 @@ namespace cabinet_buttons
     {
         for (auto &btn : buttons)
         {
-            btn.kon = 0;
-            btn.koff = DEBOUNCE_MAX;
+            btn.k = 0;
             btn.current_state = true;
             btn.next_intent = AppIntent::FORCE_ON; // Reset toggle state
         }
