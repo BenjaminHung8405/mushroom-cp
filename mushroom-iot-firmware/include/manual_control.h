@@ -15,7 +15,7 @@ struct ManualLatchEntry {
     uint32_t expires_ms;
 } __attribute__((aligned(4)));
 
-using ManualLatchArray = std::array<ManualLatchEntry, static_cast<size_t>(AppChannel::COUNT)>;
+using ManualLatchArray = std::array<ManualLatchEntry, static_cast<std::size_t>(AppChannel::COUNT)>;
 
 /**
  * @brief Evaluates a manual request against safety bounds.

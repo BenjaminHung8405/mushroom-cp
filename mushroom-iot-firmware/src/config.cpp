@@ -123,4 +123,6 @@ namespace config
             return wifi_loaded;
         }
     }
+
+    bool FUZZY_CONTROL_ENABLED = false;
 }

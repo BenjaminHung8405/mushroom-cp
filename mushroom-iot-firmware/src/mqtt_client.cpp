@@ -639,7 +639,7 @@ namespace mqtt
 
     bool MqttClient::validateSingleSetpoint(const char *name, float val, float min_val, float max_val)
     {
-        if (!isnan(val) && val >= min_val && val <= max_val)
+        if (!std::isnan(val) && val >= min_val && val <= max_val)
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());

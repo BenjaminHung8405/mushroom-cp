@@ -44,8 +44,12 @@ namespace config
         constexpr const char *AP_SSID = "TraiNam_Setup_KhongDay";
         constexpr const char *AP_PASS = "12345678";
 
-        // Default Fallback Configurations for Backend and MQTT (used on first boot / missing NVS config)
-        constexpr const char *DEFAULT_BACKEND_URL = "http://192.168.1.136:3001";
+        // Injected at build time from the repository's NEXT_PUBLIC_API_URL.
+        // This keeps firmware and the web client on the same public API origin.
+#ifndef DEFAULT_BACKEND_API_URL
+#error "DEFAULT_BACKEND_API_URL must be provided by the PlatformIO environment script"
+#endif
+        constexpr const char *DEFAULT_BACKEND_URL = DEFAULT_BACKEND_API_URL;
         constexpr const char *DEFAULT_MQTT_BROKER = "192.168.1.136";
         constexpr uint16_t DEFAULT_MQTT_PORT = 18883;
         constexpr const char *DEFAULT_MQTT_PASS = "";
@@ -105,6 +109,14 @@ namespace config
         constexpr uint32_t MANUAL_LATCH_TTL_MS = 30000;
     } // namespace hardware
 
+    namespace control
+    {
+        // Automatic fuzzy control is opt-in. Manual latches, including requests
+        // from physical cabinet buttons, are applied later in the pipeline and
+        // remain operational when this is false.
+        constexpr bool ENABLE_FUZZY_CONTROL = false;
+    } // namespace control
+
     namespace safe_offline
     {
         // Cấu hình phòng thủ bảo vệ sinh học tối đa cho Nấm Rơm miền Tây (Vụ 1 - 15/07)
@@ -112,5 +124,8 @@ namespace config
         constexpr float HUMIDITY_TARGET_RH = 83.0f; // Ngưỡng ẩm an toàn chống thối tơ khi mất mạng
         constexpr float CO2_TARGET_PPM = 1000.0f;   // Giới hạn thông gió chống ngộp khí
     } // namespace safe_offline
+
+    // Biến cho phép bật/tắt chế độ điều khiển bằng fuzzy
+    extern bool FUZZY_CONTROL_ENABLED;
 
 } // namespace config

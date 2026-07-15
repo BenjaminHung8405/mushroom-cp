@@ -609,11 +609,18 @@ static void runControlPipelineStep(
         : static_cast<float>(elapsedMs) / 1000.0f;
     const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
         tunerState, errorTemp, errorHumid, dtSeconds);
-    const FuzzyController::DualHeaterOutputsPod thermalDemands =
-        FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
-    const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
-    FuzzyController::ArbitratedOutputsPod outputs =
-        FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
+    FuzzyController::ArbitratedOutputsPod outputs;
+    if (config::FUZZY_CONTROL_ENABLED)
+    {
+        const FuzzyController::DualHeaterOutputsPod thermalDemands =
+            FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
+        const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
+        outputs = FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
+    }
+    else
+    {
+        outputs = {0.0f, 0.0f, 0.0f, 0.0f};
+    }
 
     // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → TPC
 

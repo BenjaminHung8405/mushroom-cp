@@ -58,6 +58,7 @@ void setup();
 void loop();
 
 int main() {
+    config::FUZZY_CONTROL_ENABLED = true;
     xWifiEventGroup = xEventGroupCreate();
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
@@ -2934,6 +2935,57 @@ int main() {
 
         assert(ota::check_ota_trigger(url) == true);
         assert(url == "https://example.com/ota-update.bin");
+    }
+
+    // 39. Test Fuzzy Control Enable/Disable Configuration and Physical Button Overrides
+    {
+        Serial.println("--- Starting Fuzzy Control Enable/Disable & Physical Buttons Tests ---");
+
+        // 1. Reset state
+        config::FUZZY_CONTROL_ENABLED = false;
+        
+        sensors::init_sensors_placeholder();
+        mock_pin_modes.clear();
+        mock_pin_values.clear();
+        mock_pin_write_order.clear();
+        mock_operation_counter = 0;
+        mock_millis_offset = 0;
+
+        // Clear manual requests
+        if (g_manual_request_queue != nullptr) {
+            ManualRequest req_discard;
+            while (xQueueReceive(g_manual_request_queue, &req_discard, 0) == pdTRUE);
+        }
+
+        // 2. Run control pipeline loop once with fuzzy disabled.
+        // It should result in all outputs off (duty = 0.0f).
+        // TPC mapping: 0.0f duty means relay is HIGH (OFF).
+        taskCore1Control(nullptr);
+
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
+
+        // 3. Mock physical button press on Fan channel to FORCE_ON.
+        // This will put a ManualRequest on g_manual_request_queue.
+        ManualRequest req;
+        req.channel = AppChannel::FAN;
+        req.intent = AppIntent::FORCE_ON;
+        req.request_ms = millis();
+        xQueueSend(g_manual_request_queue, &req, 0);
+
+        // 4. Run control pipeline loop again.
+        // It must apply the manual override and turn Fan ON (LOW).
+        taskCore1Control(nullptr);
+
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW); // LOW = ON for active-LOW SSR
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
+
+        // Restore default state
+        config::FUZZY_CONTROL_ENABLED = true;
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
