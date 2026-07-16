@@ -44,6 +44,9 @@ namespace wifi
     // It allows periodic STA reconnect attempts while the provisioning portal stays up.
     static bool softap_auto_reconnect = false;
     static unsigned long last_softap_sta_attempt = 0;
+    // Set only after the portal response is sent; processed outside HTTP callbacks.
+    static bool restart_pending = false;
+    static unsigned long restart_at_ms = 0;
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
@@ -314,53 +317,6 @@ namespace wifi
         send_json(200, json);
     }
 
-    // Test WiFi credentials synchronously without losing AP
-    static bool test_wifi_connection(const String &ssid, const String &pass)
-    {
-        Serial.printf("[WIFI] Testing STA connection to '%s'...\n", ssid.c_str());
-
-        // Switch to AP_STA so AP doesn't drop while testing
-        if (WiFi.getMode() != WIFI_AP_STA)
-        {
-            WiFi.mode(WIFI_AP_STA);
-        }
-
-        WiFi.disconnect(false, false);
-        delay(100);
-        WiFi.begin(ssid.c_str(), pass.c_str());
-
-        int attempt = 0;
-        // Wait up to 12 seconds for connection
-        while (WiFi.status() != WL_CONNECTED && attempt < 24)
-        {
-            delay(500);
-            attempt++;
-
-// Keep serving AP requests so captive portal doesn't timeout on the phone
-#ifndef UNIT_TEST
-            dnsServer.processNextRequest();
-            webServer.handleClient();
-#endif
-        }
-
-        bool success = (WiFi.status() == WL_CONNECTED);
-
-        // Disconnect STA to return radio fully to AP until reboot
-        WiFi.disconnect(false, false);
-        WiFi.mode(WIFI_AP);
-        WiFi.setSleep(false);
-
-        if (success)
-        {
-            Serial.println("[WIFI] Test success! Credentials are valid.");
-        }
-        else
-        {
-            Serial.printf("[WIFI] Test failed! Status: %d\n", WiFi.status());
-        }
-
-        return success;
-    }
     static void handle_save()
     {
         mark_softap_activity();
@@ -382,8 +338,6 @@ namespace wifi
         broker.trim();
         String port_raw = webServer.arg("mqtt_port");
         port_raw.trim();
-        String user = webServer.arg("mqtt_user");
-        user.trim();
         String mpass = webServer.arg("mqtt_pass");
 
         Serial.printf("[WIFI] Portal save request: ssid='%s' pass_len=%u broker='%s' port='%s'\n",
@@ -409,14 +363,9 @@ namespace wifi
             return;
         }
 
-        // 1. Test WiFi connection live
-        if (!test_wifi_connection(ssid, pass))
-        {
-            send_json(400, "{\"ok\":false,\"error\":\"Khong the ket noi toi WiFi nay. Vui long kiem tra lai ten/mat khau.\"}");
-            return;
-        }
-
-        // Fill advanced defaults if user left them blank (collapsed details).
+        // Do not test credentials here: this runs in WebServer's request callback.
+        // A connection wait can monopolize TaskCore0Comm and trip its watchdog.
+        // Persist first, acknowledge immediately, then let boot handle STA normally.
         if (broker.length() == 0)
         {
             broker = config::network::MQTT_BROKER_VAL.length()
@@ -436,27 +385,21 @@ namespace wifi
                         : String(config::network::DEFAULT_MQTT_PASS);
         }
 
-        bool saved = storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, broker, port, mpass);
-        if (!saved)
+        if (!storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, broker, port, mpass))
         {
             send_json(500, "{\"ok\":false,\"error\":\"Loi luu cau hinh vao NVS\"}");
             return;
         }
 
         String ok_json = String("{\"ok\":true,\"ssid\":\"") + json_escape(ssid) +
-                         "\",\"reboot\":true,\"advanced_ok\":" +
-                         (saved ? "true" : "false") + '}';
+                         "\",\"reboot\":true}";
         send_json(200, ok_json);
 
-        // Give the TCP stack time to flush the JSON response before reboot.
-        // Without this, many phones see "nothing happened" because the socket dies mid-response.
-        webServer.client().flush();
-        delay(300);
-        Serial.printf("[WIFI] Config saved from portal. New SSID='%s'. Wiping SDK WiFi cache and restarting...\n", ssid.c_str());
-        delay(700);
-        WiFi.persistent(false);
-        WiFi.disconnect(true, true);
-        ESP.restart();
+        // Do not delay or restart from the HTTP callback. The next manager tick
+        // restarts after the response has had time to leave the TCP stack.
+        restart_at_ms = millis() + 1500;
+        restart_pending = true;
+        Serial.printf("[WIFI] Config saved from portal. New SSID='%s'. Restart scheduled.\n", ssid.c_str());
     }
 
     static void handle_not_found()
@@ -578,6 +521,18 @@ namespace wifi
     void check_wifi_connection()
     {
         unsigned long now = millis();
+
+#ifndef UNIT_TEST
+        // This executes outside WebServer callbacks, preventing callback-induced WDT resets.
+        if (restart_pending && static_cast<long>(now - restart_at_ms) >= 0)
+        {
+            restart_pending = false;
+            Serial.println("[WIFI] Portal response grace period elapsed. Restarting to apply WiFi configuration...");
+            WiFi.persistent(false);
+            WiFi.disconnect(true, true);
+            ESP.restart();
+        }
+#endif
 
         // 1. Process hardware button event requests from Core 1 Task
         if (xWifiEventGroup != nullptr)
