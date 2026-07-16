@@ -45,7 +45,7 @@ export interface DeviceStatusEvent {
   timestamp: string
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = '/api/backend'
 
 // ── Snapshot ────────────────────────────────────────────────────────
 
@@ -79,6 +79,7 @@ export async function fetchTelemetryHistory(
   try {
     const url = new URL(
       `${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry/history`,
+      window.location.origin,
     )
     url.searchParams.set('from', from.toISOString())
     url.searchParams.set('to', to.toISOString())

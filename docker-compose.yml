@@ -93,18 +93,15 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - CI=true
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:6002}
+      - API_INTERNAL_URL=http://mushroom-backend:3001
       - NEXT_PUBLIC_DEVICE_ID=${NEXT_PUBLIC_DEVICE_ID:-}
     depends_on:
       - mushroom-backend
     networks:
       - mushroom-network
-    volumes:
-      - ./mushroom-ui:/usr/src/app
-      - /usr/src/app/node_modules
-      - /usr/src/app/.next
 
 networks:
   mushroom-network:

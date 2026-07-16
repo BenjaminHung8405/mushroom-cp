@@ -7,11 +7,9 @@ export interface PublicDevice {
   lastSeenAt: string | null
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
-
 export async function fetchDevices(): Promise<PublicDevice[]> {
   try {
-    const response = await fetch(`${API_BASE}/devices`)
+    const response = await fetch('/api/backend/devices', { cache: 'no-store' })
     if (!response.ok) return []
 
     const devices = (await response.json()) as PublicDevice[]

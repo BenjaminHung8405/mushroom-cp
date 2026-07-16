@@ -25,7 +25,7 @@ namespace config
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).
         // Hold 5 seconds during runtime to force SoftAP config portal.
-        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 4;
+        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
         // PIN_BUTTON_UP / PIN_BUTTON_DOWN đã bị xóa:
         // GPIO 15 và 16 được dùng cho nút tủ điện (cabinet_buttons: LAMP, FAN).
