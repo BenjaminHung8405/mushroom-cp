@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
+import { DeviceSelector } from '@/components/device-selector'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { cn } from '@/lib/utils'
 import { AlertTriangle, Bell, ChevronDown, LogOut, Settings2, ShieldAlert, User, WifiOff, X } from 'lucide-react'
@@ -259,6 +260,8 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-2">
+            <DeviceSelector />
+
             <div className="hidden md:block">
               <HardwareTelemetryWidget />
             </div>

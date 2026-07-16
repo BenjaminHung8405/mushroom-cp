@@ -136,6 +136,21 @@ export class DeviceController {
   }
 
   /**
+   * REST: List registered devices. Deliberately exposes only browser-safe
+   * fields; MQTT credentials, tokens, and internal timestamps stay private.
+   */
+  @Get()
+  listDevices() {
+    return this.deviceRegistryService.listCached().map((device) => ({
+      deviceId: device.deviceId,
+      displayName: device.displayName,
+      houseId: device.houseId,
+      enabled: device.enabled,
+      lastSeenAt: device.lastSeenAt,
+    }));
+  }
+
+  /**
    * REST: Get the physical-house mapping for the monitored device.
    */
   @Get(':id')

@@ -1,5 +1,3 @@
-import { DEFAULT_DEVICE_ID } from './telemetry-api'
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 export interface DeviceMapping {
@@ -51,10 +49,6 @@ export interface CheckpointInput {
 
 export type EndBatchStatus = 'COMPLETED' | 'ABORTED'
 
-/**
- * Safely reads a JSON response. Returns null when the body is empty or malformed,
- * preventing "Unexpected end of JSON input" crashes.
- */
 async function safeJson<T>(response: Response): Promise<T | null> {
   const text = await response.text()
   if (!text) return null
@@ -66,9 +60,6 @@ async function safeJson<T>(response: Response): Promise<T | null> {
   }
 }
 
-/**
- * Builds a human-readable error message without calling .json() on empty bodies.
- */
 async function getErrorMessage(response: Response): Promise<string> {
   const text = await response.text()
   if (!text) {
@@ -79,14 +70,12 @@ async function getErrorMessage(response: Response): Promise<string> {
     if (Array.isArray(body.message)) return body.message.join(', ')
     if (body.message) return body.message
   } catch {
-    // Not JSON — fall through to generic message below.
+    // Not JSON
   }
   return `Yêu cầu thất bại (HTTP ${response.status}).`
 }
 
-export async function fetchDeviceMapping(
-  deviceId = DEFAULT_DEVICE_ID,
-): Promise<DeviceMapping> {
+export async function fetchDeviceMapping(deviceId: string): Promise<DeviceMapping> {
   try {
     const response = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`)
     if (!response.ok) throw new Error(await getErrorMessage(response))
@@ -103,7 +92,6 @@ export async function fetchActiveBatch(houseId: string): Promise<ActiveBatch | n
   try {
     const response = await fetch(`${API_BASE}/batches/active/${encodeURIComponent(houseId)}`)
     if (!response.ok) throw new Error(await getErrorMessage(response))
-    // When there is no active batch, NestJS returns HTTP 200 with body `null`.
     const data = await safeJson<ActiveBatch>(response)
     return data
   } catch (cause) {
@@ -119,7 +107,6 @@ export async function createBatch(input: CreateBatchInput): Promise<ActiveBatch>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
-
     if (response.status === 409) {
       throw new Error('Nhà nấm đã có vụ đang hoạt động. Hãy tải lại trạng thái trước khi thử lại.')
     }
@@ -147,12 +134,8 @@ export async function endBatch(id: string, status: EndBatchStatus): Promise<void
   }
 }
 
-/**
- * A fetch wrapper that matches the requirement of simulating Bearer Token integration.
- * In a production system, we'd retrieve the JWT from localStorage or a Context/State.
- */
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = 'simulated-jwt-token-placeholder' // simulated token matching CheckpointOwnerGuard check
+  const token = 'simulated-jwt-token-placeholder'
   const headers = new Headers(options.headers)
   if (!headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`)

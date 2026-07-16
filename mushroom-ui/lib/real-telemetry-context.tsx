@@ -10,13 +10,13 @@ import React, {
 } from 'react'
 import type { DeviceStatus } from './simulation-context'
 import {
-  DEFAULT_DEVICE_ID,
   fetchTelemetrySnapshot,
   subscribeTelemetryStream,
   subscribeDeviceStatusStream,
   type TelemetrySnapshot,
   type DeviceStatusEvent,
 } from './telemetry-api'
+import { useSelectedDevice } from './selected-device-context'
 
 /**
  * RealTelemetryProvider — live telemetry from NestJS.
@@ -78,7 +78,7 @@ interface RealTelemetryContextType {
 
   deviceStatus: DeviceStatus
   lastTelemetryAt: string | null
-  monitoredDeviceId: string
+  monitoredDeviceId: string | null
 }
 
 const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>(
@@ -86,6 +86,7 @@ const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>
 )
 
 export function RealTelemetryProvider({ children }: { children: React.ReactNode }) {
+  const { selectedDeviceId } = useSelectedDevice()
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const prevSnapshotRef = useRef<TelemetrySnapshot | null>(null)
 
@@ -103,28 +104,36 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   // recreating the interval or capturing the snapshot in its callback.
   const [nowMs, setNowMs] = useState(() => Date.now())
 
-  // Initial snapshot
+  // Reset device-scoped state whenever the dashboard selection changes.
   useEffect(() => {
+    setSnapshot(null)
+    prevSnapshotRef.current = null
+    setLwtStatus('unknown')
+    setOnlineSinceMs(null)
+  }, [selectedDeviceId])
+
+  // Initial snapshot and live telemetry are tied to the selected device.
+  useEffect(() => {
+    if (!selectedDeviceId) return
+
     let cancelled = false
-    fetchTelemetrySnapshot(DEFAULT_DEVICE_ID).then((snap) => {
+    fetchTelemetrySnapshot(selectedDeviceId).then((snap) => {
       if (!cancelled && snap) setSnapshot(snap)
     })
+    const unsubscribe = subscribeTelemetryStream(selectedDeviceId, setSnapshot)
+
     return () => {
       cancelled = true
+      unsubscribe()
     }
-  }, [])
-
-  // Live telemetry SSE
-  useEffect(() => {
-    return subscribeTelemetryStream(DEFAULT_DEVICE_ID, (snap) => {
-      setSnapshot(snap)
-    })
-  }, [])
+  }, [selectedDeviceId])
 
   // LWT status SSE — writes only to lwtStatus; also records when online began.
   useEffect(() => {
+    if (!selectedDeviceId) return
+
     return subscribeDeviceStatusStream((ev: DeviceStatusEvent) => {
-      if (ev.deviceId === DEFAULT_DEVICE_ID) {
+      if (ev.deviceId === selectedDeviceId) {
         setLwtStatus(ev.status)
         if (ev.status === 'online') {
           const timestamp = new Date(ev.timestamp).getTime()
@@ -134,7 +143,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         }
       }
     })
-  }, [])
+  }, [selectedDeviceId])
 
   // Stale evaluation tick — only advances the clock; derivation is pure.
   useEffect(() => {
@@ -221,7 +230,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         lampAck,
         deviceStatus,
         lastTelemetryAt,
-        monitoredDeviceId: DEFAULT_DEVICE_ID,
+        monitoredDeviceId: selectedDeviceId,
       }}
     >
       {children}

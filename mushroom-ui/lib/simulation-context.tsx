@@ -1,7 +1,9 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useBatch } from './batch-context'
+import { useSelectedDevice } from './selected-device-context'
+import { subscribeDeviceStatusStream } from './telemetry-api'
 
 /**
  * Device connection status composed from MQTT LWT + telemetry freshness.
@@ -39,7 +41,7 @@ interface SimulationContextType {
   /** Live connection status of the ESP32-S3 field device */
   deviceStatus: DeviceStatus
   /** ID of the device being monitored */
-  monitoredDeviceId: string
+  monitoredDeviceId: string | null
   /** Force-trigger an offline event (Dev Sandbox testing only) */
   simulateDeviceOffline: () => void
   /** Restore online status (Dev Sandbox testing only) */
@@ -48,21 +50,8 @@ interface SimulationContextType {
 
 const SimulationContext = createContext<SimulationContextType | undefined>(undefined)
 
-/**
- * Device ID to monitor for LWT status events.
- * Must match the MQTT username configured in EMQX and .env:
- *   MQTT_ESP32_USER=esp32_mushroom_s3_01
- */
-const MONITORED_DEVICE_ID = process.env.NEXT_PUBLIC_DEVICE_ID ?? 'esp32_mushroom_s3_01'
-
-/**
- * NestJS Backend API URL.
- * In Docker environment: http://mushroom-backend:3001
- * In local dev: http://localhost:3001
- */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
-
 export function SimulationProvider({ children }: { children: React.ReactNode }) {
+  const { selectedDeviceId } = useSelectedDevice()
   const { totalCropDays, getTemperatureSetpoint, getHumiditySetpoint } = useBatch()
 
   // Centralized Simulation States
@@ -79,9 +68,22 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [co2Current, setCo2Current] = useState(950)
   const [co2Trend, setCo2Trend] = useState(1.2)
 
-  // --- Device Status State (LWT-driven) ---
+  // Dev Sandbox keeps a local connection-state override. The monitored ID is
+  // sourced from SelectedDeviceContext, never from build-time environment.
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('unknown')
-  const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Keep the simulation sandbox's connection indicator aligned with the
+  // currently selected physical device.
+  useEffect(() => {
+    setDeviceStatus('unknown')
+    if (!selectedDeviceId) return
+
+    return subscribeDeviceStatusStream((event) => {
+      if (event.deviceId === selectedDeviceId) {
+        setDeviceStatus(event.status)
+      }
+    })
+  }, [selectedDeviceId])
 
   // Clamp current simulated day when totalCropDays boundary changes
   useEffect(() => {
@@ -156,56 +158,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     return () => clearInterval(interval)
   }, [temperatureSetpoint, humiditySetpoint])
 
-  /**
-   * SSE Connection: Connect to NestJS /devices/status/stream
-   *
-   * The browser natively handles reconnection on network drops — no
-   * manual reconnect logic needed (SSE advantage over WebSockets).
-   *
-   * On each 'device-status' event, we filter for the monitored device
-   * and update the deviceStatus state, which triggers UI re-render.
-   */
-  useEffect(() => {
-    const sseUrl = `${API_URL}/devices/status/stream`
-
-    // Only connect in browser environment (not during SSR)
-    if (typeof window === 'undefined') return
-
-    const connectSSE = () => {
-      const es = new EventSource(sseUrl)
-      eventSourceRef.current = es
-
-      es.addEventListener('device-status', (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data as string) as {
-            deviceId: string
-            status: 'online' | 'offline'
-          }
-
-          if (data.deviceId === MONITORED_DEVICE_ID) {
-            setDeviceStatus(data.status)
-          }
-        } catch {
-          console.warn('[SSE] Failed to parse device-status event:', event.data)
-        }
-      })
-
-      es.onerror = () => {
-        // Browser auto-reconnects. We just note it in dev console.
-        // setDeviceStatus('unknown') could be set here but could cause
-        // flicker on brief network hiccups. Keep last known state instead.
-        console.warn('[SSE] Connection error. Browser will auto-reconnect...')
-      }
-    }
-
-    connectSSE()
-
-    return () => {
-      eventSourceRef.current?.close()
-      eventSourceRef.current = null
-    }
-  }, []) // Connect once on mount
-
   // --- Dev Sandbox: Simulate LWT events for UI testing ---
   const simulateDeviceOffline = () => setDeviceStatus('offline')
   const simulateDeviceOnline  = () => setDeviceStatus('online')
@@ -230,7 +182,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         temperatureSetpoint,
         humiditySetpoint,
         deviceStatus,
-        monitoredDeviceId: MONITORED_DEVICE_ID,
+        monitoredDeviceId: selectedDeviceId,
         simulateDeviceOffline,
         simulateDeviceOnline,
       }}

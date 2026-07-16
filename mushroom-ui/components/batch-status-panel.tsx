@@ -5,6 +5,7 @@ import { CalendarRange, Check, CircleAlert, Clock3, Loader2, Play, Sprout, X } f
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch } from '@/lib/batch-context'
+import { useSelectedDevice } from '@/lib/selected-device-context'
 import {
   createBatch,
   endBatch,
@@ -42,6 +43,7 @@ function millisecondsUntilVietnamMidnight(): number {
 }
 
 export function BatchStatusPanel() {
+  const { selectedDeviceId } = useSelectedDevice()
   const {
     profileKey,
     profileName,
@@ -73,7 +75,13 @@ export function BatchStatusPanel() {
     setLoading(true)
     setError(null)
     try {
-      const device = await fetchDeviceMapping()
+      if (!selectedDeviceId) {
+        setBatch(null)
+        setHouseId(null)
+        syncFromActiveBatch(null)
+        return
+      }
+      const device = await fetchDeviceMapping(selectedDeviceId)
       setHouseId(device.houseId)
       setHouseName(device.displayName)
       const fetchedBatch = await fetchActiveBatch(device.houseId)
@@ -87,7 +95,7 @@ export function BatchStatusPanel() {
     } finally {
       setLoading(false)
     }
-  }, [syncFromActiveBatch])
+  }, [selectedDeviceId, syncFromActiveBatch])
 
   useEffect(() => {
     void refresh()

@@ -10,11 +10,8 @@
  */
 
 export interface ManualAckState {
-  /** 'on' | 'off' | 'auto' — what firmware accepted */
   effective_intent: 'on' | 'off' | 'auto'
-  /** If firmware released the override, firmware-provided reason string */
   release_reason: string | null
-  /** Epoch ms when the override expires (0 = no expiry set) */
   expires_ms: number
 }
 
@@ -33,13 +30,10 @@ export interface TelemetrySnapshot {
   temperatureErrorDelta: number | null
   mistGeneratorActive: boolean | null
   convectionFanActive: boolean | null
-  /** Stage 1 thermal-lamp (lamp channel) — replaces legacy heaterAirActive */
   lampStageActive: boolean | null
-  /** Stage 2 thermal-lamp (lamp_stage2 channel) */
   lampStage2Active: boolean | null
   heaterWaterActive: boolean | null
   middayBlackoutActive: boolean | null
-  /** Firmware-authoritative manual ack states (populated from retained MQTT ack) */
   mistAck: ManualAckState | null
   fanAck: ManualAckState | null
   lampAck: ManualAckState | null
@@ -53,17 +47,13 @@ export interface DeviceStatusEvent {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
-/** Default monitored device ID — must match EMQX MQTT username. */
-export const DEFAULT_DEVICE_ID =
-  process.env.NEXT_PUBLIC_DEVICE_ID ?? 'esp32_mushroom_s3_01'
-
 // ── Snapshot ────────────────────────────────────────────────────────
 
 export async function fetchTelemetrySnapshot(
   deviceId: string,
 ): Promise<TelemetrySnapshot | null> {
   try {
-    const res = await fetch(`${API_BASE}/devices/${deviceId}/telemetry`)
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry`)
     if (!res.ok) return null
     return (await res.json()) as TelemetrySnapshot
   } catch {
@@ -88,7 +78,7 @@ export async function fetchTelemetryHistory(
 ): Promise<TelemetrySnapshot[]> {
   try {
     const url = new URL(
-      `${API_BASE}/devices/${deviceId}/telemetry/history`,
+      `${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry/history`,
     )
     url.searchParams.set('from', from.toISOString())
     url.searchParams.set('to', to.toISOString())
@@ -111,7 +101,7 @@ export function subscribeTelemetryStream(
   handler: EventHandler<TelemetrySnapshot>,
 ): () => void {
   const es = new EventSource(
-    `${API_BASE}/devices/${deviceId}/telemetry/stream`,
+    `${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry/stream`,
   )
 
   es.addEventListener('message', (ev: MessageEvent) => {
@@ -122,13 +112,9 @@ export function subscribeTelemetryStream(
     }
   })
 
-  es.onerror = () => {
-    // Browser auto-reconnects; no action needed.
-  }
+  es.onerror = () => {}
 
-  return () => {
-    es.close()
-  }
+  return () => es.close()
 }
 
 export function subscribeDeviceStatusStream(
@@ -144,13 +130,9 @@ export function subscribeDeviceStatusStream(
     }
   })
 
-  es.onerror = () => {
-    // Browser auto-reconnects.
-  }
+  es.onerror = () => {}
 
-  return () => {
-    es.close()
-  }
+  return () => es.close()
 }
 
 export async function postActuatorOverride(
@@ -159,14 +141,12 @@ export async function postActuatorOverride(
   state: boolean | null,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${API_BASE}/devices/${deviceId}/actuator-override`, {
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/actuator-override`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ actuator, state }),
     })
-    
+
     if (!res.ok) {
       const errData = (await res.json()) as { message?: string }
       return {
@@ -174,12 +154,10 @@ export async function postActuatorOverride(
         message: errData.message ?? 'Không thể gửi lệnh ghi đè thiết bị.',
       }
     }
-    
+
     return { success: true, message: 'Lệnh ghi đè đã được gửi thành công.' }
-  } catch (err: any) {
-    return {
-      success: false,
-      message: err?.message ?? 'Lỗi kết nối đến máy chủ.',
-    }
+  } catch (err: unknown) {
+    const msg = (err as Error)?.message ?? 'Lỗi kết nối đến máy chủ.'
+    return { success: false, message: msg }
   }
 }

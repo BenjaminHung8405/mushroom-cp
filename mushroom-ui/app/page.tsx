@@ -9,11 +9,11 @@ import { StandardActuatorsControl } from '@/components/standard-actuators-contro
 import { Card } from '@/components/ui/card'
 import { BatchProvider, useBatch } from '@/lib/batch-context'
 import { SimulationProvider } from '@/lib/simulation-context'
+import { SelectedDeviceProvider, useSelectedDevice } from '@/lib/selected-device-context'
 import { RealTelemetryProvider, useRealTelemetry } from '@/lib/real-telemetry-context'
 import { useEffect, useState } from 'react'
 import { Sliders } from 'lucide-react'
 import {
-  DEFAULT_DEVICE_ID,
   fetchTelemetryHistory,
   type TelemetrySnapshot,
 } from '@/lib/telemetry-api'
@@ -31,14 +31,22 @@ function getStatus(
 }
 
 function EnvironmentalHistoryChart() {
+  const { selectedDeviceId } = useSelectedDevice()
   const [points, setPoints] = useState<TelemetrySnapshot[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!selectedDeviceId) {
+      setPoints([])
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
+    setLoading(true)
     const to = new Date()
     const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
-    fetchTelemetryHistory(DEFAULT_DEVICE_ID, from, to, '15 minutes').then((rows) => {
+    fetchTelemetryHistory(selectedDeviceId, from, to, '15 minutes').then((rows) => {
       if (!cancelled) {
         setPoints(rows)
         setLoading(false)
@@ -47,7 +55,7 @@ function EnvironmentalHistoryChart() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [selectedDeviceId])
 
   const temps = points
     .map((p) => p.temperatureMeasured)
@@ -298,12 +306,14 @@ function DashboardContent() {
 
 export default function Home() {
   return (
-    <BatchProvider>
-      <RealTelemetryProvider>
-        <SimulationProvider>
-          <DashboardContent />
-        </SimulationProvider>
-      </RealTelemetryProvider>
-    </BatchProvider>
+    <SelectedDeviceProvider>
+      <BatchProvider>
+        <RealTelemetryProvider>
+          <SimulationProvider>
+            <DashboardContent />
+          </SimulationProvider>
+        </RealTelemetryProvider>
+      </BatchProvider>
+    </SelectedDeviceProvider>
   )
 }

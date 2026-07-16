@@ -58,6 +58,8 @@ services:
       dockerfile: Dockerfile
     container_name: mushroom_backend
     restart: always
+    ports:
+      - "${BE_HOST_PORT:-6002}:3001"
     env_file:
       - .env
     environment:
