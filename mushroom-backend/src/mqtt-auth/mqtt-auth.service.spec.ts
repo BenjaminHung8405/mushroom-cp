@@ -10,6 +10,7 @@ describe('MqttAuthService', () => {
     process.env.MQTT_BOOTSTRAP_USER = 'provision_node';
     process.env.MQTT_BOOTSTRAP_SECRET = 'bootstrap-secret';
     process.env.MQTT_BACKEND_USER = 'nestjs_backend';
+    process.env.MQTT_BACKEND_PASS = 'backend-secret';
     process.env.IOT_TENANT = 'mushroom';
     service = new MqttAuthService(repo as never);
   });
@@ -23,6 +24,19 @@ describe('MqttAuthService', () => {
     repo.findOne.mockResolvedValue({ enabled: true, token: 'device-token' });
     await expect(service.authenticate({ username: 'mushroom_s3_aabbccddeeff', clientid: 'mushroom_s3_aabbccddeeff', password: 'device-token' })).resolves.toBe(true);
     await expect(service.authenticate({ username: 'mushroom_s3_aabbccddeeff', clientid: 'other', password: 'device-token' })).resolves.toBe(false);
+  });
+
+  it('authenticates the backend using its dedicated credentials', async () => {
+    await expect(service.authenticate({
+      username: 'nestjs_backend',
+      password: 'backend-secret',
+      clientid: 'mushroom_backend',
+    })).resolves.toBe(true);
+    await expect(service.authenticate({
+      username: 'nestjs_backend',
+      password: 'wrong',
+      clientid: 'mushroom_backend',
+    })).resolves.toBe(false);
   });
 
   it('enforces bootstrap and device ACL boundaries', () => {

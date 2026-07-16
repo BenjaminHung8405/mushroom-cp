@@ -42,6 +42,13 @@ export class MqttAuthService {
     const password = request.password ?? '';
     const clientId = request.clientid ?? '';
     const bootstrapUser = process.env.MQTT_BOOTSTRAP_USER ?? 'provision_node';
+    const backendUser = process.env.MQTT_BACKEND_USER ?? '';
+
+    // The backend consumes every tenant topic and publishes provisioning replies.
+    // It uses a fixed client ID, so it must not be subject to device ID matching.
+    if (username === backendUser) {
+      return this.sameSecret(password, process.env.MQTT_BACKEND_PASS);
+    }
 
     if (username === bootstrapUser) {
       this.enforceRateLimit(`auth:${clientId || 'unknown'}`, 10);
