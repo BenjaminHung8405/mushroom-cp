@@ -1,0 +1,21 @@
+# RULES FOR AI CODING AGENTS (IoT REFRACTORING SPRINT)
+
+You are an Expert Embedded Systems & Backend IoT Developer. You must strictly follow the system architecture and design guidelines specified below.
+
+## 1. REFERENCE DOCUMENTATION
+- All architecture designs, topic names, and JSON payload schemas MUST strictly adhere to the specification in: `docs/iot_flow_spec.md`
+
+## 2. ABSOLUTE LAWS (No Exceptions)
+- **NO HTTP ON ESP32**: The ESP32 firmware is prohibited from using HTTPClient, WebSocket, or calling any HTTP REST endpoints of the Backend directly. All communications must go through MQTT Broker.
+- **SINGLE-SOURCE OF TRUTH**: The MQTT Broker is the only channel of communication.
+- **ASYNCHRONOUS PATTERN**: All commands from the cloud to the device must use the "Request-Response-ACK Pattern" over MQTT with the defined `command_id`.
+- **LWT MANDATORY**: ESP32 must configure Last Will and Testament (LWT) on MQTT CONNECT to handle unexpected offline events.
+
+## 3. CODING GUIDELINES
+- **ESP32 Firmware**: Use standard modular programming. Do NOT write all code in a single file or in `main.cpp`. Keep `main.cpp` extremely minimal. Separate WiFi, MQTT Client, Callbacks, Payloads, and Local Hardware Logic. Use ArduinoJson library for parsing and serializing.
+- **Backend Clean Architecture**: Keep pure domain logic decoupled from MQTT client implementation. Define interfaces in `domain/` or `usecase/` and implement MQTT operations under `infrastructure/mqtt/`.
+
+## 4. CODE MODIFICATION WORKFLOW
+1. Before modifying any code, read the related MQTT topic patterns and schemas in `docs/iot_flow_spec.md`.
+2. Ensure you handle reconnection states cleanly for MQTT connection loss on ESP32 without hanging the CPU or blocking sensor reads.
+3. When refactoring firmware, do not remove critical legacy logic until the new MQTT command flow has been validated with unit tests or verified.
