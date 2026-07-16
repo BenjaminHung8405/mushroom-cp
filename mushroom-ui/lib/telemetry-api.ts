@@ -10,9 +10,14 @@
  */
 
 export interface ManualAckState {
+  channel: 0 | 1 | 2
+  requested_intent: 'on' | 'off' | 'auto'
+  decision: number
   effective_intent: 'on' | 'off' | 'auto'
-  release_reason: string | null
-  expires_ms: number
+  release_reason: 'ttl_expired' | 'safety_limit_reached' | 'hardware_protection' | null
+  /** Browser-wall-clock expiry timestamp, or null when no manual latch remains. */
+  expires_ms: number | null
+  ack_ms: number
 }
 
 export interface TelemetrySnapshot {

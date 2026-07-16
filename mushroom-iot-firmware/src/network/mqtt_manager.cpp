@@ -674,6 +674,31 @@ bool MqttManager::publishCommandAck(char* command_id, const char* status,
     return client_.publish(topic.c_str(), payload.c_str());
 }
 
+bool MqttManager::publishManualAck(const ManualAck& ack)
+{
+    if (!provisioned_ || !client_.connected()) {
+        return false;
+    }
+
+    StaticJsonDocument<384> doc;
+    doc["$schema"] = "https://iot.acme.com/schema/v1/manual-ack";
+    doc["device_id"] = device_id_;
+    doc["channel"] = static_cast<uint8_t>(ack.channel);
+    doc["requested_intent"] = static_cast<uint8_t>(ack.requested_intent);
+    doc["decision"] = static_cast<uint8_t>(ack.decision);
+    doc["effective_intent"] = static_cast<uint8_t>(ack.effective_intent);
+    doc["release_reason"] = static_cast<uint8_t>(ack.release_reason);
+    doc["time_confidence"] = static_cast<uint8_t>(ack.time_confidence);
+    doc["expires_ms"] = ack.expires_ms;
+    doc["ack_ms"] = ack.ack_ms;
+
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/manual/ack";
+    // PubSubClient publishes non-retained messages at its supported outbound QoS.
+    return client_.publish(topic.c_str(), payload.c_str());
+}
+
 bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms)
 {
     const unsigned long interval_ms = static_cast<unsigned long>(telemetry_interval_sec_) * 1000UL;

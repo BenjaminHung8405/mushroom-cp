@@ -6,19 +6,20 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Subscription, Subject } from 'rxjs';
-import { MqttService, TelemetryEvent } from '../../mqtt/mqtt.service';
+import { MqttService, ManualAckEvent, TelemetryEvent } from '../../mqtt/mqtt.service';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
 import { DeviceRegistryService } from '../../device/device-registry.service';
 
 export interface ManualAckState {
-  channel: number;
-  requestedIntent: number;
+  channel: 0 | 1 | 2;
+  requested_intent: 'auto' | 'on' | 'off';
   decision: number;
-  effectiveIntent: number;
-  releaseReason: number;
-  expiresMs: number;
-  ackMs: number;
+  effective_intent: 'auto' | 'on' | 'off';
+  release_reason: 'ttl_expired' | 'safety_limit_reached' | 'hardware_protection' | null;
+  /** Server-wall-clock timestamp at which this latch expires; null for AUTO/release. */
+  expires_ms: number | null;
+  ack_ms: number;
 }
 
 export interface TelemetrySnapshot {
@@ -474,7 +475,27 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  handleManualAck(deviceId: string, ack: ManualAckState): void {
+  handleManualAck(deviceId: string, ack: ManualAckEvent): void {
+    const intent = (value: 0 | 1 | 2): ManualAckState['effective_intent'] =>
+      value === 1 ? 'on' : value === 2 ? 'off' : 'auto';
+    const releaseReason = (value: 0 | 1 | 2 | 3): ManualAckState['release_reason'] =>
+      value === 1 ? 'ttl_expired' :
+      value === 2 ? 'safety_limit_reached' :
+      value === 3 ? 'hardware_protection' : null;
+    // Firmware millis() values are uptime-relative. Convert the remaining latch
+    // duration at receipt into a browser-safe wall-clock expiry timestamp.
+    const remainingMs = ack.expiresMs >= ack.ackMs ? ack.expiresMs - ack.ackMs : 0;
+    const normalizedAck: ManualAckState = {
+      channel: ack.channel,
+      requested_intent: intent(ack.requestedIntent),
+      decision: ack.decision,
+      effective_intent: intent(ack.effectiveIntent),
+      release_reason: releaseReason(ack.releaseReason),
+      expires_ms: ack.effectiveIntent === 0 || remainingMs === 0
+        ? null
+        : ack.receivedAt.getTime() + remainingMs,
+      ack_ms: ack.receivedAt.getTime(),
+    };
     let devAcks = this.manualAcks.get(deviceId);
     if (!devAcks) {
       devAcks = {};
@@ -483,11 +504,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     
     // In firmware AppChannel: MIST = 0, LAMP = 1, FAN = 2
     if (ack.channel === 0) {
-      devAcks.mistAck = ack;
+      devAcks.mistAck = normalizedAck;
     } else if (ack.channel === 2) {
-      devAcks.fanAck = ack;
+      devAcks.fanAck = normalizedAck;
     } else if (ack.channel === 1) {
-      devAcks.lampAck = ack;
+      devAcks.lampAck = normalizedAck;
     }
 
     const existing = this.latestCache.get(deviceId);

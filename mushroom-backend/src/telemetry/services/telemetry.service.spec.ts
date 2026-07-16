@@ -298,4 +298,30 @@ describe('TelemetryService', () => {
       expect(result).toBeInstanceOf(Array);
     });
   });
+
+  describe('handleManualAck normalisation', () => {
+    it('stores a wall-clock expiry derived from firmware millis', () => {
+      service.handleManualAck('device-1', {
+        channel: 0,
+        requestedIntent: 1,
+        decision: 0,
+        effectiveIntent: 1,
+        releaseReason: 0,
+        expiresMs: 1_900_000,
+        ackMs: 1_000_000,
+        receivedAt: new Date('2026-07-16T12:00:00Z'),
+      });
+
+      const storedAck = (service as any).manualAcks.get('device-1').mistAck;
+      expect(storedAck).toEqual({
+        channel: 0,
+        requested_intent: 'on',
+        decision: 0,
+        effective_intent: 'on',
+        release_reason: null,
+        expires_ms: new Date('2026-07-16T12:15:00Z').getTime(),
+        ack_ms: new Date('2026-07-16T12:00:00Z').getTime(),
+      });
+    });
+  });
 });

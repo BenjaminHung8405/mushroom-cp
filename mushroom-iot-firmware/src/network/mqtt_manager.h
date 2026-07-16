@@ -73,6 +73,9 @@ public:
                            bool relay_on, const char* error_code,
                            const char* error_message);
 
+    /** Publish a Core 1 manual-control acknowledgement immediately (non-retained). */
+    bool publishManualAck(const ManualAck& ack);
+
     /** Provisioning announce QoS 1 (non-retained). Called by handleConnectionSuccess(). */
     bool publishProvisioningAnnounce();
 

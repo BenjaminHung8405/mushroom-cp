@@ -3,9 +3,9 @@
 import { Card } from '@/components/ui/card'
 import { CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
-import { useBatch } from '@/lib/batch-context'
-import { postActuatorOverride } from '@/lib/telemetry-api'
-import { useState, useEffect } from 'react'
+import { postActuatorOverride, type ManualAckState } from '@/lib/telemetry-api'
+import { CountdownBadge } from '@/components/countdown-badge'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 type EdgeState = boolean | null
 
@@ -17,6 +17,7 @@ interface ActuatorStatusRowProps {
   locked?: boolean
   lockReason?: string
   overrideMode: 'auto' | 'on' | 'off'
+  ack: ManualAckState | null
   onOverrideChange: (mode: 'auto' | 'on' | 'off') => void
   uninstalled?: boolean
 }
@@ -29,6 +30,7 @@ function ActuatorStatusRow({
   locked = false,
   lockReason,
   overrideMode,
+  ack,
   onOverrideChange,
   uninstalled = false,
 }: ActuatorStatusRowProps) {
@@ -90,6 +92,13 @@ function ActuatorStatusRow({
         >
           {unavailable ? '—' : state ? 'Đang chạy' : 'Đã tắt'}
         </div>
+
+        {ack?.expires_ms !== null && ack?.expires_ms !== undefined && (
+          <CountdownBadge
+            secondsRemaining={Math.max(0, Math.ceil((ack.expires_ms - Date.now()) / 1000))}
+            intent={overrideMode}
+          />
+        )}
 
         {/* Override Control Button Group */}
         <div className="flex rounded-lg border border-slate-800 bg-slate-950/60 p-0.5 items-center">
@@ -153,14 +162,19 @@ export function StandardActuatorsControl({
   mistActive = null,
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, mistAck, fanAck, lampAck } = useRealTelemetry()
-  const { cropDayInt } = useBatch()
+  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, mistAck, fanAck, lampAck, snapshot } = useRealTelemetry()
+  const cropDayInt = snapshot?.cropDayInt ?? 0
 
   const [mistMode, setMistMode] = useState<'auto' | 'on' | 'off'>('auto')
   const [fanMode, setFanMode] = useState<'auto' | 'on' | 'off'>('auto')
   const [lampMode, setLampMode] = useState<'auto' | 'on' | 'off'>('auto')
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const shownAckMs = useRef<{ mist: number | null; fan: number | null; lamp: number | null }>({
+    mist: null,
+    fan: null,
+    lamp: null,
+  })
 
   // Automatically dismiss toast after 3.5 seconds
   useEffect(() => {
@@ -170,26 +184,50 @@ export function StandardActuatorsControl({
     }
   }, [toast])
 
+  const notifyFirmwareAck = useCallback((
+    key: 'mist' | 'fan' | 'lamp',
+    displayName: string,
+    ack: ManualAckState | null,
+  ) => {
+    if (!ack || shownAckMs.current[key] === ack.ack_ms) return
+    shownAckMs.current[key] = ack.ack_ms
+
+    if (ack.release_reason) return
+    if (ack.decision !== 0) {
+      setToast({ message: `${displayName}: firmware từ chối lệnh điều khiển.`, type: 'error' })
+      return
+    }
+    const modeText = ack.effective_intent === 'on'
+      ? 'Bật thủ công'
+      : ack.effective_intent === 'off'
+        ? 'Tắt thủ công'
+        : 'chế độ Tự động'
+    setToast({ message: `${displayName} đã chuyển sang ${modeText} theo xác nhận từ firmware.`, type: 'success' })
+  }, [])
+
   // S4-D2: Reconcile optimistic UI state from firmware-authoritative ack.
   // When the firmware ack arrives, replace local optimistic state with the
   // authoritative effective_intent so UI always reflects real device state.
   useEffect(() => {
     if (mistAck?.effective_intent) {
       setMistMode(mistAck.effective_intent)
+      notifyFirmwareAck('mist', 'Máy tạo ẩm siêu âm', mistAck)
     }
-  }, [mistAck?.effective_intent])
+  }, [mistAck, notifyFirmwareAck])
 
   useEffect(() => {
     if (fanAck?.effective_intent) {
       setFanMode(fanAck.effective_intent)
+      notifyFirmwareAck('fan', 'Quạt đối lưu', fanAck)
     }
-  }, [fanAck?.effective_intent])
+  }, [fanAck, notifyFirmwareAck])
 
   useEffect(() => {
     if (lampAck?.effective_intent) {
       setLampMode(lampAck.effective_intent)
+      notifyFirmwareAck('lamp', 'Đèn nhiệt sưởi ấm', lampAck)
     }
-  }, [lampAck?.effective_intent])
+  }, [lampAck, notifyFirmwareAck])
 
   // S4-D3: When Core 1 releases the override (safety gate), return to AUTO and
   // display the exact firmware-provided reason — never derive it client-side.
@@ -212,6 +250,16 @@ export function StandardActuatorsControl({
       })
     }
   }, [mistAck?.release_reason])
+
+  useEffect(() => {
+    if (fanAck?.release_reason) {
+      setFanMode('auto')
+      setToast({
+        message: `[Firmware] Quạt đối lưu đã được nhả bởi firmware: ${fanAck.release_reason}`,
+        type: 'error',
+      })
+    }
+  }, [fanAck?.release_reason])
 
   // S4-D4: UI pre-checks as UX-only first defense (device-side RTC/profile remains authoritative).
   // These reduce failed network round-trips but are NOT the safety enforcement layer.
@@ -273,6 +321,10 @@ export function StandardActuatorsControl({
 
     // 2. Dispatch to backend; firmware will ack with effective_intent (S4-D2)
     const targetState = mode === 'on' ? true : mode === 'off' ? false : null
+    if (!monitoredDeviceId) {
+      setToast({ message: 'Chưa chọn thiết bị để gửi lệnh.', type: 'error' })
+      return
+    }
     const res = await postActuatorOverride(monitoredDeviceId, actuator, targetState)
 
     if (res.success) {
@@ -321,6 +373,7 @@ export function StandardActuatorsControl({
           icon={<Wind className="w-5 h-5 text-cyan-400" />}
           state={fanActive}
           overrideMode={fanMode}
+          ack={fanAck}
           onOverrideChange={(mode) => handleOverrideChange('fan', mode)}
         />
         <ActuatorStatusRow
@@ -329,6 +382,7 @@ export function StandardActuatorsControl({
           icon={<Zap className="w-5 h-5 text-amber-400" />}
           state={lampStageActive}
           overrideMode={lampMode}
+          ack={lampAck}
           onOverrideChange={(mode) => handleOverrideChange('lamp', mode)}
           locked={cropDayInt > 8}
           lockReason={
@@ -343,6 +397,7 @@ export function StandardActuatorsControl({
           icon={<Zap className="w-5 h-5 text-blue-400" />}
           state={heaterWaterActive}
           overrideMode="auto"
+          ack={null}
           onOverrideChange={() => {}}
           uninstalled={true}
         />
@@ -352,6 +407,7 @@ export function StandardActuatorsControl({
           icon={<CloudFog className="w-5 h-5 text-teal-400" />}
           state={mistActive}
           overrideMode={mistMode}
+          ack={mistAck}
           onOverrideChange={(mode) => handleOverrideChange('mist', mode)}
           locked={blackoutConfirmed}
           lockReason={

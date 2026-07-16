@@ -42,6 +42,17 @@ export interface TelemetryEvent {
   timestamp: string;
 }
 
+export interface ManualAckEvent {
+  channel: 0 | 1 | 2;
+  requestedIntent: 0 | 1 | 2;
+  decision: number;
+  effectiveIntent: 0 | 1 | 2;
+  releaseReason: 0 | 1 | 2 | 3;
+  expiresMs: number;
+  ackMs: number;
+  receivedAt: Date;
+}
+
 export interface CommandAckEvent {
   deviceId: string;
   commandId: string;
@@ -57,7 +68,8 @@ type UplinkFeature =
   | 'status'
   | 'telemetry'
   | 'provisioning_announce'
-  | 'command_ack';
+  | 'command_ack'
+  | 'manual_ack';
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -67,8 +79,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   public readonly deviceStatus$ = new Subject<DeviceStatusEvent>();
   public readonly telemetry$ = new Subject<TelemetryEvent>();
-  /** Kept temporarily for API compatibility; V3 remote manual ACKs were removed. */
-  public readonly manualAck$ = new Subject<{ deviceId: string; ack: any }>();
+  /** Core 1 manual-control acknowledgements, forwarded to telemetry SSE. */
+  public readonly manualAck$ = new Subject<{ deviceId: string; ack: ManualAckEvent }>();
   public readonly commandAck$ = new Subject<CommandAckEvent>();
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
   private readonly unknownRefreshes = new Set<string>();
@@ -170,6 +182,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.handleTelemetry(record.deviceId, record.houseId, data, receivedAt);
       } else if (parsedTopic.feature === 'provisioning_announce') {
         this.handleProvisioning(record.deviceId, data, receivedAt);
+      } else if (parsedTopic.feature === 'manual_ack') {
+        this.handleManualAck(record.deviceId, data, receivedAt);
       } else {
         this.handleCommandAck(record.deviceId, data, receivedAt);
       }
@@ -307,6 +321,50 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     void this.publishProvisioningAck(deviceId);
   }
 
+  private handleManualAck(
+    deviceId: string,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): void {
+    const integer = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
+    const channel = integer(data.channel);
+    const requestedIntent = integer(data.requested_intent);
+    const decision = integer(data.decision);
+    const effectiveIntent = integer(data.effective_intent);
+    const releaseReason = integer(data.release_reason);
+    const expiresMs = integer(data.expires_ms);
+    const ackMs = integer(data.ack_ms);
+
+    if (
+      channel === null || channel < 0 || channel > 2 ||
+      requestedIntent === null || requestedIntent < 0 || requestedIntent > 2 ||
+      decision === null || decision < 0 ||
+      effectiveIntent === null || effectiveIntent < 0 || effectiveIntent > 2 ||
+      releaseReason === null || releaseReason < 0 || releaseReason > 3 ||
+      expiresMs === null || expiresMs < 0 ||
+      ackMs === null || ackMs < 0
+    ) {
+      this.logger.warn(`Dropped malformed manual ACK from '${deviceId}'.`);
+      return;
+    }
+
+    this.manualAck$.next({
+      deviceId,
+      ack: {
+        channel: channel as ManualAckEvent['channel'],
+        requestedIntent: requestedIntent as ManualAckEvent['requestedIntent'],
+        decision,
+        effectiveIntent: effectiveIntent as ManualAckEvent['effectiveIntent'],
+        releaseReason: releaseReason as ManualAckEvent['releaseReason'],
+        expiresMs,
+        ackMs,
+        receivedAt,
+      },
+    });
+    void this.registry.touchLastSeen(deviceId, receivedAt);
+  }
+
   private handleCommandAck(
     deviceId: string,
     data: Record<string, unknown>,
@@ -354,6 +412,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
     if (parts.length === 6 && parts[4] === 'command' && parts[5] === 'ack') {
       return { deviceId: parts[2], feature: 'command_ack' };
+    }
+    if (parts.length === 6 && parts[4] === 'manual' && parts[5] === 'ack') {
+      return { deviceId: parts[2], feature: 'manual_ack' };
     }
     return null;
   }

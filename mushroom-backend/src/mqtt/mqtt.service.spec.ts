@@ -169,6 +169,50 @@ describe('MqttService', () => {
       );
     });
 
+    it('should route manual ACK to manualAck$ Subject', (done) => {
+      const nextAckSpy = jest.spyOn(service.manualAck$, 'next');
+
+      messageCallback(
+        'mushroom/esp32/device-1/up/manual/ack',
+        Buffer.from(JSON.stringify({
+          channel: 0,
+          requested_intent: 1,
+          decision: 0,
+          effective_intent: 1,
+          release_reason: 0,
+          expires_ms: 900000,
+          ack_ms: 1000000,
+        })),
+      );
+
+      expect(nextAckSpy).toHaveBeenCalled();
+      const callArg = nextAckSpy.mock.calls[0][0];
+      expect(callArg.deviceId).toBe('device-1');
+      expect(callArg.ack.channel).toBe(0);
+      expect(callArg.ack.effectiveIntent).toBe(1);
+      done();
+    });
+
+    it('should drop malformed manual ACK with invalid channel', (done) => {
+      const nextAckSpy = jest.spyOn(service.manualAck$, 'next');
+
+      messageCallback(
+        'mushroom/esp32/device-1/up/manual/ack',
+        Buffer.from(JSON.stringify({
+          channel: 99,
+          requested_intent: 1,
+          decision: 0,
+          effective_intent: 1,
+          release_reason: 0,
+          expires_ms: 900000,
+          ack_ms: 1000000,
+        })),
+      );
+
+      expect(nextAckSpy).not.toHaveBeenCalled();
+      done();
+    });
+
     it('marks partial or malformed actuator state unavailable without dropping sensor telemetry', (done) => {
       service.telemetry$.subscribe((event) => {
         expect(event.actuators).toBeNull();

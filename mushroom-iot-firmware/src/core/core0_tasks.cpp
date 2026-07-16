@@ -28,6 +28,37 @@ static void drainTelemetryQueue(TelemetryData& last_known_telemetry)
     }
 }
 
+static void drainManualAckQueue()
+{
+    static bool has_pending_ack = false;
+    static ManualAck pending_ack{};
+
+    if (!has_pending_ack && g_manual_ack_queue != nullptr &&
+        xQueueReceive(g_manual_ack_queue, &pending_ack, 0) == pdTRUE)
+    {
+        has_pending_ack = true;
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MANUAL] ch=%d requested=%d effective=%d decision=%d release=%d\n",
+                          static_cast<int>(pending_ack.channel),
+                          static_cast<int>(pending_ack.requested_intent),
+                          static_cast<int>(pending_ack.effective_intent),
+                          static_cast<int>(pending_ack.decision),
+                          static_cast<int>(pending_ack.release_reason));
+        }
+        // This state reset must not wait for network recovery.
+        if (pending_ack.release_reason != ManualReleaseReason::None) {
+            cabinet_buttons::notify_latch_released(pending_ack.channel);
+        }
+    }
+
+    if (has_pending_ack && mqtt::MqttManager::getInstance().isConnected() &&
+        mqtt::MqttManager::getInstance().publishManualAck(pending_ack))
+    {
+        has_pending_ack = false;
+    }
+}
+
 static void processWebServer()
 {
 #ifndef UNIT_TEST
@@ -175,28 +206,9 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 4. Drain telemetry queue from Core 1
         drainTelemetryQueue(last_known_telemetry);
 
-        // 4b. Drain manual ack queue from Core 1.
-        if (g_manual_ack_queue != nullptr)
-        {
-            ManualAck ack;
-            while (xQueueReceive(g_manual_ack_queue, &ack, 0) == pdTRUE)
-            {
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.printf("[MANUAL] ch=%d requested=%d effective=%d decision=%d release=%d\n",
-                                  static_cast<int>(ack.channel),
-                                  static_cast<int>(ack.requested_intent),
-                                  static_cast<int>(ack.effective_intent),
-                                  static_cast<int>(ack.decision),
-                                  static_cast<int>(ack.release_reason));
-                }
-                // If latch was auto-released (TTL expire or safety gate), reset the button
-                // toggle state so the next physical press sends FORCE_ON again.
-                if (ack.release_reason != ManualReleaseReason::None) {
-                    cabinet_buttons::notify_latch_released(ack.channel);
-                }
-            }
-        }
+        // 4b. Forward manual ACKs independently of the telemetry interval.
+        // A pending ACK is retained locally until MQTT accepts it after reconnect.
+        drainManualAckQueue();
 
         // 5. Publish after Core 1 has produced a final relay-state snapshot. This
         // is deliberately not driven by ManualAck: an ACK only confirms a request;
