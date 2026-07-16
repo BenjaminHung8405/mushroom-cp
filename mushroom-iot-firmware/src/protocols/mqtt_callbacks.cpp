@@ -17,8 +17,8 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
     }
 
     NetworkMessage msg{};
-    if (strstr(topic, "/down/provisioning/ack") != nullptr) {
-        msg.type = CommandType::PROVISIONING_ACK;
+    if (strstr(topic, "/provision/response/") != nullptr) {
+        msg.type = CommandType::BOOTSTRAP_RESPONSE;
     } else if (strstr(topic, "/down/command") != nullptr) {
         msg.type = CommandType::DEVICE_COMMAND;
     } else {

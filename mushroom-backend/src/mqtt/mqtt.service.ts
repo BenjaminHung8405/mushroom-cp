@@ -9,6 +9,11 @@ import {
 import { Subject } from 'rxjs';
 import * as mqtt from 'mqtt';
 import { DeviceRegistryService } from '../device/device-registry.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
+import { Repository } from 'typeorm';
+import { Device } from '../device/entities/device.entity';
+import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -71,6 +76,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(forwardRef(() => DeviceRegistryService))
     private readonly registry: DeviceRegistryService,
+    @InjectRepository(Device)
+    private readonly deviceRepo: Repository<Device>,
+    private readonly mqttAuth: MqttAuthService,
   ) {}
 
   onModuleInit(): void {
@@ -122,6 +130,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `${this.tenant}/esp32/+/up/telemetry`,
       `${this.tenant}/esp32/+/up/provisioning/announce`,
       `${this.tenant}/esp32/+/up/command/ack`,
+      `${this.tenant}/provision/request`,
     ];
     for (const topic of subscriptions) {
       this.client.subscribe(topic, { qos: 1 }, (err) => {
@@ -132,6 +141,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleIncomingMessage(topic: string, payload: Buffer): void {
+    if (topic === `${this.tenant}/provision/request`) {
+      void this.handleBootstrapProvisionRequest(payload);
+      return;
+    }
+
     const parsedTopic = this.parseUplinkTopic(topic);
     if (!parsedTopic) return;
     if (Buffer.byteLength(payload) > 2048) {
@@ -161,6 +175,74 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (error) {
       this.logger.warn(`Failed parsing '${topic}': ${String(error)}`);
+    }
+  }
+
+  private async handleBootstrapProvisionRequest(payload: Buffer): Promise<void> {
+    if (Buffer.byteLength(payload) > 1024) {
+      this.logger.warn('Dropped oversized MQTT provisioning request.');
+      return;
+    }
+
+    try {
+      const data = JSON.parse(payload.toString()) as Record<string, unknown>;
+      const macAddress = typeof data.mac_address === 'string' ? data.mac_address.toLowerCase() : '';
+      if (!/^[a-f0-9]{12}$/.test(macAddress)) {
+        this.logger.warn('Dropped provisioning request with invalid MAC address.');
+        return;
+      }
+      this.mqttAuth.enforceProvisionRateLimit(macAddress);
+
+      const deviceId = `mushroom_s3_${macAddress}`;
+      let device = await this.deviceRepo.findOne({ where: { deviceId } });
+      if (!device) {
+        const houseId = process.env.DEFAULT_DEVICE_HOUSE_ID;
+        if (!houseId) {
+          this.logger.error(`Cannot provision '${deviceId}': DEFAULT_DEVICE_HOUSE_ID is not configured.`);
+          return;
+        }
+        device = this.deviceRepo.create({
+          deviceId,
+          houseId,
+          enabled: true,
+          mqttUsername: deviceId,
+          token: randomUUID(),
+          displayName: null,
+          lastSeenAt: null,
+        });
+        device = await this.deviceRepo.save(device);
+        this.registry.upsertCache({
+          deviceId: device.deviceId,
+          houseId: device.houseId,
+          enabled: device.enabled,
+          displayName: device.displayName,
+          mqttUsername: device.mqttUsername,
+          lastSeenAt: device.lastSeenAt,
+        });
+        this.logger.log(`Provisioned '${deviceId}' for house '${houseId}'.`);
+      } else if (!device.enabled || !device.token) {
+        device.enabled = true;
+        device.token = randomUUID();
+        device = await this.deviceRepo.save(device);
+        this.registry.upsertCache({
+          deviceId: device.deviceId,
+          houseId: device.houseId,
+          enabled: device.enabled,
+          displayName: device.displayName,
+          mqttUsername: device.mqttUsername,
+          lastSeenAt: device.lastSeenAt,
+        });
+      }
+
+      await this.publish(`${this.tenant}/provision/response/${macAddress}`, {
+        device_id: device.deviceId,
+        mqtt_username: device.mqttUsername,
+        mqtt_token: device.token,
+        telemetry_interval_sec: 30,
+        reporting_qos: 1,
+      }, true);
+    } catch (error) {
+      this.logger.warn(`Failed handling MQTT provisioning request: ${String(error)}`);
     }
   }
 
@@ -265,10 +347,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     if (parts.length === 4 && parts[0] === this.tenant && parts[1] === 'esp32' && validId(parts[2]) && parts[3] === 'status') {
       return { deviceId: parts[2], feature: 'status' };
     }
-    if (parts.length !== 5 || parts[0] !== this.tenant || parts[1] !== 'esp32' || !validId(parts[2]) || parts[3] !== 'up') return null;
-    if (parts[4] === 'telemetry') return { deviceId: parts[2], feature: 'telemetry' };
-    if (parts[4] === 'provisioning/announce') return null;
-    // provisioning/announce and command/ack have one additional path segment.
+    if (parts[0] !== this.tenant || parts[1] !== 'esp32' || !validId(parts[2]) || parts[3] !== 'up') return null;
+    if (parts.length === 5 && parts[4] === 'telemetry') return { deviceId: parts[2], feature: 'telemetry' };
+    if (parts.length === 6 && parts[4] === 'provisioning' && parts[5] === 'announce') {
+      return { deviceId: parts[2], feature: 'provisioning_announce' };
+    }
+    if (parts.length === 6 && parts[4] === 'command' && parts[5] === 'ack') {
+      return { deviceId: parts[2], feature: 'command_ack' };
+    }
     return null;
   }
 

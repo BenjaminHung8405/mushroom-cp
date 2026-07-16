@@ -128,6 +128,21 @@ namespace storage
         bool clear_provisioning();
 
         /**
+         * @brief Stores the unique MQTT token assigned during bootstrap provisioning.
+         */
+        bool save_provision_token(const String &token);
+
+        /**
+         * @brief Loads the unique MQTT token assigned during bootstrap provisioning.
+         */
+        bool load_provision_token(String &token);
+
+        /**
+         * @brief Removes the MQTT token during factory reset.
+         */
+        bool clear_provision_token();
+
+        /**
          * @brief Saves provisioned device identity override to NVS.
          * @param device_id Canonical device ID (also used as MQTT username/clientId).
          */

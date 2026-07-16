@@ -22,11 +22,13 @@ CREATE TABLE devices (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     display_name VARCHAR(100),
     mqtt_username VARCHAR(50) NOT NULL UNIQUE,
+    token VARCHAR(64),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_devices_house ON devices(house_id);
+CREATE INDEX idx_devices_token ON devices(token);
 
 -- 2. Thư viện lưu trữ các Profile cấu hình mẫu (Presets)
 CREATE TABLE growth_profiles (

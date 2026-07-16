@@ -15,7 +15,7 @@ typedef void* QueueHandle_t;
 namespace mqtt {
 
 enum class CommandType : uint8_t {
-    PROVISIONING_ACK,
+    BOOTSTRAP_RESPONSE,
     DEVICE_COMMAND,
     UNKNOWN
 };

@@ -13,6 +13,13 @@
 
 namespace mqtt {
 
+enum class ProvisionState : uint8_t {
+    IDLE,
+    CLAIMING,
+    RECEIVED_TOKEN,
+    RECONNECTING,
+};
+
 enum class MqttState : uint8_t {
     IDLE,             // before init
     CONNECTING,       // in progress of connect attempt
@@ -97,7 +104,9 @@ private:
     void onMessage(char* topic, uint8_t* payload, unsigned int length);
 
     // Provisioning
-    bool applyProvisioningAck(JsonObject root);
+    bool applyBootstrapResponse(JsonObject root);
+    bool publishBootstrapClaim();
+    String resolveBootstrapMac() const;
 
     // Telemetry builder
     void buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry);
@@ -119,7 +128,6 @@ private:
     String lwtPayloadOffline() const;
     String lwtPayloadOnline() const;
     void subscribePerLifecycle();
-    void unsubscribeProvisioning();
 
     // State
 #ifndef UNIT_TEST
@@ -139,15 +147,18 @@ private:
 
     // Lifecycle state persisted across reconnects
     bool provisioned_ = false;
+    ProvisionState provision_state_ = ProvisionState::IDLE;
+    String bootstrap_mac_;
+    uint8_t bootstrap_claim_attempts_ = 0;
+    unsigned long claim_started_at_ = 0;
     unsigned long sequence_number_ = 0;
-    bool has_provisioning_ack_subscribed_ = false;
 
     // Dedup cache
     LastCommandSlot last_cmd_{};
 
     // Timers
     unsigned long last_connect_attempt_ = 0;
-    unsigned long current_reconnect_backoff_ = 2000;
+    unsigned long current_reconnect_backoff_ = 1000;
     unsigned long last_telemetry_due_ = 0;
 
 #ifndef UNIT_TEST

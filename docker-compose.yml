@@ -29,7 +29,7 @@ services:
   # 2. MQTT BROKER: Mosquitto (password + ACL)
   # ==========================================
   mushroom-mqtt:
-    image: eclipse-mosquitto:2.0.20
+    image: iegomez/mosquitto-go-auth:latest
     container_name: mushroom_mqtt
     restart: always
     env_file:
@@ -37,14 +37,11 @@ services:
     ports:
       - "${MQTT_TCP_PORT:-18883}:1883"
     volumes:
-      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/config/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
-      - ./mosquitto/docker-entrypoint.sh:/usr/local/bin/mushroom-mosquitto-entrypoint:ro
+      - ./mosquitto/config/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
       - ${DATA_PATH:-./data}/mushroom_mosquitto_data:/mosquitto/data
       - ${DATA_PATH:-./data}/mushroom_mosquitto_log:/mosquitto/log
-    entrypoint: ["/usr/local/bin/mushroom-mosquitto-entrypoint"]
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $$MQTT_BACKEND_USER -P $$MQTT_BACKEND_PASS -t '$$SYS/broker/version' -C 1 -W 5 >/dev/null 2>&1"]
+      test: ['CMD-SHELL', 'timeout 2 sh -c ">/dev/tcp/127.0.0.1/1883"']
       interval: 10s
       timeout: 10s
       retries: 10
@@ -61,8 +58,6 @@ services:
       dockerfile: Dockerfile
     container_name: mushroom_backend
     restart: always
-    ports:
-      - "${BE_HOST_PORT:-6002}:3001"
     env_file:
       - .env
     environment:
@@ -73,11 +68,8 @@ services:
       - MQTT_PORT=1883
       - MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
       - MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
-      - MQTT_ESP32_PASS=${MQTT_ESP32_PASS:-changeme_esp32_pass}
     depends_on:
       mushroom-db:
-        condition: service_healthy
-      mushroom-mqtt:
         condition: service_healthy
     networks:
       - mushroom-network

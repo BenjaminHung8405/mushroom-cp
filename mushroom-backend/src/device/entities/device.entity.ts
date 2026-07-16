@@ -39,6 +39,9 @@ export class Device {
   @Column({ name: 'mqtt_username', type: 'varchar', length: 50, unique: true })
   mqttUsername: string;
 
+  @Column({ name: 'token', type: 'varchar', length: 64, nullable: true })
+  token: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

@@ -288,8 +288,51 @@ namespace storage
             return false;
         }
         const bool cleared = prefs.remove(config::network::KEY_PROVISIONED) ||
+                             prefs.remove(config::network::KEY_PROVISION_TOKEN) ||
                              prefs.remove(config::network::KEY_TELEMETRY_INT) ||
                              prefs.remove(config::network::KEY_REPORTING_QOS);
+        prefs.end();
+        return cleared;
+    }
+
+    bool StorageManager::save_provision_token(const String &token)
+    {
+        if (token.length() < 36)
+        {
+            Serial.println("[STORAGE] Refused provision token shorter than UUID length.");
+            return false;
+        }
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for provision token write.");
+            return false;
+        }
+        const size_t bytes = prefs.putString(config::network::KEY_PROVISION_TOKEN, token);
+        prefs.end();
+        return bytes == token.length();
+    }
+
+    bool StorageManager::load_provision_token(String &token)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        token = prefs.getString(config::network::KEY_PROVISION_TOKEN, "");
+        prefs.end();
+        return token.length() >= 36;
+    }
+
+    bool StorageManager::clear_provision_token()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        const bool cleared = prefs.remove(config::network::KEY_PROVISION_TOKEN);
         prefs.end();
         return cleared;
     }

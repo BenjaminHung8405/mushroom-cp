@@ -23,9 +23,11 @@ namespace mqtt {
 namespace {
 constexpr uint16_t MQTT_BUFFER_BYTES = 2048;
 constexpr uint8_t MQTT_QOS = 1;
-constexpr unsigned long MIN_RECONNECT_BACKOFF_MS = 2000;
+constexpr unsigned long MIN_RECONNECT_BACKOFF_MS = 1000;
 constexpr unsigned long MAX_RECONNECT_BACKOFF_MS = 60000;
 constexpr size_t UUID_LEN = 36;
+constexpr unsigned long BOOTSTRAP_RESPONSE_TIMEOUT_MS = 15000;
+constexpr uint8_t MAX_BOOTSTRAP_CLAIMS = 3;
 
 bool sameText(const char* left, const char* right)
 {
@@ -94,13 +96,22 @@ bool MqttManager::init()
 {
     tenant_ = config::network::TENANT;
     device_id_ = resolveClientId();
+
+    storage::StorageManager& storage = storage::StorageManager::get_instance();
+    provisioned_ = storage.load_provisioning(telemetry_interval_sec_, reporting_qos_);
+    String provision_token;
+    if (provisioned_ && storage.load_provision_token(provision_token)) {
+        config::network::MQTT_PASSWORD_VAL = provision_token;
+    } else if (provisioned_) {
+        Serial.println("[MQTT] Provisioning record has no valid token; restarting bootstrap.");
+        provisioned_ = false;
+        storage.clear_provisioning();
+    }
+    bootstrap_mac_ = resolveBootstrapMac();
     if (!validateConfig()) {
         state_ = MqttState::ERROR_NO_CONFIG;
         return false;
     }
-
-    storage::StorageManager& storage = storage::StorageManager::get_instance();
-    provisioned_ = storage.load_provisioning(telemetry_interval_sec_, reporting_qos_);
 
     configurePubSubClient(device_id_);
 #ifndef UNIT_TEST
@@ -137,13 +148,18 @@ bool MqttManager::validateConfig() const
 {
     if (tenant_.length() == 0 || device_id_.length() == 0 ||
         config::network::MQTT_BROKER_VAL.length() == 0 ||
-        config::network::MQTT_PORT_VAL == 0 ||
-        config::network::MQTT_USER_VAL.length() == 0 ||
-        config::network::MQTT_PASSWORD_VAL.length() == 0) {
-        Serial.println("[MQTT] Missing broker credentials or device identity.");
+        config::network::MQTT_PORT_VAL == 0) {
+        Serial.println("[MQTT] Missing broker configuration or device identity.");
         return false;
     }
-    if (config::network::MQTT_USER_VAL != device_id_) {
+    if (!provisioned_) {
+        return bootstrap_mac_.length() == 12 &&
+               String(config::network::BOOTSTRAP_USER).length() > 0 &&
+               String(config::network::BOOTSTRAP_SECRET).length() > 0;
+    }
+    if (config::network::MQTT_USER_VAL.length() == 0 ||
+        config::network::MQTT_PASSWORD_VAL.length() == 0 ||
+        config::network::MQTT_USER_VAL != device_id_) {
         Serial.println("[MQTT] Invalid identity: MQTT username must equal device/client ID.");
         return false;
     }
@@ -178,7 +194,17 @@ void MqttManager::maintainLoop()
     if (client_.connected()) {
         client_.loop();
         state_ = MqttState::CONNECTED;
-        current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
+        if (!provisioned_ && provision_state_ == ProvisionState::CLAIMING &&
+            millis() - claim_started_at_ >= BOOTSTRAP_RESPONSE_TIMEOUT_MS) {
+            Serial.println("[MQTT] Bootstrap claim timed out.");
+            client_.disconnect();
+            if (bootstrap_claim_attempts_ >= MAX_BOOTSTRAP_CLAIMS) {
+                bootstrap_claim_attempts_ = 0;
+            }
+            current_reconnect_backoff_ = std::min(
+                current_reconnect_backoff_ * 2 + (millis() % 501UL),
+                MAX_RECONNECT_BACKOFF_MS);
+        }
         return;
     }
 
@@ -200,8 +226,9 @@ void MqttManager::tryReconnect()
     state_ = MqttState::CONNECTING;
     if (!doConnect()) {
         state_ = MqttState::DISCONNECTED;
-        current_reconnect_backoff_ = std::min(current_reconnect_backoff_ * 2,
-                                              MAX_RECONNECT_BACKOFF_MS);
+        current_reconnect_backoff_ = std::min(
+            current_reconnect_backoff_ * 2 + (millis() % 501UL),
+            MAX_RECONNECT_BACKOFF_MS);
     }
 #ifndef UNIT_TEST
     if (mutex_ != nullptr) {
@@ -212,13 +239,18 @@ void MqttManager::tryReconnect()
 
 bool MqttManager::doConnect()
 {
+    const bool bootstrap = !provisioned_;
+    const String client_id = bootstrap ? bootstrap_mac_ : device_id_;
+    const char* username = bootstrap ? config::network::BOOTSTRAP_USER
+                                     : device_id_.c_str();
+    const char* password = bootstrap ? config::network::BOOTSTRAP_SECRET
+                                     : config::network::MQTT_PASSWORD_VAL.c_str();
     const String lwt_topic = resolveLwtTopic();
     const String lwt_payload = lwtPayloadOffline();
-    const bool connected = client_.connect(
-        device_id_.c_str(),
-        device_id_.c_str(),
-        config::network::MQTT_PASSWORD_VAL.c_str(),
-        lwt_topic.c_str(), MQTT_QOS, true, lwt_payload.c_str());
+    const bool connected = bootstrap
+        ? client_.connect(client_id.c_str(), username, password)
+        : client_.connect(client_id.c_str(), username, password,
+                          lwt_topic.c_str(), MQTT_QOS, true, lwt_payload.c_str());
     if (!connected) {
         Serial.printf("[MQTT] Connect failed (state=%d).\n", client_.state());
         return false;
@@ -227,33 +259,35 @@ bool MqttManager::doConnect()
     state_ = MqttState::CONNECTED;
     current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
     subscribePerLifecycle();
-    publishStatus(true);
-    publishProvisioningAnnounce(); // best effort metadata; never gates active lifecycle
-    Serial.printf("[MQTT] Connected as %s (%s).\n", device_id_.c_str(),
-                  provisioned_ ? "ACTIVE" : "UNPROVISIONED");
+    if (bootstrap) {
+        if (!publishBootstrapClaim()) {
+            client_.disconnect();
+            return false;
+        }
+        provision_state_ = ProvisionState::CLAIMING;
+        claim_started_at_ = millis();
+        bootstrap_claim_attempts_ += 1;
+        Serial.printf("[MQTT] Bootstrap claim %u sent for MAC %s.\n",
+                      static_cast<unsigned>(bootstrap_claim_attempts_), bootstrap_mac_.c_str());
+    } else {
+        provision_state_ = ProvisionState::IDLE;
+        current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
+        publishStatus(true);
+        publishProvisioningAnnounce(); // best effort metadata; never gates active lifecycle
+        Serial.printf("[MQTT] Connected as %s (ACTIVE).\n", device_id_.c_str());
+    }
     return true;
 }
 
 void MqttManager::subscribePerLifecycle()
 {
-    const String command = tenant_ + "/esp32/" + device_id_ + "/down/command";
-    client_.subscribe(command.c_str(), MQTT_QOS);
     if (!provisioned_) {
-        const String ack = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
-        has_provisioning_ack_subscribed_ = client_.subscribe(ack.c_str(), MQTT_QOS);
-    } else {
-        has_provisioning_ack_subscribed_ = false;
-    }
-}
-
-void MqttManager::unsubscribeProvisioning()
-{
-    if (!has_provisioning_ack_subscribed_) {
+        const String response = tenant_ + "/provision/response/" + bootstrap_mac_;
+        client_.subscribe(response.c_str(), MQTT_QOS);
         return;
     }
-    const String ack = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
-    client_.unsubscribe(ack.c_str());
-    has_provisioning_ack_subscribed_ = false;
+    const String command = tenant_ + "/esp32/" + device_id_ + "/down/command";
+    client_.subscribe(command.c_str(), MQTT_QOS);
 }
 
 void MqttManager::onCallbackStatic(char* topic, uint8_t* payload, unsigned int length)
@@ -284,9 +318,9 @@ void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
     }
     JsonObject root = doc.as<JsonObject>();
     const String topic_text(topic);
-    if (topic_text.endsWith("/down/provisioning/ack")) {
+    if (topic_text == tenant_ + "/provision/response/" + bootstrap_mac_) {
         if (!provisioned_) {
-            applyProvisioningAck(root);
+            applyBootstrapResponse(root);
         }
         return;
     }
@@ -295,37 +329,73 @@ void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
     }
 }
 
-bool MqttManager::applyProvisioningAck(JsonObject root)
+bool MqttManager::applyBootstrapResponse(JsonObject root)
 {
-    const char* status = root["status"] | "";
     const char* device_id = root["device_id"] | "";
-    if (!sameText(device_id, device_id_.c_str())) {
-        Serial.println("[MQTT] Ignored provisioning ACK for different device.");
-        return false;
-    }
-    if (!sameText(status, "ACCEPTED")) {
-        Serial.printf("[MQTT] Provisioning not accepted: %s. Retrying normally.\n", status);
+    const char* mqtt_username = root["mqtt_username"] | "";
+    const char* mqtt_token = root["mqtt_token"] | "";
+    if (!sameText(device_id, device_id_.c_str()) ||
+        !sameText(mqtt_username, device_id_.c_str()) || strlen(mqtt_token) < UUID_LEN) {
+        Serial.println("[MQTT] Ignored invalid bootstrap provisioning response.");
         return false;
     }
 
-    JsonObject assigned = root["assigned_config"].as<JsonObject>();
-    uint16_t interval = assigned["telemetry_interval_sec"] |
+    uint16_t interval = root["telemetry_interval_sec"] |
                         config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
-    uint8_t qos = assigned["reporting_qos"] | config::network::DEFAULT_REPORTING_QOS;
+    uint8_t qos = root["reporting_qos"] | config::network::DEFAULT_REPORTING_QOS;
     if (interval == 0) interval = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
     if (qos > 1) qos = config::network::DEFAULT_REPORTING_QOS;
 
-    if (!storage::StorageManager::get_instance().save_provisioning(interval, qos)) {
-        Serial.println("[MQTT] Provisioning accepted but NVS persistence failed; remaining unprovisioned.");
+    storage::StorageManager& storage = storage::StorageManager::get_instance();
+    if (!storage.save_provision_token(String(mqtt_token)) ||
+        !storage.save_provisioning(interval, qos)) {
+        Serial.println("[MQTT] Bootstrap response received but NVS persistence failed.");
         return false;
     }
+
     telemetry_interval_sec_ = interval;
     reporting_qos_ = qos;
     provisioned_ = true;
-    unsubscribeProvisioning();
-    Serial.printf("[MQTT] Provisioning activated (interval=%us qos=%u).\n",
-                  static_cast<unsigned>(interval), static_cast<unsigned>(qos));
+    provision_state_ = ProvisionState::RECEIVED_TOKEN;
+    config::network::MQTT_CLIENT_ID_VAL = device_id_;
+    config::network::MQTT_USER_VAL = device_id_;
+    config::network::MQTT_PASSWORD_VAL = mqtt_token;
+    client_.disconnect();
+    provision_state_ = ProvisionState::RECONNECTING;
+    last_connect_attempt_ = millis() - MIN_RECONNECT_BACKOFF_MS;
+    current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
+    Serial.println("[MQTT] Bootstrap token persisted; reconnecting with device credentials.");
     return true;
+}
+
+bool MqttManager::publishBootstrapClaim()
+{
+    StaticJsonDocument<256> doc;
+    doc["mac_address"] = bootstrap_mac_;
+    doc["hardware_model"] = "ESP32-S3-N16R8";
+    doc["firmware_version"] = "3.0.0";
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/provision/request";
+    return client_.publish(topic.c_str(), reinterpret_cast<const uint8_t*>(payload.c_str()),
+                           payload.length(), false);
+}
+
+String MqttManager::resolveBootstrapMac() const
+{
+    constexpr const char* prefix = "mushroom_s3_";
+    constexpr size_t prefix_len = 12;
+    const char* value = device_id_.c_str();
+    if (strlen(value) != prefix_len + 12 || strncmp(value, prefix, prefix_len) != 0) {
+        return "";
+    }
+    for (size_t i = prefix_len; i < prefix_len + 12; ++i) {
+        if (!((value[i] >= '0' && value[i] <= '9') ||
+              (value[i] >= 'a' && value[i] <= 'f'))) {
+            return "";
+        }
+    }
+    return String(value + prefix_len);
 }
 
 bool MqttManager::publishStatus(bool is_online)
@@ -628,8 +698,8 @@ bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsig
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     String topic;
-    if (message.type == CommandType::PROVISIONING_ACK) {
-        topic = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
+    if (message.type == CommandType::BOOTSTRAP_RESPONSE) {
+        topic = tenant_ + "/provision/response/" + bootstrap_mac_;
     } else if (message.type == CommandType::DEVICE_COMMAND) {
         topic = tenant_ + "/esp32/" + device_id_ + "/down/command";
     } else {

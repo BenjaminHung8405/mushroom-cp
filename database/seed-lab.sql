@@ -20,13 +20,15 @@ INSERT INTO devices (
   house_id,
   enabled,
   display_name,
-  mqtt_username
+  mqtt_username,
+  token
 ) VALUES (
   'mushroom_s3_a1b2c3d4e5f6',
   'house_01',
   TRUE,
   'ESP32 lab house 01',
-  'mushroom_s3_a1b2c3d4e5f6'
+  'mushroom_s3_a1b2c3d4e5f6',
+  NULL
 )
 ON CONFLICT (device_id) DO UPDATE SET
   house_id = EXCLUDED.house_id,

@@ -46,12 +46,14 @@ namespace config
 
         // Injected at build time from the repository's shared .env file.
         // This keeps firmware and the web client on the same public API origin.
-#if !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE) || !defined(IOT_TENANT)
-#error "Firmware MQTT defaults and deployment tenant must be provided by the PlatformIO environment script"
+#if !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE) || !defined(IOT_TENANT) || !defined(BOOTSTRAP_USERNAME) || !defined(BOOTSTRAP_PASSWORD)
+#error "Firmware MQTT defaults, tenant, and bootstrap credentials must be provided by the PlatformIO environment script"
 #endif
         constexpr const char *DEFAULT_MQTT_BROKER = DEFAULT_MQTT_BROKER_URL;
         constexpr uint16_t DEFAULT_MQTT_PORT = DEFAULT_MQTT_PORT_VALUE;
         constexpr const char *TENANT = IOT_TENANT;
+        constexpr const char *BOOTSTRAP_USER = BOOTSTRAP_USERNAME;
+        constexpr const char *BOOTSTRAP_SECRET = BOOTSTRAP_PASSWORD;
         constexpr uint16_t DEFAULT_TELEMETRY_INTERVAL_SEC = 30;
         constexpr uint8_t DEFAULT_REPORTING_QOS = 1;
         constexpr const char *DEFAULT_MQTT_PASS = "";
@@ -66,6 +68,7 @@ namespace config
         constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
         constexpr const char *KEY_DEVICE_ID = "device_id";
         constexpr const char *KEY_PROVISIONED = "provisioned";
+        constexpr const char *KEY_PROVISION_TOKEN = "provision_token";
         constexpr const char *KEY_TELEMETRY_INT = "tel_interval";
         constexpr const char *KEY_REPORTING_QOS = "report_qos";
         constexpr const char *KEY_LAST_SP = "last_sp";

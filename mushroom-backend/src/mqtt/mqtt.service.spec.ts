@@ -3,6 +3,9 @@ import { Logger } from '@nestjs/common';
 import { MqttService, DeviceStatusEvent, TelemetryEvent } from './mqtt.service';
 import * as mqtt from 'mqtt';
 import { DeviceRegistryService } from '../device/device-registry.service';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Device } from '../device/entities/device.entity';
+import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 
 const mockMqttClient = {
   on: jest.fn(),
@@ -60,6 +63,8 @@ describe('MqttService', () => {
       providers: [
         MqttService,
         { provide: DeviceRegistryService, useValue: registry },
+        { provide: getRepositoryToken(Device), useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() } },
+        { provide: MqttAuthService, useValue: { enforceProvisionRateLimit: jest.fn() } },
       ],
     }).compile();
 

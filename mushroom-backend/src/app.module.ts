@@ -7,6 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import { BatchModule } from './batch/batch.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { AuthModule } from './auth/auth.module';
+import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AuthModule } from './auth/auth.module';
     BatchModule,
     TelemetryModule,
     AuthModule, // POST /auth/token for ESP32 bootstrap
+    MqttAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
