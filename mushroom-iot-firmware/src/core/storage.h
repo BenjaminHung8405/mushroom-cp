@@ -113,30 +113,19 @@ namespace storage
         bool clear_mqtt_config();
 
         /**
-         * @brief Saves Backend API URL to NVS.
-         * @param backend_url Base URL of the NestJS backend (e.g. http://192.168.1.10:3001)
-         * @return true if saved successfully, false otherwise.
+         * @brief Persists the one-way cloud provisioning activation record.
          */
-        bool save_backend_config(const String &backend_url);
+        bool save_provisioning(uint16_t telemetry_interval_sec, uint8_t reporting_qos);
 
         /**
-         * @brief Loads Backend API URL from NVS.
-         * @param[out] backend_url Output parameter for Backend API URL
-         * @return true if configuration existed and was loaded successfully, false otherwise.
+         * @brief Loads a valid cloud provisioning record.
          */
-        bool load_backend_config(String &backend_url);
+        bool load_provisioning(uint16_t &telemetry_interval_sec, uint8_t &reporting_qos);
 
         /**
-         * @brief Checks if Backend API URL exists in NVS.
-         * @return true if backend URL exists, false otherwise.
+         * @brief Removes cloud activation. This is called only by local factory reset.
          */
-        bool has_backend_config();
-
-        /**
-         * @brief Clears Backend API URL from NVS storage.
-         * @return true if cleared successfully, false otherwise.
-         */
-        bool clear_backend_config();
+        bool clear_provisioning();
 
         /**
          * @brief Saves provisioned device identity override to NVS.

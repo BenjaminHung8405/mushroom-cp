@@ -1,0 +1,8 @@
+# Backend owns orchestration and may consume/publish across all tenants.
+user mushroom_backend
+topic readwrite #
+
+# Device identity is a security boundary:
+# username == client ID == device ID and deployment tenant is mushroom.
+# A device cannot read or publish another device's topic tree.
+pattern readwrite mushroom/esp32/%u/#

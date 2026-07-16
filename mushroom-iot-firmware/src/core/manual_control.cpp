@@ -72,6 +72,10 @@ ManualDecision evaluateSafetyGate(
     else if (request.channel == AppChannel::FAN) {
         return ManualDecision::Accepted;
     }
+    else if (request.channel == AppChannel::HWAT) {
+        // Hardware protection is still applied after manual arbitration.
+        return ManualDecision::Accepted;
+    }
 
     return ManualDecision::Accepted;
 }
@@ -189,6 +193,16 @@ void applyManualLatchToOutputs(
             outputs.HLamp = 1.0f;
         } else if (latch[lampIdx].forced_state == AppIntent::FORCE_OFF) {
             outputs.HLamp = 0.0f;
+        }
+    }
+
+    // Water heater. The non-bypassable hardware protection runs after this latch.
+    size_t hwatIdx = static_cast<size_t>(AppChannel::HWAT);
+    if (latch[hwatIdx].active) {
+        if (latch[hwatIdx].forced_state == AppIntent::FORCE_ON) {
+            outputs.HWat = 1.0f;
+        } else if (latch[hwatIdx].forced_state == AppIntent::FORCE_OFF) {
+            outputs.HWat = 0.0f;
         }
     }
 }

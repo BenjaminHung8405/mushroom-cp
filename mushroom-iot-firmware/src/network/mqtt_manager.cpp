@@ -1,1001 +1,657 @@
 #include "network/mqtt_manager.h"
+
+#include <cstring>
+#include <algorithm>
+#include <cmath>
+#include <time.h>
+
 #include "config.h"
-#include "network/wifi_manager.h"
-#include "network/ota_manager.h"
-#include "core/system_manager.h"
-#include "core/serial_mutex.h"
 #include "core/config_manager.h"
-#include <ArduinoJson.h>
-#include "core/crop_profile_storage.h"
-#include "core/crop_profile_validator.h"
+#include "core/serial_mutex.h"
+#include "core/storage.h"
+#include "core/system_manager.h"
+#include "core/time_confidence.h"
+#include "network/wifi_manager.h"
+#include "protocols/mqtt_callbacks.h"
 
 #ifndef UNIT_TEST
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #endif
 
-namespace mqtt
+namespace mqtt {
+namespace {
+constexpr uint16_t MQTT_BUFFER_BYTES = 2048;
+constexpr uint8_t MQTT_QOS = 1;
+constexpr unsigned long MIN_RECONNECT_BACKOFF_MS = 2000;
+constexpr unsigned long MAX_RECONNECT_BACKOFF_MS = 60000;
+constexpr size_t UUID_LEN = 36;
+
+bool sameText(const char* left, const char* right)
 {
-    MqttManager &MqttManager::getInstance()
-    {
-        static MqttManager instance;
-        return instance;
+    return left != nullptr && right != nullptr && strcmp(left, right) == 0;
+}
+
+bool validUuid(const char* value)
+{
+    return value != nullptr && strlen(value) == UUID_LEN;
+}
+
+bool parseRelayId(const char* relay_id, uint8_t& pin)
+{
+    if (sameText(relay_id, "relay_1")) {
+        pin = config::pins::PIN_RELAY_MIST;
+        return true;
     }
+    if (sameText(relay_id, "relay_2")) {
+        pin = config::pins::PIN_RELAY_FAN;
+        return true;
+    }
+    if (sameText(relay_id, "relay_3")) {
+        pin = config::pins::PIN_RELAY_HWAT;
+        return true;
+    }
+    if (sameText(relay_id, "relay_4")) {
+        pin = config::pins::PIN_RELAY_LAMP;
+        return true;
+    }
+    return false;
+}
 
-    void MqttManager::configurePubSubClient(const String &client_id)
-    {
-        if (!mqtt_manager.setBufferSize(1024))
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: unable to allocate MQTT buffer.");
-            }
-            current_state = MqttState::DISCONNECTED;
-            return;
-        }
+uint32_t relayBit(uint8_t pin)
+{
+    if (pin == config::pins::PIN_RELAY_MIST) return 1U << 0;
+    if (pin == config::pins::PIN_RELAY_FAN) return 1U << 1;
+    if (pin == config::pins::PIN_RELAY_HWAT) return 1U << 2;
+    if (pin == config::pins::PIN_RELAY_LAMP) return 1U << 3;
+    return 0;
+}
 
+const char* boolState(bool active) { return active ? "ON" : "OFF"; }
+
+uint32_t freeHeapBytes()
+{
 #ifndef UNIT_TEST
-        wifi_client.setTimeout(2);
+    return ESP.getFreeHeap();
+#else
+    return 0;
 #endif
-
-        mqtt_manager.setKeepAlive(60);
-        mqtt_manager.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
-        mqtt_manager.setCallback(MqttManager::handleMQTTCallback);
-    }
-
-    void MqttManager::initializeMutex()
-    {
-#ifndef UNIT_TEST
-        if (mqtt_mutex == nullptr)
-        {
-            mqtt_mutex = xSemaphoreCreateMutex();
-        }
-#endif
-    }
-
-    bool MqttManager::init()
-    {
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Initializing MQTT client skeleton...");
-        }
-
-        // 1. Validate MQTT Configuration
-        if (config::network::MQTT_BROKER_VAL.length() == 0)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: MQTT broker address is empty.");
-            }
-            current_state = MqttState::ERROR_NO_CONFIG;
-            return false;
-        }
-
-        // 2. Resolve topics dynamically based on Client ID
-        String client_id = getEffectiveClientId();
-
-        resolved_topics.status = "mushroom/device/" + client_id + "/status";
-        resolved_topics.telemetry = "mushroom/device/" + client_id + "/telemetry";
-        resolved_topics.setpoint = "mushroom/device/" + client_id + "/setpoint";
-        resolved_topics.manual_ack = "mushroom/" + client_id + "/manual/ack";
-        resolved_topics.profile = "mushroom/device/" + client_id + "/profile";
-
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Resolved Topics:\n");
-            Serial.printf("  - Status (LWT): %s\n", resolved_topics.status.c_str());
-            Serial.printf("  - Telemetry:    %s\n", resolved_topics.telemetry.c_str());
-            Serial.printf("  - Setpoint:     %s\n", resolved_topics.setpoint.c_str());
-            Serial.printf("  - Manual Ack:   %s\n", resolved_topics.manual_ack.c_str());
-            Serial.printf("  - Profile:      %s\n", resolved_topics.profile.c_str());
-        }
-
-        // 3. Configure PubSubClient server, buffer, keepalive, and callback.
-        configurePubSubClient(client_id);
-        if (current_state == MqttState::DISCONNECTED)
-        {
-            return false;
-        }
-
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Broker: %s:%u | Client ID: %s | Buffer: 1024 | KeepAlive: 60s\n",
-                          config::network::MQTT_BROKER_VAL.c_str(),
-                          static_cast<unsigned>(config::network::MQTT_PORT_VAL),
-                          client_id.c_str());
-        }
-
-        initializeMutex();
-
-        current_state = MqttState::IDLE;
-        return true;
-    }
-
-    void MqttManager::loop()
-    {
-        if (!checkWifiForMqtt())
-        {
-            return;
-        }
-
-        if (current_state == MqttState::ERROR_NO_CONFIG)
-        {
-            return;
-        }
-
-        maintainMqttConnection();
-    }
-
-    bool MqttManager::checkWifiForMqtt()
-    {
-        wifi::WifiState wifi_state = wifi::get_wifi_state();
-
-        if (wifi_state != wifi::WifiState::STA_CONNECTED)
-        {
-            if (current_state != MqttState::ERROR_NO_WIFI)
-            {
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.printf("[MQTT] WiFi is not connected (State: %d). Suspending MQTT connection.\n", (int)wifi_state);
-                }
-                current_state = MqttState::ERROR_NO_WIFI;
-                if (mqtt_manager.connected())
-                {
-                    mqtt_manager.disconnect();
-                }
-            }
-            return false;
-        }
-
-        if (current_state == MqttState::ERROR_NO_WIFI)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] WiFi restored. MQTT client back to DISCONNECTED state.");
-            }
-            current_state = MqttState::DISCONNECTED;
-        }
-        return true;
-    }
-
-    void MqttManager::maintainMqttConnection()
-    {
-        if (mqtt_manager.connected())
-        {
-            mqtt_manager.loop();
-            current_state = MqttState::CONNECTED;
-            current_reconnect_interval = 2000; // Reset backoff interval on success
-        }
-        else
-        {
-            if (current_state == MqttState::CONNECTED)
-            {
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] Connection lost. Transitioning to DISCONNECTED.");
-                }
-                current_state = MqttState::DISCONNECTED;
-                current_reconnect_interval = 2000; // Reset backoff interval on connection loss
-            }
-
-            unsigned long now = millis();
-            if (now - last_reconnect_attempt >= current_reconnect_interval)
-            {
-                reconnectMqtt();
-            }
-        }
-    }
-
-    bool MqttManager::publishTelemetry(const String &payload)
-    {
-        if (!isConnected())
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Cannot publish telemetry: Client not connected.");
-            }
-            return false;
-        }
-
-        // Commented out to avoid console clutter during connection testing
-        /*
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Telemetry publish placeholder (Topic: %s, Payload: %s)\n",
-                          resolved_topics.telemetry.c_str(), payload.c_str());
-        }
-        */
-
-        return mqtt_manager.publish(resolved_topics.telemetry.c_str(), payload.c_str());
-    }
-
-    bool MqttManager::publishStatus(bool is_online)
-    {
-        if (!isConnected())
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Cannot publish status: Client not connected.");
-            }
-            return false;
-        }
-
-        String payload = is_online ? "{\"status\":\"online\"}" : "{\"status\":\"offline\"}";
-        // Commented out to avoid console clutter during connection testing
-        /*
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Status publish placeholder (Topic: %s, Payload: %s)\n",
-                          resolved_topics.status.c_str(), payload.c_str());
-        }
-        */
-
-        return mqtt_manager.publish(resolved_topics.status.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
-    }
-
-    bool MqttManager::publishManualAck(const ManualAck& ack)
-    {
-        if (!isConnected())
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Cannot publish manual ack: Client not connected.");
-            }
-            return false;
-        }
-
-        StaticJsonDocument<256> doc;
-        doc["channel"] = static_cast<int>(ack.channel);
-        doc["requested_intent"] = static_cast<int>(ack.requested_intent);
-        doc["decision"] = static_cast<int>(ack.decision);
-        doc["effective_intent"] = static_cast<int>(ack.effective_intent);
-        doc["release_reason"] = static_cast<int>(ack.release_reason);
-        doc["expires_ms"] = ack.expires_ms;
-        doc["ack_ms"] = ack.ack_ms;
-
-        String payload;
-        serializeJson(doc, payload);
-
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Manual Ack publish (Topic: %s, Payload: %s)\n",
-                          resolved_topics.manual_ack.c_str(), payload.c_str());
-        }
-
-        return mqtt_manager.publish(resolved_topics.manual_ack.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
-    }
-
-    bool MqttManager::isConnected()
-    {
-        return mqtt_manager.connected();
-    }
-
-    MqttState MqttManager::getState() const
-    {
-        return current_state;
-    }
-
-    const MqttTopics &MqttManager::getResolvedTopics() const
-    {
-        return resolved_topics;
-    }
-
-    void MqttManager::mqttCallbackStatic(char *topic, uint8_t *payload, unsigned int length)
-    {
-        MessageDispatcher::dispatch(topic, payload, length);
-    }
-
-    void MqttManager::handleMQTTCallback(char *topic, uint8_t *payload, unsigned int length)
-    {
-        MessageDispatcher::dispatch(topic, payload, length);
-    }
-
-    void MqttManager::processNetworkMessage(const NetworkMessage& msg)
-    {
-        String topic;
-        if (msg.type == CommandType::PROFILE_UPDATE)
-        {
-            topic = resolved_topics.profile;
-        }
-        else if (msg.type == CommandType::SETPOINT_UPDATE)
-        {
-            topic = resolved_topics.setpoint;
-        }
-        else
-        {
-            return;
-        }
-
-        unsigned int length = strlen(msg.payload);
-        if (!validateIncomingMessage(topic.c_str(), reinterpret_cast<const uint8_t*>(msg.payload), length))
-        {
-            return;
-        }
-
-        StaticJsonDocument<768> doc;
-        DeserializationError err = deserializeJson(doc, msg.payload);
-        if (err)
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Error: Failed to parse JSON payload in worker: %s\n", err.c_str());
-            return;
-        }
-
-        if (msg.type == CommandType::PROFILE_UPDATE)
-        {
-            processProfileMessage(doc);
-        }
-        else if (msg.type == CommandType::SETPOINT_UPDATE)
-        {
-            bool is_command = handleMqttCommand(doc);
-            routeSetpointMessage(doc, is_command);
-        }
-    }
-
-    bool MqttManager::validateIncomingMessage(const char *topic, const uint8_t *payload, unsigned int length)
-    {
-        if (topic == nullptr)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: Received message with null topic pointer.");
-            }
-            return false;
-        }
-        if (payload == nullptr && length > 0)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: Received message with null payload pointer but non-zero length.");
-            }
-            return false;
-        }
-
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Received message on topic: %s. Length: %u\n", topic, length);
-        }
-
-        if (resolved_topics.setpoint != topic && resolved_topics.profile != topic)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Warning: Received message on unexpected topic.");
-            }
-            return false;
-        }
-        return true;
-    }
-
-    void MqttManager::routeSetpointMessage(StaticJsonDocument<768> &doc, bool is_command)
-    {
-        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("humiditySetpoint") ||
-            doc.containsKey("co2Setpoint") || doc.containsKey("temperature") ||
-            doc.containsKey("humidity") || doc.containsKey("co2") ||
-            doc.containsKey("clearHardwareOverride") ||
-            doc.containsKey("mist_override") || doc.containsKey("fan_override") ||
-            doc.containsKey("heater_air_override") || doc.containsKey("start_epoch_time") ||
-            doc.containsKey("actuator"))
-        {
-            processSetpoints(doc);
-        }
-        else if (!is_command)
-        {
-            processSetpoints(doc);
-        }
-    }
-
-    void MqttManager::handleMessage(char *topic, uint8_t *payload, unsigned int length)
-    {
-        if (!validateIncomingMessage(topic, payload, length))
-        {
-            return;
-        }
-
-        StaticJsonDocument<768> doc;
-        if (!parseJsonPayload(payload, length, doc))
-        {
-            return;
-        }
-
-        if (resolved_topics.profile == topic)
-        {
-            processProfileMessage(doc);
-        }
-        else
-        {
-            bool is_command = handleMqttCommand(doc);
-            routeSetpointMessage(doc, is_command);
-        }
-    }
-
-    bool MqttManager::parseJsonPayload(uint8_t *payload, unsigned int length, StaticJsonDocument<768> &doc)
-    {
-        if (payload == nullptr && length > 0)
-        {
-            return false;
-        }
-
-        constexpr unsigned int MAX_PAYLOAD_SIZE = 512;
-        if (length > MAX_PAYLOAD_SIZE)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Error: Payload size (%u) exceeds maximum limit of %u bytes.\n", length, MAX_PAYLOAD_SIZE);
-            }
-            return false;
-        }
-
-        char safe_payload[MAX_PAYLOAD_SIZE + 1];
-        if (length > 0)
-        {
-            memcpy(safe_payload, payload, length);
-        }
-        safe_payload[length] = '\0';
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Raw payload: %s\n", safe_payload);
-        }
-
-        const char *const_payload = safe_payload;
-        DeserializationError error = deserializeJson(doc, const_payload);
-        if (error)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] JSON Deserialization failed: %s\n", error.c_str());
-            }
-            return false;
-        }
-        return true;
-    }
-
-    bool MqttManager::handleMqttCommand(StaticJsonDocument<768> &doc)
-    {
-        bool is_command = false;
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            // Serial.printf("[DEBUG] handle_mqtt_command entered. contains cmd? %d, addr=%p\n", doc.containsKey("cmd"), (void*)&doc);
-            if (doc.containsKey("cmd"))
-            {
-                const char *val = doc["cmd"].as<const char *>();
-                // Serial.printf("[DEBUG] cmd value inside: %s\n", val ? val : "null");
-            }
-            String s;
-            serializeJson(doc, s);
-            // Serial.printf("[DEBUG] handle_mqtt_command doc serialized: %s\n", s.c_str());
-        }
-        if (doc.containsKey("cmd"))
-        {
-            const char *cmd_val = doc["cmd"].as<const char *>();
-            if (cmd_val != nullptr && strcmp(cmd_val, "full_sync") == 0)
-            {
-                setSharedForceFullPublish(true);
-                is_command = true;
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] Command received: full_sync. Flag shared_forceFullPublish set to true.");
-                }
-            }
-            else if (cmd_val != nullptr && strcmp(cmd_val, "ota_update") == 0)
-            {
-                const char *url_val = doc["url"].as<const char *>();
-                if (url_val != nullptr && strlen(url_val) > 0)
-                {
-                    ota::request_ota_update(String(url_val));
-                }
-                else
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] ota_update command missing 'url' field. Ignored.");
-                }
-                is_command = true;
-            }
-        }
-        return is_command;
-    }
-
-    void MqttManager::processSetpoints(StaticJsonDocument<768> &doc)
-    {
-        if (doc.containsKey("clearHardwareOverride") && doc["clearHardwareOverride"].as<bool>())
-        {
-            storage::StorageManager::get_instance().clear_hardware_override();
-            ControlSetpointCommand clearCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
-            if (xOverrideQueue != nullptr)
-            {
-                xQueueOverwrite(xOverrideQueue, &clearCmd);
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] Cleared hardware override and queued clear command.");
-                }
-            }
-        }
-
-        if (doc.containsKey("actuator"))
-        {
-            const char* actuator_str = doc["actuator"].as<const char*>();
-            if (actuator_str != nullptr)
-            {
-                AppChannel channel;
-                bool valid_channel = false;
-                if (strcmp(actuator_str, "mist") == 0)
-                {
-                    channel = AppChannel::MIST;
-                    valid_channel = true;
-                }
-                else if (strcmp(actuator_str, "fan") == 0)
-                {
-                    channel = AppChannel::FAN;
-                    valid_channel = true;
-                }
-                else if (strcmp(actuator_str, "heater_air") == 0 ||
-                         strcmp(actuator_str, "lamp") == 0 ||
-                         strcmp(actuator_str, "lamp_stage") == 0)
-                {
-                    channel = AppChannel::LAMP;
-                    valid_channel = true;
-                }
-
-                if (valid_channel)
-                {
-                    AppIntent intent = AppIntent::AUTO;
-                    if (doc.containsKey("state") && !doc["state"].isNull())
-                    {
-                        intent = doc["state"].as<bool>() ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
-                    }
-
-                    ManualRequest req;
-                    req.channel = channel;
-                    req.intent = intent;
-                    req.request_ms = millis();
-
-                    if (g_mqtt_override_queue != nullptr)
-                    {
-                        if (xQueueSend(g_mqtt_override_queue, &req, 0) == pdTRUE)
-                        {
-                            ScopedSerialLock guard(SerialLock::get_instance());
-                            Serial.printf("[MQTT] Enqueued manual override request: Channel:%d, Intent:%d\n",
-                                          static_cast<int>(channel), static_cast<int>(intent));
-                        }
-                        else
-                        {
-                            ScopedSerialLock guard(SerialLock::get_instance());
-                            Serial.println("[MQTT] Error: Failed to enqueue manual override request (queue full).");
-                        }
-                    }
-                }
-                else
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.printf("[MQTT] Error: Invalid actuator value '%s'\n", actuator_str);
-                }
-            }
-            else
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Error: 'actuator' field is not a string.");
-            }
-        }
-
-        if (doc.containsKey("mist_override") || doc.containsKey("fan_override") || doc.containsKey("heater_air_override"))
-        {
-            processActuatorOverrides(doc);
-        }
-
-        if (doc.containsKey("start_epoch_time"))
-        {
-            uint32_t start_time = doc["start_epoch_time"].as<uint32_t>();
-            storage::StorageManager::get_instance().save_start_epoch_time(start_time);
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Saved start_epoch_time to NVS: %u\n", start_time);
-            }
-        }
-
-        parseAndPersistBaseline(doc);
-    }
-
-    void MqttManager::parseAndPersistBaseline(StaticJsonDocument<768> &doc)
-    {
-        bool has_temp = doc.containsKey("temperatureSetpoint") || doc.containsKey("temperature");
-        bool has_humi = doc.containsKey("humiditySetpoint") || doc.containsKey("humidity");
-        bool has_co2 = doc.containsKey("co2Setpoint") || doc.containsKey("co2");
-
-        if (!has_temp && !has_humi && !has_co2)
-        {
-            return;
-        }
-
-        float val_temp = NAN;
-        float val_humi = NAN;
-        float val_co2 = NAN;
-        bool valid = validateSetpointPayload(doc, val_temp, val_humi, val_co2);
-        if (!valid)
-        {
-            return;
-        }
-
-        storage::BackendSetpointSnapshot snapshot;
-        if (!storage::StorageManager::get_instance().load_backend_snapshot(snapshot) || !snapshot.valid)
-        {
-            snapshot.temp_target = 24.0f;
-            snapshot.humidity_target = 90.0f;
-            snapshot.co2_target = 1000.0f;
-            snapshot.valid = true;
-        }
-
-        if (has_temp)
-            snapshot.temp_target = val_temp;
-        if (has_humi)
-            snapshot.humidity_target = val_humi;
-        if (has_co2)
-            snapshot.co2_target = val_co2;
-        snapshot.valid = true;
-
-        if (!storage::StorageManager::get_instance().save_backend_snapshot(snapshot))
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Error: baseline persistence failed; retaining current runtime baseline.");
-            return;
-        }
-        queueBaselineCommand(snapshot);
-    }
-
-    bool MqttManager::validateSetpointPayload(StaticJsonDocument<768> &doc, float &val_temp, float &val_humi, float &val_co2)
-    {
-        bool valid = true;
-        if (doc.containsKey("temperatureSetpoint") || doc.containsKey("temperature"))
-        {
-            val_temp = doc.containsKey("temperatureSetpoint") ? doc["temperatureSetpoint"].as<float>() : doc["temperature"].as<float>();
-            if (!validateSingleSetpoint("temperature", val_temp, 10.0f, 45.0f))
-                valid = false;
-        }
-        if (doc.containsKey("humiditySetpoint") || doc.containsKey("humidity"))
-        {
-            val_humi = doc.containsKey("humiditySetpoint") ? doc["humiditySetpoint"].as<float>() : doc["humidity"].as<float>();
-            if (!validateSingleSetpoint("humidity", val_humi, 30.0f, 95.0f))
-                valid = false;
-        }
-        if (doc.containsKey("co2Setpoint") || doc.containsKey("co2"))
-        {
-            val_co2 = doc.containsKey("co2Setpoint") ? doc["co2Setpoint"].as<float>() : doc["co2"].as<float>();
-            if (!validateSingleSetpoint("co2", val_co2, 400.0f, 10000.0f))
-                valid = false;
-        }
-        return valid;
-    }
-
-    void MqttManager::queueBaselineCommand(const storage::BackendSetpointSnapshot &snapshot)
-    {
-        ControlSetpointCommand baselineCmd;
-        baselineCmd.temp_target = snapshot.temp_target;
-        baselineCmd.humidity_target = snapshot.humidity_target;
-        baselineCmd.co2_target = snapshot.co2_target;
-        baselineCmd.active = true;
-        memset(baselineCmd.padding, 0, sizeof(baselineCmd.padding));
-
-        if (xBaselineQueue != nullptr)
-        {
-            xQueueOverwrite(xBaselineQueue, &baselineCmd);
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Queued baseline (T:%.2f, H:%.2f, CO2:%.2f)\n",
-                              baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
-            }
-        }
-    }
-
-    bool MqttManager::validateSingleSetpoint(const char *name, float val, float min_val, float max_val)
-    {
-        if (!std::isnan(val) && val >= min_val && val <= max_val)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Parse & Validate Setpoint: %s = %.2f (SAFE)\n", name, val);
-            }
-            return true;
-        }
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Error: %s setpoint %.2f out of safe range [%.1f, %.1f]\n",
-                          name, val, min_val, max_val);
-        }
+}
+} // namespace
+
+MqttManager& MqttManager::getInstance()
+{
+    static MqttManager instance;
+    return instance;
+}
+
+MqttManager::MqttManager()
+{
+    memset(&last_cmd_, 0, sizeof(last_cmd_));
+}
+
+bool MqttManager::init()
+{
+    tenant_ = config::network::TENANT;
+    device_id_ = resolveClientId();
+    if (!validateConfig()) {
+        state_ = MqttState::ERROR_NO_CONFIG;
         return false;
     }
 
-    void MqttManager::reconnectMqtt()
-    {
-        // 1. Safeguard against calling reconnect when WiFi is not ready or SoftAP mode is active
-        wifi::WifiState wifi_state = wifi::get_wifi_state();
-        if (WiFi.status() != WL_CONNECTED || wifi_state != wifi::WifiState::STA_CONNECTED)
-        {
-            last_reconnect_attempt = millis(); // Prevent loop spinning immediately
-            if (current_state != MqttState::ERROR_NO_WIFI)
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Reconnect aborted: WiFi status is not WL_CONNECTED (status=%d, state=%d).\n",
-                              (int)WiFi.status(), (int)wifi_state);
-            }
-            current_state = MqttState::ERROR_NO_WIFI;
-            return;
-        }
+    storage::StorageManager& storage = storage::StorageManager::get_instance();
+    provisioned_ = storage.load_provisioning(telemetry_interval_sec_, reporting_qos_);
 
-        if (is_reconnecting)
-            return;
-
-        // 2. Lock Mutex to prevent concurrent connection attempts across tasks
+    configurePubSubClient(device_id_);
 #ifndef UNIT_TEST
-        if (mqtt_mutex != nullptr)
-        {
-            if (xSemaphoreTake((SemaphoreHandle_t)mqtt_mutex, 0) != pdTRUE)
-            {
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[MQTT] Reconnect skipped: mutex locked by another process.");
-                }
-                return;
-            }
-        }
+    if (mutex_ == nullptr) {
+        mutex_ = xSemaphoreCreateMutex();
+    }
 #endif
 
-        is_reconnecting = true;
-        last_reconnect_attempt = millis();
+    state_ = MqttState::IDLE;
+    Serial.printf("[MQTT] V3 initialized: tenant=%s device=%s state=%s interval=%us\n",
+                  tenant_.c_str(), device_id_.c_str(),
+                  provisioned_ ? "ACTIVE" : "UNPROVISIONED",
+                  static_cast<unsigned>(telemetry_interval_sec_));
+    return true;
+}
 
-        performMqttConnection();
-
-        is_reconnecting = false;
-
+void MqttManager::configurePubSubClient(const String& client_id)
+{
+    (void)client_id;
+    if (!client_.setBufferSize(MQTT_BUFFER_BYTES)) {
+        Serial.println("[MQTT] Failed to allocate packet buffer.");
+        state_ = MqttState::ERROR_NO_CONFIG;
+        return;
+    }
 #ifndef UNIT_TEST
-        if (mqtt_mutex != nullptr)
-        {
-            xSemaphoreGive((SemaphoreHandle_t)mqtt_mutex);
-        }
+    wifi_client_.setTimeout(2);
 #endif
+    client_.setKeepAlive(60);
+    client_.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
+    client_.setCallback(MqttManager::onCallbackStatic);
+}
+
+bool MqttManager::validateConfig() const
+{
+    if (tenant_.length() == 0 || device_id_.length() == 0 ||
+        config::network::MQTT_BROKER_VAL.length() == 0 ||
+        config::network::MQTT_PORT_VAL == 0 ||
+        config::network::MQTT_USER_VAL.length() == 0 ||
+        config::network::MQTT_PASSWORD_VAL.length() == 0) {
+        Serial.println("[MQTT] Missing broker credentials or device identity.");
+        return false;
+    }
+    if (config::network::MQTT_USER_VAL != device_id_) {
+        Serial.println("[MQTT] Invalid identity: MQTT username must equal device/client ID.");
+        return false;
+    }
+    return true;
+}
+
+bool MqttManager::checkWifiReady() const
+{
+    return wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED;
+}
+
+void MqttManager::loop()
+{
+    if (state_ == MqttState::ERROR_NO_CONFIG) {
+        return;
+    }
+    if (!checkWifiReady()) {
+        if (client_.connected()) {
+            client_.disconnect();
+        }
+        state_ = MqttState::ERROR_NO_WIFI;
+        return;
+    }
+    if (state_ == MqttState::ERROR_NO_WIFI) {
+        state_ = MqttState::DISCONNECTED;
+    }
+    maintainLoop();
+}
+
+void MqttManager::maintainLoop()
+{
+    if (client_.connected()) {
+        client_.loop();
+        state_ = MqttState::CONNECTED;
+        current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
+        return;
     }
 
-    void MqttManager::handleMqttConnectionSuccess()
-    {
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Connected to broker successfully.");
-        }
-        current_state = MqttState::CONNECTED;
-        current_reconnect_interval = 2000; // Reset backoff interval on success
+    state_ = MqttState::DISCONNECTED;
+    const unsigned long now = millis();
+    if (now - last_connect_attempt_ >= current_reconnect_backoff_) {
+        tryReconnect();
+    }
+}
 
-        // Subscribe to the incoming control setpoint commands
-        mqtt_manager.subscribe(resolved_topics.setpoint.c_str(), 1);
-        mqtt_manager.subscribe(resolved_topics.profile.c_str(), 1);
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.setpoint.c_str());
-            Serial.printf("[MQTT] Subscribed to topic: %s\n", resolved_topics.profile.c_str());
-        }
+void MqttManager::tryReconnect()
+{
+#ifndef UNIT_TEST
+    if (mutex_ != nullptr && xSemaphoreTake((SemaphoreHandle_t)mutex_, 0) != pdTRUE) {
+        return;
+    }
+#endif
+    last_connect_attempt_ = millis();
+    state_ = MqttState::CONNECTING;
+    if (!doConnect()) {
+        state_ = MqttState::DISCONNECTED;
+        current_reconnect_backoff_ = std::min(current_reconnect_backoff_ * 2,
+                                              MAX_RECONNECT_BACKOFF_MS);
+    }
+#ifndef UNIT_TEST
+    if (mutex_ != nullptr) {
+        xSemaphoreGive((SemaphoreHandle_t)mutex_);
+    }
+#endif
+}
 
-        // Publish online status
-        publishStatus(true);
+bool MqttManager::doConnect()
+{
+    const String lwt_topic = resolveLwtTopic();
+    const String lwt_payload = lwtPayloadOffline();
+    const bool connected = client_.connect(
+        device_id_.c_str(),
+        device_id_.c_str(),
+        config::network::MQTT_PASSWORD_VAL.c_str(),
+        lwt_topic.c_str(), MQTT_QOS, true, lwt_payload.c_str());
+    if (!connected) {
+        Serial.printf("[MQTT] Connect failed (state=%d).\n", client_.state());
+        return false;
     }
 
-    void MqttManager::handleMqttConnectionFailure()
-    {
-        const int mqtt_state = mqtt_manager.state();
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Connection to broker failed (state=%d). Will retry later.\n", mqtt_state);
+    state_ = MqttState::CONNECTED;
+    current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
+    subscribePerLifecycle();
+    publishStatus(true);
+    publishProvisioningAnnounce(); // best effort metadata; never gates active lifecycle
+    Serial.printf("[MQTT] Connected as %s (%s).\n", device_id_.c_str(),
+                  provisioned_ ? "ACTIVE" : "UNPROVISIONED");
+    return true;
+}
+
+void MqttManager::subscribePerLifecycle()
+{
+    const String command = tenant_ + "/esp32/" + device_id_ + "/down/command";
+    client_.subscribe(command.c_str(), MQTT_QOS);
+    if (!provisioned_) {
+        const String ack = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
+        has_provisioning_ack_subscribed_ = client_.subscribe(ack.c_str(), MQTT_QOS);
+    } else {
+        has_provisioning_ack_subscribed_ = false;
+    }
+}
+
+void MqttManager::unsubscribeProvisioning()
+{
+    if (!has_provisioning_ack_subscribed_) {
+        return;
+    }
+    const String ack = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
+    client_.unsubscribe(ack.c_str());
+    has_provisioning_ack_subscribed_ = false;
+}
+
+void MqttManager::onCallbackStatic(char* topic, uint8_t* payload, unsigned int length)
+{
+    MqttManager::getInstance().onCallback(topic, payload, length);
+}
+
+void MqttManager::onCallback(char* topic, uint8_t* payload, unsigned int length)
+{
+    MessageDispatcher::dispatch(topic, payload, length);
+}
+
+void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
+{
+    if (topic == nullptr || (payload == nullptr && length > 0) || length >= 768) {
+        return;
+    }
+    char safe_payload[768];
+    if (length > 0) {
+        memcpy(safe_payload, payload, length);
+    }
+    safe_payload[length] = '\0';
+
+    StaticJsonDocument<768> doc;
+    if (deserializeJson(doc, safe_payload)) {
+        Serial.printf("[MQTT] Rejected malformed JSON on %s.\n", topic);
+        return;
+    }
+    JsonObject root = doc.as<JsonObject>();
+    const String topic_text(topic);
+    if (topic_text.endsWith("/down/provisioning/ack")) {
+        if (!provisioned_) {
+            applyProvisioningAck(root);
         }
-        if (mqtt_state == 4)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] state=4 means MQTT_CONNECT_UNAUTHORIZED. Check EMQX credentials/token provisioning.");
-            }
-        }
-        current_state = MqttState::DISCONNECTED;
-        current_reconnect_interval = std::min(current_reconnect_interval * 2, 60000UL); // Double and limit to 60s
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Reconnect interval increased to %lu ms (exponential backoff).\n", current_reconnect_interval);
-        }
+        return;
+    }
+    if (topic_text.endsWith("/down/command")) {
+        dispatchCommand(root);
+    }
+}
+
+bool MqttManager::applyProvisioningAck(JsonObject root)
+{
+    const char* status = root["status"] | "";
+    const char* device_id = root["device_id"] | "";
+    if (!sameText(device_id, device_id_.c_str())) {
+        Serial.println("[MQTT] Ignored provisioning ACK for different device.");
+        return false;
+    }
+    if (!sameText(status, "ACCEPTED")) {
+        Serial.printf("[MQTT] Provisioning not accepted: %s. Retrying normally.\n", status);
+        return false;
     }
 
-    bool MqttManager::performMqttConnection()
-    {
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Attempting connection to MQTT broker...");
-        }
+    JsonObject assigned = root["assigned_config"].as<JsonObject>();
+    uint16_t interval = assigned["telemetry_interval_sec"] |
+                        config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+    uint8_t qos = assigned["reporting_qos"] | config::network::DEFAULT_REPORTING_QOS;
+    if (interval == 0) interval = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+    if (qos > 1) qos = config::network::DEFAULT_REPORTING_QOS;
 
-        String client_id = getEffectiveClientId();
-        if (!validateConnectionConfig(client_id))
-        {
-            return false;
-        }
+    if (!storage::StorageManager::get_instance().save_provisioning(interval, qos)) {
+        Serial.println("[MQTT] Provisioning accepted but NVS persistence failed; remaining unprovisioned.");
+        return false;
+    }
+    telemetry_interval_sec_ = interval;
+    reporting_qos_ = qos;
+    provisioned_ = true;
+    unsubscribeProvisioning();
+    Serial.printf("[MQTT] Provisioning activated (interval=%us qos=%u).\n",
+                  static_cast<unsigned>(interval), static_cast<unsigned>(qos));
+    return true;
+}
 
-        String lwt_topic;
-        String lwt_payload;
-        getLwtConfig(lwt_topic, lwt_payload);
+bool MqttManager::publishStatus(bool is_online)
+{
+    if (!client_.connected()) return false;
+    const String topic = resolveLwtTopic();
+    const String payload = is_online ? lwtPayloadOnline() : lwtPayloadOffline();
+    return client_.publish(topic.c_str(), reinterpret_cast<const uint8_t*>(payload.c_str()),
+                           payload.length(), true);
+}
 
-        // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
-        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s jwt_len=%d\n",
-                          cfg.getMqttBroker().c_str(),
-                          static_cast<unsigned>(cfg.getMqttPort()),
-                          cfg.getMqttUser().c_str(),
-                          client_id.c_str(),
-                          lwt_topic.c_str(),
-                          static_cast<int>(cfg.getJwtToken().length()));
-        }
+String MqttManager::resolveLwtTopic() const
+{
+    return tenant_ + "/esp32/" + device_id_ + "/status";
+}
 
-        bool connected = mqtt_manager.connect(
-            client_id.c_str(),
-            cfg.getMqttUser().c_str(),
-            cfg.getJwtToken().c_str(),
-            lwt_topic.c_str(),
-            1,    // QoS
-            true, // Retain
-            lwt_payload.c_str());
+String MqttManager::lwtPayloadOffline() const
+{
+    StaticJsonDocument<192> doc;
+    doc["device_id"] = device_id_;
+    doc["online"] = false;
+    doc["status"] = "OFFLINE_UNEXPECTED";
+    doc["last_seen_utc"] = nullptr;
+    doc["reason"] = "LWT_TRIGGERED";
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
 
-        if (connected)
-        {
-            handleMqttConnectionSuccess();
-        }
-        else
-        {
-            handleMqttConnectionFailure();
-        }
-        return connected;
+String MqttManager::lwtPayloadOnline() const
+{
+    StaticJsonDocument<192> doc;
+    doc["device_id"] = device_id_;
+    doc["online"] = true;
+    doc["status"] = "ONLINE";
+    doc["reason"] = "NORMAL_CONNECT";
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
+bool MqttManager::publishProvisioningAnnounce()
+{
+    if (!client_.connected()) return false;
+    StaticJsonDocument<512> doc;
+    doc["$schema"] = "https://iot.acme.com/schema/v1/provision-announce";
+    doc["device_id"] = device_id_;
+    doc["firmware_version"] = "3.0.0";
+    doc["hardware_revision"] = "ESP32-S3-N16R8";
+#ifndef UNIT_TEST
+    doc["mac_address"] = WiFi.macAddress();
+#else
+    doc["mac_address"] = "00:00:00:00:00:00";
+#endif
+    doc["chip_model"] = "ESP32-S3";
+    JsonArray capabilities = doc.createNestedArray("capabilities");
+    capabilities.add("temperature");
+    capabilities.add("humidity");
+    capabilities.add("relay_control");
+    doc["boot_reason"] = "BOOT";
+    doc["free_heap_bytes"] = freeHeapBytes();
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/provisioning/announce";
+    return client_.publish(topic.c_str(), payload.c_str());
+}
+
+bool MqttManager::publishTelemetry(const String& payload)
+{
+    if (!client_.connected() || !provisioned_ || payload.length() == 0) {
+        return false;
+    }
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/telemetry";
+    return client_.publish(topic.c_str(), payload.c_str());
+}
+
+void MqttManager::buildActuatorStates(JsonObject act_root) const
+{
+    // Existing control data has final edge state values; names follow fixed relay contract.
+    act_root["relay_1"] = "UNKNOWN";
+    act_root["relay_2"] = "UNKNOWN";
+    act_root["relay_3"] = "UNKNOWN";
+    act_root["relay_4"] = "UNKNOWN";
+}
+
+void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry)
+{
+    root["$schema"] = "https://iot.acme.com/schema/v1/telemetry";
+    root["device_id"] = device_id_;
+    root["sequence_number"] = ++sequence_number_;
+    root["uptime_sec"] = millis() / 1000UL;
+    JsonObject readings = root.createNestedObject("readings");
+    if (std::isnan(telemetry.temp_air)) readings["temperature_celsius"] = nullptr;
+    else readings["temperature_celsius"] = telemetry.temp_air;
+    if (std::isnan(telemetry.humidity_air)) readings["humidity_percent"] = nullptr;
+    else readings["humidity_percent"] = telemetry.humidity_air;
+#ifndef UNIT_TEST
+    readings["rssi_dbm"] = WiFi.RSSI();
+#else
+    readings["rssi_dbm"] = nullptr;
+#endif
+    JsonObject states = root.createNestedObject("actuator_states");
+    states["relay_1"] = boolState(telemetry.actuators.mist_active);
+    states["relay_2"] = boolState(telemetry.actuators.fan_active);
+    states["relay_3"] = boolState(telemetry.actuators.heater_water_active);
+    states["relay_4"] = boolState(telemetry.actuators.lamp_stage_active);
+    JsonObject metadata = root.createNestedObject("metadata");
+    metadata["free_heap_bytes"] = freeHeapBytes();
+    metadata["wifi_reconnect_count"] = 0;
+}
+
+void MqttManager::dispatchCommand(JsonObject root)
+{
+    const char* command_id_raw = root["command_id"] | "";
+    const char* requested_device = root["device_id"] | "";
+    String command_id(command_id_raw);
+    const unsigned long started_ms = millis();
+
+    if (!provisioned_) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", 0, nullptr, false,
+                          "NOT_PROVISIONED", "Device has not completed provisioning");
+        return;
+    }
+    if (!validUuid(command_id_raw)) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", 0, nullptr, false,
+                          "INVALID_COMMAND_ID", "command_id must be a UUID");
+        return;
+    }
+    if (!sameText(requested_device, device_id_.c_str())) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", 0, nullptr, false,
+                          "DEVICE_ID_MISMATCH", "Command targets another device");
+        return;
+    }
+    if (last_cmd_.active && sameText(last_cmd_.id, command_id_raw)) {
+        replayDuplicateAck(command_id_raw, millis() - started_ms);
+        return;
+    }
+    const char* action = root["action"] | "";
+    if (!sameText(action, "SET_RELAY")) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                          "INVALID_ACTION", "Only SET_RELAY is supported");
+        return;
     }
 
-    bool MqttManager::validateConnectionConfig(const String &client_id)
-    {
-        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
-        if (cfg.getJwtToken().length() == 0)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Missing provisioned MQTT PSK. MQTT connection aborted.");
-            }
-            current_state = MqttState::DISCONNECTED;
-            return false;
-        }
-
-        if (config::network::MQTT_USER_VAL != client_id)
-        {
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.println("[MQTT] Invalid identity: MQTT username must equal client/device ID.");
-            }
-            current_state = MqttState::ERROR_NO_CONFIG;
-            return false;
-        }
-        return true;
-    }
-
-    void MqttManager::getLwtConfig(String &lwt_topic, String &lwt_payload)
-    {
-        lwt_topic = resolved_topics.status;
-        lwt_payload = "{\"status\":\"offline\"}";
-    }
-
-    String MqttManager::getEffectiveClientId() const
-    {
-        String client_id = config::network::MQTT_CLIENT_ID_VAL;
-        if (client_id.length() == 0)
-        {
-            client_id = "esp32_mushroom_default";
-        }
-        return client_id;
-    }
-
-    void MqttManager::processActuatorOverrides(StaticJsonDocument<768> &doc)
-    {
-        storage::ActuatorOverrideSnapshot snapshot = {0, 0, 0, false};
-        storage::StorageManager::get_instance().load_actuator_override(snapshot);
-
-        if (doc.containsKey("mist_override"))
-        {
-            snapshot.mist_override = doc["mist_override"].as<int8_t>();
-        }
-        if (doc.containsKey("fan_override"))
-        {
-            snapshot.fan_override = doc["fan_override"].as<int8_t>();
-        }
-        if (doc.containsKey("heater_air_override"))
-        {
-            snapshot.heater_air_override = doc["heater_air_override"].as<int8_t>();
-        }
-
-        snapshot.active = (snapshot.mist_override != 0 ||
-                           snapshot.fan_override != 0 ||
-                           snapshot.heater_air_override != 0);
-
-        storage::StorageManager::get_instance().save_actuator_override(snapshot);
-
-        if (xActuatorOverrideQueue != nullptr)
-        {
-            ActuatorOverrideCommand cmd;
-            cmd.mist_override = snapshot.mist_override;
-            cmd.fan_override = snapshot.fan_override;
-            cmd.heater_air_override = snapshot.heater_air_override;
-            cmd.active = snapshot.active;
-
-            xQueueOverwrite(xActuatorOverrideQueue, &cmd);
-            {
-                ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[MQTT] Queued Actuator Overrides: Mist:%d, Fan:%d, HAir:%d, Active:%d\n",
-                              cmd.mist_override, cmd.fan_override, cmd.heater_air_override, cmd.active);
-            }
-        }
-    }
-
-    void MqttManager::processProfileMessage(StaticJsonDocument<768> &doc)
-    {
-        PersistedCropProfile profile{};
-        profile.magic = 0x43524F50; // 'C','R','O','P'
-        
-        profile.schema_version = doc["schema_version"] | doc["version"] | 1;
-        profile.crop_start_epoch_s = doc["crop_start_epoch_s"] | doc["cropStartEpochS"] | 0LL;
-        profile.total_crop_days = doc["total_crop_days"] | doc["totalCropDays"] | 0;
-        
-        JsonArray checkpoints = doc["checkpoints"];
-        profile.checkpoint_count = 0;
-        
-        if (!checkpoints.isNull())
-        {
-            for (JsonObject cp : checkpoints)
-            {
-                if (profile.checkpoint_count >= MAX_CROP_CHECKPOINTS)
-                {
-                    break;
-                }
-                
-                CropCheckpoint &checkpoint = profile.checkpoints[profile.checkpoint_count];
-                checkpoint.crop_day = cp["crop_day"] | cp["cropDay"] | cp["day"] | 0;
-                checkpoint.temp_target_c = cp["temp_target_c"] | cp["tempTargetC"] | cp["temp_target"] | cp["tempTarget"] | cp["temp"] | NAN;
-                checkpoint.humidity_target_rh = cp["humidity_target_rh"] | cp["humidityTargetRH"] | cp["humidity_target"] | cp["humidityTarget"] | cp["humidity"] | NAN;
-                
-                profile.checkpoint_count++;
-            }
-        }
-        
-        // Calculate CRC32 over the struct minus the crc32 field itself
-        profile.crc32 = storage::CropProfileStorage::calculateCRC32(
-            reinterpret_cast<const uint8_t*>(&profile), 
-            sizeof(PersistedCropProfile) - sizeof(uint32_t)
-        );
-        
-        // Validate profile
-        if (!storage::CropProfileValidator::validate(profile))
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Error: Invalid crop profile rejected.");
+    // Commands are only expiry-validated if the local clock is trusted.
+    const char* expires_at = root["expires_at_utc"] | "";
+    if (expires_at[0] != '\0') {
+        if (time_conf::getTimeConfidence() != TimeConfidence::Trusted) {
+            publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                              "CLOCK_UNTRUSTED", "Cannot validate expires_at_utc without a trusted clock");
             return;
         }
-        
-        // Persist to NVS
-        if (!storage::CropProfileStorage::getInstance().saveProfile(profile))
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Error: Failed to persist crop profile to NVS.");
+        // ISO-8601 parsing belongs to the time service; a trusted clock coupled with a
+        // non-empty timestamp is required. Reject malformed values rather than guessing.
+        if (strlen(expires_at) < 20) {
+            publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                              "INVALID_EXPIRY", "expires_at_utc must be ISO-8601 UTC");
             return;
         }
-        
-        {
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.println("[MQTT] Successfully persisted valid crop profile.");
-        }
-        
-        // Enqueue to Core 1 control loop
-        if (g_profile_update_queue != nullptr)
-        {
-            xQueueOverwrite(g_profile_update_queue, &profile);
-        }
+    }
+    executeRelayCommand(root["parameters"].as<JsonObject>(), command_id, 0);
+}
+
+void MqttManager::executeRelayCommand(JsonObject params, String command_id, uint32_t issue_epoch_s)
+{
+    (void)issue_epoch_s;
+    const unsigned long started_ms = millis();
+    const char* relay_id = params["relay_id"] | "";
+    const char* state = params["state"] | "";
+    const uint32_t duration = params["duration_sec"] | 0U;
+    uint8_t pin = 0;
+
+    if (!parseRelayId(relay_id, pin)) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                          "INVALID_RELAY", "relay_id must be relay_1 through relay_4");
+        return;
+    }
+    if (!sameText(state, "ON") && !sameText(state, "OFF")) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, relay_id, false,
+                          "INVALID_STATE", "state must be ON or OFF");
+        return;
+    }
+    if (duration != 0U) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, relay_id, false,
+                          "DURATION_UNSUPPORTED", "duration_sec must be 0");
+        return;
     }
 
-    unsigned long MqttManager::getReconnectInterval() const
-    {
-        return current_reconnect_interval;
+    const bool requested_on = sameText(state, "ON");
+    queueRelayToCore1(pin, requested_on);
+    const bool actual_on = readActualRelayState(pin);
+    const uint32_t latency_ms = millis() - started_ms;
+    if (actual_on != requested_on) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", latency_ms, relay_id, actual_on,
+                          "GPIO_FAULT", "Relay state did not match requested state");
+        return;
     }
+
+    recordProcessedCommand(command_id, latency_ms, relay_id, actual_on);
+    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", latency_ms, relay_id, actual_on,
+                      nullptr, nullptr);
+}
+
+void MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
+{
+    // Core 1 owns relay arbitration. Existing V3 scope exposes mist/fan/lamp
+    // through its manual request queue; water-heater has no manual channel yet.
+    ManualRequest request{};
+    bool supported = true;
+    if (pin == config::pins::PIN_RELAY_MIST) request.channel = AppChannel::MIST;
+    else if (pin == config::pins::PIN_RELAY_FAN) request.channel = AppChannel::FAN;
+    else if (pin == config::pins::PIN_RELAY_LAMP) request.channel = AppChannel::LAMP;
+    else if (pin == config::pins::PIN_RELAY_HWAT) request.channel = AppChannel::HWAT;
+    else supported = false;
+    if (!supported || g_mqtt_override_queue == nullptr) return;
+    request.intent = activate ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
+    request.request_ms = millis();
+    xQueueSend(g_mqtt_override_queue, &request, 0);
+}
+
+bool MqttManager::readActualRelayState(uint8_t pin)
+{
+    // Relays are active LOW. GPIO readback is only confirmation; Core 1 arbitration
+    // may still reject the queued manual request on a subsequent control tick.
+    return digitalRead(pin) == LOW;
+}
+
+void MqttManager::recordProcessedCommand(String command_id, uint32_t latency_ms,
+                                         const char* relay_id, bool relay_on)
+{
+    memset(&last_cmd_, 0, sizeof(last_cmd_));
+    strncpy(last_cmd_.id, command_id.c_str(), sizeof(last_cmd_.id) - 1);
+    strncpy(last_cmd_.relay_id, relay_id, sizeof(last_cmd_.relay_id) - 1);
+    last_cmd_.active = true;
+    last_cmd_.actual_state_bits = relay_on ? 1U : 0U;
+    (void)latency_ms;
+}
+
+void MqttManager::replayDuplicateAck(const char* command_id, uint32_t latency_ms)
+{
+    const bool on = (last_cmd_.actual_state_bits & 1U) != 0;
+    publishCommandAck(const_cast<char*>(command_id), "SUCCESS", latency_ms,
+                      last_cmd_.relay_id, on, nullptr, nullptr);
+}
+
+bool MqttManager::publishCommandAck(char* command_id, const char* status,
+                                    uint32_t latency_ms, const char* relay_id,
+                                    bool relay_on, const char* error_code,
+                                    const char* error_message)
+{
+    if (!client_.connected()) return false;
+    StaticJsonDocument<512> doc;
+    doc["$schema"] = "https://iot.acme.com/schema/v1/command-ack";
+    doc["command_id"] = command_id == nullptr ? "" : command_id;
+    doc["device_id"] = device_id_;
+    doc["status"] = status;
+    doc["latency_ms"] = latency_ms;
+    doc["executed_at_utc"] = nullptr;
+    doc["ack_timestamp_utc"] = nullptr;
+    if (error_code == nullptr) {
+        JsonObject result = doc.createNestedObject("result");
+        result["relay_id"] = relay_id;
+        result["actual_state"] = boolState(relay_on);
+        result["confirmation"] = "GPIO_READBACK";
+        doc["error"] = nullptr;
+    } else {
+        doc["result"] = nullptr;
+        JsonObject error = doc.createNestedObject("error");
+        error["code"] = error_code;
+        error["message"] = error_message == nullptr ? "Command failed" : error_message;
+        error["retry_eligible"] = false;
+    }
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/command/ack";
+    return client_.publish(topic.c_str(), payload.c_str());
+}
+
+bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms)
+{
+    if (!provisioned_ || !client_.connected()) {
+        return false;
+    }
+    const unsigned long interval_ms = static_cast<unsigned long>(telemetry_interval_sec_) * 1000UL;
+    if (last_telemetry_due_ != 0 && now_ms - last_telemetry_due_ < interval_ms) {
+        return false;
+    }
+
+    StaticJsonDocument<768> doc;
+    buildTelemetryPayload(doc.to<JsonObject>(), telemetry);
+    String payload;
+    serializeJson(doc, payload);
+    if (!publishTelemetry(payload)) {
+        return false; // explicitly no offline buffering
+    }
+    last_telemetry_due_ = now_ms;
+    return true;
+}
+
+void MqttManager::processNetworkMessage(const NetworkMessage& message)
+{
+    String topic;
+    if (message.type == CommandType::PROVISIONING_ACK) {
+        topic = tenant_ + "/esp32/" + device_id_ + "/down/provisioning/ack";
+    } else if (message.type == CommandType::DEVICE_COMMAND) {
+        topic = tenant_ + "/esp32/" + device_id_ + "/down/command";
+    } else {
+        return;
+    }
+    onMessage(const_cast<char*>(topic.c_str()),
+              reinterpret_cast<uint8_t*>(const_cast<char*>(message.payload)),
+              strlen(message.payload));
+}
+
+bool MqttManager::isConnected() { return client_.connected(); }
+MqttState MqttManager::getState() const { return state_; }
+uint16_t MqttManager::getTelemetryIntervalSec() const { return telemetry_interval_sec_; }
+const char* MqttManager::getTenant() const { return tenant_.c_str(); }
+const char* MqttManager::getDeviceId() const { return device_id_.c_str(); }
+uint8_t MqttManager::getReportingQos() const { return reporting_qos_; }
+
+String MqttManager::resolveClientId() const
+{
+    return config::network::MQTT_CLIENT_ID_VAL.length() > 0
+               ? config::network::MQTT_CLIENT_ID_VAL
+               : config::network::resolve_device_identity();
+}
 
 } // namespace mqtt

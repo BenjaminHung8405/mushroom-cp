@@ -1,236 +1,158 @@
 #pragma once
 
 #include <Arduino.h>
-
 #ifndef UNIT_TEST
 #include <WiFi.h>
-#include <PubSubClient.h>
 #endif
-
 #include <ArduinoJson.h>
-#include "core/storage.h"
+#include <PubSubClient.h>
+#include "config.h"
+#include "core/time_confidence.h"
 #include "core/models.h"
 #include "protocols/mqtt_callbacks.h"
 
-namespace mqtt
-{
-    /**
-     * @brief MQTT Client Connection and Configuration States.
-     */
-    enum class MqttState
-    {
-        IDLE,               ///< Initial state before setup
-        CONNECTING,         ///< Attempting to connect to the broker
-        CONNECTED,          ///< Connected successfully and subscribed to topics
-        DISCONNECTED,       ///< Disconnected from the broker
-        ERROR_NO_WIFI,      ///< Cannot connect because WiFi is offline/SoftAP active
-        ERROR_NO_CONFIG     ///< Invalid or missing MQTT configuration parameters
-    };
+namespace mqtt {
 
-    /**
-     * @brief Structure to group resolved MQTT topics clearly by function.
-     * Includes both outgoing (publish) and incoming (subscribe) topics.
-     */
-    struct MqttTopics
-    {
-        // --- Outgoing / Publish Topics ---
-        String status;      ///< Topic to publish online/offline status (retained LWT)
-        String telemetry;   ///< Topic to publish telemetry data (sensors & actuator states)
-        String manual_ack;  ///< Topic to publish manual control feedback/ack (retained)
-        
-        // --- Incoming / Subscribe Topics ---
-        String setpoint;    ///< Topic to subscribe for incoming control setpoint commands
-        String profile;     ///< Topic to subscribe for crop profile synchronization
-    };
+enum class MqttState : uint8_t {
+    IDLE,             // before init
+    CONNECTING,       // in progress of connect attempt
+    CONNECTED,        // broker connected, subscribed per lifecycle
+    DISCONNECTED,     // lost or failed last attempt; will retry
+    ERROR_NO_WIFI,    // WiFi not ready — reconnect deferred
+    ERROR_NO_CONFIG   // missing broker/user/clientId
+};
 
-    /**
-     * @brief MQTT Client manager implemented as a Singleton.
-     * Manages connection state, reconnect timers, subscription, and message parsing.
-     */
-    class MqttManager
-    {
-    public:
-        /**
-         * @brief Access the Singleton instance of the MQTT client.
-         */
-        static MqttManager& getInstance();
+/**
+ * Fixed-length storage for one last processed command UUID + cached ACK result.
+ * RFC-4122 UUID = 36 hex chars + '\0' = 37 bytes.  ACK fields are compact PODs.
+ */
+struct LastCommandSlot {
+    char id[37];                // current command_id (hex string)
+    char relay_id[10];          // set on SUCCESS so duplicate can reply same actual_state
+    bool active;                // true after a non-rejected execution
+    uint32_t actual_state_bits; // bit 0=mist ON, bit 1=fan ON, ...
+} __attribute__((aligned(4)));
 
-        // Prevent copying and assignment
-        MqttManager(const MqttManager&) = delete;
-        MqttManager& operator=(const MqttManager&) = delete;
+class MqttManager {
+public:
+    static MqttManager& getInstance();
 
-        /**
-         * @brief Initialize the MQTT client setup.
-         * Resolves the topic names, sets up the server credentials, and hooks callback function.
-         * @return true if initialization succeeded, false if NVS config is missing.
-         */
-        bool init();
+    MqttManager(const MqttManager&) = delete;
+    MqttManager& operator=(const MqttManager&) = delete;
 
-        /**
-         * @brief Non-blocking loop method to maintain connection and handle packet processing.
-         * Should be called periodically in the main loop of Core 0 Task.
-         */
-        void loop();
+    /** Initialise client, resolve topics, set callback & LWT. */
+    bool init();
 
-        /**
-         * @brief Publishes telemetry data to the resolved telemetry topic.
-         * @param payload JSON formatted telemetry payload string.
-         * @return true if publish request was sent to client buffer.
-         */
-        bool publishTelemetry(const String& payload);
+    /** Non-blocking loop invoked from Core 0 communication task. */
+    void loop();
 
-        /**
-         * @brief Publishes online/offline status to the resolved status topic.
-         * @param is_online true for "online" state, false for "offline" state.
-         * @return true if publication succeeded.
-         */
-        bool publishStatus(bool is_online);
+    /* ---- Published payloads ---- */
 
-        /**
-         * @brief Publishes manual ack payload to the resolved manual_ack topic.
-         * @param ack ManualAck structure to publish.
-         * @return true if publication succeeded.
-         */
-        bool publishManualAck(const ManualAck& ack);
+    /** Set online/offline on the /status topic. */
+    bool publishStatus(bool is_online);
 
-        /**
-         * @brief Checks if the client is currently connected to the broker.
-         */
-        bool isConnected();
+    /** Publish a fully formed telemetry v1 payload (non-retained). */
+    bool publishTelemetry(const String& payload);
 
-        /**
-         * @brief Process a routed network message asynchronously on a background worker task.
-         */
-        void processNetworkMessage(const NetworkMessage& msg);
+    /** Build and publish a full telemetry v1 snapshot when its persisted interval is due. */
+    bool publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms);
 
-        /**
-         * @brief Gets the current client state.
-         */
-        MqttState getState() const;
+    /** Command acknowledgement QoS 1 (non-retained). */
+    bool publishCommandAck(char* command_id, const char* status,
+                           uint32_t latency_ms, const char* relay_id,
+                           bool relay_on, const char* error_code,
+                           const char* error_message);
 
-        /**
-         * @brief Returns the resolved topics struct containing runtime topic names.
-         */
-        const MqttTopics& getResolvedTopics() const;
+    /** Provisioning announce QoS 1 (non-retained). Called by handleConnectionSuccess(). */
+    bool publishProvisioningAnnounce();
 
-        /**
-         * @brief Returns the current reconnect interval (for unit testing backoff).
-         */
-        unsigned long getReconnectInterval() const;
+    /** Called by the worker task for a deferred MQTT callback message. */
+    void processNetworkMessage(const NetworkMessage& message);
 
-    private:
-        MqttManager() = default;
-        ~MqttManager() = default;
+    /* ---- State accessors ---- */
+    bool isConnected();
+    MqttState getState() const;
+    uint16_t getTelemetryIntervalSec() const;
+    const char* getTenant() const;
+    const char* getDeviceId() const;
+    uint8_t getReportingQos() const;
 
-        /**
-         * @brief Static wrapper callback hook registered into PubSubClient.
-         */
-        static void mqttCallbackStatic(char* topic, uint8_t* payload, unsigned int length);
+private:
+    MqttManager();
+    ~MqttManager() = default;
 
-        /**
-         * @brief Static callback hook that handles incoming MQTT messages.
-         */
-        static void handleMQTTCallback(char* topic, uint8_t* payload, unsigned int length);
+    // Connection helpers
+    bool validateConfig() const;
+    void configurePubSubClient(const String& client_id);
+    bool checkWifiReady() const;
+    void maintainLoop();
+    void tryReconnect();
+    bool doConnect();
 
-        /**
-         * @brief Internal message handler to process incoming payloads on subscribed topics.
-         */
-        void handleMessage(char* topic, uint8_t* payload, unsigned int length);
+    // Callbacks
+    static void onCallbackStatic(char* topic, uint8_t* payload, unsigned int length);
+    void onCallback(char* topic, uint8_t* payload, unsigned int length);
 
-        /**
-         * @brief Internal helper to process setpoint JSON fields.
-         */
-        void processSetpoints(StaticJsonDocument<768>& doc);
+    // Message pipeline
+    void onMessage(char* topic, uint8_t* payload, unsigned int length);
 
-        /**
-         * @brief Internal helper to process actuator override JSON fields.
-         */
-        void processActuatorOverrides(StaticJsonDocument<768>& doc);
+    // Provisioning
+    bool applyProvisioningAck(JsonObject root);
 
-        /**
-         * @brief Internal helper to process crop profile JSON fields.
-         */
-        void processProfileMessage(StaticJsonDocument<768>& doc);
+    // Telemetry builder
+    void buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry);
+    void buildActuatorStates(JsonObject act_root) const;
 
-        /**
-         * @brief Internal helper to validate a single setpoint value.
-         */
-        bool validateSingleSetpoint(const char* name, float val, float min_val, float max_val);
+    // Command dispatcher
+    void dispatchCommand(JsonObject root);
+    void executeRelayCommand(JsonObject params, String command_id,
+                             uint32_t issue_epoch_s);
+    void queueRelayToCore1(uint8_t pin, bool activate);
+    bool readActualRelayState(uint8_t pin);
+    void recordProcessedCommand(String command_id, uint32_t latency_ms,
+                                const char* relay_id, bool relay_on);
+    void replayDuplicateAck(const char* command_id, uint32_t latency_ms);
 
-        /**
-         * @brief Internal helper to parse and validate JSON payload.
-         */
-        bool parseJsonPayload(uint8_t* payload, unsigned int length, StaticJsonDocument<768>& doc);
+    // Helpers
+    String resolveClientId() const;
+    String resolveLwtTopic() const;
+    String lwtPayloadOffline() const;
+    String lwtPayloadOnline() const;
+    void subscribePerLifecycle();
+    void unsubscribeProvisioning();
 
-        /**
-         * @brief Internal helper to handle MQTT control commands.
-         */
-        bool handleMqttCommand(StaticJsonDocument<768>& doc);
-
-        /**
-         * @brief Internal helper to validate MQTT credentials before connecting.
-         */
-        bool validateConnectionConfig(const String& client_id);
-
-        /**
-         * @brief Internal helper to retrieve Last Will and Testament configuration.
-         */
-        void getLwtConfig(String& lwt_topic, String& lwt_payload);
-
-        /**
-         * @brief Non-blocking reconnect strategy method.
-         */
-        void reconnectMqtt();
-
-        /**
-         * @brief Internal helper to execute the connection to the MQTT broker.
-         */
-        bool performMqttConnection();
-
-        /**
-         * @brief Internal helper to check WiFi state for MQTT.
-         */
-        bool checkWifiForMqtt();
-
-        /**
-         * @brief Internal helper to maintain MQTT connection.
-         */
-        void maintainMqttConnection();
-
-        /**
-         * @brief Get effective Client ID, returning default if empty.
-         */
-        String getEffectiveClientId() const;
-
-        // --- Private helpers to decompose long methods (<50 lines) ---
-        void configurePubSubClient(const String& client_id);
-        void initializeMutex();
-        bool validateIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length);
-        void routeSetpointMessage(StaticJsonDocument<768>& doc, bool is_command);
-        void parseAndPersistBaseline(StaticJsonDocument<768>& doc);
-        bool validateSetpointPayload(StaticJsonDocument<768>& doc, float& val_temp, float& val_humi, float& val_co2);
-        void queueBaselineCommand(const storage::BackendSetpointSnapshot& snapshot);
-        void handleMqttConnectionSuccess();
-        void handleMqttConnectionFailure();
-
-        // Network clients
+    // State
 #ifndef UNIT_TEST
-        WiFiClient wifi_client;
-        PubSubClient mqtt_manager{wifi_client};
+    WiFiClient wifi_client_;
+    PubSubClient client_{wifi_client_};
 #else
-        // Mock variables for offline tests
-        WiFiClient wifi_client;
-        PubSubClient mqtt_manager;
+    WiFiClient wifi_client_;
+    PubSubClient client_;
 #endif
 
-        MqttState current_state = MqttState::IDLE;
-        MqttTopics resolved_topics;
-        unsigned long last_reconnect_attempt = 0;
-        unsigned long current_reconnect_interval = 2000; ///< Current backoff reconnect interval in ms
-        bool is_reconnecting = false;
+    MqttState state_ = MqttState::IDLE;
+    String tenant_;
+    String device_id_;
+
+    uint16_t telemetry_interval_sec_ = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+    uint8_t reporting_qos_ = config::network::DEFAULT_REPORTING_QOS;
+
+    // Lifecycle state persisted across reconnects
+    bool provisioned_ = false;
+    unsigned long sequence_number_ = 0;
+    bool has_provisioning_ack_subscribed_ = false;
+
+    // Dedup cache
+    LastCommandSlot last_cmd_{};
+
+    // Timers
+    unsigned long last_connect_attempt_ = 0;
+    unsigned long current_reconnect_backoff_ = 2000;
+    unsigned long last_telemetry_due_ = 0;
+
 #ifndef UNIT_TEST
-        void* mqtt_mutex = nullptr;
+    void* mutex_ = nullptr;
 #endif
-    };
+};
 
 } // namespace mqtt

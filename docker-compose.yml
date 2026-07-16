@@ -26,70 +26,29 @@ services:
     # from within the mushroom-network Docker bridge network.
 
   # ==========================================
-  # 2. MQTT BROKER: EMQX (Secured)
+  # 2. MQTT BROKER: Mosquitto (password + ACL)
   # ==========================================
   mushroom-mqtt:
-    image: emqx/emqx:5.3.0
+    image: eclipse-mosquitto:2.0.20
     container_name: mushroom_mqtt
     restart: always
     env_file:
       - .env
     ports:
-      - "${MQTT_TCP_PORT:-18883}:1883"         # MQTT for ESP32-S3 devices (host-exposed)
-      - "${EMQX_DASHBOARD_PORT:-18083}:18083"   # EMQX Web Dashboard (restrict in production)
-    environment:
-      # Node configuration (required for EMQX 5.x) - use double underscores
-      - "EMQX_NODE__NAME=emqx@127.0.0.1"
-      - "EMQX_NODE__COOKIE=emqx_secret_cookie"
-      - "EMQX_NODE__DATA_DIR=/opt/emqx/data"
-      # Disable cluster
-      - "EMQX_CLUSTER__DISCOVERY_STRATEGY=manual"
+      - "${MQTT_TCP_PORT:-18883}:1883"
     volumes:
-      - ${DATA_PATH:-./data}/mushroom_emqx_data:/opt/emqx/data
-      - ${DATA_PATH:-./data}/mushroom_emqx_log:/opt/emqx/log
-      # Mount our custom security configuration files (read-only)
-      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/config/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
+      - ./mosquitto/docker-entrypoint.sh:/usr/local/bin/mushroom-mosquitto-entrypoint:ro
+      - ${DATA_PATH:-./data}/mushroom_mosquitto_data:/mosquitto/data
+      - ${DATA_PATH:-./data}/mushroom_mosquitto_log:/mosquitto/log
+    entrypoint: ["/usr/local/bin/mushroom-mosquitto-entrypoint"]
     healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $$MQTT_BACKEND_USER -P $$MQTT_BACKEND_PASS -t '$$SYS/broker/version' -C 1 -W 5 >/dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 10
-      start_period: 60s
-    networks:
-      - mushroom-network
-
-  # ==========================================
-  # 3. EMQX USER INITIALIZER (One-shot sidecar)
-  #
-  # This container runs ONCE at startup to bootstrap MQTT user accounts
-  # in EMQX's built-in database via the REST API.
-  # It exits automatically after completion.
-  # Credentials come from .env, never from docker-compose.yml.
-  # ==========================================
-  init-mqtt:
-    image: alpine:latest
-    container_name: mushroom_mqtt_init
-    # on-failure: retry if script exits with error code, but stop after success (exit 0)
-    restart: "on-failure"
-    depends_on:
-      mushroom-mqtt:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      - EMQX_HOST=mushroom-mqtt
-      - EMQX_ADMIN_USER=${EMQX_ADMIN_USER:-admin}
-      - EMQX_ADMIN_PASS=${EMQX_ADMIN_PASS:-admin_mushroom_2026}
-      - MQTT_BACKEND_USER=${MQTT_BACKEND_USER:-nestjs_backend}
-      - MQTT_BACKEND_PASS=${MQTT_BACKEND_PASS:-changeme_backend_pass}
-      - MQTT_ESP32_USER=${MQTT_ESP32_USER:-esp32_mushroom_s3_01}
-      - MQTT_ESP32_PASS=${MQTT_ESP32_PASS:-changeme_esp32_pass}
-    volumes:
-      - ./emqx/init-users.sh:/init-users.sh:ro
-    # Install curl then run the initialization script
-    command: >
-      sh -c "apk add --no-cache curl && sh /init-users.sh"
+      start_period: 10s
     networks:
       - mushroom-network
 
@@ -120,8 +79,6 @@ services:
         condition: service_healthy
       mushroom-mqtt:
         condition: service_healthy
-      init-mqtt:
-        condition: service_completed_successfully
     networks:
       - mushroom-network
     volumes:

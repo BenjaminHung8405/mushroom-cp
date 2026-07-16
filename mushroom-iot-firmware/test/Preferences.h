@@ -99,6 +99,42 @@ public:
         return 0;
     }
 
+    size_t putBool(const char* key, bool value) {
+        if (!_opened || _read_only) return 0;
+        _global_storage[_current_namespace][key] = value ? "1" : "0";
+        return 1;
+    }
+
+    bool getBool(const char* key, bool defaultValue = false) {
+        if (!_opened) return defaultValue;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                return key_it->second == "1";
+            }
+        }
+        return defaultValue;
+    }
+
+    size_t putUChar(const char* key, uint8_t value) {
+        if (!_opened || _read_only) return 0;
+        _global_storage[_current_namespace][key] = std::to_string(value);
+        return sizeof(value);
+    }
+
+    uint8_t getUChar(const char* key, uint8_t defaultValue = 0) {
+        if (!_opened) return defaultValue;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                try { return static_cast<uint8_t>(std::stoul(key_it->second)); } catch (...) {}
+            }
+        }
+        return defaultValue;
+    }
+
     bool remove(const char* key) {
         if (!_opened || _read_only) return false;
         auto ns_it = _global_storage.find(_current_namespace);

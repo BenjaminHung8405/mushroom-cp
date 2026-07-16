@@ -11,7 +11,6 @@
 
 #ifndef UNIT_TEST
 #include <DNSServer.h>
-#include <HTTPClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -31,12 +30,10 @@ namespace wifi
     static void stop_captive_portal_server();
 #endif
     static bool start_softap(bool allow_sta_reconnect = false);
-    static bool fetch_auth_token();
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
     static unsigned long last_reconnect_attempt = 0;
-    static unsigned long last_auth_attempt = 0;
     static int reconnect_attempts = 0;
     static unsigned long softap_start_time = 0;
     static unsigned long softap_last_activity_ms = 0;
@@ -51,8 +48,6 @@ namespace wifi
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
     constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
-    constexpr unsigned long AUTH_RETRY_INTERVAL_MS = 30000;     // 30 giây, retry backend token without dropping WiFi
-    constexpr unsigned long AUTH_HTTP_TIMEOUT_MS = 3000;        // 3 giây (giảm từ 10s)
     constexpr int MAX_RECONNECT_ATTEMPTS = 3;
     // Idle timeout for SoftAP. Reset whenever user opens / interacts with portal.
     constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 900000; // 15 phút idle
@@ -94,25 +89,6 @@ namespace wifi
             {
                 xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
                 xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
-#ifndef UNIT_TEST
-                const BaseType_t task_created = xTaskCreatePinnedToCore(
-                    [](void *pvParameters) {
-                        esp_task_wdt_add(nullptr);
-                        fetch_auth_token();
-                        esp_task_wdt_delete(nullptr);
-                        vTaskDelete(NULL);
-                    },
-                    "fetch_auth_task",
-                    10240,
-                    NULL,
-                    1,
-                    NULL,
-                    0);
-                if (task_created != pdPASS)
-                {
-                    Serial.println("[AUTH] Failed to create token-fetch task.");
-                }
-#endif
             }
             else if (new_state == WifiState::SOFTAP_ACTIVE)
             {
@@ -196,118 +172,6 @@ namespace wifi
         }
     }
 
-    /**
-     * @brief Fetch JWT auth token from the NestJS backend after WiFi connects.
-     * Stores the token in config::network::AUTH_JWT_TOKEN (RAM only).
-     * In UNIT_TEST builds, always succeeds with a mock token.
-     */
-    static bool fetch_auth_token()
-    {
-#ifdef UNIT_TEST
-        // Unit-test stub: inject a mock JWT so MQTT can proceed without HTTP.
-        if (storage::ConfigManager::getInstance().getJwtToken().length() == 0)
-        {
-            storage::ConfigManager::getInstance().setJwtToken("mock_jwt_token_for_unit_test");
-        }
-        Serial.println("[AUTH] UNIT_TEST stub: mock JWT injected.");
-        return true;
-#else
-        if (storage::ConfigManager::getInstance().getBackendUrl().length() == 0)
-        {
-            Serial.println("[AUTH] Backend API URL is empty. Cannot fetch token.");
-            return false;
-        }
-
-        // Build URL: strip trailing slash if present, then append /api/v1/auth/device-token
-        String base = storage::ConfigManager::getInstance().getBackendUrl();
-        if (base.endsWith("/"))
-        {
-            base.remove(base.length() - 1);
-        }
-        String url = base + "/api/v1/auth/device-token";
-
-        String device_id = storage::ConfigManager::getInstance().getDeviceId();
-        Serial.printf("[AUTH] Requesting JWT from: %s (X-Device-Id: %s)\n", url.c_str(), device_id.c_str());
-
-        WiFiClientSecure secure_client;
-        secure_client.setInsecure(); // Bypass certificate verification
-
-        HTTPClient http;
-        http.setTimeout(AUTH_HTTP_TIMEOUT_MS);
-
-        if (!http.begin(secure_client, url))
-        {
-            Serial.println("[AUTH] ERROR: http.begin() failed. Check network, endpoint, or SSL config.");
-            return false;
-        }
-
-        // Send X-Device-Id in header to identify the device
-        http.addHeader("X-Device-Id", device_id);
-
-#ifndef UNIT_TEST
-        vTaskDelay(pdMS_TO_TICKS(10));
-        esp_task_wdt_reset();
-#endif
-
-        int status = http.GET();
-
-#ifndef UNIT_TEST
-        vTaskDelay(pdMS_TO_TICKS(10));
-        esp_task_wdt_reset();
-#endif
-
-        if (status <= 0)
-        {
-            Serial.printf("[AUTH] ERROR: Connection failed. HTTP client error code: %d (e.g. timeout or connection refused)\n", status);
-            http.end();
-            return false;
-        }
-
-        if (status != 200)
-        {
-            String err_response = http.getString();
-            Serial.printf("[AUTH] ERROR: Token request failed. HTTP status: %d | Response: %s\n", status, err_response.c_str());
-            http.end();
-            return false;
-        }
-
-        String response = http.getString();
-        http.end(); // Clean up HTTP client resources
-
-        StaticJsonDocument<768> doc;
-        DeserializationError err = deserializeJson(doc, response);
-        if (err)
-        {
-            Serial.printf("[AUTH] ERROR: Failed to parse token JSON: %s | Raw response: %s\n", err.c_str(), response.c_str());
-            return false;
-        }
-
-        // Accept common JWT response field names
-        const char *token = nullptr;
-        if (doc.containsKey("token"))
-            token = doc["token"];
-        else if (doc.containsKey("accessToken"))
-            token = doc["accessToken"];
-        else if (doc.containsKey("access_token"))
-            token = doc["access_token"];
-
-        if (token == nullptr || strlen(token) == 0)
-        {
-            Serial.println("[AUTH] ERROR: Token response missing token field or empty.");
-            return false;
-        }
-
-        storage::ConfigManager::getInstance().setJwtToken(token);
-        
-        // Print token snippet for debugging
-        String token_str(token);
-        String redact_token = token_str.length() > 15 ? token_str.substring(0, 10) + "..." : "[ShortToken]";
-        Serial.printf("[AUTH] JWT token acquired successfully! Length: %d | Snippet: %s\n", 
-                      (int)token_str.length(), redact_token.c_str());
-        return true;
-#endif
-    }
-
 #ifndef UNIT_TEST
     // ---------------------------------------------------------------------------
     // Captive portal UI
@@ -380,7 +244,6 @@ namespace wifi
         String html = captive_html;
         html.replace("%SSID%", cfg.getWifiSSID());
         html.replace("%PASS%", cfg.getWifiPass());
-        html.replace("%BACKEND_URL%", cfg.getBackendUrl());
         html.replace("%MQTT_BROKER%", cfg.getMqttBroker());
         html.replace("%MQTT_PORT%", String(cfg.getMqttPort()));
         html.replace("%MQTT_USER%", cfg.getMqttUser());
@@ -515,8 +378,6 @@ namespace wifi
         String ssid = webServer.arg("ssid");
         ssid.trim();
         String pass = webServer.arg("pass");
-        String backend_url = webServer.arg("backend_url");
-        backend_url.trim();
         String broker = webServer.arg("mqtt_broker");
         broker.trim();
         String port_raw = webServer.arg("mqtt_port");
@@ -525,10 +386,9 @@ namespace wifi
         user.trim();
         String mpass = webServer.arg("mqtt_pass");
 
-        Serial.printf("[WIFI] Portal save request: ssid='%s' pass_len=%u backend='%s' broker='%s' port='%s'\n",
+        Serial.printf("[WIFI] Portal save request: ssid='%s' pass_len=%u broker='%s' port='%s'\n",
                       ssid.c_str(),
                       static_cast<unsigned>(pass.length()),
-                      backend_url.c_str(),
                       broker.c_str(),
                       port_raw.c_str());
 
@@ -557,12 +417,6 @@ namespace wifi
         }
 
         // Fill advanced defaults if user left them blank (collapsed details).
-        if (backend_url.length() == 0)
-        {
-            backend_url = config::network::BACKEND_API_URL.length()
-                              ? config::network::BACKEND_API_URL
-                              : String(config::network::DEFAULT_BACKEND_URL);
-        }
         if (broker.length() == 0)
         {
             broker = config::network::MQTT_BROKER_VAL.length()
@@ -575,14 +429,6 @@ namespace wifi
             parsed_port = config::network::DEFAULT_MQTT_PORT;
         }
         uint16_t port = static_cast<uint16_t>(parsed_port);
-        // Leave mqtt_user blank — resolve_device_identity() forces username=deviceId.
-        // The portal field is kept for display only; the actual MQTT connection uses deviceId.
-        if (user.length() == 0)
-        {
-            user = config::network::MQTT_USER_VAL.length()
-                       ? config::network::MQTT_USER_VAL
-                       : String("");
-        }
         if (mpass.length() == 0)
         {
             mpass = config::network::MQTT_PASSWORD_VAL.length()
@@ -590,7 +436,7 @@ namespace wifi
                         : String(config::network::DEFAULT_MQTT_PASS);
         }
 
-        bool saved = storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, backend_url, broker, port, user, mpass);
+        bool saved = storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, broker, port, mpass);
         if (!saved)
         {
             send_json(500, "{\"ok\":false,\"error\":\"Loi luu cau hinh vao NVS\"}");
@@ -718,7 +564,6 @@ namespace wifi
             WiFi.setAutoReconnect(false);
             WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
-            last_auth_attempt = 0;
             set_state(WifiState::STA_CONNECTING);
         }
         else
@@ -859,8 +704,7 @@ namespace wifi
                 softap_auto_reconnect = false;
                 softap_forced = false;
                 reconnect_attempts = 0;
-                last_auth_attempt = 0;
-                set_state(WifiState::STA_CONNECTED);
+                    set_state(WifiState::STA_CONNECTED);
                 break;
             }
 
@@ -928,7 +772,6 @@ namespace wifi
         // Gọi WiFi.begin để tái kết nối
         WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
         connection_start_time = millis();
-        last_auth_attempt = 0;
         set_state(WifiState::STA_CONNECTING);
     }
 

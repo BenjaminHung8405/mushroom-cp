@@ -48,44 +48,10 @@ static void processWebServer()
 
 void processTelemetryPublication(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
 {
-    mqtt::MqttManager& mqtt_manager = mqtt::MqttManager::getInstance();
-    if (mqtt_manager.isConnected())
-    {
-        const bool consumed_force = consumeSharedForceFullPublish();
-        if (consumed_force)
-        {
-            telemetryState.forceFullPublish = true;
-        }
-
-        const Telemetry::PublishType pubType =
-            Telemetry::evaluateDeltaThresholds(last_known_telemetry, telemetryState, now);
-
-        if (pubType != Telemetry::PublishType::NONE)
-        {
-            bool success = false;
-            String json_payload = Telemetry::buildDeltaPayload(last_known_telemetry, telemetryState.lastPubState, pubType);
-
-            if (json_payload.length() > 0)
-            {
-                if (mqtt_manager.publishTelemetry(json_payload))
-                {
-                    Telemetry::commitSuccessfulPublish(
-                        telemetryState, last_known_telemetry, now);
-                    success = true;
-                }
-                else
-                {
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.println("[CORE0_TASK] WARNING: Failed to publish delta telemetry.");
-                }
-            }
-
-            if (!success && consumed_force)
-            {
-                setSharedForceFullPublish(true);
-            }
-        }
-    }
+    (void)telemetryState;
+    // V3: always publish full snapshots at the persisted provisioning interval.
+    // Failed publishes are intentionally discarded; the next interval publishes current state.
+    mqtt::MqttManager::getInstance().publishTelemetrySnapshot(last_known_telemetry, now);
 }
 
 static void handleTelemetryScan(unsigned long now, const TelemetryData& last_known_telemetry, Telemetry::TelemetryState& telemetryState)
@@ -224,8 +190,6 @@ void taskCore0Communication(void* /*pvParameters*/)
                                   static_cast<int>(ack.decision),
                                   static_cast<int>(ack.release_reason));
                 }
-                mqtt::MqttManager::getInstance().publishManualAck(ack);
-
                 // If latch was auto-released (TTL expire or safety gate), reset the button
                 // toggle state so the next physical press sends FORCE_ON again.
                 if (ack.release_reason != ManualReleaseReason::None) {
@@ -237,15 +201,6 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 5. Telemetry publication scan
         unsigned long now = millis();
         handleTelemetryScan(now, last_known_telemetry, telemetryState);
-
-        // 5.5. Check for pending OTA update trigger
-        {
-            String ota_url;
-            if (ota::check_ota_trigger(ota_url))
-            {
-                ota::perform_ota_update(ota_url);
-            }
-        }
 
         // 6. Monitor Stack High Water Mark
         logStackWatermark(now);

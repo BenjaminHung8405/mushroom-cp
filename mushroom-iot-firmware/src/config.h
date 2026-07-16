@@ -46,12 +46,14 @@ namespace config
 
         // Injected at build time from the repository's shared .env file.
         // This keeps firmware and the web client on the same public API origin.
-#if !defined(DEFAULT_BACKEND_API_URL) || !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE)
-#error "Firmware network defaults must be provided by the PlatformIO environment script"
+#if !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE) || !defined(IOT_TENANT)
+#error "Firmware MQTT defaults and deployment tenant must be provided by the PlatformIO environment script"
 #endif
-        constexpr const char *DEFAULT_BACKEND_URL = DEFAULT_BACKEND_API_URL;
         constexpr const char *DEFAULT_MQTT_BROKER = DEFAULT_MQTT_BROKER_URL;
         constexpr uint16_t DEFAULT_MQTT_PORT = DEFAULT_MQTT_PORT_VALUE;
+        constexpr const char *TENANT = IOT_TENANT;
+        constexpr uint16_t DEFAULT_TELEMETRY_INTERVAL_SEC = 30;
+        constexpr uint8_t DEFAULT_REPORTING_QOS = 1;
         constexpr const char *DEFAULT_MQTT_PASS = "";
 
         // NVS Storage namespace and keys (Preference keys must be <= 15 chars)
@@ -63,7 +65,9 @@ namespace config
         constexpr const char *KEY_MQTT_USER = "mqtt_user";
         constexpr const char *KEY_MQTT_PASS = "mqtt_pass";
         constexpr const char *KEY_DEVICE_ID = "device_id";
-        constexpr const char *KEY_BACKEND_URL = "backend_url";
+        constexpr const char *KEY_PROVISIONED = "provisioned";
+        constexpr const char *KEY_TELEMETRY_INT = "tel_interval";
+        constexpr const char *KEY_REPORTING_QOS = "report_qos";
         constexpr const char *KEY_LAST_SP = "last_sp";
         constexpr const char *KEY_HW_OVR = "hw_ovr";
         constexpr const char *KEY_ACT_OVR = "act_ovr";
@@ -82,10 +86,6 @@ namespace config
         extern String MQTT_PASSWORD_VAL;
 
         String resolve_device_identity();
-
-        // Backend API URL (persisted in NVS) and runtime JWT token (RAM only)
-        extern String BACKEND_API_URL;
-        extern String AUTH_JWT_TOKEN;
 
         /**
          * @brief Nạp các cấu hình động (WiFi STA và MQTT) từ NVS Flash.

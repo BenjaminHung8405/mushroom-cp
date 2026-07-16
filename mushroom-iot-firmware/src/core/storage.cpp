@@ -210,76 +210,88 @@ namespace storage
         return res1 || res2 || res3 || res4;
     }
 
-    bool StorageManager::save_backend_config(const String &backend_url)
+    bool StorageManager::save_provisioning(uint16_t telemetry_interval_sec, uint8_t reporting_qos)
     {
+        if (telemetry_interval_sec == 0)
+        {
+            telemetry_interval_sec = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+        }
+        if (reporting_qos > 1)
+        {
+            reporting_qos = config::network::DEFAULT_REPORTING_QOS;
+        }
+
         Preferences prefs;
         if (!prefs.begin(config::network::NVS_NAMESPACE, false))
         {
-            Serial.println("[STORAGE] Error: Failed to open NVS for writing Backend API URL.");
+            Serial.println("[STORAGE] Error: Failed to open NVS for provisioning write.");
             return false;
         }
 
-        size_t url_bytes = prefs.putString(config::network::KEY_BACKEND_URL, backend_url);
+        const size_t activated = prefs.putBool(config::network::KEY_PROVISIONED, true);
+        const size_t interval = prefs.putUShort(config::network::KEY_TELEMETRY_INT, telemetry_interval_sec);
+        const size_t qos = prefs.putUChar(config::network::KEY_REPORTING_QOS, reporting_qos);
         prefs.end();
 
-        if (url_bytes > 0)
-        {
-            Serial.printf("[STORAGE] Saved Backend API URL successfully: %s\n", backend_url.c_str());
-            return true;
-        }
-
-        Serial.println("[STORAGE] Error: Failed to save Backend API URL.");
-        return false;
+        const bool saved = activated > 0 && interval > 0 && qos > 0;
+        Serial.printf("[STORAGE] %s provisioning record (interval=%us qos=%u).\n",
+                      saved ? "Saved" : "Failed to save",
+                      static_cast<unsigned>(telemetry_interval_sec),
+                      static_cast<unsigned>(reporting_qos));
+        return saved;
     }
 
-    bool StorageManager::load_backend_config(String &backend_url)
+    bool StorageManager::load_provisioning(uint16_t &telemetry_interval_sec, uint8_t &reporting_qos)
     {
-        Preferences prefs;
-        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
-        {
-            Serial.println("[STORAGE] Error: Failed to open NVS for reading Backend API URL.");
-            return false;
-        }
+        telemetry_interval_sec = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+        reporting_qos = config::network::DEFAULT_REPORTING_QOS;
 
-        backend_url = prefs.isKey(config::network::KEY_BACKEND_URL)
-                          ? prefs.getString(config::network::KEY_BACKEND_URL, "")
-                          : "";
-        prefs.end();
-
-        if (backend_url.length() > 0)
-        {
-            Serial.println("[STORAGE] Loaded Backend API URL from NVS.");
-            return true;
-        }
-
-        Serial.println("[STORAGE] Backend API URL empty or not found in NVS.");
-        return false;
-    }
-
-    bool StorageManager::has_backend_config()
-    {
         Preferences prefs;
         if (!prefs.begin(config::network::NVS_NAMESPACE, true))
         {
             return false;
         }
-        bool exists = prefs.isKey(config::network::KEY_BACKEND_URL) &&
-                      (prefs.getString(config::network::KEY_BACKEND_URL, "").length() > 0);
+
+        const bool provisioned = prefs.isKey(config::network::KEY_PROVISIONED) &&
+                                 prefs.getBool(config::network::KEY_PROVISIONED, false);
+        if (provisioned)
+        {
+            telemetry_interval_sec = prefs.getUShort(
+                config::network::KEY_TELEMETRY_INT,
+                config::network::DEFAULT_TELEMETRY_INTERVAL_SEC);
+            reporting_qos = prefs.getUChar(
+                config::network::KEY_REPORTING_QOS,
+                config::network::DEFAULT_REPORTING_QOS);
+        }
         prefs.end();
-        return exists;
+
+        if (!provisioned)
+        {
+            return false;
+        }
+        if (telemetry_interval_sec == 0)
+        {
+            telemetry_interval_sec = config::network::DEFAULT_TELEMETRY_INTERVAL_SEC;
+        }
+        if (reporting_qos > 1)
+        {
+            reporting_qos = config::network::DEFAULT_REPORTING_QOS;
+        }
+        return true;
     }
 
-    bool StorageManager::clear_backend_config()
+    bool StorageManager::clear_provisioning()
     {
         Preferences prefs;
         if (!prefs.begin(config::network::NVS_NAMESPACE, false))
         {
             return false;
         }
-        bool result = prefs.remove(config::network::KEY_BACKEND_URL);
+        const bool cleared = prefs.remove(config::network::KEY_PROVISIONED) ||
+                             prefs.remove(config::network::KEY_TELEMETRY_INT) ||
+                             prefs.remove(config::network::KEY_REPORTING_QOS);
         prefs.end();
-        Serial.println("[STORAGE] Cleared Backend API URL from NVS.");
-        return result;
+        return cleared;
     }
 
     bool StorageManager::save_device_id(const String &device_id)

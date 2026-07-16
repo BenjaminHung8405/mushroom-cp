@@ -19,8 +19,6 @@ namespace config
         String MQTT_CLIENT_ID_VAL = "";
         String MQTT_USER_VAL = "";
         String MQTT_PASSWORD_VAL = DEFAULT_MQTT_PASS;
-        String BACKEND_API_URL = DEFAULT_BACKEND_URL;
-        String AUTH_JWT_TOKEN = "";
 
         static String mac_to_device_id()
         {
@@ -67,19 +65,6 @@ namespace config
                 Serial.println("[CONFIG] No WiFi credentials found in NVS, default to empty.");
                 STA_SSID = "";
                 STA_PASS = "";
-            }
-
-            String temp_backend_url;
-            bool backend_loaded = storage.load_backend_config(temp_backend_url);
-            if (backend_loaded && temp_backend_url.length() > 0)
-            {
-                BACKEND_API_URL = temp_backend_url;
-                Serial.printf("[CONFIG] Loaded Backend API URL from NVS: %s\n", BACKEND_API_URL.c_str());
-            }
-            else
-            {
-                BACKEND_API_URL = DEFAULT_BACKEND_URL;
-                Serial.printf("[CONFIG] No Backend API URL found in NVS, default to: %s\n", BACKEND_API_URL.c_str());
             }
 
             String temp_broker;

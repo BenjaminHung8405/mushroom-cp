@@ -21,11 +21,6 @@ namespace storage {
         String getWifiSSID();
         String getWifiPass();
 
-        // Backend configurations
-        String getBackendUrl();
-        String getJwtToken();
-        void setJwtToken(const String& token);
-
         // MQTT configurations
         String getMqttBroker();
         uint16_t getMqttPort();
@@ -34,9 +29,8 @@ namespace storage {
         String getDeviceId();
 
         // Unified network config updater
-        bool saveNetworkConfig(const String& ssid, const String& pass, 
-                               const String& backend_url, const String& mqtt_broker, 
-                               uint16_t mqtt_port, const String& mqtt_user, 
+        bool saveNetworkConfig(const String& ssid, const String& pass,
+                               const String& mqtt_broker, uint16_t mqtt_port,
                                const String& mqtt_pass);
 
     private:
@@ -45,8 +39,6 @@ namespace storage {
 
         String _ssid;
         String _pass;
-        String _backend_url;
-        String _jwt_token;
         String _mqtt_broker;
         uint16_t _mqtt_port = 1883;
         String _mqtt_user;

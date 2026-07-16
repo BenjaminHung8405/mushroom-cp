@@ -207,6 +207,7 @@ public:
 
     bool subscribe(const char* topic) { return true; }
     bool subscribe(const char* topic, uint8_t qos) { return true; }
+    bool unsubscribe(const char* topic) { return true; }
 
     bool connected() { return mock_connected; }
 

@@ -63,6 +63,7 @@ enum class AppChannel : uint8_t {
     MIST = 0,
     LAMP = 1,
     FAN  = 2,
+    HWAT = 3,
     COUNT
 };
 
