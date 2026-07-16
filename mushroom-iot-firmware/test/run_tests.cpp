@@ -1,28 +1,28 @@
 #include "Arduino.h"
 #include "Preferences.h"
-#include "storage.h"
+#include "core/storage.h"
 #include "config.h"
-#include "wifi_manager.h"
-#include "mqtt_client.h"
-#include "definitions.h"
-#include "models.h"
-#include "sensors.h"
-#include "actuators.h"
-#include "serial_mutex.h"
-#include "MathEngine.h"
-#include "Trajectory.h"
-#include "AdaptiveTuner.h"
-#include "FuzzyController.h"
-#include "relay_control.h"
-#include "Telemetry.h"
-#include "WebInterface.h"
-#include "encoder.h"
-#include "manual_control.h"
-#include "crop_profile_storage.h"
-#include "crop_profile_validator.h"
-#include "time_confidence.h"
-#include "ota_manager.h"
-#include "config_manager.h"
+#include "network/wifi_manager.h"
+#include "network/mqtt_manager.h"
+#include "core/system_manager.h"
+#include "core/models.h"
+#include "core/sensors.h"
+#include "core/actuator_controller.h"
+#include "core/serial_mutex.h"
+#include "core/math_engine.h"
+#include "core/trajectory.h"
+#include "core/adaptive_tuner.h"
+#include "core/fuzzy_controller.h"
+#include "core/actuator_controller.h"
+#include "core/telemetry.h"
+#include "network/web_interface/web_interface.h"
+#include "core/encoder.h"
+#include "core/manual_control.h"
+#include "core/crop_profile_storage.h"
+#include "core/crop_profile_validator.h"
+#include "core/time_confidence.h"
+#include "network/ota_manager.h"
+#include "core/config_manager.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -66,7 +66,7 @@ int main() {
     mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
         if (mqtt::g_network_worker_queue != nullptr && xQueue == mqtt::g_network_worker_queue) {
             const mqtt::NetworkMessage* msg = static_cast<const mqtt::NetworkMessage*>(pvItemToQueue);
-            mqtt::MqttClient::getInstance().processNetworkMessage(*msg);
+            mqtt::MqttManager::getInstance().processNetworkMessage(*msg);
         }
     };
     initQueues();
@@ -315,13 +315,13 @@ int main() {
     PubSubClient::mock_server_host = "";
     PubSubClient::mock_server_port = 0;
     {
-        mqtt::MqttClient& mqtt_client = mqtt::MqttClient::getInstance();
-        assert(mqtt_client.init() == true);
+        mqtt::MqttManager& mqtt_manager = mqtt::MqttManager::getInstance();
+        assert(mqtt_manager.init() == true);
         assert(PubSubClient::mock_buffer_size == 1024);
         assert(PubSubClient::mock_keep_alive == 60);
         assert(PubSubClient::mock_server_host == "mushroomapp.mitelai.com");
         assert(PubSubClient::mock_server_port == 1883);
-        assert(mqtt_client.getState() == mqtt::MqttState::IDLE);
+        assert(mqtt_manager.getState() == mqtt::MqttState::IDLE);
     }
 
     // 12. Test WiFi Manager Connection Logic
@@ -446,12 +446,12 @@ int main() {
 
     // 12. Test MQTT Client Initialization and Topic Resolution
     Serial.println("[TEST] Starting MQTT Client Unit Tests...");
-    mqtt::MqttClient& mqtt_client = mqtt::MqttClient::getInstance();
+    mqtt::MqttManager& mqtt_manager = mqtt::MqttManager::getInstance();
 
     // 12.1 Test initialization failure when MQTT broker is empty
     config::network::MQTT_BROKER_VAL = "";
-    assert(mqtt_client.init() == false);
-    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_CONFIG);
+    assert(mqtt_manager.init() == false);
+    assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_CONFIG);
 
     // 12.2 Test successful initialization and dynamic topic resolution
     config::network::MQTT_BROKER_VAL = "192.168.1.50";
@@ -460,11 +460,11 @@ int main() {
     config::network::MQTT_USER_VAL = "esp32_mushroom_test_client";
     config::network::MQTT_PASSWORD_VAL = "test_pass";
     
-    assert(mqtt_client.init() == true);
-    assert(mqtt_client.getState() == mqtt::MqttState::IDLE);
+    assert(mqtt_manager.init() == true);
+    assert(mqtt_manager.getState() == mqtt::MqttState::IDLE);
     
     {
-        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
         assert(topics.status == "mushroom/device/esp32_mushroom_test_client/status");
         assert(topics.telemetry == "mushroom/device/esp32_mushroom_test_client/telemetry");
         assert(topics.setpoint == "mushroom/device/esp32_mushroom_test_client/setpoint");
@@ -472,8 +472,8 @@ int main() {
 
     // 12.3 Test loop behavior when WiFi is disconnected (no connection)
     // WiFiManager is currently in STA_DISCONNECTED (from step 11)
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 12.4 Test loop behavior when WiFi becomes connected
     // WiFiManager is currently in STA_DISCONNECTED, with last reconnect attempt at t=27000.
@@ -488,9 +488,9 @@ int main() {
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
     
     // Call loop, it should transition state when reconnect_mqtt is called in UNIT_TEST mock
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.isConnected() == true);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_manager.isConnected() == true);
 
     // 12.4b Test connection failure path and state diagnostics
     PubSubClient::mock_connected = false;
@@ -498,23 +498,23 @@ int main() {
     PubSubClient::mock_state = 4;  // MQTT_CONNECT_UNAUTHORIZED
     config::network::AUTH_JWT_TOKEN = "test_jwt_token";
     mock_millis_offset += 5000;
-    mqtt_client.loop();  // detects connection loss -> DISCONNECTED
+    mqtt_manager.loop();  // detects connection loss -> DISCONNECTED
     mock_millis_offset += 5000;
-    mqtt_client.loop();  // attempts reconnect, fails with state=4
-    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
+    mqtt_manager.loop();  // attempts reconnect, fails with state=4
+    assert(mqtt_manager.getState() == mqtt::MqttState::DISCONNECTED);
     assert(PubSubClient::mock_state == 4);
     PubSubClient::mock_connect_result = true;
     mock_millis_offset += 9000;
-    mqtt_client.loop();  // reconnect succeeds
-    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.isConnected() == true);
+    mqtt_manager.loop();  // reconnect succeeds
+    assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_manager.isConnected() == true);
 
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
     
     // Ensure client is currently CONNECTED and interval is reset to 2000 ms
-    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.getReconnectInterval() == 2000);
+    assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_manager.getReconnectInterval() == 2000);
 
     // 1. Sudden WiFi disconnection
     WiFi.mock_status = WL_DISCONNECTED;
@@ -523,13 +523,13 @@ int main() {
     
     // Call loop to detect WiFi loss, transition to ERROR_NO_WIFI, and disconnect MQTT
     PubSubClient::mock_connected = false;
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 2. Attempt to reconnect during WiFi outage. WiFi Safeguard must prevent this, state remains ERROR_NO_WIFI
     mock_millis_offset += 3000;
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // 3. Restore WiFi connection
     // WiFiManager is in STA_DISCONNECTED. We must advance time to exceed the 10-second reconnect interval.
@@ -548,36 +548,36 @@ int main() {
     // Call loop again. Since WiFi is restored, state transitions from ERROR_NO_WIFI to DISCONNECTED.
     // It also immediately attempts reconnect because mock_millis_offset has advanced by 11000 ms (> 2000 ms).
     // The reconnect fails, so interval increases from 2000 to 4000 ms.
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
-    assert(mqtt_client.getReconnectInterval() == 4000);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::DISCONNECTED);
+    assert(mqtt_manager.getReconnectInterval() == 4000);
 
     // 4. Begin reconnection attempts and Exponential Backoff
 
     // Loop after another 2000 ms (total elapsed since retry 1 is 2000 ms, which is less than 4000 ms)
     mock_millis_offset += 2000;
-    mqtt_client.loop();
+    mqtt_manager.loop();
     // Reconnect should NOT trigger, interval remains 4000 ms
-    assert(mqtt_client.getReconnectInterval() == 4000);
+    assert(mqtt_manager.getReconnectInterval() == 4000);
 
     // Retry 2: triggered after waiting another 2500 ms (total elapsed since retry 1 is 4500 ms > 4000 ms)
     mock_millis_offset += 2500;
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::DISCONNECTED);
     // Interval must double: 4000 -> 8000 ms
-    assert(mqtt_client.getReconnectInterval() == 8000);
+    assert(mqtt_manager.getReconnectInterval() == 8000);
 
     // Loop after 5000 ms (less than 8000 ms)
     mock_millis_offset += 5000;
-    mqtt_client.loop();
-    assert(mqtt_client.getReconnectInterval() == 8000);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getReconnectInterval() == 8000);
 
     // Retry 3: triggered after waiting another 4000 ms (total elapsed since retry 2 is 9000 ms > 8000 ms)
     mock_millis_offset += 4000;
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::DISCONNECTED);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::DISCONNECTED);
     // Interval must double: 8000 -> 16000 ms
-    assert(mqtt_client.getReconnectInterval() == 16000);
+    assert(mqtt_manager.getReconnectInterval() == 16000);
 
     // 5. Restore connection success
     PubSubClient::mock_connect_result = true;
@@ -585,21 +585,21 @@ int main() {
 
     // Trigger retry 4: after waiting > 16000 ms (+17000 ms)
     mock_millis_offset += 17000;
-    mqtt_client.loop();
-    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
-    assert(mqtt_client.isConnected() == true);
+    mqtt_manager.loop();
+    assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_manager.isConnected() == true);
     // Interval must reset back to 2000 ms
-    assert(mqtt_client.getReconnectInterval() == 2000);
+    assert(mqtt_manager.getReconnectInterval() == 2000);
 
     // 12.5 Test publish functions return value under connected state
-    assert(mqtt_client.publishStatus(true) == true);
-    assert(mqtt_client.publishTelemetry("{\"temp\":25.5}") == true);
+    assert(mqtt_manager.publishStatus(true) == true);
+    assert(mqtt_manager.publishTelemetry("{\"temp\":25.5}") == true);
 
     // 12.6 Test incoming message parsing (Task C3)
     Serial.println("[TEST] Testing Task C3 - MQTT message parsing...");
     assert(PubSubClient::mock_callback != nullptr);
 
-    const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+    const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
     char setpoint_topic[100];
     strcpy(setpoint_topic, topics.setpoint.c_str());
 
@@ -753,7 +753,7 @@ int main() {
     // Check that WiFi transitioned to SOFTAP_ACTIVE (since NVS credentials are empty)
     assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
     // Check that MQTT client is in ERROR_NO_WIFI (since WiFi is not connected STA_CONNECTED)
-    assert(mqtt_client.getState() == mqtt::MqttState::ERROR_NO_WIFI);
+    assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_WIFI);
 
     // Save mock credentials and MQTT config to NVS to test successful initialization path
     assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
@@ -770,7 +770,7 @@ int main() {
 
     // Because NVS credentials are saved, it should load config and transition to STA_CONNECTED
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
-    assert(mqtt_client.getState() == mqtt::MqttState::CONNECTED);
+    assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
 
     // Clean up
     assert(storage.factory_reset() == true);
@@ -1938,7 +1938,7 @@ int main() {
         storage.factory_reset();
 
         // 33.2 Mock incoming baseline setpoint update
-        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
         char setpoint_topic[100];
         strcpy(setpoint_topic, topics.setpoint.c_str());
 
@@ -2206,7 +2206,7 @@ int main() {
         assert(storage.save_backend_snapshot(retainedBaseline) == true);
         clearQueue(xBaselineQueue);
         Preferences::mock_fail_put_bytes = true;
-        const mqtt::MqttTopics& topics = mqtt_client.getResolvedTopics();
+        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
         char setpointTopic[100];
         strcpy(setpointTopic, topics.setpoint.c_str());
         std::string failedPersistPayload = "{\"temperatureSetpoint\":29.0}";
@@ -2792,7 +2792,7 @@ int main() {
         assert(ota::check_ota_trigger(url) == false);
 
         // Test MQTT command "ota_update" integration
-        const mqtt::MqttTopics& topics = mqtt::MqttClient::getInstance().getResolvedTopics();
+        const mqtt::MqttTopics& topics = mqtt::MqttManager::getInstance().getResolvedTopics();
         char cmd_topic[120];
         strcpy(cmd_topic, topics.setpoint.c_str());
 
