@@ -4,6 +4,7 @@
 #include "ota_manager.h"
 #include "definitions.h"
 #include "serial_mutex.h"
+#include "config_manager.h"
 #include <ArduinoJson.h>
 #include "crop_profile_storage.h"
 #include "crop_profile_validator.h"
@@ -275,13 +276,54 @@ namespace mqtt
 
     void MqttClient::mqttCallbackStatic(char *topic, uint8_t *payload, unsigned int length)
     {
-        // Route message to instance handler
-        getInstance().handleMessage(topic, payload, length);
+        MessageDispatcher::dispatch(topic, payload, length);
     }
 
     void MqttClient::handleMQTTCallback(char *topic, uint8_t *payload, unsigned int length)
     {
-        getInstance().handleMessage(topic, payload, length);
+        MessageDispatcher::dispatch(topic, payload, length);
+    }
+
+    void MqttClient::processNetworkMessage(const NetworkMessage& msg)
+    {
+        String topic;
+        if (msg.type == CommandType::PROFILE_UPDATE)
+        {
+            topic = resolved_topics.profile;
+        }
+        else if (msg.type == CommandType::SETPOINT_UPDATE)
+        {
+            topic = resolved_topics.setpoint;
+        }
+        else
+        {
+            return;
+        }
+
+        unsigned int length = strlen(msg.payload);
+        if (!validateIncomingMessage(topic.c_str(), reinterpret_cast<const uint8_t*>(msg.payload), length))
+        {
+            return;
+        }
+
+        StaticJsonDocument<768> doc;
+        DeserializationError err = deserializeJson(doc, msg.payload);
+        if (err)
+        {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[MQTT] Error: Failed to parse JSON payload in worker: %s\n", err.c_str());
+            return;
+        }
+
+        if (msg.type == CommandType::PROFILE_UPDATE)
+        {
+            processProfileMessage(doc);
+        }
+        else if (msg.type == CommandType::SETPOINT_UPDATE)
+        {
+            bool is_command = handleMqttCommand(doc);
+            routeSetpointMessage(doc, is_command);
+        }
     }
 
     bool MqttClient::validateIncomingMessage(const char *topic, const uint8_t *payload, unsigned int length)
@@ -765,20 +807,21 @@ namespace mqtt
         getLwtConfig(lwt_topic, lwt_payload);
 
         // Never log JWT/password. State codes: 0=MQTT_CONNECTED, 4=MQTT_CONNECT_UNAUTHORIZED.
+        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
-                          config::network::MQTT_BROKER_VAL.c_str(),
-                          static_cast<unsigned>(config::network::MQTT_PORT_VAL),
-                          config::network::MQTT_USER_VAL.c_str(),
+                          cfg.getMqttBroker().c_str(),
+                          static_cast<unsigned>(cfg.getMqttPort()),
+                          cfg.getMqttUser().c_str(),
                           client_id.c_str(),
                           lwt_topic.c_str());
         }
 
         bool connected = mqtt_client.connect(
             client_id.c_str(),
-            config::network::MQTT_USER_VAL.c_str(),
-            config::network::MQTT_PASSWORD_VAL.c_str(),
+            cfg.getMqttUser().c_str(),
+            cfg.getJwtToken().c_str(),
             lwt_topic.c_str(),
             1,    // QoS
             true, // Retain
@@ -797,7 +840,8 @@ namespace mqtt
 
     bool MqttClient::validateConnectionConfig(const String &client_id)
     {
-        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
+        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
+        if (cfg.getJwtToken().length() == 0)
         {
             {
                 ScopedSerialLock guard(SerialLock::get_instance());

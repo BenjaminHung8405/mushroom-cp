@@ -5,6 +5,7 @@
 #include "serial_mutex.h"
 #include "WebInterface.h"
 #include "Telemetry.h"
+#include "message_dispatcher.h"
 #include <ArduinoJson.h>
 #include <cmath>
 
@@ -120,6 +121,32 @@ static void delayCore0Task()
     // this task delay at zero avoids delaying DNS/HTTP and MQTT by 10-100 ms.
 }
 
+#ifndef UNIT_TEST
+static TaskHandle_t hTaskNetworkWorker = nullptr;
+
+void taskNetworkWorker(void* /*pvParameters*/)
+{
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[CORE0_TASK] Starting background Network Queue Worker...");
+    }
+
+    esp_task_wdt_add(nullptr);
+
+    mqtt::NetworkMessage msg;
+    while (1)
+    {
+        if (xQueueReceive(mqtt::g_network_worker_queue, &msg, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            mqtt::MqttClient::getInstance().processNetworkMessage(msg);
+        }
+
+        esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+#endif
+
 void taskCore0Communication(void* /*pvParameters*/)
 {
     {
@@ -132,6 +159,16 @@ void taskCore0Communication(void* /*pvParameters*/)
     mqtt::MqttClient::getInstance().init();
 
     #ifndef UNIT_TEST
+    xTaskCreatePinnedToCore(
+        taskNetworkWorker,
+        "net_worker_task",
+        10240,
+        NULL,
+        1,
+        &hTaskNetworkWorker,
+        0
+    );
+
     esp_task_wdt_init(8, true);  // Cấu hình ngưỡng WDT lên 8 giây, hard-reset nếu timeout
     esp_task_wdt_add(nullptr);   // Đăng ký task hiện tại (Core 0) với WDT daemon
     #endif
@@ -150,6 +187,18 @@ void taskCore0Communication(void* /*pvParameters*/)
 
         // 2. Process MQTT loop (non-blocking)
         mqtt::MqttClient::getInstance().loop();
+
+        // 2b. In unit tests, drain the network queue synchronously
+        #ifdef UNIT_TEST
+        if (mqtt::g_network_worker_queue != nullptr)
+        {
+            mqtt::NetworkMessage msg;
+            while (xQueueReceive(mqtt::g_network_worker_queue, &msg, 0) == pdTRUE)
+            {
+                mqtt::MqttClient::getInstance().processNetworkMessage(msg);
+            }
+        }
+        #endif
 
         // 3. Maintain HTTP local Webserver based on WiFi state
         processWebServer();

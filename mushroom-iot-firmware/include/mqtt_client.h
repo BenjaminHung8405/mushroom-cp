@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>
 #include "storage.h"
 #include "models.h"
+#include "message_dispatcher.h"
 
 namespace mqtt
 {
@@ -96,6 +97,11 @@ namespace mqtt
          * @brief Checks if the client is currently connected to the broker.
          */
         bool isConnected();
+
+        /**
+         * @brief Process a routed network message asynchronously on a background worker task.
+         */
+        void processNetworkMessage(const NetworkMessage& msg);
 
         /**
          * @brief Gets the current client state.

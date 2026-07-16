@@ -278,6 +278,8 @@ inline QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemS
     return static_cast<QueueHandle_t>(q);
 }
 
+extern void (*mock_queue_send_hook)(QueueHandle_t, const void*);
+
 inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, TickType_t /*xTicksToWait*/) {
     MockQueue* q = static_cast<MockQueue*>(xQueue);
     if (q == nullptr) return pdFALSE;
@@ -285,6 +287,9 @@ inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, Ti
     std::vector<uint8_t> buf(q->item_size);
     std::memcpy(buf.data(), pvItemToQueue, q->item_size);
     q->items.push(std::move(buf));
+    if (mock_queue_send_hook != nullptr) {
+        mock_queue_send_hook(xQueue, pvItemToQueue);
+    }
     return pdTRUE;
 }
 

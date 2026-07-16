@@ -13,6 +13,8 @@
 #include "manual_control.h"
 #include "crop_profile_storage.h"
 #include "time_confidence.h"
+#include "config_manager.h"
+#include "message_dispatcher.h"
 #include <time.h>
 
 // Task handles for Core 1 tasks. Externally declared in definitions.h so
@@ -129,6 +131,17 @@ void initQueues()
     {
         Serial.printf("[MAIN] g_profile_update_queue created (depth=1, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(PersistedCropProfile)));
+    }
+
+    mqtt::g_network_worker_queue = xQueueCreate(16, sizeof(mqtt::NetworkMessage));
+    if (mqtt::g_network_worker_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_network_worker_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_network_worker_queue created (depth=16, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(mqtt::NetworkMessage)));
     }
 }
 
@@ -405,8 +418,8 @@ void setup()
         }
     }
 
-    // 4. Load runtime configuration from NVS
-    config::network::load_runtime_config();
+    // 4. Initialize ConfigManager to load and cache configuration
+    storage::ConfigManager::getInstance().init();
 
     // 5. Create Serial mutex (protects UART from concurrent Core 0/Core 1 writes)
     init_serial_mutex();

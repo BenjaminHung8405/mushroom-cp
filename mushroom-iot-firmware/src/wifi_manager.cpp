@@ -5,6 +5,8 @@
 #include "definitions.h"
 #include "time_confidence.h"
 #include "ota_manager.h"
+#include "config_manager.h"
+#include "index_html.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -203,21 +205,21 @@ namespace wifi
     {
 #ifdef UNIT_TEST
         // Unit-test stub: inject a mock JWT so MQTT can proceed without HTTP.
-        if (config::network::MQTT_PASSWORD_VAL.length() == 0)
+        if (storage::ConfigManager::getInstance().getJwtToken().length() == 0)
         {
-            config::network::MQTT_PASSWORD_VAL = "mock_jwt_token_for_unit_test";
+            storage::ConfigManager::getInstance().setJwtToken("mock_jwt_token_for_unit_test");
         }
         Serial.println("[AUTH] UNIT_TEST stub: mock JWT injected.");
         return true;
 #else
-        if (config::network::BACKEND_API_URL.length() == 0)
+        if (storage::ConfigManager::getInstance().getBackendUrl().length() == 0)
         {
             Serial.println("[AUTH] Backend API URL is empty. Cannot fetch token.");
             return false;
         }
 
         // Build URL: strip trailing slash if present, then append /api/v1/auth/device-token
-        String base = config::network::BACKEND_API_URL;
+        String base = storage::ConfigManager::getInstance().getBackendUrl();
         if (base.endsWith("/"))
         {
             base.remove(base.length() - 1);
@@ -239,7 +241,7 @@ namespace wifi
         }
 
         // Send X-Device-Id in header to identify the device
-        http.addHeader("X-Device-Id", config::network::resolve_device_identity());
+        http.addHeader("X-Device-Id", storage::ConfigManager::getInstance().getDeviceId());
 
 #ifndef UNIT_TEST
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -286,8 +288,8 @@ namespace wifi
             return false;
         }
 
-        config::network::MQTT_PASSWORD_VAL = token;
-        Serial.println("[AUTH] JWT token acquired successfully and stored in MQTT_PASSWORD_VAL.");
+        storage::ConfigManager::getInstance().setJwtToken(token);
+        Serial.println("[AUTH] JWT token acquired successfully and stored in ConfigManager.");
         return true;
 #endif
     }
@@ -306,242 +308,7 @@ namespace wifi
     // 4) ESP.restart() too early can cut the HTTP response before the phone
     //    finishes reading it.
     // ---------------------------------------------------------------------------
-    static const char *captive_html = R"rawliteral(
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="format-detection" content="telephone=no">
-<title>TraiNam Cau Hinh WiFi</title>
-<style>
-:root { --ok:#1e8e3e; --err:#d93025; --pri:#1a73e8; --bg:#f0f2f5; }
-* { box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; margin: 0; background: var(--bg); color: #202124; }
-.wrap { max-width: 440px; margin: 0 auto; padding: 16px; }
-.card { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
-.sub { font-size: 13px; color: #5f6368; text-align: center; margin: 0 0 16px; line-height: 1.4; }
-label { display:block; font-size: 13px; font-weight: 600; color: #3c4043; margin: 12px 0 6px; }
-input[type=text], input[type=password], input[type=number], select {
-  width: 100%; font-size: 16px; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; background: #fff;
-}
-input:focus, select:focus { outline: 2px solid #aecbfa; border-color: var(--pri); }
-.row { display:flex; gap:8px; align-items:stretch; }
-.row > :first-child { flex:1; min-width:0; }
-.btn {
-  font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid #dadce0; background:#fff; color:#3c4043;
-  padding: 0 12px; min-height: 46px; cursor: pointer; white-space: nowrap;
-}
-.btn-pri { background: var(--ok); color:#fff; border-color: var(--ok); width:100%; font-size:16px; margin-top:16px; }
-.btn-pri:disabled { opacity: .65; cursor: wait; }
-.btn-sec { background:#e8f0fe; color:var(--pri); border-color:#aecbfa; width:100%; margin-top:8px; }
-.btn-toggle { min-width: 72px; color:var(--pri); border-color:#aecbfa; background:#e8f0fe; }
-details { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
-summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; }
-.msg { display:none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
-.msg.show { display:block; }
-.msg.ok { background:#e6f4ea; color:#137333; border:1px solid #ceead6; }
-.msg.err { background:#fce8e6; color:#a50e0e; border:1px solid #f5c6c2; }
-.msg.info { background:#e8f0fe; color:#174ea6; border:1px solid #d2e3fc; }
-.scan-box { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #e0e0e0; border-radius:8px; display:none; }
-.scan-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #f1f3f4; background:#fff; font-size:14px; cursor:pointer; }
-.scan-item:last-child { border-bottom:0; }
-.scan-item:active { background:#e8f0fe; }
-.meta { font-size:11px; color:#80868b; margin-top:14px; text-align:center; line-height:1.4; }
-.spinner { display:inline-block; width:14px; height:14px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; vertical-align:-2px; margin-right:6px; animation:spin .8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-<div class="wrap"><div class="card">
-  <h1>Trai Nam - Cau hinh WiFi</h1>
-  <p class="sub">Buoc 1: chon/nhap WiFi nha ban.<br>Buoc 2: bam Luu. May se tu ket noi lai.</p>
-
-  <div id="banner" class="msg"></div>
-
-  <form id="cfgForm" autocomplete="off" onsubmit="return false;">
-    <label for="ssid">WiFi SSID</label>
-    <div class="row">
-      <input id="ssid" name="ssid" type="text" value="%SSID%" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false" required>
-    </div>
-    <button type="button" class="btn btn-sec" id="btnScan" onclick="scanWifi()">Quet mang WiFi xung quanh</button>
-    <div id="scanBox" class="scan-box"></div>
-
-    <label for="pass">WiFi Password</label>
-    <div class="row">
-      <input id="pass" name="pass" type="password" value="%PASS%" maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false">
-      <button type="button" class="btn btn-toggle" id="btnPass" onclick="togglePass('pass','btnPass')">Hien</button>
-    </div>
-
-    <details id="adv">
-      <summary>Cau hinh nang cao (tuy chon)</summary>
-      <label for="backend_url">Backend API URL</label>
-      <input id="backend_url" name="backend_url" type="text" value="%BACKEND_URL%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_broker">MQTT Broker IP</label>
-      <input id="mqtt_broker" name="mqtt_broker" type="text" value="%MQTT_BROKER%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_port">MQTT Port</label>
-      <input id="mqtt_port" name="mqtt_port" type="number" value="%MQTT_PORT%" min="1" max="65535">
-
-      <label for="mqtt_user">MQTT Username</label>
-      <input id="mqtt_user" name="mqtt_user" type="text" value="%MQTT_USER%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_pass">MQTT Password</label>
-      <div class="row">
-        <input id="mqtt_pass" name="mqtt_pass" type="password" value="%MQTT_PASS%" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button type="button" class="btn btn-toggle" id="btnMqttPass" onclick="togglePass('mqtt_pass','btnMqttPass')">Hien</button>
-      </div>
-    </details>
-
-    <button type="button" class="btn btn-pri" id="btnSave" onclick="saveConfig()">Luu & Khoi dong lai</button>
-  </form>
-
-  <p class="meta">Neu mat ket noi AP: mo WiFi, ket noi lai <b>TraiNam_Setup_KhongDay</b><br>roi mo trinh duyet toi <b>192.168.4.1</b></p>
-</div></div>
-
-<script>
-function $(id){ return document.getElementById(id); }
-function showMsg(type, text){
-  var el = $('banner');
-  el.className = 'msg show ' + type;
-  el.innerHTML = text;
-}
-function togglePass(inputId, btnId){
-  var el = $(inputId), btn = $(btnId);
-  if(!el) return;
-  if(el.type === 'password'){ el.type='text'; if(btn) btn.textContent='An'; }
-  else { el.type='password'; if(btn) btn.textContent='Hien'; }
-}
-function setBusy(busy, label){
-  var b = $('btnSave');
-  if(!b) return;
-  b.disabled = !!busy;
-  b.innerHTML = busy ? ('<span class="spinner"></span>' + (label||'Dang luu...')) : 'Luu & Khoi dong lai';
-}
-function scanWifi(){
-  var box = $('scanBox');
-  var btn = $('btnScan');
-  btn.disabled = true;
-  btn.textContent = 'Dang quet...';
-  box.style.display = 'block';
-  box.innerHTML = '<div class="scan-item">Dang quet mang...</div>';
-  var x = new XMLHttpRequest();
-  x.open('GET', '/scan?t=' + Date.now(), true);
-  x.timeout = 12000;
-  x.onreadystatechange = function(){
-    if(x.readyState !== 4) return;
-    btn.disabled = false;
-    btn.textContent = 'Quet mang WiFi xung quanh';
-    if(x.status !== 200){
-      box.innerHTML = '<div class="scan-item">Quet that bai. Hay nhap SSID thu cong.</div>';
-      return;
-    }
-    try {
-      var list = JSON.parse(x.responseText || '[]');
-      if(!list.length){
-        box.innerHTML = '<div class="scan-item">Khong thay mang nao. Hay nhap SSID thu cong.</div>';
-        return;
-      }
-      box.innerHTML = '';
-      for(var i=0;i<list.length;i++){
-        (function(item){
-          var a = document.createElement('button');
-          a.type = 'button';
-          a.className = 'scan-item';
-          var lock = item.secure ? ' 🔒' : ' 🔓';
-          a.textContent = item.ssid + lock + '  (' + item.rssi + ' dBm)';
-          a.onclick = function(){ $('ssid').value = item.ssid; $('pass').focus(); };
-          box.appendChild(a);
-        })(list[i]);
-      }
-    } catch(e){
-      box.innerHTML = '<div class="scan-item">Loi doc ket qua quet.</div>';
-    }
-  };
-  x.onerror = function(){
-    btn.disabled = false;
-    btn.textContent = 'Quet mang WiFi xung quanh';
-    box.innerHTML = '<div class="scan-item">Mat ket noi AP khi quet. Thu lai.</div>';
-  };
-  x.send();
-}
-function saveConfig(){
-  var ssid = ($('ssid').value || '').trim();
-  if(!ssid){
-    showMsg('err', 'Vui long nhap WiFi SSID.');
-    $('ssid').focus();
-    return;
-  }
-  var port = parseInt(($('mqtt_port').value || '18883'), 10);
-  if(isNaN(port) || port < 1 || port > 65535){
-    showMsg('err', 'MQTT Port khong hop le.');
-    return;
-  }
-
-  setBusy(true, 'Dang luu...');
-  showMsg('info', 'Dang gui cau hinh toi thiet bi...');
-
-  var body =
-    'ssid=' + encodeURIComponent(ssid) +
-    '&pass=' + encodeURIComponent($('pass').value || '') +
-    '&backend_url=' + encodeURIComponent(($('backend_url').value || '').trim()) +
-    '&mqtt_broker=' + encodeURIComponent(($('mqtt_broker').value || '').trim()) +
-    '&mqtt_port=' + encodeURIComponent(String(port)) +
-    '&mqtt_user=' + encodeURIComponent(($('mqtt_user').value || '').trim()) +
-    '&mqtt_pass=' + encodeURIComponent($('mqtt_pass').value || '');
-
-  var x = new XMLHttpRequest();
-  // Absolute URL to SoftAP IP avoids captive mini-browser rewriting relative /save.
-  x.open('POST', 'http://192.168.4.1/save', true);
-  x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-  x.timeout = 20000;
-  x.onreadystatechange = function(){
-    if(x.readyState !== 4) return;
-    if(x.status >= 200 && x.status < 300){
-      var resp = {};
-      try { resp = JSON.parse(x.responseText || '{}'); } catch(e) {}
-      if(resp.ok){
-        showMsg('ok', 'Da luu thanh cong! Thiet bi dang khoi dong lai va se ket noi WiFi <b>' + ssid + '</b>. Ban co the dong trang nay.');
-        setBusy(true, 'Da luu - dang reboot...');
-      } else {
-        showMsg('err', (resp.error || 'Luu that bai. Thu lai.'));
-        setBusy(false);
-      }
-    } else if(x.status === 0){
-      // Connection dropped right after reboot/save — usually still OK.
-      showMsg('ok', 'Da gui lenh luu. Neu AP bien mat, thiet bi dang reboot de ket noi WiFi moi.');
-      setBusy(true, 'Da gui lenh...');
-    } else {
-      showMsg('err', 'Loi HTTP ' + x.status + '. Kiem tra ket noi AP roi thu lai.');
-      setBusy(false);
-    }
-  };
-  x.onerror = function(){
-    // Many captive browsers fire error when device reboots after successful save.
-    showMsg('ok', 'Mat ket noi AP sau khi gui. Neu dung, thiet bi dang reboot de vao WiFi moi.');
-    setBusy(true, 'Da gui lenh...');
-  };
-  x.ontimeout = function(){
-    showMsg('err', 'Het thoi gian cho phan hoi. Hay giu ket noi AP va bam Luu lai.');
-    setBusy(false);
-  };
-  x.send(body);
-}
-// Keep association warm while user is filling the form.
-setInterval(function(){
-  try {
-    var x = new XMLHttpRequest();
-    x.open('GET', '/keep-alive?t=' + Date.now(), true);
-    x.timeout = 2000;
-    x.send();
-  } catch(e) {}
-}, 12000);
-</script>
-</body>
-</html>
-)rawliteral";
+    static const char *captive_html = PORTAL_HTML;
 
     static void send_json(int code, const String &json)
     {
@@ -582,9 +349,10 @@ setInterval(function(){
     static void handle_config()
     {
         mark_softap_activity();
+        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
         String resp = "{";
-        resp += "\"ssid\":\"" + json_escape(config::network::STA_SSID) + "\",";
-        resp += "\"pass_len\":" + String(config::network::STA_PASS.length()) + ",";
+        resp += "\"ssid\":\"" + json_escape(cfg.getWifiSSID()) + "\",";
+        resp += "\"pass_len\":" + String(cfg.getWifiPass().length()) + ",";
         resp += "\"wifi_state\":" + String((int)current_state) + ",";
         resp += "\"ap_clients\":" + String(WiFi.softAPgetStationNum());
         resp += "}";
@@ -594,14 +362,15 @@ setInterval(function(){
     static void handle_root()
     {
         mark_softap_activity();
+        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
         String html = captive_html;
-        html.replace("%SSID%", config::network::STA_SSID);
-        html.replace("%PASS%", config::network::STA_PASS);
-        html.replace("%BACKEND_URL%", config::network::BACKEND_API_URL);
-        html.replace("%MQTT_BROKER%", config::network::MQTT_BROKER_VAL);
-        html.replace("%MQTT_PORT%", String(config::network::MQTT_PORT_VAL));
-        html.replace("%MQTT_USER%", config::network::MQTT_USER_VAL);
-        html.replace("%MQTT_PASS%", config::network::MQTT_PASSWORD_VAL);
+        html.replace("%SSID%", cfg.getWifiSSID());
+        html.replace("%PASS%", cfg.getWifiPass());
+        html.replace("%BACKEND_URL%", cfg.getBackendUrl());
+        html.replace("%MQTT_BROKER%", cfg.getMqttBroker());
+        html.replace("%MQTT_PORT%", String(cfg.getMqttPort()));
+        html.replace("%MQTT_USER%", cfg.getMqttUser());
+        html.replace("%MQTT_PASS%", cfg.getMqttPass());
         webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         webServer.sendHeader("Pragma", "no-cache");
         webServer.sendHeader("Connection", "close");
@@ -807,34 +576,16 @@ setInterval(function(){
                         : String(config::network::DEFAULT_MQTT_PASS);
         }
 
-        bool wifi_saved = storage::StorageManager::get_instance().save_wifi_credentials(ssid, pass);
-        if (!wifi_saved)
+        bool saved = storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, backend_url, broker, port, user, mpass);
+        if (!saved)
         {
-            send_json(500, "{\"ok\":false,\"error\":\"Loi luu WiFi vao NVS\"}");
+            send_json(500, "{\"ok\":false,\"error\":\"Loi luu cau hinh vao NVS\"}");
             return;
         }
 
-        // Advanced config is best-effort: never block a successful WiFi save.
-        bool backend_saved = storage::StorageManager::get_instance().save_backend_config(backend_url);
-        bool mqtt_saved = storage::StorageManager::get_instance().save_mqtt_config(broker, port, user, mpass);
-        if (!backend_saved || !mqtt_saved)
-        {
-            Serial.printf("[WIFI] WARNING: advanced save partial failure backend=%d mqtt=%d\n",
-                          backend_saved, mqtt_saved);
-        }
-
-        // Mirror into runtime config so post-reboot path is consistent if restart is delayed.
-        config::network::STA_SSID = ssid;
-        config::network::STA_PASS = pass;
-        config::network::BACKEND_API_URL = backend_url;
-        config::network::MQTT_BROKER_VAL = broker;
-        config::network::MQTT_PORT_VAL = port;
-        config::network::MQTT_USER_VAL = user;
-        config::network::MQTT_PASSWORD_VAL = mpass;
-
         String ok_json = String("{\"ok\":true,\"ssid\":\"") + json_escape(ssid) +
                          "\",\"reboot\":true,\"advanced_ok\":" +
-                         ((backend_saved && mqtt_saved) ? "true" : "false") + '}';
+                         (saved ? "true" : "false") + '}';
         send_json(200, ok_json);
 
         // Give the TCP stack time to flush the JSON response before reboot.
@@ -992,8 +743,7 @@ setInterval(function(){
                 {
                     Serial.println("[WIFI] WiFi credentials were already absent or could not be cleared.");
                 }
-                config::network::STA_SSID = "";
-                config::network::STA_PASS = "";
+                storage::ConfigManager::getInstance().init();
                 reconnect_attempts = 0;
                 xEventGroupClearBits(xWifiEventGroup, WIFI_FORCE_PROVISION_BIT);
 

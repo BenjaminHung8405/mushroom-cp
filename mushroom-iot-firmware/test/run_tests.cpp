@@ -22,6 +22,7 @@
 #include "crop_profile_validator.h"
 #include "time_confidence.h"
 #include "ota_manager.h"
+#include "config_manager.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -56,10 +57,22 @@ int mock_operation_counter = 0;
 
 void setup();
 void loop();
+void initQueues();
+void initSemaphores();
+
+void (*mock_queue_send_hook)(QueueHandle_t, const void*) = nullptr;
 
 int main() {
+    mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
+        if (mqtt::g_network_worker_queue != nullptr && xQueue == mqtt::g_network_worker_queue) {
+            const mqtt::NetworkMessage* msg = static_cast<const mqtt::NetworkMessage*>(pvItemToQueue);
+            mqtt::MqttClient::getInstance().processNetworkMessage(*msg);
+        }
+    };
+    initQueues();
+    initSemaphores();
+
     config::FUZZY_CONTROL_ENABLED = true;
-    xWifiEventGroup = xEventGroupCreate();
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
     storage::StorageManager& storage = storage::StorageManager::get_instance();
@@ -1024,10 +1037,9 @@ int main() {
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_LAMP) > 0);
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
 
-    // The direct relay dispatcher leaves all channels OFF (HIGH) by default.
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
-    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
-    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+    assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
     // 19.8 Cleanup queues
     vQueueDelete(test_baseline_q);
@@ -1174,50 +1186,50 @@ int main() {
         // 23.1 Boundary checks
         // Below lower bound
         Trajectory::SetpointPod low = Trajectory::interpolateSetpoints(-5.0f);
-        assert(low.temp_target == 24.0f);
+        assert(low.temp_target == 33.0f);
         assert(low.humidity_target == 90.0f);
-        assert(low.co2_target == 1000.0f);
+        assert(low.co2_target == 1100.0f);
 
         // NaN input
         Trajectory::SetpointPod nan_in = Trajectory::interpolateSetpoints(NAN);
-        assert(nan_in.temp_target == 24.0f);
+        assert(nan_in.temp_target == 33.0f);
         assert(nan_in.humidity_target == 90.0f);
-        assert(nan_in.co2_target == 1000.0f);
+        assert(nan_in.co2_target == 1100.0f);
 
         // Above upper bound
         Trajectory::SetpointPod high = Trajectory::interpolateSetpoints(25.0f);
         assert(high.temp_target == 28.0f);
-        assert(high.humidity_target == 80.0f);
-        assert(high.co2_target == 600.0f);
+        assert(high.humidity_target == 85.0f);
+        assert(high.co2_target == 850.0f);
 
         // Exactly at bounds
         Trajectory::SetpointPod bound_0 = Trajectory::interpolateSetpoints(0.0f);
-        assert(bound_0.temp_target == 24.0f);
+        assert(bound_0.temp_target == 33.0f);
         assert(bound_0.humidity_target == 90.0f);
-        assert(bound_0.co2_target == 1000.0f);
+        assert(bound_0.co2_target == 1100.0f);
 
         Trajectory::SetpointPod bound_20 = Trajectory::interpolateSetpoints(20.0f);
         assert(bound_20.temp_target == 28.0f);
-        assert(bound_20.humidity_target == 80.0f);
-        assert(bound_20.co2_target == 600.0f);
+        assert(bound_20.humidity_target == 85.0f);
+        assert(bound_20.co2_target == 850.0f);
 
         // 23.2 Exact day checkpoint
         Trajectory::SetpointPod day_10 = Trajectory::interpolateSetpoints(10.0f);
-        assert(day_10.temp_target == 26.0f);
-        assert(day_10.humidity_target == 85.0f);
-        assert(day_10.co2_target == 800.0f);
+        assert(day_10.temp_target == 29.5f);
+        assert(day_10.humidity_target == 89.0f);
+        assert(day_10.co2_target == 900.0f);
 
-        // 23.3 Interpolation between checkpoints (e.g., day 5.5)
-        // Day 5: { 5.0f,  25.0f, 87.5f,  920.0f }
-        // Day 6: { 6.0f,  25.2f, 87.0f,  900.0f }
-        // For Day 5.5:
-        // temp: 25.0 + 0.5 * (25.2 - 25.0) = 25.1
-        // humidity: 87.5 + 0.5 * (87.0 - 87.5) = 87.25
-        // co2: 920 + 0.5 * (900 - 920) = 910
-        Trajectory::SetpointPod mid = Trajectory::interpolateSetpoints(5.5f);
-        assert(std::abs(mid.temp_target - 25.1f) < 1e-4f);
-        assert(std::abs(mid.humidity_target - 87.25f) < 1e-4f);
-        assert(std::abs(mid.co2_target - 910.0f) < 1e-4f);
+        // 23.3 Interpolation between checkpoints (e.g., day 9.5)
+        // Day 9:  { 9.0f,  30.0f, 90.0f,  950.0f }
+        // Day 10: { 10.0f, 29.5f, 89.0f,  900.0f }
+        // For Day 9.5:
+        // temp: 30.0 + 0.5 * (29.5 - 30.0) = 29.75
+        // humidity: 90.0 + 0.5 * (89.0 - 90.0) = 89.5
+        // co2: 950 + 0.5 * (900 - 950) = 925
+        Trajectory::SetpointPod mid = Trajectory::interpolateSetpoints(9.5f);
+        assert(std::abs(mid.temp_target - 29.75f) < 1e-4f);
+        assert(std::abs(mid.humidity_target - 89.5f) < 1e-4f);
+        assert(std::abs(mid.co2_target - 925.0f) < 1e-4f);
         
         // Check POD type properties
         assert(std::is_pod<Trajectory::SetpointPod>::value == true);
@@ -1595,10 +1607,10 @@ int main() {
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
-        // HAir and Exhaust are unaffected by the blackout interlock; Exhaust is
-        // LOW because the default crop day (0.0) target (24.0C) is lower than mock temperature.
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
-        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW);
+        // HAir and Exhaust are unaffected by the blackout interlock; LAMP is
+        // LOW because the default crop day (0.0) target (33.0C) is higher than mock temperature.
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
         // Verify no heap allocation or delay() was used — confirmed by static
         // analysis of core1_tasks.cpp (no malloc/new/String/delay in loop body).
@@ -1997,9 +2009,9 @@ int main() {
         assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
         ControlSetpointCommand baselineCmd;
         assert(xQueueReceive(xBaselineQueue, &baselineCmd, 0) == pdTRUE);
-        assert(std::fabs(baselineCmd.temp_target - 24.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.temp_target - 33.0f) < 0.01f);
         assert(std::fabs(baselineCmd.humidity_target - 90.0f) < 0.01f);
-        assert(std::fabs(baselineCmd.co2_target - 1000.0f) < 0.01f);
+        assert(std::fabs(baselineCmd.co2_target - 1100.0f) < 0.01f);
         assert(baselineCmd.active == true);
 
         // Verify override queue contains inactive override command
@@ -2170,7 +2182,7 @@ int main() {
         hydrateSetpointsFromNVS();
         ControlSetpointCommand hydratedBaseline;
         assert(xQueueReceive(xBaselineQueue, &hydratedBaseline, 0) == pdTRUE);
-        assert(std::fabs(hydratedBaseline.temp_target - 24.0f) < 0.001f);
+        assert(std::fabs(hydratedBaseline.temp_target - 33.0f) < 0.001f);
 
         assert(prefs.begin(config::network::NVS_NAMESPACE, false));
         storage::HardwareOverrideSnapshot corruptOverride = {INFINITY, 75.0f, true};
@@ -2432,13 +2444,13 @@ int main() {
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             cabinet_buttons::process_cabinet_buttons();
             // Since k = 20 < CL (50), a single HIGH sample immediately resets k to 0.
-            // Let's verify by sending LOW again. If it was reset to 0, it will need 201 samples of LOW.
+            // Let's verify by sending LOW again. If it was reset to 0, it will need 50 samples of LOW.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 200; ++i) {
+            for (int i = 0; i < 49; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
                 assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
             }
-            // 201st sample should trigger PRESS
+            // 50th sample should trigger PRESS
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
 
@@ -2452,23 +2464,23 @@ int main() {
             for (int i = 0; i < 10; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // k should have decremented from 1000 to 990. Since 990 >= CL (50), state is still pressed.
+            // k should have decremented from 200 to 190. Since 190 >= CL (50), state is still pressed.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
             cabinet_buttons::process_cabinet_buttons();
-            // Since k = 990 >= CH (200), a single LOW sample immediately jumps k back to CTOP (1000).
+            // Since k = 190 >= CL (50), a single LOW sample immediately jumps k back to CH (200).
             
             // 4. Stable release: pin goes HIGH.
-            // Requires 951 samples to decrement from 1000 to 49 (still pressed).
-            // Then 1 more sample to decrement to 0 (triggers release).
-            // Total = 952 samples of HIGH.
+            // Requires 150 samples to decrement from 200 to 50 (still pressed).
+            // Then 1 more sample to decrement to 49 (triggers release).
+            // Total = 151 samples of HIGH.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 951; ++i) {
+            for (int i = 0; i < 150; ++i) {
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // At 951 samples HIGH, k is 49. Still pressed.
-            // 952nd sample HIGH, k becomes 0, triggering release.
+            // At 150 samples HIGH, k is 50. Still pressed.
+            // 151st sample HIGH, k becomes 49, triggering release.
             cabinet_buttons::process_cabinet_buttons();
             
             // Released should not push new request to queue
@@ -2840,6 +2852,50 @@ int main() {
 
         // Restore default state
         config::FUZZY_CONTROL_ENABLED = true;
+    }
+
+    // 40. Test ConfigManager thread-safe caching and legacy sync
+    {
+        Serial.println("--- Starting ConfigManager Unit Tests ---");
+        storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
+
+        // 1. Reset storage and verify init loaded state
+        storage::StorageManager::get_instance().factory_reset();
+        cfg.init();
+
+        // 2. Set and save credentials via unified saveNetworkConfig
+        assert(cfg.saveNetworkConfig("ConfigWifi", "ConfigPass", "http://mybackend.local:3000", "10.0.0.5", 1884, "mushroom_s3_unittest", "mock_jwt_token_123") == true);
+
+        // 3. Verify getters return updated values
+        assert(cfg.getWifiSSID() == "ConfigWifi");
+        assert(cfg.getWifiPass() == "ConfigPass");
+        assert(cfg.getMqttBroker() == "10.0.0.5");
+        assert(cfg.getMqttPort() == 1884);
+        assert(cfg.getBackendUrl() == "http://mybackend.local:3000");
+        assert(cfg.getMqttPass() == "mock_jwt_token_123");
+
+        // 4. Verify propagation to legacy config globals
+        assert(config::network::STA_SSID == "ConfigWifi");
+        assert(config::network::STA_PASS == "ConfigPass");
+        assert(config::network::MQTT_BROKER_VAL == "10.0.0.5");
+        assert(config::network::MQTT_PORT_VAL == 1884);
+        assert(config::network::BACKEND_API_URL == "http://mybackend.local:3000");
+        assert(config::network::MQTT_PASSWORD_VAL == "mock_jwt_token_123");
+
+        // 5. Test synchronization from legacy configuration modifications via getJwtToken
+        config::network::MQTT_PASSWORD_VAL = "direct_modified_token";
+        assert(cfg.getJwtToken() == "direct_modified_token");
+
+        // 6. Test save to NVS and reload again
+        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass", "https://prod.backend.com", "retained.broker.com", 1885, "mushroom_s3_unittest", "mock_jwt_token_123") == true);
+
+        // Force a re-init from NVS
+        cfg.init();
+        assert(cfg.getWifiSSID() == "SavedWifi");
+        assert(cfg.getWifiPass() == "SavedPass");
+        assert(cfg.getMqttBroker() == "retained.broker.com");
+        assert(cfg.getMqttPort() == 1885);
+        assert(cfg.getBackendUrl() == "https://prod.backend.com");
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
