@@ -74,6 +74,8 @@ summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; }
       <button type="button" class="btn btn-toggle" id="btnPass" onclick="togglePass('pass','btnPass')">Hien</button>
     </div>
 
+    <p style="color: #5f6368; font-size: 13px; margin-top: 12px; margin-bottom: 4px; text-align: center;">Device ID: <span style="font-family: monospace; font-weight: bold; color: #202124;">%MQTT_USER%</span></p>
+
     <details id="adv">
       <summary>Cau hinh nang cao (tuy chon)</summary>
       <label for="backend_url">Backend API URL</label>
@@ -84,15 +86,6 @@ summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; }
 
       <label for="mqtt_port">MQTT Port</label>
       <input id="mqtt_port" name="mqtt_port" type="number" value="%MQTT_PORT%" min="1" max="65535">
-
-      <label for="mqtt_user">MQTT Username</label>
-      <input id="mqtt_user" name="mqtt_user" type="text" value="%MQTT_USER%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_pass">MQTT Password</label>
-      <div class="row">
-        <input id="mqtt_pass" name="mqtt_pass" type="password" value="%MQTT_PASS%" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button type="button" class="btn btn-toggle" id="btnMqttPass" onclick="togglePass('mqtt_pass','btnMqttPass')">Hien</button>
-      </div>
     </details>
 
     <button type="button" class="btn btn-pri" id="btnSave" onclick="saveConfig()">Luu & Khoi dong lai</button>
@@ -188,9 +181,7 @@ function saveConfig(){
     '&pass=' + encodeURIComponent($('pass').value || '') +
     '&backend_url=' + encodeURIComponent(($('backend_url').value || '').trim()) +
     '&mqtt_broker=' + encodeURIComponent(($('mqtt_broker').value || '').trim()) +
-    '&mqtt_port=' + encodeURIComponent(String(port)) +
-    '&mqtt_user=' + encodeURIComponent(($('mqtt_user').value || '').trim()) +
-    '&mqtt_pass=' + encodeURIComponent($('mqtt_pass').value || '');
+    '&mqtt_port=' + encodeURIComponent(String(port));
 
   var x = new XMLHttpRequest();
   x.open('POST', 'http://192.168.4.1/save', true);
