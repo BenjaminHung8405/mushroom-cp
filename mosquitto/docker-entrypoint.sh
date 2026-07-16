@@ -13,5 +13,6 @@ DEVICE_PASS="${MQTT_ESP32_PASS:?MQTT_ESP32_PASS is required}"
 mosquitto_passwd -b -c "$PASSWD_FILE" "$BACKEND_USER" "$BACKEND_PASS"
 mosquitto_passwd -b "$PASSWD_FILE" "$DEVICE_USER" "$DEVICE_PASS"
 chmod 0600 "$PASSWD_FILE"
+chown mosquitto:mosquitto "$PASSWD_FILE"
 
 exec mosquitto -c /mosquitto/config/mosquitto.conf

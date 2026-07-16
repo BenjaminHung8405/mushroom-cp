@@ -1,6 +1,11 @@
 # Backend owns orchestration and may consume/publish across all tenants.
+user nestjs_backend
+topic readwrite #
+topic read $SYS/#
+
 user mushroom_backend
 topic readwrite #
+topic read $SYS/#
 
 # Device identity is a security boundary:
 # username == client ID == device ID and deployment tenant is mushroom.
