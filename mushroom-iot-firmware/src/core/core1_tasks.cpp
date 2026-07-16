@@ -800,6 +800,11 @@ static void runControlPipelineStep(
         }
         sampleAndEnqueueTelemetry(telemetry, actuatorSnapshot, lastSensorReadOk);
         lastEnqueuedActuators = actuatorSnapshot;
+        if (actuatorChanged)
+        {
+            // Core 0 publishes this final, protector-resolved relay snapshot immediately.
+            setSharedForceFullPublish(true);
+        }
     }
 
     updateWebInterfaceState(telemetry, setpoints, outputs);

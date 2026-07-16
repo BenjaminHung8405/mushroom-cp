@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useCallback,
 } from 'react'
 import type { DeviceStatus } from './simulation-context'
 import {
@@ -35,6 +36,7 @@ type LwtStatus = 'online' | 'offline' | 'unknown'
 
 const STALE_MS = 20_000
 const STALE_TICK_MS = 5_000
+const SNAPSHOT_REFRESH_MS = 5_000
 
 function deriveDeviceStatus(
   lwt: LwtStatus,
@@ -90,6 +92,19 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const prevSnapshotRef = useRef<TelemetrySnapshot | null>(null)
 
+  // An initial HTTP response can arrive after a newer SSE event. Never let an
+  // older snapshot overwrite the latest physical relay state in the dashboard.
+  const applySnapshot = useCallback((next: TelemetrySnapshot) => {
+    setSnapshot((current) => {
+      if (!current) return next
+      const currentMs = new Date(current.time).getTime()
+      const nextMs = new Date(next.time).getTime()
+      return Number.isFinite(currentMs) && Number.isFinite(nextMs) && nextMs < currentMs
+        ? current
+        : next
+    })
+  }, [])
+
   // LWT truth is never written by the stale path.
   const [lwtStatus, setLwtStatus] = useState<LwtStatus>('unknown')
   const [onlineSinceMs, setOnlineSinceMs] = useState<number | null>(null)
@@ -118,15 +133,30 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
 
     let cancelled = false
     fetchTelemetrySnapshot(selectedDeviceId).then((snap) => {
-      if (!cancelled && snap) setSnapshot(snap)
+      if (!cancelled && snap) applySnapshot(snap)
     })
-    const unsubscribe = subscribeTelemetryStream(selectedDeviceId, setSnapshot)
+    const unsubscribe = subscribeTelemetryStream(selectedDeviceId, applySnapshot)
 
     return () => {
       cancelled = true
       unsubscribe()
     }
-  }, [selectedDeviceId])
+  }, [selectedDeviceId, applySnapshot])
+
+  // SSE is the primary real-time transport. Polling is a deliberately small
+  // fallback for deployments where an ingress/proxy drops or buffers SSE; it
+  // also recovers state after a transient EventSource reconnect.
+  useEffect(() => {
+    if (!selectedDeviceId) return
+
+    const refresh = () => {
+      fetchTelemetrySnapshot(selectedDeviceId).then((snap) => {
+        if (snap) applySnapshot(snap)
+      })
+    }
+    const timer = setInterval(refresh, SNAPSHOT_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [selectedDeviceId, applySnapshot])
 
   // LWT status SSE — writes only to lwtStatus; also records when online began.
   useEffect(() => {

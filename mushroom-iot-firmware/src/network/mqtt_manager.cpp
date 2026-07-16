@@ -676,11 +676,16 @@ bool MqttManager::publishCommandAck(char* command_id, const char* status,
 
 bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms)
 {
-    if (!provisioned_ || !client_.connected()) {
-        return false;
-    }
     const unsigned long interval_ms = static_cast<unsigned long>(telemetry_interval_sec_) * 1000UL;
     if (last_telemetry_due_ != 0 && now_ms - last_telemetry_due_ < interval_ms) {
+        return false;
+    }
+    return publishTelemetrySnapshotNow(telemetry, now_ms);
+}
+
+bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms)
+{
+    if (!provisioned_ || !client_.connected()) {
         return false;
     }
 

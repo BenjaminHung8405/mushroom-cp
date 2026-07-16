@@ -64,6 +64,9 @@ public:
     /** Build and publish a full telemetry v1 snapshot when its persisted interval is due. */
     bool publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms);
 
+    /** Publish a full telemetry snapshot immediately after a local state transition. */
+    bool publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms);
+
     /** Command acknowledgement QoS 1 (non-retained). */
     bool publishCommandAck(char* command_id, const char* status,
                            uint32_t latency_ms, const char* relay_id,

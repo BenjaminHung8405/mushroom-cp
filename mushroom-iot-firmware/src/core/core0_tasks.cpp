@@ -175,7 +175,7 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 4. Drain telemetry queue from Core 1
         drainTelemetryQueue(last_known_telemetry);
 
-        // 4b. Drain manual ack queue from Core 1
+        // 4b. Drain manual ack queue from Core 1.
         if (g_manual_ack_queue != nullptr)
         {
             ManualAck ack;
@@ -198,8 +198,14 @@ void taskCore0Communication(void* /*pvParameters*/)
             }
         }
 
-        // 5. Telemetry publication scan
+        // 5. Publish after Core 1 has produced a final relay-state snapshot. This
+        // is deliberately not driven by ManualAck: an ACK only confirms a request;
+        // the protector may still change its final physical relay state.
         unsigned long now = millis();
+        if (consumeSharedForceFullPublish())
+        {
+            mqtt::MqttManager::getInstance().publishTelemetrySnapshotNow(last_known_telemetry, now);
+        }
         handleTelemetryScan(now, last_known_telemetry, telemetryState);
 
         // 6. Monitor Stack High Water Mark

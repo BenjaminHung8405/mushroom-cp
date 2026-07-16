@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// SSE must be streamed through this gateway; never statically cache or buffer it.
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 const backendBaseUrl = (
   process.env.API_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
@@ -37,11 +41,22 @@ async function proxy(
       cache: 'no-store',
     })
 
-    return new NextResponse(response.body, {
+    const isEventStream = response.headers
+      .get('content-type')
+      ?.includes('text/event-stream')
+
+    return new Response(response.body, {
       status: response.status,
       headers: {
         'Content-Type': response.headers.get('content-type') ?? 'application/json',
-        'Cache-Control': 'no-store',
+        // Prevent Next.js, reverse proxies, and browsers from buffering SSE events.
+        'Cache-Control': isEventStream ? 'no-cache, no-transform' : 'no-store',
+        ...(isEventStream
+          ? {
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            }
+          : {}),
       },
     })
   } catch {
