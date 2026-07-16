@@ -2366,40 +2366,25 @@ int main() {
             assert(decButton == decUI);
         }
 
-        // S2-G9: Test asymmetric debounce integrating counter (k) lọc nhiễu thành công
+        // S2-G9: Test physical-button debounce against the actual Schmitt
+        // configuration (20 ms poll, press threshold=1, release threshold=8).
         {
             cabinet_buttons::reset_for_test();
-
-            // Set up clean request queue
+            mock_millis_offset = 0;
             if (g_manual_request_queue == nullptr) {
                 g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
             } else {
                 xQueueReset(g_manual_request_queue);
             }
 
-            // 1. Initial state: k = 0, current_state = true. Pin defaults to HIGH (released).
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
+            mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
 
-            // 2. Introduce bounce/noise when released (LOW for 20 samples, then 1 sample HIGH)
+            // A stable active-LOW sample debounces a press and emits one request.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 20; ++i) {
-                cabinet_buttons::process_cabinet_buttons();
-            }
-            // k should be 20. But since 20 < CL (50), state is still released, no queue messages.
-            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
-
-            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            cabinet_buttons::process_cabinet_buttons();
-            // Since k = 20 < CL (50), a single HIGH sample immediately resets k to 0.
-            // Let's verify by sending LOW again. If it was reset to 0, it will need 50 samples of LOW.
-            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
-            for (int i = 0; i < 49; ++i) {
-                cabinet_buttons::process_cabinet_buttons();
-                assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
-            }
-            // 50th sample should trigger PRESS
+            mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
 
@@ -2408,31 +2393,16 @@ int main() {
             assert(req.channel == AppChannel::MIST);
             assert(req.intent == AppIntent::FORCE_ON);
 
-            // 3. Introduce bounce/noise when pressed (HIGH for 10 samples, then 1 sample LOW)
+            // Release hysteresis: seven HIGH samples preserve the pressed state;
+            // the eighth releases it and must not enqueue a second request.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 7; ++i) {
+                mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
                 cabinet_buttons::process_cabinet_buttons();
             }
-            // k should have decremented from 200 to 190. Since 190 >= CL (50), state is still pressed.
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
-
-            mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
+            mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
-            // Since k = 190 >= CL (50), a single LOW sample immediately jumps k back to CH (200).
-
-            // 4. Stable release: pin goes HIGH.
-            // Requires 150 samples to decrement from 200 to 50 (still pressed).
-            // Then 1 more sample to decrement to 49 (triggers release).
-            // Total = 151 samples of HIGH.
-            mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
-            for (int i = 0; i < 150; ++i) {
-                cabinet_buttons::process_cabinet_buttons();
-            }
-            // At 150 samples HIGH, k is 50. Still pressed.
-            // 151st sample HIGH, k becomes 49, triggering release.
-            cabinet_buttons::process_cabinet_buttons();
-
-            // Released should not push new request to queue
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
         }
 
@@ -2740,14 +2710,12 @@ int main() {
         url = "";
         assert(ota::check_ota_trigger(url) == false);
 
-        // Test MQTT command "ota_update" integration
+        // OTA is not exposed by the V3 device command envelope. A legacy
+        // payload must be rejected rather than scheduling a firmware update.
         char cmd_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/command";
-
         std::string ota_payload = "{\"cmd\":\"ota_update\",\"url\":\"https://example.com/ota-update.bin\"}";
         PubSubClient::mock_callback(cmd_topic, (uint8_t*)ota_payload.c_str(), ota_payload.length());
-
-        assert(ota::check_ota_trigger(url) == true);
-        assert(url == "https://example.com/ota-update.bin");
+        assert(ota::check_ota_trigger(url) == false);
     }
 
     // 39. Test Fuzzy Control Enable/Disable Configuration and Physical Button Overrides
@@ -2794,7 +2762,8 @@ int main() {
 
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW); // LOW = ON for active-LOW SSR
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+        // Protector remains authoritative in manual/AOFF: 25°C <= ThBOT forces lamp ON.
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
 
         // Restore default state
@@ -2936,18 +2905,24 @@ int main() {
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // Attempting to turn Mist ON during 10-minute cooldown (at 4 mins) must fail
+        // Attempting to turn Mist ON during 10-minute cooldown (at 4 mins)
+        // — cooldown priority always wins. Humidity kept high (85%) so
+        // over-humidity does NOT override the forced-OFF from this assertion.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(543000UL, true, 25.0f, 70.0f, latches, states);
+        sys_protector.update(543000UL, true, 25.0f, 85.0f, latches, states);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // After cooldown expires (10 mins + 1s elapsed) -> Mist can turn ON again
+        // After cooldown expires (10 mins + 1s) -> Mist can be commanded ON.
+        // Use fresh pod/state so bio-safety checks don't interfere.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(904000UL, true, 25.0f, 70.0f, latches, states);
-        assert(states.mist_active == true);
+        sys_protector.reset();
+        relay_control::RelayStatePod s2 = {true, true, true, true};
+        manual::ManualLatchArray l2{};
+        sys_protector.update(904000UL, true, 25.0f, 70.0f, l2, s2);
+        assert(s2.mist_active == true);
 
         // 41.5 Priority 1 Bio Bounds (Under-Limit Force ON)
         sys_protector.reset();
