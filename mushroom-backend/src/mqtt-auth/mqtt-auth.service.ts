@@ -73,8 +73,15 @@ export class MqttAuthService {
 
     if (username === bootstrapUser) {
       if (!this.isMac(clientId)) return false;
-      if (topic === `${this.tenant}/provision/request`) return access === 2;
-      return topic === `${this.tenant}/provision/response/${clientId}` && access === 1;
+
+      if (topic === `${this.tenant}/provision/request`) {
+        return access === 2; // MQTT publish/write
+      }
+
+      return (
+        topic === `${this.tenant}/provision/response/${clientId}` &&
+        (access === 1 || access === 4) // read hoặc subscribe, tùy callback Mosquitto
+      );
     }
 
     return (

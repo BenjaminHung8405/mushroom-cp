@@ -13,9 +13,9 @@ namespace config
     {
 
         // Actuators (Relays)
-        constexpr uint8_t PIN_RELAY_MIST   = 10; // Sương (Fogger/Mist)
-        constexpr uint8_t PIN_RELAY_FAN    = 11; // Quạt (Fan)
-        constexpr uint8_t PIN_RELAY_HWAT   = 12; // Sưởi nước (Heater Water)
+        constexpr uint8_t PIN_RELAY_MIST = 10; // Sương (Fogger/Mist)
+        constexpr uint8_t PIN_RELAY_FAN = 11;  // Quạt (Fan)
+        constexpr uint8_t PIN_RELAY_HWAT = 12; // Sưởi nước (Heater Water)
         constexpr uint8_t PIN_RELAY_LAMP = 13; // Đèn nhiệt — relay duy nhất
 
         // I2C Bus (e.g. SHT30, SCD30)
@@ -25,7 +25,7 @@ namespace config
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).
         // Hold 5 seconds during runtime to force SoftAP config portal.
-        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
+        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 4;
 
         // PIN_BUTTON_UP / PIN_BUTTON_DOWN đã bị xóa:
         // GPIO 15 và 16 được dùng cho nút tủ điện (cabinet_buttons: LAMP, FAN).
@@ -124,7 +124,7 @@ namespace config
         // Tất cả 3 chân theo cùng pattern: GPIO4 = chuẩn tham chiếu, 15 và 16 đồng bộ theo.
         constexpr uint8_t PIN_BTN_MIST = 4;  // Nút Sương — chuẩn tham chiếu
         constexpr uint8_t PIN_BTN_LAMP = 15; // Nút Đèn — INPUT_PULLUP, debounce 8-sample shift-register
-        constexpr uint8_t PIN_BTN_FAN  = 16; // Nút Quạt — INPUT_PULLUP, debounce 8-sample shift-register
+        constexpr uint8_t PIN_BTN_FAN = 16;  // Nút Quạt — INPUT_PULLUP, debounce 8-sample shift-register
 
         // Configurable button polling interval (20ms to prevent CPU context choke)
         constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 20;
