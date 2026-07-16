@@ -159,6 +159,7 @@ services:
   # 6. REVERSE PROXY: Nginx
   # ==========================================
   mushroom-nginx:
+    user: nphung
     image: nginx:alpine
     container_name: mushroom_nginx
     restart: always
