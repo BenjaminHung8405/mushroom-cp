@@ -5,6 +5,13 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 # Enable Corepack and activate pnpm, then install dependencies using pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile
 COPY . .
+
+# Build the Next.js application during image creation.
+RUN pnpm run build
+
+ENV NODE_ENV=production
+
 EXPOSE 3000
-# Development entry (use `pnpm run dev` in package.json)
-CMD ["pnpm", "run", "dev"]
+
+# Production entry
+CMD ["pnpm", "run", "start"]
