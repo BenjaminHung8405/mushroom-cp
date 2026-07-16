@@ -324,6 +324,59 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return commandId;
   }
 
+  async dispatchSetpoint(
+    deviceId: string,
+    payload: {
+      temperatureSetpoint: number;
+      humiditySetpoint: number;
+      co2Setpoint?: number;
+      thermal_shock_protection?: boolean;
+      thermal_shock_start?: string;
+      thermal_shock_end?: string;
+      control_mode: 'fuzzy_tpc';
+      setpoint_ttl_sec: number;
+    },
+  ): Promise<void> {
+    this.logger.debug(
+      `dispatchSetpoint: Advisory setpoint for ${deviceId} is a no-op in MQTT-only mode. Payload: ${JSON.stringify(
+        payload,
+      )}`,
+    );
+  }
+
+  async dispatchActuatorOverride(
+    deviceId: string,
+    actuator: 'fan' | 'heater_air' | 'mist' | 'lamp' | 'lamp_stage',
+    state: boolean | null,
+  ): Promise<void> {
+    this.logger.log(
+      `dispatchActuatorOverride: translating ${actuator} override (state=${state}) to SET_RELAY command for ${deviceId}`,
+    );
+
+    let relayId: 'relay_1' | 'relay_2' | 'relay_3' | 'relay_4';
+    switch (actuator) {
+      case 'mist':
+        relayId = 'relay_1';
+        break;
+      case 'fan':
+        relayId = 'relay_2';
+        break;
+      case 'heater_air':
+        relayId = 'relay_3';
+        break;
+      case 'lamp':
+      case 'lamp_stage':
+        relayId = 'relay_4';
+        break;
+      default:
+        this.logger.error(`Unknown actuator type: ${actuator}`);
+        return;
+    }
+
+    const commandState: 'ON' | 'OFF' = state === true ? 'ON' : 'OFF';
+    await this.dispatchRelayCommand(deviceId, relayId, commandState, 'user-override');
+  }
+
   private async publish(topic: string, payload: unknown, retain = false): Promise<void> {
     if (!this.client?.connected) throw new Error('MQTT client is not connected.');
     await new Promise<void>((resolve, reject) => {
