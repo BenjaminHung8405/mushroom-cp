@@ -131,6 +131,12 @@ private:
     void executeOperatingModeCommand(JsonObject root, String command_id, unsigned long started_ms);
     void executeBaselineSetpointCommand(JsonObject params, String command_id,
                                         unsigned long started_ms);
+    void executeCropProfileCommand(JsonObject params, String command_id,
+                                   unsigned long started_ms);
+    bool publishConfigAck(const char* command_id, const char* status,
+                          uint32_t latency_ms, const char* kind,
+                          uint32_t config_revision, uint16_t checkpoint_count,
+                          const char* error_code, const char* error_message);
     void executeRelayCommand(JsonObject params, String command_id,
                              uint32_t issue_epoch_s);
     bool queueRelayToCore1(uint8_t pin, bool activate);

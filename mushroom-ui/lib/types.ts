@@ -113,3 +113,15 @@ export interface FarmHouseConfig {
     cloudSyncStatus: "CONNECTED" | "DEGRADED" | "DISCONNECTED";
   };
 }
+
+/** Desired-to-applied configuration reconciliation state from the device sync service. */
+export interface ConfigSyncEvent {
+  deviceId: string;
+  commandId: string | null;
+  kind: string | null;
+  desiredRevision: number | null;
+  appliedRevision: number | null;
+  status: 'PENDING' | 'ACKED' | 'APPLIED' | 'FAILED' | 'TIMEOUT' | 'OUT_OF_SYNC';
+  error: { code: string; message: string } | null;
+  updatedAt: string | null;
+}

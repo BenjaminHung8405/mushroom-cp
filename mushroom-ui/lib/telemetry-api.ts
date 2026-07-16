@@ -199,3 +199,54 @@ export async function postActuatorOverride(
     return { success: false, message: msg }
   }
 }
+
+/**
+ * Device configuration-synchronisation helpers — reads the live /config-sync
+ * endpoint and exposes a thin publish method that matches backend contracts.
+ */
+
+import { ConfigSyncEvent } from './types'
+
+export async function fetchConfigSync(deviceId: string): Promise<ConfigSyncEvent | null> {
+  try {
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/config-sync`)
+    if (!res.ok) return null
+    return (await res.json()) as ConfigSyncEvent
+  } catch { return null }
+}
+
+export function subscribeConfigSyncStream(
+  deviceId: string, handler: EventHandler<ConfigSyncEvent>,
+): () => void {
+  const es = new EventSource(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/config-sync/stream`)
+  es.addEventListener('message', (ev: MessageEvent) => {
+    try { handler(JSON.parse(ev.data) as ConfigSyncEvent) }
+    catch { console.warn('[config-sync] bad SSE:', ev.data) }
+  })
+  es.onerror = () => {}
+  return () => es.close()
+}
+
+export async function postApplyCropProfile(
+  deviceId: string, payload: {
+    cropStartEpochSec: number
+    totalCropDays: number
+    checkpoints: Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>
+    configRevision?: number
+  },
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/apply-crop-profile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const errData = (await res.json()) as { message?: string };
+      return { success: false, message: errData?.message ?? 'Không thể gửi crop profile.' }
+    }
+    return { success: true, message: 'Đang đồng bộ crop profile xuống thiết bị.' }
+  } catch (err: unknown) {
+    const msg = (err as Error)?.message ?? 'Lỗi kết nối đến máy chủ.'
+    return { success: false, message: msg }
+  }
+}

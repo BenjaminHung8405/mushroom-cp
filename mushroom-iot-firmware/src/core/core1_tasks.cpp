@@ -100,9 +100,9 @@ void setSharedForceFullPublish(bool val)
 }
 
 #ifndef UNIT_TEST
-SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}};
+SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}, ControlSource::SafeOffline, 0};
 #else
-static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}};
+static SharedSystemState shared_systemState = {NAN, NAN, NAN, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, {false, false, false, false, false, false, {0, 0}}, ControlSource::SafeOffline, 0};
 #endif
 
 void updateSharedSystemState(const SharedSystemState& state)
@@ -495,7 +495,9 @@ static Trajectory::SetpointPod getControlSetpointsAndErrors(
 static void updateWebInterfaceState(
     const TelemetryData& telemetry,
     const Trajectory::SetpointPod& setpoints,
-    const FuzzyController::ArbitratedOutputsPod& outputs)
+    const FuzzyController::ArbitratedOutputsPod& outputs,
+    ControlSource controlSource,
+    uint32_t configRevision)
 {
     // Cập nhật trạng thái chia sẻ cho WebInterface
     SharedSystemState localState;
@@ -510,6 +512,8 @@ static void updateWebInterfaceState(
     localState.mist_duty = outputs.Mist;
     localState.exhaust_duty = outputs.Exh;
     localState.actuators = telemetry.actuators;
+    localState.control_source = controlSource;
+    localState.config_revision = configRevision;
     updateSharedSystemState(localState);
 }
 
@@ -575,6 +579,19 @@ static void runControlPipelineStep(
             }
         }
     }
+    static bool bootControlSourceLogged = false;
+    if (!bootControlSourceLogged)
+    {
+        bootControlSourceLogged = true;
+        const char* source = overrideCmd.active ? "temporary-override" :
+                             baselineCmd.active ? "baseline-nvs" :
+                             hasActiveProfile ? "crop-profile" : "trajectory";
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[CONTROL] Boot state: active_source=%s baseline_active=%d profile_active=%d override_active=%d\n",
+                      source, static_cast<int>(baselineCmd.active),
+                      static_cast<int>(hasActiveProfile), static_cast<int>(overrideCmd.active));
+    }
+
     if (xActuatorOverrideQueue != nullptr)
     {
         ActuatorOverrideCommand temp;
@@ -648,9 +665,31 @@ static void runControlPipelineStep(
         : static_cast<float>(elapsedMs) / 1000.0f;
     const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
         tunerState, errorTemp, errorHumid, dtSeconds);
+
+    // MANUAL -> AI must release any still-valid user latch before Fuzzy gets
+    // its first tick back. Relay arbitration remains exclusively on Core 1.
+    static config::OperatingMode previousOperatingMode = config::OperatingMode::AI;
+    const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
+    if (previousOperatingMode == config::OperatingMode::MANUAL &&
+        operatingMode == config::OperatingMode::AI)
+    {
+        manual::resetAllManualLatchesOnAOffTransition(manualLatch);
+        for (size_t i = 0; i < manualLatch.size(); ++i)
+        {
+            const AppChannel channel = static_cast<AppChannel>(i);
+            storage::CropProfileStorage::getInstance().clearManualOverride(channel);
+            if (channel == AppChannel::MIST || channel == AppChannel::FAN ||
+                channel == AppChannel::LAMP)
+            {
+                cabinet_buttons::notify_latch_released(channel);
+            }
+        }
+    }
+    previousOperatingMode = operatingMode;
+
     FuzzyController::ArbitratedOutputsPod outputs;
     const bool fuzzyEnabled = config::FUZZY_CONTROL_ENABLED &&
-        config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI;
+        operatingMode == config::OperatingMode::AI;
     if (fuzzyEnabled)
     {
         const FuzzyController::DualHeaterOutputsPod thermalDemands =
@@ -660,7 +699,15 @@ static void runControlPipelineStep(
     }
     else
     {
-        outputs = {0.0f, 0.0f, 0.0f, 0.0f};
+        // Bumpless MANUAL transfer: reuse the final, protector-resolved state
+        // from the preceding Core 1 tick. Later manual latches may override a
+        // channel, but hardware protection and SystemProtector still win.
+        outputs = {
+            relayState.lamp_active ? 1.0f : 0.0f,
+            relayState.hwat_active ? 1.0f : 0.0f,
+            relayState.mist_active ? 1.0f : 0.0f,
+            relayState.fan_active ? 1.0f : 0.0f,
+        };
     }
 
     // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → direct ON/OFF
@@ -760,16 +807,6 @@ static void runControlPipelineStep(
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 
-    // On an AI -> MANUAL transition, first stop every existing latch/relay.
-    // Subsequent MANUAL ticks keep newly issued user latches intact.
-    static config::OperatingMode previousOperatingMode = config::OperatingMode::AI;
-    if (previousOperatingMode == config::OperatingMode::AI &&
-        config::GLOBAL_OPERATING_MODE == config::OperatingMode::MANUAL)
-    {
-        manual::resetAllManualLatchesOnAOffTransition(manualLatch);
-    }
-    previousOperatingMode = config::GLOBAL_OPERATING_MODE;
-
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
     static protector::SystemProtector systemProtector;
     systemProtector.update(
@@ -819,7 +856,26 @@ static void runControlPipelineStep(
         }
     }
 
-    updateWebInterfaceState(telemetry, setpoints, outputs);
+    const ControlSource controlSource =
+        time_conf::getTimeConfidence() == TimeConfidence::Uncertain ? ControlSource::SafeOffline :
+        (overrideCmd.active ? ControlSource::TemporaryOverride :
+        (baselineCmd.active ? ControlSource::BaselineSetpoint :
+        (hasActiveProfile ? ControlSource::CropProfile : ControlSource::Trajectory)));
+    const uint32_t configRevision =
+        controlSource == ControlSource::BaselineSetpoint ? getBaselineConfigRevision() :
+        controlSource == ControlSource::CropProfile ? getProfileConfigRevision() : 0;
+    static ControlSource lastLoggedSource = ControlSource::SafeOffline;
+    static uint32_t lastLoggedRevision = UINT32_MAX;
+    if (controlSource != lastLoggedSource || configRevision != lastLoggedRevision)
+    {
+        lastLoggedSource = controlSource;
+        lastLoggedRevision = configRevision;
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[CONTROL] Active setpoint: T=%.2f H=%.2f source=%s rev=%lu\n",
+                      setpoints.temp_target, setpoints.humidity_target,
+                      controlSourceName(controlSource), static_cast<unsigned long>(configRevision));
+    }
+    updateWebInterfaceState(telemetry, setpoints, outputs, controlSource, configRevision);
 }
 
 void taskCore1Control(void* /*pvParameters*/)
@@ -836,9 +892,21 @@ void taskCore1Control(void* /*pvParameters*/)
     // Load persisted crop profile once on boot
     hasActiveProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
     if (hasActiveProfile) {
+        uint32_t revision = 0;
+        storage::CropProfileStorage::getInstance().loadProfileConfigRevision(revision);
+        setProfileConfigRevision(revision);
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf("[CORE1_TASK] Loaded crop profile from NVS successfully. Checkpoints: %u, Version: %u\n",
                       activeProfile.checkpoint_count, activeProfile.schema_version);
+    } else {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.println("[CORE1_TASK] No persisted crop profile found.");
+    }
+
+    {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[CONTROL] Profile active=%d; baseline and override will be reported after NVS hydration.\n",
+                      static_cast<int>(hasActiveProfile));
     }
 
 #ifndef UNIT_TEST

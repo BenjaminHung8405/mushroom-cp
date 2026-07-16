@@ -487,6 +487,25 @@ namespace storage
         return false;
     }
 
+    bool StorageManager::save_baseline_config_revision(uint32_t revision)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+        const size_t written = prefs.putUInt("base_rev", revision);
+        prefs.end();
+        return written == sizeof(uint32_t);
+    }
+
+    bool StorageManager::load_baseline_config_revision(uint32_t &revision)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+        if (!prefs.isKey("base_rev")) { prefs.end(); return false; }
+        revision = prefs.getUInt("base_rev", 0);
+        prefs.end();
+        return true;
+    }
+
     bool StorageManager::clear_backend_snapshot()
     {
         Preferences prefs;
@@ -495,6 +514,7 @@ namespace storage
             return false;
         }
         bool result = prefs.remove(config::network::KEY_LAST_SP);
+        prefs.remove("base_rev");
         prefs.end();
         Serial.println("[STORAGE] Cleared backend snapshot from NVS.");
         return result;

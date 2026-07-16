@@ -26,6 +26,28 @@ static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
 static constexpr uint32_t CORE0_STACK_BYTES = 8192;
 static constexpr uint32_t CORE1_STACK_BYTES = 4096;
 
+namespace {
+volatile uint32_t g_baseline_config_revision = 0;
+volatile uint32_t g_profile_config_revision = 0;
+}
+
+const char* controlSourceName(ControlSource source)
+{
+    switch (source) {
+        case ControlSource::SafeOffline: return "safe_offline";
+        case ControlSource::TemporaryOverride: return "temporary_override";
+        case ControlSource::BaselineSetpoint: return "baseline_setpoint";
+        case ControlSource::CropProfile: return "crop_profile";
+        case ControlSource::Trajectory: return "trajectory";
+    }
+    return "unknown";
+}
+
+void setBaselineConfigRevision(uint32_t revision) { g_baseline_config_revision = revision; }
+uint32_t getBaselineConfigRevision() { return g_baseline_config_revision; }
+void setProfileConfigRevision(uint32_t revision) { g_profile_config_revision = revision; }
+uint32_t getProfileConfigRevision() { return g_profile_config_revision; }
+
 void initQueues()
 {
     // Create FreeRTOS Queues for inter-core communication
@@ -286,19 +308,24 @@ void hydrateSetpointsFromNVS()
         baselineCmd.humidity_target = backendSnap.humidity_target;
         baselineCmd.co2_target = backendSnap.co2_target;
         baselineCmd.active = true;
-        Serial.printf("[MAIN] Hydrated baseline from NVS: T=%.2f, H=%.2f, CO2=%.2f\n",
+        uint32_t revision = 0;
+        storage.load_baseline_config_revision(revision);
+        setBaselineConfigRevision(revision);
+        Serial.printf("[MAIN] Hydrated baseline from NVS rev=%u: T=%.2f, H=%.2f, CO2=%.2f\n",
+                      static_cast<unsigned>(revision),
                       baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
     }
     else
     {
-        // Fallback to trajectory Day 0
-        Trajectory::SetpointPod day0 = Trajectory::interpolateSetpoints(0.0f);
-        baselineCmd.temp_target = day0.temp_target;
-        baselineCmd.humidity_target = day0.humidity_target;
-        baselineCmd.co2_target = day0.co2_target;
-        baselineCmd.active = true;
-        Serial.printf("[MAIN] NVS baseline empty/invalid. Fallback to Trajectory Day 0: T=%.2f, H=%.2f, CO2=%.2f\n",
-                      baselineCmd.temp_target, baselineCmd.humidity_target, baselineCmd.co2_target);
+        // An absent baseline is not a trajectory fallback. Mark it inactive so
+        // Core 1 can select the crop profile (or built-in trajectory) instead.
+        // Treating this as an active Day 0 baseline permanently masked profiles.
+        baselineCmd.temp_target = NAN;
+        baselineCmd.humidity_target = NAN;
+        baselineCmd.co2_target = NAN;
+        baselineCmd.active = false;
+        setBaselineConfigRevision(0);
+        Serial.println("[MAIN] No valid baseline in NVS; crop profile/trajectory remains eligible.");
     }
     
     if (xBaselineQueue != nullptr)

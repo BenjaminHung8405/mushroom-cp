@@ -91,6 +91,23 @@ bool CropProfileStorage::clearProfile() {
     return res;
 }
 
+bool CropProfileStorage::saveProfileConfigRevision(uint32_t revision) {
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+    const size_t written = prefs.putUInt("prof_rev", revision);
+    prefs.end();
+    return written == sizeof(uint32_t);
+}
+
+bool CropProfileStorage::loadProfileConfigRevision(uint32_t &revision) {
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+    if (!prefs.isKey("prof_rev")) { prefs.end(); return false; }
+    revision = prefs.getUInt("prof_rev", 0);
+    prefs.end();
+    return true;
+}
+
 bool CropProfileStorage::saveTimeState(const PersistedTimeState &state) {
     Preferences prefs;
     if (!prefs.begin(config::network::NVS_NAMESPACE, false)) {

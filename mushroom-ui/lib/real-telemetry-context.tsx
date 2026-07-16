@@ -10,6 +10,8 @@ import React, {
   useCallback,
 } from 'react'
 import type { DeviceStatus } from './simulation-context'
+import { fetchConfigSync, subscribeConfigSyncStream } from './telemetry-api'
+
 import {
   fetchTelemetrySnapshot,
   subscribeTelemetryStream,
@@ -53,6 +55,10 @@ function deriveDeviceStatus(
 }
 
 interface RealTelemetryContextType {
+  /** Configuration synchronisation status — null means no pending command or unknown */
+  configSync: import('./types').ConfigSyncEvent | null
+
+
   humidityCurrent: number | null
   humidityTrend: number | null
   temperatureCurrent: number | null
@@ -178,6 +184,21 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     })
   }, [selectedDeviceId])
 
+  // ── Config-sync live stream ─────────────────────────────────────────
+  const [configSync, setConfigSync] = useState<import('./types').ConfigSyncEvent | null>(null)
+
+  useEffect(() => {
+    if (!selectedDeviceId) return setConfigSync(null)
+    let cancelled = false
+    fetchConfigSync(selectedDeviceId).then((snap) => {
+      if (!cancelled && snap) setConfigSync(snap)
+    })
+    const unsub = subscribeConfigSyncStream(selectedDeviceId, (ev) => {
+      if (!cancelled) setConfigSync(ev)
+    })
+    return () => { cancelled = true; unsub() }
+  }, [selectedDeviceId])
+
   // Stale evaluation tick — only advances the clock; derivation is pure.
   useEffect(() => {
     const timer = setInterval(() => {
@@ -263,6 +284,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         mistAck,
         fanAck,
         lampAck,
+        configSync,
         deviceStatus,
         lastTelemetryAt,
         monitoredDeviceId: selectedDeviceId,

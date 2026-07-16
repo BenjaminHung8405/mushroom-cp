@@ -17,6 +17,8 @@ public:
     bool saveProfile(const PersistedCropProfile &profile);
     bool loadProfile(PersistedCropProfile &profile);
     bool clearProfile();
+    bool saveProfileConfigRevision(uint32_t revision);
+    bool loadProfileConfigRevision(uint32_t &revision);
 
     bool saveTimeState(const PersistedTimeState &state);
     bool loadTimeState(PersistedTimeState &state);

@@ -178,6 +178,8 @@ namespace storage
          * @brief Clears backend setpoint snapshot from NVS.
          */
         bool clear_backend_snapshot();
+        bool save_baseline_config_revision(uint32_t revision);
+        bool load_baseline_config_revision(uint32_t &revision);
 
         /**
          * @brief Saves hardware override snapshot to NVS.

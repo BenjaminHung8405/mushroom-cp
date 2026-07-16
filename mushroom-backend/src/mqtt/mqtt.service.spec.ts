@@ -41,6 +41,7 @@ describe('MqttService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockMqttClient.connected = true;
+    process.env.IOT_TENANT = 'mushroom';
     process.env.MQTT_USERNAME = 'test_user';
     process.env.MQTT_PASSWORD = 'test_password';
     process.env.MQTT_HOST = 'localhost';
@@ -98,8 +99,8 @@ describe('MqttService', () => {
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');
 
       messageCallback(
-        'mushroom/device/unknown-device/telemetry',
-        Buffer.from(JSON.stringify({ temp_air: 25.5, humidity_air: 80 })),
+        'mushroom/esp32/unknown-device/up/telemetry',
+        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
       );
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
@@ -112,8 +113,8 @@ describe('MqttService', () => {
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');
 
       messageCallback(
-        'mushroom/device/disabled-dev/telemetry',
-        Buffer.from(JSON.stringify({ temp_air: 25.5, humidity_air: 80 })),
+        'mushroom/esp32/disabled-dev/up/telemetry',
+        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
       );
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
@@ -134,8 +135,8 @@ describe('MqttService', () => {
       });
 
       messageCallback(
-        'mushroom/device/device-1/telemetry',
-        Buffer.from(JSON.stringify({ temp_air: 25.5, humidity_air: 80 })),
+        'mushroom/esp32/device-1/up/telemetry',
+        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
       );
     });
 
@@ -147,22 +148,20 @@ describe('MqttService', () => {
           lamp_stage_active: true,
           lamp_stage2_active: false,
           heater_water_active: false,
-          midday_blackout_active: true,
+          midday_blackout_active: false,
         });
         done();
       });
       messageCallback(
-        'mushroom/device/device-1/telemetry',
+        'mushroom/esp32/device-1/up/telemetry',
         Buffer.from(
           JSON.stringify({
-            temp_air: 25.5,
-            actuators: {
-              mist_active: true,
-              fan_active: false,
-              lamp_stage_active: true,
-              lamp_stage2_active: false,
-              heater_water_active: false,
-              midday_blackout_active: true,
+            readings: { temperature_celsius: 25.5 },
+            actuator_states: {
+              relay_1: 'ON',
+              relay_2: 'OFF',
+              relay_3: 'OFF',
+              relay_4: 'ON',
             },
           }),
         ),
@@ -219,11 +218,11 @@ describe('MqttService', () => {
         done();
       });
       messageCallback(
-        'mushroom/device/device-1/telemetry',
+        'mushroom/esp32/device-1/up/telemetry',
         Buffer.from(
           JSON.stringify({
-            temp_air: 25.5,
-            actuators: { mist_active: true },
+            readings: { temperature_celsius: 25.5 },
+            actuator_states: { relay_1: 'ON' },
           }),
         ),
       );
@@ -233,7 +232,7 @@ describe('MqttService', () => {
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');
 
       messageCallback(
-        'mushroom/device/device-1/telemetry',
+        'mushroom/esp32/device-1/up/telemetry',
         Buffer.from(JSON.stringify({ foo: 'bar' })),
       );
 
@@ -252,8 +251,8 @@ describe('MqttService', () => {
       });
 
       messageCallback(
-        'mushroom/device/device-1/status',
-        Buffer.from(JSON.stringify({ status: 'online' })),
+        'mushroom/esp32/device-1/status',
+        Buffer.from(JSON.stringify({ online: true })),
       );
     });
 
@@ -261,7 +260,7 @@ describe('MqttService', () => {
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');
       const bigPayload = Buffer.alloc(2048, 'A');
 
-      messageCallback('mushroom/device/device-1/telemetry', bigPayload);
+      messageCallback('mushroom/esp32/device-1/up/telemetry', bigPayload);
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
       done();
@@ -276,9 +275,9 @@ describe('MqttService', () => {
       });
 
       expect(mockMqttClient.publish).toHaveBeenCalledWith(
-        'mushroom/device/device-1/setpoint',
-        expect.any(String),
-        { qos: 1 },
+        'mushroom/esp32/device-1/down/command',
+        expect.stringContaining('"action":"SET_BASELINE_SETPOINT"'),
+        { qos: 1, retain: false },
         expect.any(Function),
       );
     });

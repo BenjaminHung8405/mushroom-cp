@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Observable, merge, of } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map } from 'rxjs/operators';
 import {
   IsNumber,
   IsOptional,
@@ -23,8 +23,11 @@ import {
   Min,
   IsBoolean,
   IsIn,
+  IsInt,
+  ValidateNested,
 } from 'class-validator';
 import { toZonedTime } from 'date-fns-tz';
+import { Type } from 'class-transformer';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
 import { BatchService } from '../batch/services/batch.service';
@@ -101,15 +104,52 @@ export class ActuatorOverrideDto {
   state: boolean | null;
 }
 
-/**
- * DeviceController — HTTP interface for device management and real-time status.
- */
-@Controller('devices')
+/** DTO for validating a global operating-mode command. */
 export class OperatingModeDto {
   @IsIn(['AI', 'MANUAL'])
   mode: 'AI' | 'MANUAL';
 }
 
+export class CropProfileCheckpointDto {
+  @IsInt()
+  @Min(1)
+  cropDay: number;
+
+  @IsNumber()
+  @Min(15)
+  @Max(45)
+  temperatureCelsius: number;
+
+  @IsNumber()
+  @Min(50)
+  @Max(100)
+  humidityPercent: number;
+}
+
+export class ApplyCropProfileDto {
+  @IsNumber()
+  cropStartEpochSec: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  totalCropDays: number;
+
+  @ValidateNested({ each: true })
+  @Type(() => CropProfileCheckpointDto)
+  checkpoints: CropProfileCheckpointDto[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  configRevision?: number;
+}
+
+
+/**
+ * DeviceController — HTTP interface for device management and real-time status.
+ */
+@Controller('devices')
 export class DeviceController {
   private readonly logger = new Logger(DeviceController.name);
 
@@ -138,6 +178,25 @@ export class DeviceController {
           }) satisfies MessageEvent,
       ),
     );
+  }
+
+  @Sse(':id/config-sync/stream')
+  streamConfigSync(@Param() params: DeviceParamsDto): Observable<MessageEvent> {
+    const cached = this.mqttService.getConfigSync(params.id);
+    const updates$ = this.mqttService.configSync$.pipe(
+      filter((event) => event.deviceId === params.id),
+      map((event) => ({ data: event }) satisfies MessageEvent),
+    );
+    return cached ? merge(of({ data: cached } as MessageEvent), updates$) : updates$;
+  }
+
+  @Get(':id/config-sync')
+  getConfigSync(@Param() params: DeviceParamsDto) {
+    return this.mqttService.getConfigSync(params.id) ?? {
+      deviceId: params.id, status: 'OUT_OF_SYNC', desiredRevision: null,
+      appliedRevision: null, commandId: null, kind: null, error: null,
+      updatedAt: null,
+    };
   }
 
   /**
@@ -223,21 +282,13 @@ export class DeviceController {
       };
     }
 
-    await this.mqttService.dispatchSetpoint(id, {
+    const sync = await this.mqttService.dispatchSetpoint(id, {
       temperatureSetpoint,
       humiditySetpoint,
       control_mode: 'fuzzy_tpc',
-      setpoint_ttl_sec: 120,
+      setpoint_ttl_sec: 0,
     });
-    return {
-      message: `Advisory setpoint dispatched to device '${id}'.`,
-      payload: {
-        temperatureSetpoint,
-        humiditySetpoint,
-        control_mode: 'fuzzy_tpc',
-        setpoint_ttl_sec: 120,
-      },
-    };
+    return { message: `Đang đồng bộ setpoint xuống thiết bị '${id}'.`, sync };
   }
 
   /**
@@ -261,6 +312,35 @@ export class DeviceController {
       message: `Chế độ vận hành đã chuyển sang ${body.mode}.`,
       payload: { mode: body.mode },
     };
+  }
+
+  @Post(':id/apply-crop-profile')
+  @HttpCode(202)
+  async applyCropProfile(
+    @Param() params: DeviceParamsDto,
+    @Body() body: ApplyCropProfileDto,
+  ) {
+    const device = this.deviceRegistryService.get(params.id) ??
+      (await this.deviceRegistryService.refreshOne(params.id));
+    if (!device) throw new NotFoundException(`Device '${params.id}' not found.`);
+
+    // Guard: only allow crop profile change when an active batch exists on this house
+    try {
+      const activeBatch = await this.batchService.getActiveBatchByHouseId(device.houseId);
+      if (!activeBatch) {
+        throw new BadRequestException('Chua co vụ nuoi dang hoạt dong — khong the ap dung crop profile.');
+      }
+      // Validate checkpoints against active batch total days
+      if (body.totalCropDays !== activeBatch.totalCropDays && body.totalCropDays > activeBatch.totalCropDays) {
+        throw new BadRequestException(`totalCropDays(${body.totalCropDays}) nam ngoai khoang cho phep cua vụ (${activeBatch.totalCropDays} ngay).`);
+      }
+    } catch (err) {
+      if (err instanceof BadRequestException || err instanceof NotFoundException) throw err;
+      this.logger.warn(`Batch validation failed for ${params.id}: ${err?.message ?? 'unknown'}`);
+    }
+
+    const sync = await this.mqttService.dispatchCropProfile(params.id, body);
+    return { message: 'Đang đồng bộ crop profile xuống thiết bị.', sync };
   }
 
   @Post(':id/actuator-override')

@@ -44,6 +44,16 @@ bool getSharedForceFullPublish();
 bool consumeSharedForceFullPublish();
 void setSharedForceFullPublish(bool val);
 
+enum class ControlSource : uint8_t {
+    SafeOffline,
+    TemporaryOverride,
+    BaselineSetpoint,
+    CropProfile,
+    Trajectory,
+};
+
+const char* controlSourceName(ControlSource source);
+
 struct SharedSystemState {
     float temp_air;
     float humidity_air;
@@ -56,6 +66,8 @@ struct SharedSystemState {
     float mist_duty;
     float exhaust_duty;
     RelayOutputsPod actuators;  ///< Final direct SSR state, shared with local web API.
+    ControlSource control_source;
+    uint32_t config_revision;
 };
 
 #ifndef UNIT_TEST
@@ -64,6 +76,13 @@ extern SharedSystemState shared_systemState;
 
 void updateSharedSystemState(const SharedSystemState& state);
 SharedSystemState getSharedSystemState();
+
+// Revisions are persisted by their respective storage manager and mirrored here
+// so Core 1 telemetry can report the exact configuration currently in use.
+void setBaselineConfigRevision(uint32_t revision);
+uint32_t getBaselineConfigRevision();
+void setProfileConfigRevision(uint32_t revision);
+uint32_t getProfileConfigRevision();
 
 #include "core/telemetry.h"
 

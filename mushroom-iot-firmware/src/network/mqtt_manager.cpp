@@ -9,6 +9,8 @@
 #include "core/config_manager.h"
 #include "core/serial_mutex.h"
 #include "core/storage.h"
+#include "core/crop_profile_storage.h"
+#include "core/crop_profile_validator.h"
 #include "core/system_manager.h"
 #include "core/time_confidence.h"
 #include "network/wifi_manager.h"
@@ -302,16 +304,18 @@ void MqttManager::onCallback(char* topic, uint8_t* payload, unsigned int length)
 
 void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
 {
-    if (topic == nullptr || (payload == nullptr && length > 0) || length >= 768) {
+    // A complete crop profile contains up to ten checkpoints. Keep the parser
+    // bounded, but allow the documented command payload to fit in one packet.
+    if (topic == nullptr || (payload == nullptr && length > 0) || length >= 1536) {
         return;
     }
-    char safe_payload[768];
+    char safe_payload[1536];
     if (length > 0) {
         memcpy(safe_payload, payload, length);
     }
     safe_payload[length] = '\0';
 
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<1536> doc;
     if (deserializeJson(doc, safe_payload)) {
         Serial.printf("[MQTT] Rejected malformed JSON on %s.\n", topic);
         return;
@@ -503,6 +507,20 @@ void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& te
     states["relay_2"] = boolState(telemetry.actuators.fan_active);
     states["relay_3"] = boolState(telemetry.actuators.heater_water_active);
     states["relay_4"] = boolState(telemetry.actuators.lamp_stage_active);
+    // Control metadata — firmware-authoritative setpoint source & revision.
+    {
+        SharedSystemState sys = getSharedSystemState();
+        JsonObject ctrl = root.createNestedObject("control");
+        if (std::isnan(sys.temp_target))       ctrl["temperature_target_celsius"] = nullptr;
+        else                                   ctrl["temperature_target_celsius"] = sys.temp_target;
+        if (std::isnan(sys.humidity_target))   ctrl["humidity_target_percent"] = nullptr;
+        else                                   ctrl["humidity_target_percent"] = sys.humidity_target;
+        if (std::isnan(sys.co2_target))        ctrl["co2_target_ppm"] = nullptr;
+        else                                   ctrl["co2_target_ppm"] = sys.co2_target;
+        ctrl["source"] = controlSourceName(sys.control_source);
+        ctrl["config_revision"] = sys.config_revision;
+    }
+
     JsonObject metadata = root.createNestedObject("metadata");
     metadata["free_heap_bytes"] = freeHeapBytes();
     metadata["wifi_reconnect_count"] = 0;
@@ -561,9 +579,13 @@ void MqttManager::dispatchCommand(JsonObject root)
         executeRelayCommand(parameters, command_id, 0);
     } else if (sameText(action, "SET_BASELINE_SETPOINT")) {
         executeBaselineSetpointCommand(parameters, command_id, started_ms);
+    } else if (sameText(action, "SET_CROP_PROFILE")) {
+        executeCropProfileCommand(parameters, command_id, started_ms);
+    } else if (sameText(action, "SET_OPERATING_MODE")) {
+        executeOperatingModeCommand(root, command_id, started_ms);
     } else {
         publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
-                          "INVALID_ACTION", "Supported actions: SET_RELAY, SET_BASELINE_SETPOINT, SET_OPERATING_MODE");
+                          "INVALID_ACTION", "Supported actions: SET_RELAY, SET_BASELINE_SETPOINT, SET_CROP_PROFILE, SET_OPERATING_MODE");
     }
 }
 
@@ -575,12 +597,14 @@ void MqttManager::executeBaselineSetpointCommand(
     const bool hasTemperature = params.containsKey("temperature_celsius");
     const bool hasHumidity = params.containsKey("humidity_percent");
     const bool hasCo2 = params.containsKey("co2_ppm");
+    const bool hasRevision = params.containsKey("config_revision");
+    const uint32_t revision = params["config_revision"] | 0U;
     const float temperature = params["temperature_celsius"] | NAN;
     const float humidity = params["humidity_percent"] | NAN;
     const float co2 = params["co2_ppm"] | NAN;
 
     // Keep these limits aligned with StorageManager::is_valid_backend().
-    if (!hasTemperature || !hasHumidity || !hasCo2 ||
+    if (!hasTemperature || !hasHumidity || !hasCo2 || !hasRevision || revision == 0U ||
         !std::isfinite(temperature) || temperature < 10.0f || temperature > 45.0f ||
         !std::isfinite(humidity) || humidity < 30.0f || humidity > 95.0f ||
         !std::isfinite(co2) || co2 < 400.0f || co2 > 10000.0f)
@@ -588,6 +612,14 @@ void MqttManager::executeBaselineSetpointCommand(
         publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
                           nullptr, false, "INVALID_SETPOINT",
                           "temperature_celsius, humidity_percent, and co2_ppm must be finite values within device limits");
+        return;
+    }
+    uint32_t appliedRevision = 0;
+    storage::StorageManager::get_instance().load_baseline_config_revision(appliedRevision);
+    if (revision <= appliedRevision) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "baseline_setpoint", revision, 0, "STALE_CONFIG_REVISION",
+                         "config_revision must be newer than the persisted baseline revision");
         return;
     }
     if (xBaselineQueue == nullptr) {
@@ -603,10 +635,11 @@ void MqttManager::executeBaselineSetpointCommand(
         co2,
         true,
     };
-    if (!storage::StorageManager::get_instance().save_backend_snapshot(snapshot)) {
-        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
-                          nullptr, false, "PERSISTENCE_FAILED",
-                          "Unable to persist the baseline setpoint");
+    if (!storage::StorageManager::get_instance().save_backend_snapshot(snapshot) ||
+        !storage::StorageManager::get_instance().save_baseline_config_revision(revision)) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "baseline_setpoint", revision, 0, "PERSISTENCE_FAILED",
+                         "Unable to persist the baseline setpoint and revision");
         return;
     }
 
@@ -624,11 +657,115 @@ void MqttManager::executeBaselineSetpointCommand(
         return;
     }
 
-    Serial.printf("[MQTT] Applied baseline setpoint: T=%.2fC H=%.2f%% CO2=%.0f ppm\n",
-                  temperature, humidity, co2);
+    setBaselineConfigRevision(revision);
+    Serial.printf("[CONTROL] Applied baseline setpoint rev=%lu: T=%.2f H=%.2f CO2=%.0f\n",
+                  static_cast<unsigned long>(revision), temperature, humidity, co2);
     setSharedForceFullPublish(true);
-    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", millis() - started_ms,
-                      nullptr, false, nullptr, nullptr);
+    publishConfigAck(command_id.c_str(), "SUCCESS", millis() - started_ms,
+                     "baseline_setpoint", revision, 0, nullptr, nullptr);
+}
+
+void MqttManager::executeCropProfileCommand(
+    JsonObject params,
+    String command_id,
+    unsigned long started_ms)
+{
+    const uint32_t revision = params["config_revision"] | 0U;
+    const JsonObject source = params["profile"].as<JsonObject>();
+    if (revision == 0U || source.isNull() || g_profile_update_queue == nullptr) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "PROFILE_INVALID",
+                         "config_revision, profile, and the Core 1 profile queue are required");
+        return;
+    }
+
+    uint32_t appliedRevision = 0;
+    storage::CropProfileStorage::getInstance().loadProfileConfigRevision(appliedRevision);
+    if (revision <= appliedRevision) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "STALE_CONFIG_REVISION",
+                         "config_revision must be newer than the persisted profile revision");
+        return;
+    }
+
+    PersistedCropProfile profile{};
+    profile.magic = 0x43524F50; // CROP
+    profile.schema_version = source["schema_version"] | 0U;
+    profile.crop_start_epoch_s = source["crop_start_epoch_s"] | 0LL;
+    profile.total_crop_days = source["total_crop_days"] | 0U;
+    const JsonArray checkpoints = source["checkpoints"].as<JsonArray>();
+    if (checkpoints.isNull() || checkpoints.size() == 0 ||
+        checkpoints.size() > MAX_CROP_CHECKPOINTS) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "PROFILE_INVALID",
+                         "checkpoints must contain between 1 and MAX_CROP_CHECKPOINTS entries");
+        return;
+    }
+
+    profile.checkpoint_count = static_cast<uint16_t>(checkpoints.size());
+    for (uint16_t i = 0; i < profile.checkpoint_count; ++i) {
+        const JsonObject checkpoint = checkpoints[i].as<JsonObject>();
+        if (checkpoint.isNull() || !checkpoint.containsKey("crop_day") ||
+            !checkpoint.containsKey("temp_target_c") ||
+            !checkpoint.containsKey("humidity_target_rh")) {
+            publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                             "crop_profile", revision, 0, "PROFILE_INVALID",
+                             "every checkpoint requires crop_day, temp_target_c, and humidity_target_rh");
+            return;
+        }
+        profile.checkpoints[i].crop_day = checkpoint["crop_day"] | 0U;
+        profile.checkpoints[i].temp_target_c = checkpoint["temp_target_c"] | NAN;
+        profile.checkpoints[i].humidity_target_rh = checkpoint["humidity_target_rh"] | NAN;
+    }
+    if (!storage::CropProfileValidator::validate(profile)) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "PROFILE_INVALID",
+                         "profile schema, days, checkpoint ordering, or target ranges are invalid");
+        return;
+    }
+
+    profile.crc32 = storage::CropProfileStorage::calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&profile), sizeof(profile) - sizeof(profile.crc32));
+    if (!storage::CropProfileStorage::getInstance().saveProfile(profile) ||
+        !storage::CropProfileStorage::getInstance().saveProfileConfigRevision(revision)) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "PERSISTENCE_FAILED",
+                         "Unable to persist crop profile");
+        return;
+    }
+
+    if (params["clear_baseline"] | false) {
+        storage::BackendSetpointSnapshot existing{};
+        if (storage::StorageManager::get_instance().load_backend_snapshot(existing) &&
+            !storage::StorageManager::get_instance().clear_backend_snapshot()) {
+            publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                             "crop_profile", revision, 0, "PERSISTENCE_FAILED",
+                             "Profile was saved but the old baseline could not be cleared");
+            return;
+        }
+        setBaselineConfigRevision(0);
+        const ControlSetpointCommand inactive = {NAN, NAN, NAN, false, {0, 0, 0}};
+        if (xBaselineQueue == nullptr || xQueueOverwrite(xBaselineQueue, &inactive) != pdTRUE) {
+            publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                             "crop_profile", revision, 0, "CONTROL_QUEUE_UNAVAILABLE",
+                             "Profile was saved but the baseline queue is unavailable");
+            return;
+        }
+    }
+
+    if (xQueueOverwrite(g_profile_update_queue, &profile) != pdTRUE) {
+        publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                         "crop_profile", revision, 0, "CONTROL_QUEUE_UNAVAILABLE",
+                         "Profile was saved but cannot be delivered to Core 1");
+        return;
+    }
+
+    setProfileConfigRevision(revision);
+    Serial.printf("[CONTROL] Applied crop profile rev=%lu checkpoints=%u\n",
+                  static_cast<unsigned long>(revision), profile.checkpoint_count);
+    setSharedForceFullPublish(true);
+    publishConfigAck(command_id.c_str(), "SUCCESS", millis() - started_ms,
+                     "crop_profile", revision, profile.checkpoint_count, nullptr, nullptr);
 }
 
 void MqttManager::executeOperatingModeCommand(JsonObject root, String command_id, unsigned long started_ms)
@@ -783,6 +920,38 @@ void MqttManager::replayDuplicateAck(const char* command_id, uint32_t latency_ms
     const bool on = (last_cmd_.actual_state_bits & 1U) != 0;
     publishCommandAck(const_cast<char*>(command_id), "SUCCESS", latency_ms,
                       last_cmd_.relay_id, on, nullptr, nullptr);
+}
+
+bool MqttManager::publishConfigAck(const char* command_id, const char* status,
+                                       uint32_t latency_ms, const char* kind,
+                                       uint32_t config_revision, uint16_t checkpoint_count,
+                                       const char* error_code, const char* error_message)
+{
+    if (!client_.connected()) return false;
+    StaticJsonDocument<512> doc;
+    doc["$schema"] = "https://iot.acme.com/schema/v1/command-ack";
+    doc["command_id"] = command_id == nullptr ? "" : command_id;
+    doc["device_id"] = device_id_;
+    doc["status"] = status;
+    doc["latency_ms"] = latency_ms;
+    if (error_code == nullptr) {
+        JsonObject result = doc.createNestedObject("result");
+        result["kind"] = kind;
+        result["config_revision"] = config_revision;
+        if (checkpoint_count > 0) result["checkpoint_count"] = checkpoint_count;
+        result["accepted"] = true;
+        doc["error"] = nullptr;
+    } else {
+        doc["result"] = nullptr;
+        JsonObject error = doc.createNestedObject("error");
+        error["code"] = error_code;
+        error["message"] = error_message == nullptr ? "Command failed" : error_message;
+        error["retry_eligible"] = false;
+    }
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/command/ack";
+    return client_.publish(topic.c_str(), payload.c_str());
 }
 
 bool MqttManager::publishCommandAck(char* command_id, const char* status,

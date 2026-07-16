@@ -111,12 +111,12 @@ describe('DeviceController', () => {
         { id: 'esp32_01' },
         { temperatureSetpoint: 30, humiditySetpoint: 80 },
       );
-      expect(result.message).toContain('dispatched');
+      expect(result.message).toContain('Đang đồng bộ setpoint');
       expect(mqttService.dispatchSetpoint).toHaveBeenCalledWith('esp32_01', {
         temperatureSetpoint: 30,
         humiditySetpoint: 80,
         control_mode: 'fuzzy_tpc',
-        setpoint_ttl_sec: 120,
+        setpoint_ttl_sec: 0,
       });
     });
   });

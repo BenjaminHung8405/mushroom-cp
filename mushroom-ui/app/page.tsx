@@ -144,8 +144,26 @@ function DashboardContent() {
     middayBlackoutActive,
     snapshot,
     isLoading,
+    configSync,
   } = useRealTelemetry()
   const { tempOptimalRange, humidityOptimalRange } = useBatch()
+const cfgSync = configSync
+  const cfgColor =
+    cfgSync?.status === 'APPLIED' ? 'border-emerald-500/40 text-emerald-400' :
+    cfgSync?.status === 'ACKED' ? 'border-cyan-500/40 text-cyan-400' :
+    cfgSync?.status === 'TIMEOUT' ? 'border-red-500/40 text-red-400' :
+    cfgSync?.status === 'FAILED' ? 'border-orange-500/40 text-orange-400' :
+    'border-slate-700/50 text-slate-500'
+
+  const cfgLabel =
+    cfgSync?.status === 'APPLIED' ? `Đã áp dụng (rev ${cfgSync.appliedRevision})` :
+    cfgSync?.status === 'ACKED' ? `Thiết bị đã xác nhận (rev ${cfgSync.desiredRevision})` :
+    cfgSync?.status === 'TIMEOUT' ? 'Thiết bị không phản hồi' :
+    cfgSync?.status === 'FAILED' ? `Lỗi: ${cfgSync.error?.code ?? 'UNKNOWN'}` :
+    cfgSync?.kind && (cfgSync.status === 'PENDING' || cfgSync.status === 'OUT_OF_SYNC') ? `${cfgSync.kind === 'baseline_setpoint' ? 'Setpoint' : 'Crop Profile'} chưa đồng bộ` :
+    'Không có lệnh nào đang chờ'
+
+
   const [sandboxOpen, setSandboxOpen] = useState(false)
 
   const humidityStatus = getStatus(
@@ -190,6 +208,13 @@ function DashboardContent() {
           Đang kết nối để nhận dữ liệu từ phòng nấm…
         </div>
       )}
+
+      <div className="col-span-1 md:col-span-1 lg:col-span-1">
+        <div className={`rounded-lg border px-4 py-2 ${cfgColor}`} title={cfgSync?.error?.message ?? ''}>
+          <span className="text-[10px] font-semibold uppercase tracking-wider opacity-70">Đồng bộ</span>
+          <p className="text-xs mt-0.5">{cfgLabel}</p>
+        </div>
+      </div>
 
       <div className="col-span-1 md:col-span-1 lg:col-span-1">
         <SensorDataCard

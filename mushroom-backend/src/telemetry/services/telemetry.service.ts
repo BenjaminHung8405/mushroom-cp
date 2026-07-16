@@ -141,29 +141,13 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Critical error processing telemetry for device ${deviceId}: ${errMsg}`,
       );
-    } finally {
-      try {
-        await this.mqttService.dispatchSetpoint(deviceId, {
-          temperatureSetpoint: context?.targetTemp ?? 30,
-          humiditySetpoint: context?.targetHumid ?? 80,
-          co2Setpoint: 1000,
-          thermal_shock_protection: context?.thermalShockProtection ?? true,
-          thermal_shock_start:
-            context?.thermalShockStart?.slice(0, 5) ?? '11:00',
-          thermal_shock_end: context?.thermalShockEnd?.slice(0, 5) ?? '13:30',
-          control_mode: 'fuzzy_tpc',
-          setpoint_ttl_sec: 120,
-        });
-      } catch (dispatchError: unknown) {
-        const dispatchErrMsg =
-          dispatchError instanceof Error
-            ? dispatchError.message
-            : String(dispatchError);
-        this.logger.error(
-          `Failed to dispatch advisory setpoint to '${deviceId}': ${dispatchErrMsg}`,
-        );
-      }
     }
+
+    // Deliberately do not publish setpoint commands here. Telemetry is an
+    // observation channel; publishing on every sample would repeatedly reset
+    // baseline state and make desired/applied configuration impossible to track.
+    // Configuration is dispatched only by an explicit Apply/Sync flow, retry,
+    // or device-reconnect policy.
   }
 
   async getLatestTelemetry(
@@ -324,8 +308,12 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     context: BatchContext,
     timestamp: Date,
   ): void {
-    const humiditySetpoint = context.batchId ? context.targetHumid : null;
-    const temperatureSetpoint = context.batchId ? context.targetTemp : null;
+    const desiredHumiditySetpoint = context.batchId ? context.targetHumid : null;
+    const desiredTemperatureSetpoint = context.batchId ? context.targetTemp : null;
+    // On live telemetry, Core 1's final target is authoritative. Fall back to
+    // the batch context only while an older firmware has not sent control data.
+    const humiditySetpoint = event.control?.humidityTarget ?? desiredHumiditySetpoint;
+    const temperatureSetpoint = event.control?.temperatureTarget ?? desiredTemperatureSetpoint;
     const actuators = event.actuators;
     const devAcks = this.manualAcks.get(deviceId) || {};
     const snapshot: TelemetrySnapshot = {

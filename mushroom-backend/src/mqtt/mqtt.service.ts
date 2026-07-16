@@ -37,6 +37,14 @@ export interface TelemetryEvent {
   temp_air: number | null;
   humidity_air: number | null;
   co2_level: number | null;
+  /** Final setpoints calculated by Core 1, if supported by the firmware. */
+  control?: {
+    temperatureTarget: number | null;
+    humidityTarget: number | null;
+    co2Target: number | null;
+    source: string | null;
+    configRevision: number | null;
+  } | null;
   actuators: EdgeActuatorState | null;
   operatingMode?: 'AI' | 'MANUAL';
   receivedAt: Date;
@@ -58,11 +66,38 @@ export interface SetOperatingModeDto {
   mode: 'AI' | 'MANUAL';
 }
 
+export type DeviceConfigSyncStatus = 'PENDING' | 'ACKED' | 'APPLIED' | 'FAILED' | 'TIMEOUT';
+
+export interface DeviceConfigSyncEvent {
+  deviceId: string;
+  commandId: string;
+  kind: 'baseline_setpoint' | 'crop_profile';
+  desiredRevision: number;
+  appliedRevision: number | null;
+  status: DeviceConfigSyncStatus;
+  error: { code: string; message: string } | null;
+  updatedAt: string;
+}
+
+interface PendingConfigCommand extends DeviceConfigSyncEvent {
+  timeout: NodeJS.Timeout;
+}
+
+export interface CropProfileCommand {
+  configRevision?: number;
+  cropStartEpochSec: number;
+  totalCropDays: number;
+  checkpoints: Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>;
+}
+
 export interface CommandAckEvent {
   deviceId: string;
   commandId: string;
   status: 'SUCCESS' | 'FAILED' | 'EXPIRED';
   latencyMs: number | null;
+  /** Generic ACK result fields; relay fields remain available for SET_RELAY. */
+  resultKind: string | null;
+  configRevision: number | null;
   relayId: string | null;
   actualState: 'ON' | 'OFF' | null;
   error: { code: string; message: string } | null;
@@ -89,6 +124,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   public readonly commandAck$ = new Subject<CommandAckEvent>();
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
   private readonly unknownRefreshes = new Set<string>();
+  private readonly pendingConfig = new Map<string, PendingConfigCommand>();
+  private readonly configSyncCache = new Map<string, DeviceConfigSyncEvent>();
+  public readonly configSync$ = new Subject<DeviceConfigSyncEvent>();
 
   constructor(
     @Inject(forwardRef(() => DeviceRegistryService))
@@ -103,6 +141,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    for (const pending of this.pendingConfig.values()) clearTimeout(pending.timeout);
+    this.pendingConfig.clear();
     this.client?.end(true);
     this.logger.log('MQTT client disconnected gracefully.');
   }
@@ -294,12 +334,22 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     receivedAt: Date,
   ): void {
     const readings = this.object(data.readings);
+    const control = this.object(data.control);
     const event: TelemetryEvent = {
       deviceId,
       houseId,
       temp_air: this.finiteMetric(readings?.temperature_celsius),
       humidity_air: this.finiteMetric(readings?.humidity_percent),
       co2_level: null,
+      control: control
+        ? {
+            temperatureTarget: this.finiteMetric(control.temperature_target_celsius),
+            humidityTarget: this.finiteMetric(control.humidity_target_percent),
+            co2Target: this.finiteMetric(control.co2_target_ppm),
+            source: typeof control.source === 'string' ? control.source : null,
+            configRevision: this.nonNegativeInteger(control.config_revision),
+          }
+        : null,
       actuators: this.parseActuators(data.actuator_states),
       operatingMode: data.operating_mode === 'MANUAL' ? 'MANUAL' : 'AI',
       receivedAt,
@@ -310,6 +360,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.telemetry$.next(event);
+    this.confirmAppliedFromTelemetry(deviceId, event.control?.configRevision ?? null);
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
 
@@ -384,11 +435,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
     const result = this.object(data.result);
     const error = this.object(data.error);
-    this.commandAck$.next({
+    const ack: CommandAckEvent = {
       deviceId,
       commandId,
       status: status as CommandAckEvent['status'],
       latencyMs: this.finiteMetric(data.latency_ms),
+      resultKind: typeof result?.kind === 'string' ? result.kind : null,
+      configRevision: this.nonNegativeInteger(result?.config_revision),
       relayId: typeof result?.relay_id === 'string' ? result.relay_id : null,
       actualState:
         result?.actual_state === 'ON' || result?.actual_state === 'OFF'
@@ -399,7 +452,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           ? { code: error.code, message: error.message }
           : null,
       receivedAt,
-    });
+    };
+    this.commandAck$.next(ack);
+    this.applyConfigAck(ack);
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
 
@@ -488,26 +543,48 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       thermal_shock_end?: string;
       control_mode: 'fuzzy_tpc';
       setpoint_ttl_sec: number;
+      configRevision?: number;
     },
-  ): Promise<void> {
-    const commandId = crypto.randomUUID();
-    await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, {
+  ): Promise<DeviceConfigSyncEvent> {
+    const revision = payload.configRevision ?? this.nextRevision(deviceId);
+    this.validateSetpoint(payload.temperatureSetpoint, payload.humiditySetpoint, payload.co2Setpoint ?? 1000);
+    return this.dispatchConfigCommand(deviceId, 'baseline_setpoint', revision, {
       $schema: 'https://iot.acme.com/schema/v1/command',
-      command_id: commandId,
-      device_id: deviceId,
-      issued_by: 'backend-advisory-setpoint',
-      timestamp_utc: new Date().toISOString(),
-      expires_at_utc: new Date(Date.now() + 10_000).toISOString(),
+      command_id: randomUUID(), device_id: deviceId, issued_by: 'ui-setpoint-sync',
+      timestamp_utc: new Date().toISOString(), expires_at_utc: new Date(Date.now() + 15_000).toISOString(),
       action: 'SET_BASELINE_SETPOINT',
-      parameters: {
-        config_revision: Math.floor(Date.now() / 1000),
-        temperature_celsius: payload.temperatureSetpoint,
-        humidity_percent: payload.humiditySetpoint,
-        co2_ppm: payload.co2Setpoint ?? 1000,
-        ttl_sec: 0,
-      },
+      parameters: { config_revision: revision, temperature_celsius: payload.temperatureSetpoint,
+        humidity_percent: payload.humiditySetpoint, co2_ppm: payload.co2Setpoint ?? 1000,
+        clear_existing_override: false, ttl_sec: 0 },
     });
-    this.logger.log(`dispatched SET_BASELINE_SETPOINT ${commandId} to ${deviceId}`);
+  }
+
+  async dispatchCropProfile(deviceId: string, profile: CropProfileCommand): Promise<DeviceConfigSyncEvent> {
+    const revision = profile.configRevision ?? this.nextRevision(deviceId);
+    if (!Number.isInteger(profile.totalCropDays) || profile.totalCropDays < 1 || profile.totalCropDays > 365 ||
+      profile.checkpoints.length < 1 || profile.checkpoints.length > 10) {
+      throw new Error('Crop profile must contain 1–10 checkpoints and a valid totalCropDays.');
+    }
+    let previousDay = 0;
+    for (const point of profile.checkpoints) {
+      this.validateSetpoint(point.temperatureCelsius, point.humidityPercent, 1000);
+      if (!Number.isInteger(point.cropDay) || point.cropDay <= previousDay || point.cropDay > profile.totalCropDays) {
+        throw new Error('Crop profile checkpoint days must be strictly increasing and within totalCropDays.');
+      }
+      previousDay = point.cropDay;
+    }
+    return this.dispatchConfigCommand(deviceId, 'crop_profile', revision, {
+      $schema: 'https://iot.acme.com/schema/v1/command',
+      command_id: randomUUID(), device_id: deviceId, issued_by: 'ui-profile-sync',
+      timestamp_utc: new Date().toISOString(), expires_at_utc: new Date(Date.now() + 15_000).toISOString(),
+      action: 'SET_CROP_PROFILE',
+      parameters: { config_revision: revision, clear_baseline: true, profile: {
+        schema_version: 1, crop_start_epoch_s: profile.cropStartEpochSec,
+        total_crop_days: profile.totalCropDays,
+        checkpoints: profile.checkpoints.map((point) => ({ crop_day: point.cropDay,
+          temp_target_c: point.temperatureCelsius, humidity_target_rh: point.humidityPercent })),
+      } },
+    });
   }
 
   async dispatchSetOperatingMode(
@@ -521,7 +598,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       device_id: deviceId,
       issued_by: 'ui-operating-mode',
       timestamp_utc: new Date().toISOString(),
-      expires_at_utc: new Date(Date.now() + 10_000).toISOString(),
+      // Intentionally no expires_at_utc: mode changes must work before NTP
+      // makes the Edge clock trusted.
       action: 'SET_OPERATING_MODE',
       parameters: { mode },
     });
@@ -560,6 +638,68 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     await this.dispatchRelayCommand(deviceId, relayId, commandState, 'user-override');
   }
 
+  getConfigSync(deviceId: string): DeviceConfigSyncEvent | null {
+    return this.configSyncCache.get(deviceId) ?? null;
+  }
+
+  private nextRevision(deviceId: string): number {
+    const current = this.configSyncCache.get(deviceId)?.desiredRevision ?? 0;
+    return Math.max(current + 1, Math.floor(Date.now() / 1000));
+  }
+
+  private validateSetpoint(temperature: number, humidity: number, co2: number): void {
+    if (!Number.isFinite(temperature) || temperature < 15 || temperature > 45 ||
+      !Number.isFinite(humidity) || humidity < 50 || humidity > 100 ||
+      !Number.isFinite(co2) || co2 < 400 || co2 > 10_000) {
+      throw new Error('Setpoint is outside the device safety range.');
+    }
+  }
+
+  private async dispatchConfigCommand(
+    deviceId: string, kind: 'baseline_setpoint' | 'crop_profile', revision: number,
+    command: Record<string, unknown>,
+  ): Promise<DeviceConfigSyncEvent> {
+    const prior = this.pendingConfig.get(deviceId);
+    if (prior) clearTimeout(prior.timeout);
+    await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, command);
+    const commandId = command.command_id as string;
+    const event: DeviceConfigSyncEvent = { deviceId, commandId, kind, desiredRevision: revision,
+      appliedRevision: null, status: 'PENDING', error: null, updatedAt: new Date().toISOString() };
+    const timeout = setTimeout(() => {
+      const pending = this.pendingConfig.get(deviceId);
+      if (!pending || pending.commandId !== commandId || pending.status === 'APPLIED') return;
+      this.publishConfigSync({ ...pending, status: 'TIMEOUT', error: { code: 'ACK_TIMEOUT', message: 'No device acknowledgement within 15 seconds.' }, updatedAt: new Date().toISOString() });
+      this.pendingConfig.delete(deviceId);
+    }, 15_000);
+    this.pendingConfig.set(deviceId, { ...event, timeout });
+    this.publishConfigSync(event);
+    return event;
+  }
+
+  private applyConfigAck(ack: CommandAckEvent): void {
+    const pending = this.pendingConfig.get(ack.deviceId);
+    if (!pending || pending.commandId !== ack.commandId) return;
+    if (ack.status !== 'SUCCESS' || ack.resultKind !== pending.kind || ack.configRevision !== pending.desiredRevision) {
+      clearTimeout(pending.timeout); this.pendingConfig.delete(ack.deviceId);
+      this.publishConfigSync({ ...pending, status: 'FAILED', error: ack.error ?? { code: 'ACK_INVALID', message: 'Device rejected config command.' }, updatedAt: new Date().toISOString() });
+      return;
+    }
+    this.publishConfigSync({ ...pending, status: 'ACKED', updatedAt: new Date().toISOString() });
+  }
+
+  private confirmAppliedFromTelemetry(deviceId: string, revision: number | null): void {
+    const pending = this.pendingConfig.get(deviceId);
+    if (!pending || revision === null || revision !== pending.desiredRevision) return;
+    clearTimeout(pending.timeout); this.pendingConfig.delete(deviceId);
+    this.publishConfigSync({ ...pending, appliedRevision: revision, status: 'APPLIED', updatedAt: new Date().toISOString() });
+  }
+
+  private publishConfigSync(event: DeviceConfigSyncEvent): void {
+    const { timeout: _timeout, ...safeEvent } = event as DeviceConfigSyncEvent & { timeout?: NodeJS.Timeout };
+    this.configSyncCache.set(event.deviceId, safeEvent);
+    this.configSync$.next(safeEvent);
+  }
+
   private async publish(topic: string, payload: unknown, retain = false): Promise<void> {
     if (!this.client?.connected) throw new Error('MQTT client is not connected.');
     await new Promise<void>((resolve, reject) => {
@@ -571,6 +711,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   getAllDeviceStatuses(): DeviceStatusEvent[] {
     return Array.from(this.deviceStateCache.values());
+  }
+
+  private nonNegativeInteger(value: unknown): number | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      ? value
+      : null;
   }
 
   private finiteMetric(value: unknown): number | null {
