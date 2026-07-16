@@ -226,7 +226,8 @@ namespace wifi
         }
         String url = base + "/api/v1/auth/device-token";
 
-        Serial.printf("[AUTH] Requesting JWT from: %s\n", url.c_str());
+        String device_id = storage::ConfigManager::getInstance().getDeviceId();
+        Serial.printf("[AUTH] Requesting JWT from: %s (X-Device-Id: %s)\n", url.c_str(), device_id.c_str());
 
         WiFiClientSecure secure_client;
         secure_client.setInsecure(); // Bypass certificate verification
@@ -236,12 +237,12 @@ namespace wifi
 
         if (!http.begin(secure_client, url))
         {
-            Serial.println("[AUTH] http.begin() failed.");
+            Serial.println("[AUTH] ERROR: http.begin() failed. Check network, endpoint, or SSL config.");
             return false;
         }
 
         // Send X-Device-Id in header to identify the device
-        http.addHeader("X-Device-Id", storage::ConfigManager::getInstance().getDeviceId());
+        http.addHeader("X-Device-Id", device_id);
 
 #ifndef UNIT_TEST
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -255,9 +256,17 @@ namespace wifi
         esp_task_wdt_reset();
 #endif
 
+        if (status <= 0)
+        {
+            Serial.printf("[AUTH] ERROR: Connection failed. HTTP client error code: %d (e.g. timeout or connection refused)\n", status);
+            http.end();
+            return false;
+        }
+
         if (status != 200)
         {
-            Serial.printf("[AUTH] Token request failed. HTTP status: %d\n", status);
+            String err_response = http.getString();
+            Serial.printf("[AUTH] ERROR: Token request failed. HTTP status: %d | Response: %s\n", status, err_response.c_str());
             http.end();
             return false;
         }
@@ -269,7 +278,7 @@ namespace wifi
         DeserializationError err = deserializeJson(doc, response);
         if (err)
         {
-            Serial.printf("[AUTH] Failed to parse token JSON: %s\n", err.c_str());
+            Serial.printf("[AUTH] ERROR: Failed to parse token JSON: %s | Raw response: %s\n", err.c_str(), response.c_str());
             return false;
         }
 
@@ -284,12 +293,17 @@ namespace wifi
 
         if (token == nullptr || strlen(token) == 0)
         {
-            Serial.println("[AUTH] Token response missing token field.");
+            Serial.println("[AUTH] ERROR: Token response missing token field or empty.");
             return false;
         }
 
         storage::ConfigManager::getInstance().setJwtToken(token);
-        Serial.println("[AUTH] JWT token acquired successfully and stored in ConfigManager.");
+        
+        // Print token snippet for debugging
+        String token_str(token);
+        String redact_token = token_str.length() > 15 ? token_str.substring(0, 10) + "..." : "[ShortToken]";
+        Serial.printf("[AUTH] JWT token acquired successfully! Length: %d | Snippet: %s\n", 
+                      (int)token_str.length(), redact_token.c_str());
         return true;
 #endif
     }

@@ -297,6 +297,8 @@ static void sampleAndEnqueueTelemetry(TelemetryData& data, const RelayOutputsPod
 {
     data.actuators = actuators;
 
+    // Hiding periodic telemetry printing to avoid serial console spam during connection testing
+    /*
     {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf(
@@ -306,6 +308,7 @@ static void sampleAndEnqueueTelemetry(TelemetryData& data, const RelayOutputsPod
             data.co2_level,
             static_cast<int>(ok));
     }
+    */
 
     if (xTelemetryQueue != nullptr)
     {

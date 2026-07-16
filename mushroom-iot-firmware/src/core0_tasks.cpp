@@ -100,6 +100,8 @@ static void handleTelemetryScan(unsigned long now, const TelemetryData& last_kno
 
 static void logStackWatermark(unsigned long now)
 {
+    // Hiding periodic stack watermark prints to avoid serial console spam during connection testing
+    /*
     static unsigned long last_stack_log = 0;
     if (now - last_stack_log >= 5000)
     {
@@ -113,6 +115,7 @@ static void logStackWatermark(unsigned long now)
         Serial.println("[CORE0_TASK] Stack High Water Mark: 4096 words");
         #endif
     }
+    */
 }
 
 static void delayCore0Task()

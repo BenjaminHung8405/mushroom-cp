@@ -197,11 +197,14 @@ namespace mqtt
             return false;
         }
 
+        // Commented out to avoid console clutter during connection testing
+        /*
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.printf("[MQTT] Telemetry publish placeholder (Topic: %s, Payload: %s)\n",
                           resolved_topics.telemetry.c_str(), payload.c_str());
         }
+        */
 
         return mqtt_client.publish(resolved_topics.telemetry.c_str(), payload.c_str());
     }
@@ -218,11 +221,14 @@ namespace mqtt
         }
 
         String payload = is_online ? "{\"status\":\"online\"}" : "{\"status\":\"offline\"}";
+        // Commented out to avoid console clutter during connection testing
+        /*
         {
             ScopedSerialLock guard(SerialLock::get_instance());
             Serial.printf("[MQTT] Status publish placeholder (Topic: %s, Payload: %s)\n",
                           resolved_topics.status.c_str(), payload.c_str());
         }
+        */
 
         return mqtt_client.publish(resolved_topics.status.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
     }
@@ -703,6 +709,8 @@ namespace mqtt
         wifi::WifiState wifi_state = wifi::get_wifi_state();
         if (WiFi.status() != WL_CONNECTED || wifi_state != wifi::WifiState::STA_CONNECTED)
         {
+            last_reconnect_attempt = millis(); // Prevent loop spinning immediately
+            if (current_state != MqttState::ERROR_NO_WIFI)
             {
                 ScopedSerialLock guard(SerialLock::get_instance());
                 Serial.printf("[MQTT] Reconnect aborted: WiFi status is not WL_CONNECTED (status=%d, state=%d).\n",
@@ -810,12 +818,13 @@ namespace mqtt
         storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
         {
             ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s\n",
+            Serial.printf("[MQTT] Connect context: broker=%s:%u user=%s clientId=%s lwt=%s jwt_len=%d\n",
                           cfg.getMqttBroker().c_str(),
                           static_cast<unsigned>(cfg.getMqttPort()),
                           cfg.getMqttUser().c_str(),
                           client_id.c_str(),
-                          lwt_topic.c_str());
+                          lwt_topic.c_str(),
+                          static_cast<int>(cfg.getJwtToken().length()));
         }
 
         bool connected = mqtt_client.connect(
