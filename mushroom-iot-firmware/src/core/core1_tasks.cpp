@@ -649,7 +649,9 @@ static void runControlPipelineStep(
     const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
         tunerState, errorTemp, errorHumid, dtSeconds);
     FuzzyController::ArbitratedOutputsPod outputs;
-    if (config::FUZZY_CONTROL_ENABLED)
+    const bool fuzzyEnabled = config::FUZZY_CONTROL_ENABLED &&
+        config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI;
+    if (fuzzyEnabled)
     {
         const FuzzyController::DualHeaterOutputsPod thermalDemands =
             FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
@@ -673,7 +675,7 @@ static void runControlPipelineStep(
                 ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
                 
                 if (decision == ManualDecision::Accepted) {
-                    manual::updateLatchOnAccepted(req, now, manualLatch, config::FUZZY_CONTROL_ENABLED);
+                    manual::updateLatchOnAccepted(req, now, manualLatch, fuzzyEnabled);
                     if (time_conf::getTimeConfidence() == TimeConfidence::Trusted) {
                         PersistedManualOverride ovr{};
                         ovr.intent = req.intent;
@@ -758,11 +760,21 @@ static void runControlPipelineStep(
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 
+    // On an AI -> MANUAL transition, first stop every existing latch/relay.
+    // Subsequent MANUAL ticks keep newly issued user latches intact.
+    static config::OperatingMode previousOperatingMode = config::OperatingMode::AI;
+    if (previousOperatingMode == config::OperatingMode::AI &&
+        config::GLOBAL_OPERATING_MODE == config::OperatingMode::MANUAL)
+    {
+        manual::resetAllManualLatchesOnAOffTransition(manualLatch);
+    }
+    previousOperatingMode = config::GLOBAL_OPERATING_MODE;
+
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
     static protector::SystemProtector systemProtector;
     systemProtector.update(
         now,
-        config::FUZZY_CONTROL_ENABLED,
+        fuzzyEnabled,
         telemetry.temp_air,
         telemetry.humidity_air,
         manualLatch,

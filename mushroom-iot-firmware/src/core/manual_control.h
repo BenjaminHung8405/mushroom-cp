@@ -48,6 +48,9 @@ void updateLatchDecay(
  * Handles TTL expiration and fuzzy-bounds guarding limit release, returning
  * any release events or ack modifications as needed.
  */
+/** Clears all active manual latches during a global AI -> MANUAL transition. */
+void resetAllManualLatchesOnAOffTransition(ManualLatchArray &latch);
+
 void applyManualLatchToOutputs(
     FuzzyController::ArbitratedOutputsPod &outputs,
     ManualLatchArray &latch,

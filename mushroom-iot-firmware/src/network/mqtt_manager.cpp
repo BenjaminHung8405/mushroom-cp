@@ -487,6 +487,7 @@ void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& te
     root["device_id"] = device_id_;
     root["sequence_number"] = ++sequence_number_;
     root["uptime_sec"] = millis() / 1000UL;
+    root["operating_mode"] = config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI ? "AI" : "MANUAL";
     JsonObject readings = root.createNestedObject("readings");
     if (std::isnan(telemetry.temp_air)) readings["temperature_celsius"] = nullptr;
     else readings["temperature_celsius"] = telemetry.temp_air;
@@ -538,11 +539,6 @@ void MqttManager::dispatchCommand(JsonObject root)
         return;
     }
     const char* action = root["action"] | "";
-    if (!sameText(action, "SET_RELAY")) {
-        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
-                          "INVALID_ACTION", "Only SET_RELAY is supported");
-        return;
-    }
 
     // Commands are only expiry-validated if the local clock is trusted.
     const char* expires_at = root["expires_at_utc"] | "";
@@ -560,7 +556,104 @@ void MqttManager::dispatchCommand(JsonObject root)
             return;
         }
     }
-    executeRelayCommand(root["parameters"].as<JsonObject>(), command_id, 0);
+    const JsonObject parameters = root["parameters"].as<JsonObject>();
+    if (sameText(action, "SET_RELAY")) {
+        executeRelayCommand(parameters, command_id, 0);
+    } else if (sameText(action, "SET_BASELINE_SETPOINT")) {
+        executeBaselineSetpointCommand(parameters, command_id, started_ms);
+    } else {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                          "INVALID_ACTION", "Supported actions: SET_RELAY, SET_BASELINE_SETPOINT, SET_OPERATING_MODE");
+    }
+}
+
+void MqttManager::executeBaselineSetpointCommand(
+    JsonObject params,
+    String command_id,
+    unsigned long started_ms)
+{
+    const bool hasTemperature = params.containsKey("temperature_celsius");
+    const bool hasHumidity = params.containsKey("humidity_percent");
+    const bool hasCo2 = params.containsKey("co2_ppm");
+    const float temperature = params["temperature_celsius"] | NAN;
+    const float humidity = params["humidity_percent"] | NAN;
+    const float co2 = params["co2_ppm"] | NAN;
+
+    // Keep these limits aligned with StorageManager::is_valid_backend().
+    if (!hasTemperature || !hasHumidity || !hasCo2 ||
+        !std::isfinite(temperature) || temperature < 10.0f || temperature > 45.0f ||
+        !std::isfinite(humidity) || humidity < 30.0f || humidity > 95.0f ||
+        !std::isfinite(co2) || co2 < 400.0f || co2 > 10000.0f)
+    {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
+                          nullptr, false, "INVALID_SETPOINT",
+                          "temperature_celsius, humidity_percent, and co2_ppm must be finite values within device limits");
+        return;
+    }
+    if (xBaselineQueue == nullptr) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
+                          nullptr, false, "CONTROL_QUEUE_UNAVAILABLE",
+                          "Core 1 baseline control queue is unavailable");
+        return;
+    }
+
+    const storage::BackendSetpointSnapshot snapshot = {
+        temperature,
+        humidity,
+        co2,
+        true,
+    };
+    if (!storage::StorageManager::get_instance().save_backend_snapshot(snapshot)) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
+                          nullptr, false, "PERSISTENCE_FAILED",
+                          "Unable to persist the baseline setpoint");
+        return;
+    }
+
+    const ControlSetpointCommand command = {
+        temperature,
+        humidity,
+        co2,
+        true,
+        {0, 0, 0},
+    };
+    if (xQueueOverwrite(xBaselineQueue, &command) != pdTRUE) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
+                          nullptr, false, "CONTROL_QUEUE_UNAVAILABLE",
+                          "Unable to deliver the baseline setpoint to Core 1");
+        return;
+    }
+
+    Serial.printf("[MQTT] Applied baseline setpoint: T=%.2fC H=%.2f%% CO2=%.0f ppm\n",
+                  temperature, humidity, co2);
+    setSharedForceFullPublish(true);
+    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", millis() - started_ms,
+                      nullptr, false, nullptr, nullptr);
+}
+
+void MqttManager::executeOperatingModeCommand(JsonObject root, String command_id, unsigned long started_ms)
+{
+    const char* mode = root["parameters"]["mode"] | "";
+    config::OperatingMode nextMode;
+    if (sameText(mode, "AI")) {
+        nextMode = config::OperatingMode::AI;
+    } else if (sameText(mode, "MANUAL")) {
+        nextMode = config::OperatingMode::MANUAL;
+    } else {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                          "INVALID_OPERATING_MODE", "mode must be AI or MANUAL");
+        return;
+    }
+
+    if (!storage::StorageManager::get_instance().save_operating_mode(static_cast<uint8_t>(nextMode))) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
+                          "PERSISTENCE_FAILED", "Unable to persist operating mode");
+        return;
+    }
+    config::GLOBAL_OPERATING_MODE = nextMode;
+    setSharedForceFullPublish(true);
+    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", millis() - started_ms,
+                      nullptr, false, nullptr, nullptr);
 }
 
 void MqttManager::executeRelayCommand(JsonObject params, String command_id, uint32_t issue_epoch_s)

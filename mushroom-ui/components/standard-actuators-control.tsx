@@ -3,9 +3,8 @@
 import { Card } from '@/components/ui/card'
 import { CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
-import { postActuatorOverride, type ManualAckState } from '@/lib/telemetry-api'
-import { CountdownBadge } from '@/components/countdown-badge'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { postActuatorOverride, postSetOperatingMode } from '@/lib/telemetry-api'
+import { useState, useEffect } from 'react'
 
 type EdgeState = boolean | null
 
@@ -14,12 +13,12 @@ interface ActuatorStatusRowProps {
   description: string
   icon: React.ReactNode
   state: EdgeState
+  mode: 'AI' | 'MANUAL' | null
   locked?: boolean
   lockReason?: string
-  overrideMode: 'auto' | 'on' | 'off'
-  ack: ManualAckState | null
-  onOverrideChange: (mode: 'auto' | 'on' | 'off') => void
   uninstalled?: boolean
+  isPending?: boolean
+  onAction: () => void
 }
 
 function ActuatorStatusRow({
@@ -27,118 +26,60 @@ function ActuatorStatusRow({
   description,
   icon,
   state,
+  mode,
   locked = false,
   lockReason,
-  overrideMode,
-  ack,
-  onOverrideChange,
   uninstalled = false,
+  isPending = false,
+  onAction,
 }: ActuatorStatusRowProps) {
   const unavailable = state === null
+  const source = locked ? 'safety' : mode === 'MANUAL' ? 'user' : 'ai'
+  const actionLabel = unavailable
+    ? 'Chưa có dữ liệu'
+    : state
+      ? 'Tắt thiết bị'
+      : 'Bật thiết bị'
+  const actionDisabled = unavailable || uninstalled || locked || mode !== 'MANUAL' || isPending
 
   return (
-    <div
-      className={`p-4 rounded-lg border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-        state === true
-          ? 'border-emerald-500/50 bg-emerald-950/10'
-          : locked
-          ? 'border-red-950/40 bg-red-950/5 opacity-80'
-          : 'border-slate-700/50 bg-slate-900/20'
-      }`}
-    >
+    <div className={`p-4 rounded-lg border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+      state === true ? 'border-emerald-500/50 bg-emerald-950/10' : locked ? 'border-red-500/40 bg-red-950/10' : 'border-slate-700/50 bg-slate-900/20'
+    }`}>
       <div className="flex items-start gap-3">
-        <div
-          className={`p-2 rounded-lg shrink-0 ${
-            state === true ? 'bg-emerald-500/20' : locked ? 'bg-red-950/30' : 'bg-slate-700/30'
-          }`}
-        >
+        <div className={`p-2 rounded-lg shrink-0 ${state === true ? 'bg-emerald-500/20' : locked ? 'bg-red-950/30' : 'bg-slate-700/30'}`}>
           {icon}
         </div>
         <div>
           <h4 className="font-semibold text-foreground text-sm flex items-center gap-1.5 flex-wrap">
             {name}
-            {locked && (
-              <span className="text-[9px] font-bold uppercase bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-500/20">
-                Khóa cứng
-              </span>
-            )}
-            {uninstalled && (
-              <span className="text-[9px] font-bold uppercase bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">
-                Chưa lắp
-              </span>
-            )}
+            {uninstalled && <span className="text-[9px] font-bold uppercase bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">Chưa lắp</span>}
           </h4>
           <p className="text-xs mt-0.5 text-muted-foreground">{description}</p>
+          <div className={`mt-1.5 flex items-center gap-1 text-[11px] font-medium ${
+            source === 'safety' ? 'text-red-400' : source === 'user' ? 'text-amber-300' : 'text-cyan-300'
+          }`}>
+            {source === 'safety' ? <ShieldAlert size={12} /> : <span className="text-sm leading-none">{source === 'user' ? '🔌' : '●'}</span>}
+            <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Lệnh từ người dùng' : 'Điều khiển bởi AI'}</span>
+          </div>
           {locked && lockReason && (
-            <div className="flex items-center gap-1 text-[11px] text-red-400 font-medium mt-1">
-              <ShieldAlert size={12} />
-              <span>{lockReason}</span>
+            <div className="flex items-center gap-1 text-[11px] text-red-300 font-medium mt-1">
+              <ShieldAlert size={12} /><span>Bảo vệ: {lockReason}. Thiết bị chưa thể bật lại.</span>
             </div>
           )}
-          {unavailable && !uninstalled && (
-            <p className="text-[11px] text-slate-500 mt-1">Chưa nhận được dữ liệu</p>
-          )}
+          {unavailable && !uninstalled && <p className="text-[11px] text-slate-500 mt-1">Chưa nhận được dữ liệu</p>}
         </div>
       </div>
-
       <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-        {/* Physical Status Indicator */}
-        <div
-          className={`min-w-16 text-center px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
-            state === true
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-              : 'bg-slate-800 text-slate-400 border-slate-700'
-          }`}
-        >
-          {unavailable ? '—' : state ? 'Đang chạy' : 'Đã tắt'}
-        </div>
-
-        {ack?.expires_ms !== null && ack?.expires_ms !== undefined && (
-          <CountdownBadge
-            secondsRemaining={Math.max(0, Math.ceil((ack.expires_ms - Date.now()) / 1000))}
-            intent={overrideMode}
-          />
-        )}
-
-        {/* Override Control Button Group */}
-        <div className="flex rounded-lg border border-slate-800 bg-slate-950/60 p-0.5 items-center">
-          <button
-            disabled={uninstalled}
-            onClick={() => onOverrideChange('auto')}
-            className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${
-              overrideMode === 'auto'
-                ? 'bg-slate-800 text-slate-200 shadow-sm'
-                : 'text-slate-500 hover:text-slate-300 disabled:opacity-40'
-            }`}
-            title="Chạy tự động theo điều khiển Logic mờ"
-          >
-            Tự động
-          </button>
-          <button
-            disabled={uninstalled || locked}
-            onClick={() => onOverrideChange('on')}
-            className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${
-              overrideMode === 'on'
-                ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
-                : 'text-slate-500 hover:text-emerald-400/80 disabled:opacity-30 disabled:hover:text-slate-500'
-            }`}
-            title="Ép Bật thủ công (Có giám sát giới hạn an toàn)"
-          >
-            Bật
-          </button>
-          <button
-            disabled={uninstalled}
-            onClick={() => onOverrideChange('off')}
-            className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${
-              overrideMode === 'off'
-                ? 'bg-red-500/20 text-red-300 border border-red-500/25'
-                : 'text-slate-500 hover:text-red-400/80 disabled:opacity-30'
-            }`}
-            title="Ép Tắt thủ công"
-          >
-            Tắt
-          </button>
-        </div>
+        <div className={`min-w-20 text-center px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+          state === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : locked ? 'bg-red-500/20 text-red-300 border-red-500/25' : 'bg-slate-800 text-slate-400 border-slate-700'
+        }`}>{unavailable ? '—' : state ? 'Đang chạy' : 'Đang tắt'}</div>
+        <button
+          disabled={actionDisabled}
+          onClick={onAction}
+          title={mode !== 'MANUAL' ? 'Chuyển sang Người dùng điều khiển để thao tác thiết bị.' : locked ? lockReason : actionLabel}
+          className="min-w-28 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >{isPending ? 'Đang gửi...' : locked ? 'Khóa an toàn' : mode === 'AI' ? 'Đang tự động' : actionLabel}</button>
       </div>
     </div>
   )
@@ -162,297 +103,109 @@ export function StandardActuatorsControl({
   mistActive = null,
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, mistAck, fanAck, lampAck, snapshot } = useRealTelemetry()
+  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot } = useRealTelemetry()
   const cropDayInt = snapshot?.cropDayInt ?? 0
-
-  const [mistMode, setMistMode] = useState<'auto' | 'on' | 'off'>('auto')
-  const [fanMode, setFanMode] = useState<'auto' | 'on' | 'off'>('auto')
-  const [lampMode, setLampMode] = useState<'auto' | 'on' | 'off'>('auto')
-
+  const [showManualConfirm, setShowManualConfirm] = useState(false)
+  const [modePending, setModePending] = useState(false)
+  const [actionPending, setActionPending] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const shownAckMs = useRef<{ mist: number | null; fan: number | null; lamp: number | null }>({
-    mist: null,
-    fan: null,
-    lamp: null,
-  })
 
-  // Automatically dismiss toast after 3.5 seconds
   useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3500)
-      return () => clearTimeout(timer)
-    }
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 3500)
+    return () => window.clearTimeout(timer)
   }, [toast])
 
-  const notifyFirmwareAck = useCallback((
-    key: 'mist' | 'fan' | 'lamp',
-    displayName: string,
-    ack: ManualAckState | null,
-  ) => {
-    if (!ack || shownAckMs.current[key] === ack.ack_ms) return
-    shownAckMs.current[key] = ack.ack_ms
-
-    if (ack.release_reason) return
-    if (ack.decision !== 0) {
-      setToast({ message: `${displayName}: firmware từ chối lệnh điều khiển.`, type: 'error' })
-      return
-    }
-    const modeText = ack.effective_intent === 'on'
-      ? 'Bật thủ công'
-      : ack.effective_intent === 'off'
-        ? 'Tắt thủ công'
-        : 'chế độ Tự động'
-    setToast({ message: `${displayName} đã chuyển sang ${modeText} theo xác nhận từ firmware.`, type: 'success' })
-  }, [])
-
-  // S4-D2: Reconcile optimistic UI state from firmware-authoritative ack.
-  // When the firmware ack arrives, replace local optimistic state with the
-  // authoritative effective_intent so UI always reflects real device state.
-  useEffect(() => {
-    if (mistAck?.effective_intent) {
-      setMistMode(mistAck.effective_intent)
-      notifyFirmwareAck('mist', 'Máy tạo ẩm siêu âm', mistAck)
-    }
-  }, [mistAck, notifyFirmwareAck])
-
-  useEffect(() => {
-    if (fanAck?.effective_intent) {
-      setFanMode(fanAck.effective_intent)
-      notifyFirmwareAck('fan', 'Quạt đối lưu', fanAck)
-    }
-  }, [fanAck, notifyFirmwareAck])
-
-  useEffect(() => {
-    if (lampAck?.effective_intent) {
-      setLampMode(lampAck.effective_intent)
-      notifyFirmwareAck('lamp', 'Đèn nhiệt sưởi ấm', lampAck)
-    }
-  }, [lampAck, notifyFirmwareAck])
-
-  // S4-D3: When Core 1 releases the override (safety gate), return to AUTO and
-  // display the exact firmware-provided reason — never derive it client-side.
-  useEffect(() => {
-    if (lampAck?.release_reason) {
-      setLampMode('auto')
-      setToast({
-        message: `[Firmware] Đèn nhiệt đã được nhả bởi firmware: ${lampAck.release_reason}`,
-        type: 'error',
-      })
-    }
-  }, [lampAck?.release_reason])
-
-  useEffect(() => {
-    if (mistAck?.release_reason) {
-      setMistMode('auto')
-      setToast({
-        message: `[Firmware] Máy tạo ẩm đã được nhả bởi firmware: ${mistAck.release_reason}`,
-        type: 'error',
-      })
-    }
-  }, [mistAck?.release_reason])
-
-  useEffect(() => {
-    if (fanAck?.release_reason) {
-      setFanMode('auto')
-      setToast({
-        message: `[Firmware] Quạt đối lưu đã được nhả bởi firmware: ${fanAck.release_reason}`,
-        type: 'error',
-      })
-    }
-  }, [fanAck?.release_reason])
-
-  // S4-D4: UI pre-checks as UX-only first defense (device-side RTC/profile remains authoritative).
-  // These reduce failed network round-trips but are NOT the safety enforcement layer.
-  useEffect(() => {
-    if (mistMode === 'on' && mistActive === false && humidityCurrent !== null && humidityCurrent >= 90) {
-      setMistMode('auto')
-      setToast({
-        message: 'Máy tạo ẩm đã tự động nhả về Tự động (Auto) do độ ẩm chạm giới hạn nguy hiểm (90%).',
-        type: 'error',
-      })
-    }
-    if (
-      lampMode === 'on' &&
-      lampStageActive === false &&
-      temperatureCurrent !== null &&
-      temperatureCurrent >= (cropDayInt > 8 ? 30 : 35)
-    ) {
-      setLampMode('auto')
-      setToast({
-        message: `Thiết bị sưởi đã tự động nhả về Tự động (Auto) do nhiệt độ chạm giới hạn nguy hiểm (${
-          cropDayInt > 8 ? 30 : 35
-        }°C).`,
-        type: 'error',
-      })
-    }
-  }, [mistActive, lampStageActive, humidityCurrent, temperatureCurrent, cropDayInt])
-
-  const handleOverrideChange = async (
-    actuator: 'fan' | 'heater_air' | 'lamp' | 'lamp_stage' | 'mist',
-    mode: 'auto' | 'on' | 'off',
-  ) => {
-    // 1. Biological rule checks on UI (UX-only first defense — S4-D4)
-    if (actuator === 'mist' && mode === 'on') {
-      const now = new Date()
-      const hour = now.getHours()
-      const minute = now.getMinutes()
-      const mins = hour * 60 + minute
-      const startBlackout = 11 * 60 // 11:00
-      const endBlackout = 13 * 60 + 30 // 13:30
-
-      if (mins >= startBlackout && mins <= endBlackout) {
-        setToast({
-          message: 'Không thể bật máy tạo ẩm thủ công trong khung giờ bảo vệ sốc nhiệt (11:00 - 13:30).',
-          type: 'error',
-        })
-        return
-      }
-    }
-
-    if ((actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') && mode === 'on') {
-      if (cropDayInt > 8) {
-        setToast({
-          message: `Thiết bị sưởi không được bật thủ công trong giai đoạn ra quả thể (ngày vụ nuôi: ${cropDayInt} > 8).`,
-          type: 'error',
-        })
-        return
-      }
-    }
-
-    // 2. Dispatch to backend; firmware will ack with effective_intent (S4-D2)
-    const targetState = mode === 'on' ? true : mode === 'off' ? false : null
+  const setOperatingMode = async (mode: 'AI' | 'MANUAL') => {
     if (!monitoredDeviceId) {
-      setToast({ message: 'Chưa chọn thiết bị để gửi lệnh.', type: 'error' })
+      setToast({ message: 'Chưa chọn thiết bị để thay đổi chế độ.', type: 'error' })
       return
     }
-    const res = await postActuatorOverride(monitoredDeviceId, actuator, targetState)
-
-    if (res.success) {
-      // Apply optimistic state — will be reconciled when lampAck/mistAck/fanAck arrives
-      if (actuator === 'mist') setMistMode(mode)
-      if (actuator === 'fan') setFanMode(mode)
-      if (actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') setLampMode(mode)
-
-      const displayName =
-        actuator === 'mist'
-          ? 'Máy tạo ẩm siêu âm'
-          : actuator === 'fan'
-          ? 'Quạt đối lưu'
-          : 'Đèn nhiệt sưởi ấm (HLamp)'
-      const modeText =
-        mode === 'auto' ? 'chế độ Tự động (Auto)' : mode === 'on' ? 'Bật thủ công' : 'Tắt thủ công'
-      setToast({
-        message: `Đã chuyển ${displayName} sang ${modeText} thành công.`,
-        type: 'success',
-      })
+    setModePending(true)
+    const result = await postSetOperatingMode(monitoredDeviceId, mode)
+    setModePending(false)
+    if (result.success) {
+      setShowManualConfirm(false)
+      setToast({ message: mode === 'MANUAL' ? 'Đã gửi lệnh tắt AI. Các relay sẽ dừng trước khi điều khiển thủ công.' : 'Đã gửi lệnh khôi phục điều khiển AI.', type: 'success' })
     } else {
-      setToast({
-        message: res.message,
-        type: 'error',
-      })
+      setToast({ message: result.message, type: 'error' })
     }
   }
 
-  const blackoutConfirmed = blackoutActive === true
-  const statusText = (state: EdgeState) =>
-    state === null ? '— / Chưa nhận được dữ liệu' : state ? 'Đang hoạt động' : 'Đã tắt'
+  const applyAction = async (actuator: 'fan' | 'lamp' | 'mist', state: EdgeState) => {
+    if (!monitoredDeviceId || state === null || operatingMode !== 'MANUAL') return
+    setActionPending(actuator)
+    const result = await postActuatorOverride(monitoredDeviceId, actuator, !state)
+    setActionPending(null)
+    setToast({ message: result.success ? 'Đã gửi lệnh; chờ firmware xác nhận trạng thái relay.' : result.message, type: result.success ? 'success' : 'error' })
+  }
+
+  const startAll = async () => {
+    if (!monitoredDeviceId || operatingMode !== 'MANUAL') return
+    setActionPending('all')
+    const requests: Promise<{ success: boolean; message: string }>[] = []
+    if (fanActive === false) requests.push(postActuatorOverride(monitoredDeviceId, 'fan', true))
+    if (lampStageActive === false && cropDayInt <= 8) requests.push(postActuatorOverride(monitoredDeviceId, 'lamp', true))
+    if (mistActive === false && blackoutActive !== true && humidityCurrent !== null && humidityCurrent < 90) requests.push(postActuatorOverride(monitoredDeviceId, 'mist', true))
+    const results = await Promise.all(requests)
+    setActionPending(null)
+    setToast({ message: results.every((item) => item.success) ? 'Đã gửi lệnh khởi động thiết bị khả dụng.' : 'Một số thiết bị không thể khởi động do giới hạn an toàn.', type: results.every((item) => item.success) ? 'success' : 'error' })
+  }
+
+  const lampLockReason = cropDayInt > 8
+    ? 'Đã khóa trong giai đoạn ra quả thể'
+    : temperatureCurrent !== null && temperatureCurrent >= 35
+      ? `Quá nhiệt (>${35}°C)`
+      : undefined
+  const mistLockReason = blackoutActive === true
+    ? 'Tạm ngưng phun sương giờ trưa'
+    : humidityCurrent !== null && humidityCurrent >= 90
+      ? 'Độ ẩm vượt giới hạn an toàn (90%)'
+      : undefined
+  const manualMode = operatingMode === 'MANUAL'
 
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40 relative">
-      <div className="mb-4">
-        <h3 className="font-semibold text-foreground text-lg">Thiết bị trong phòng nấm</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          Theo dõi và điều khiển cưỡng bức thiết bị trong dải an toàn sinh học
-        </p>
+      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="font-semibold text-foreground text-lg">Thiết bị trong phòng nấm</h3>
+          <p className="text-xs text-muted-foreground mt-1">Trạng thái vật lý và nguồn điều khiển có hiệu lực.</p>
+        </div>
+        <div className={`rounded-lg border px-3 py-2 text-xs ${manualMode ? 'border-amber-500/30 bg-amber-950/20' : 'border-cyan-500/30 bg-cyan-950/20'}`}>
+          <div className="font-bold text-foreground">{manualMode ? '🔌 Người dùng điều khiển' : '● Điều khiển bởi AI'}</div>
+          <div className="mt-0.5 text-muted-foreground">{manualMode ? 'Fuzzy Logic đã dừng; chỉ lệnh thủ công và bảo vệ có hiệu lực.' : 'Fuzzy Logic điều khiển relay trong giới hạn an toàn.'}</div>
+          <div className="mt-2 flex gap-2">
+            {manualMode ? <>
+              <button onClick={() => void startAll()} disabled={actionPending !== null} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
+              <button onClick={() => void setOperatingMode('AI')} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">Bật lại AI</button>
+            </> : <button onClick={() => setShowManualConfirm(true)} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">Chuyển sang thủ công</button>}
+          </div>
+        </div>
       </div>
 
       <div className="space-y-3">
-        <ActuatorStatusRow
-          name="Quạt đối lưu"
-          description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂"
-          icon={<Wind className="w-5 h-5 text-cyan-400" />}
-          state={fanActive}
-          overrideMode={fanMode}
-          ack={fanAck}
-          onOverrideChange={(mode) => handleOverrideChange('fan', mode)}
-        />
-        <ActuatorStatusRow
-          name="Đèn nhiệt sưởi ấm (HLamp)"
-          description="Tự động sưởi khi phòng nấm cần tăng nhiệt (Khóa khi ra quả)"
-          icon={<Zap className="w-5 h-5 text-amber-400" />}
-          state={lampStageActive}
-          overrideMode={lampMode}
-          ack={lampAck}
-          onOverrideChange={(mode) => handleOverrideChange('lamp', mode)}
-          locked={cropDayInt > 8}
-          lockReason={
-            cropDayInt > 8
-              ? 'Khóa tự động trong giai đoạn ra quả thể để tránh làm khô nấm'
-              : undefined
-          }
-        />
-        <ActuatorStatusRow
-          name="Thiết bị làm ấm nước"
-          description="Thiết bị này chưa được lắp đặt phần cứng"
-          icon={<Zap className="w-5 h-5 text-blue-400" />}
-          state={heaterWaterActive}
-          overrideMode="auto"
-          ack={null}
-          onOverrideChange={() => {}}
-          uninstalled={true}
-        />
-        <ActuatorStatusRow
-          name="Máy tạo ẩm siêu âm"
-          description="Tự động phun sương theo độ ẩm (Khóa giờ trưa 11:00 - 13:30)"
-          icon={<CloudFog className="w-5 h-5 text-teal-400" />}
-          state={mistActive}
-          overrideMode={mistMode}
-          ack={mistAck}
-          onOverrideChange={(mode) => handleOverrideChange('mist', mode)}
-          locked={blackoutConfirmed}
-          lockReason={
-            blackoutConfirmed
-              ? 'Tạm ngưng phun sương giờ trưa để tránh sốc nhiệt cho nấm'
-              : undefined
-          }
-        />
+        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending === 'fan'} onAction={() => void applyAction('fan', fanActive)} />
+        <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending === 'lamp'} onAction={() => void applyAction('lamp', lampStageActive)} />
+        <ActuatorStatusRow name="Thiết bị làm ấm nước" description="Thiết bị này chưa được lắp đặt phần cứng" icon={<Zap className="w-5 h-5 text-blue-400" />} state={heaterWaterActive} mode={operatingMode} uninstalled onAction={() => {}} />
+        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending === 'mist'} onAction={() => void applyAction('mist', mistActive)} />
       </div>
 
-      <div className="mt-4 p-3 rounded bg-slate-900/30 border border-slate-700/30 text-xs text-muted-foreground space-y-1">
-        <div>
-          Tạm ngưng phun sương:{' '}
-          <span className={blackoutConfirmed ? 'text-red-400 font-semibold' : 'text-slate-400'}>
-            {blackoutConfirmed
-              ? 'Đang tạm ngưng'
-              : blackoutActive === null
-              ? '— / Chưa nhận được dữ liệu'
-              : 'Không tạm ngưng'}
-          </span>
-        </div>
-        <div>Quạt: {statusText(fanActive)}</div>
-        <div>Đèn nhiệt (stage 1): {statusText(lampStageActive)}</div>
-        <div>Đèn nhiệt (stage 2): {statusText(lampStage2Active)}</div>
-        <div>Làm ấm nước: {statusText(heaterWaterActive)}</div>
-        <div>Máy tạo ẩm: {statusText(mistActive)}</div>
-      </div>
-
-      {/* Local Toast Alert */}
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-md transition-all duration-300 ${
-            toast.type === 'success'
-              ? 'bg-gradient-to-r from-emerald-900/80 to-teal-900/80 border-emerald-500/30 text-emerald-200'
-              : 'bg-gradient-to-r from-red-950/80 to-pink-950/80 border-red-500/30 text-red-200'
-          }`}
-        >
-          {toast.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          ) : (
-            <XCircle className="w-5 h-5 text-red-400 shrink-0" />
-          )}
-          <span className="text-xs font-medium">{toast.message}</span>
+      {showManualConfirm && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/85 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-lg border border-amber-500/30 bg-slate-900 p-5 shadow-xl">
+            <h4 className="font-semibold text-foreground">Tắt Tự động hóa (AI)?</h4>
+            <p className="mt-2 text-sm text-slate-400">Bạn đang tắt Fuzzy Control. Các thiết bị sẽ ngừng vận hành ngay bây giờ. Sau đó bạn có thể khởi động từng thiết bị hoặc dùng nút “Khởi động tất cả”. Bảo vệ an toàn vẫn luôn có quyền tắt thiết bị.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setShowManualConfirm(false)} className="rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Quay lại</button>
+              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt AI'}</button>
+            </div>
+          </div>
         </div>
       )}
+
+      {toast && <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-md ${toast.type === 'success' ? 'bg-gradient-to-r from-emerald-900/80 to-teal-900/80 border-emerald-500/30 text-emerald-200' : 'bg-gradient-to-r from-red-950/80 to-pink-950/80 border-red-500/30 text-red-200'}`}>
+        {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /> : <XCircle className="w-5 h-5 text-red-400 shrink-0" />}<span className="text-xs font-medium">{toast.message}</span>
+      </div>}
     </Card>
   )
 }

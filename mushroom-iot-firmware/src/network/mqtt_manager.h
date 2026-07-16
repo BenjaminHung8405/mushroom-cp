@@ -128,6 +128,9 @@ private:
 
     // Command dispatcher
     void dispatchCommand(JsonObject root);
+    void executeOperatingModeCommand(JsonObject root, String command_id, unsigned long started_ms);
+    void executeBaselineSetpointCommand(JsonObject params, String command_id,
+                                        unsigned long started_ms);
     void executeRelayCommand(JsonObject params, String command_id,
                              uint32_t issue_epoch_s);
     bool queueRelayToCore1(uint8_t pin, bool activate);

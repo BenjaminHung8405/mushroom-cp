@@ -73,6 +73,9 @@ interface RealTelemetryContextType {
   mistActive: boolean | null
   middayBlackoutActive: boolean | null
 
+  /** Global operating mode from firmware telemetry (AI | MANUAL) */
+  operatingMode: 'AI' | 'MANUAL' | null
+
   /** Firmware-authoritative manual ack states — null means no ack received yet */
   mistAck: import('./telemetry-api').ManualAckState | null
   fanAck: import('./telemetry-api').ManualAckState | null
@@ -235,6 +238,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const mistAck = snapshot?.mistAck ?? null
   const fanAck = snapshot?.fanAck ?? null
   const lampAck = snapshot?.lampAck ?? null
+  const operatingMode: 'AI' | 'MANUAL' | null = snapshot?.operatingMode ?? null
 
   return (
     <RealTelemetryContext.Provider
@@ -255,6 +259,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         heaterWaterActive,
         mistActive,
         middayBlackoutActive,
+        operatingMode,
         mistAck,
         fanAck,
         lampAck,

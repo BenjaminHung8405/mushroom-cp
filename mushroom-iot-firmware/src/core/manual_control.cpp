@@ -58,13 +58,17 @@ ManualDecision evaluateSafetyGate(
         // Hard safety cutoff tuyệt đối: không cho bật đèn khi nhiệt độ >= 45°C.
         // Kiểm tra này ưu tiên trước mọi điều kiện khác.
         if (telemetry.temp_air >= LAMP_HARD_CUTOFF_C) {
+            Serial.printf("[DIAG] LAMP rejected HARD: temp=%.2fC >= 45.0C\n", telemetry.temp_air);
             return ManualDecision::RejectedTemp;
         }
         // Temporarily commented out:
         // if (cropDay > 8) {
         //     return ManualDecision::RejectedLocked;
         // }
-        if (telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C) {
+        const float lamp_warn_limit = setpoints.temp_target + LAMP_WARNING_DELTA_C;
+        if (telemetry.temp_air >= lamp_warn_limit) {
+            Serial.printf("[DIAG] LAMP rejected WARNING: temp=%.2fC >= target(%.2fC) + 3.0 = %.2fC\n",
+                          telemetry.temp_air, setpoints.temp_target, lamp_warn_limit);
             return ManualDecision::RejectedTemp;
         }
         return ManualDecision::Accepted;
@@ -151,6 +155,17 @@ void autoClearOnSensorViolation(
             latch[lampIdx].active = false;
             latch[lampIdx].forced_state = AppIntent::AUTO;
             latch[lampIdx].expires_ms = 0;
+        }
+    }
+}
+
+void resetAllManualLatchesOnAOffTransition(manual::ManualLatchArray &latch)
+{
+    for (size_t i = 0; i < latch.size(); ++i) {
+        if (latch[i].active && latch[i].forced_state != AppIntent::AUTO) {
+            latch[i].active = false;
+            latch[i].forced_state = AppIntent::AUTO;
+            latch[i].expires_ms = 0;
         }
     }
 }

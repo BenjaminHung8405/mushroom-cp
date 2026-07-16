@@ -637,6 +637,34 @@ namespace storage
         return result;
     }
 
+    bool StorageManager::save_operating_mode(uint8_t mode)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+        bool result = prefs.putUChar(config::network::KEY_OP_MODE, mode) > 0;
+        prefs.end();
+        return result;
+    }
+
+    bool StorageManager::load_operating_mode(uint8_t &mode)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+        const bool found = prefs.isKey(config::network::KEY_OP_MODE);
+        if (found)
+        {
+            mode = prefs.getUChar(config::network::KEY_OP_MODE, 0U);
+        }
+        prefs.end();
+        return found;
+    }
+
     bool StorageManager::save_start_epoch_time(uint32_t start_time)
     {
         Preferences prefs;

@@ -70,6 +70,13 @@ void setup()
     // Hydrate setpoints from NVS to queues
     hydrateSetpointsFromNVS();
 
+    uint8_t persistedOperatingMode = static_cast<uint8_t>(config::OperatingMode::AI);
+    if (storage::StorageManager::get_instance().load_operating_mode(persistedOperatingMode) &&
+        persistedOperatingMode == static_cast<uint8_t>(config::OperatingMode::MANUAL))
+    {
+        config::GLOBAL_OPERATING_MODE = config::OperatingMode::MANUAL;
+    }
+
     // 7. Initialize and activate WiFi
     wifi::init_wifi();
 

@@ -44,6 +44,7 @@ export interface TelemetrySnapshot {
   mistAck?: ManualAckState | null;
   fanAck?: ManualAckState | null;
   lampAck?: ManualAckState | null;
+  operatingMode: 'AI' | 'MANUAL';
 }
 
 export interface TelemetryLogDbRow {
@@ -251,6 +252,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         mistAck: devAcks.mistAck ?? null,
         fanAck: devAcks.fanAck ?? null,
         lampAck: devAcks.lampAck ?? null,
+        operatingMode: 'AI',
       };
 
       this.latestCache.set(deviceId, snapshot);
@@ -354,6 +356,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       mistAck: devAcks.mistAck ?? null,
       fanAck: devAcks.fanAck ?? null,
       lampAck: devAcks.lampAck ?? null,
+      operatingMode: event.operatingMode ?? 'AI',
     };
     this.latestCache.set(deviceId, snapshot);
     this.telemetryUpdates$.next(snapshot);
@@ -472,6 +475,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       lampStage2Active: row.lampStage2Active,
       heaterWaterActive: row.heaterWaterActive,
       middayBlackoutActive: row.middayBlackoutActive,
+      operatingMode: 'AI', // DB history does not store this; default to AI.
     }));
   }
 

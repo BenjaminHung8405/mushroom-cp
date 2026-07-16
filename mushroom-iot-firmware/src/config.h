@@ -92,6 +92,7 @@ namespace config
         constexpr const char *KEY_LAST_SP = "last_sp";
         constexpr const char *KEY_HW_OVR = "hw_ovr";
         constexpr const char *KEY_ACT_OVR = "act_ovr";
+        constexpr const char *KEY_OP_MODE = "op_mode";
         constexpr const char *KEY_START_TIME = "start_time";
         constexpr const char *KEY_ELAPSED_SEC = "elapsed_sec";
 
@@ -174,7 +175,14 @@ namespace config
         constexpr float CO2_TARGET_PPM = 1000.0f;   // Giới hạn thông gió chống ngộp khí
     } // namespace safe_offline
 
-    // Biến cho phép bật/tắt chế độ điều khiển bằng fuzzy
+    /** Global operating mode — persisted across reboots. */
+    enum class OperatingMode : uint8_t {
+        AI,       // Tự động hoá (Fuzzy) đang hoạt động
+        MANUAL,   // Người dùng đang ép điều khiển
+    };
+
+    /** Cho phép chuyển đổi chế độ vận hành toàn cục từ giao diện/web. */
+    extern volatile OperatingMode GLOBAL_OPERATING_MODE;
     extern bool FUZZY_CONTROL_ENABLED;
 
 } // namespace config

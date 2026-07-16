@@ -42,6 +42,13 @@ export interface TelemetrySnapshot {
   mistAck: ManualAckState | null
   fanAck: ManualAckState | null
   lampAck: ManualAckState | null
+  operatingMode: 'AI' | 'MANUAL'
+}
+
+export interface OperatingModeEvent {
+  deviceId: string
+  mode: 'AI' | 'MANUAL'
+  timestamp: string
 }
 
 export interface DeviceStatusEvent {
@@ -139,6 +146,31 @@ export function subscribeDeviceStatusStream(
   es.onerror = () => {}
 
   return () => es.close()
+}
+
+/**
+ * POST /api/backend/devices/:id/operating-mode — switches AI ↔ MANUAL.
+ * Returns immediately; firmware persists and publishes full snapshot shortly.
+ */
+export async function postSetOperatingMode(
+  deviceId: string,
+  mode: 'AI' | 'MANUAL',
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/operating-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    })
+    if (!res.ok) {
+      const errData = (await res.json()) as { message?: string }
+      return { success: false, message: errData.message ?? 'Không thể thay đổi chế độ vận hành.' }
+    }
+    return { success: true, message: `Chế độ đã chuyển sang ${mode}.` }
+  } catch (err: unknown) {
+    const msg = (err as Error)?.message ?? 'Lỗi kết nối đến máy chủ.'
+    return { success: false, message: msg }
+  }
 }
 
 export async function postActuatorOverride(

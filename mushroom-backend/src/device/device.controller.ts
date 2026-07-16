@@ -105,6 +105,11 @@ export class ActuatorOverrideDto {
  * DeviceController — HTTP interface for device management and real-time status.
  */
 @Controller('devices')
+export class OperatingModeDto {
+  @IsIn(['AI', 'MANUAL'])
+  mode: 'AI' | 'MANUAL';
+}
+
 export class DeviceController {
   private readonly logger = new Logger(DeviceController.name);
 
@@ -239,6 +244,25 @@ export class DeviceController {
    * REST: Publish manual actuator overrides to a device via MQTT.
    * Subject to server-side bio-safety guardrail validation.
    */
+  @Post(':id/operating-mode')
+  @HttpCode(202)
+  async publishOperatingMode(
+    @Param() params: DeviceParamsDto,
+    @Body() body: OperatingModeDto,
+  ) {
+    const { id } = params;
+    const device = this.deviceRegistryService.get(id) ??
+      (await this.deviceRegistryService.refreshOne(id));
+    if (!device) {
+      throw new NotFoundException(`Device '${id}' not found.`);
+    }
+    await this.mqttService.dispatchSetOperatingMode(id, body.mode);
+    return {
+      message: `Chế độ vận hành đã chuyển sang ${body.mode}.`,
+      payload: { mode: body.mode },
+    };
+  }
+
   @Post(':id/actuator-override')
   @HttpCode(202)
   async publishActuatorOverride(

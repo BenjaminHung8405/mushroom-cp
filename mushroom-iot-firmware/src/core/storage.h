@@ -209,6 +209,10 @@ namespace storage
          */
         bool clear_actuator_override();
 
+        /** @brief Persists global operating mode (0=AI, 1=MANUAL). */
+        bool save_operating_mode(uint8_t mode);
+        bool load_operating_mode(uint8_t &mode);
+
         /**
          * @brief Saves start epoch time (in seconds) to NVS.
          */

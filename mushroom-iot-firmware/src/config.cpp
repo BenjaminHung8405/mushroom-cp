@@ -117,5 +117,6 @@ namespace config
         float HmBOT = 65.0f;
     }
 
+    volatile OperatingMode GLOBAL_OPERATING_MODE = OperatingMode::AI;
     bool FUZZY_CONTROL_ENABLED = true;
 }

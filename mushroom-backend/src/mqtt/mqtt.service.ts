@@ -38,6 +38,7 @@ export interface TelemetryEvent {
   humidity_air: number | null;
   co2_level: number | null;
   actuators: EdgeActuatorState | null;
+  operatingMode?: 'AI' | 'MANUAL';
   receivedAt: Date;
   timestamp: string;
 }
@@ -51,6 +52,10 @@ export interface ManualAckEvent {
   expiresMs: number;
   ackMs: number;
   receivedAt: Date;
+}
+
+export interface SetOperatingModeDto {
+  mode: 'AI' | 'MANUAL';
 }
 
 export interface CommandAckEvent {
@@ -296,6 +301,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       humidity_air: this.finiteMetric(readings?.humidity_percent),
       co2_level: null,
       actuators: this.parseActuators(data.actuator_states),
+      operatingMode: data.operating_mode === 'MANUAL' ? 'MANUAL' : 'AI',
       receivedAt,
       timestamp: receivedAt.toISOString(),
     };
@@ -484,11 +490,41 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       setpoint_ttl_sec: number;
     },
   ): Promise<void> {
-    this.logger.debug(
-      `dispatchSetpoint: Advisory setpoint for ${deviceId} is a no-op in MQTT-only mode. Payload: ${JSON.stringify(
-        payload,
-      )}`,
-    );
+    const commandId = crypto.randomUUID();
+    await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, {
+      $schema: 'https://iot.acme.com/schema/v1/command',
+      command_id: commandId,
+      device_id: deviceId,
+      issued_by: 'backend-advisory-setpoint',
+      timestamp_utc: new Date().toISOString(),
+      expires_at_utc: new Date(Date.now() + 10_000).toISOString(),
+      action: 'SET_BASELINE_SETPOINT',
+      parameters: {
+        config_revision: Math.floor(Date.now() / 1000),
+        temperature_celsius: payload.temperatureSetpoint,
+        humidity_percent: payload.humiditySetpoint,
+        co2_ppm: payload.co2Setpoint ?? 1000,
+        ttl_sec: 0,
+      },
+    });
+    this.logger.log(`dispatched SET_BASELINE_SETPOINT ${commandId} to ${deviceId}`);
+  }
+
+  async dispatchSetOperatingMode(
+    deviceId: string,
+    mode: 'AI' | 'MANUAL',
+  ): Promise<void> {
+    this.logger.log(`dispatchSetOperatingMode: switching ${deviceId} to ${mode}`);
+    await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, {
+      $schema: 'https://iot.acme.com/schema/v1/command',
+      command_id: crypto.randomUUID(),
+      device_id: deviceId,
+      issued_by: 'ui-operating-mode',
+      timestamp_utc: new Date().toISOString(),
+      expires_at_utc: new Date(Date.now() + 10_000).toISOString(),
+      action: 'SET_OPERATING_MODE',
+      parameters: { mode },
+    });
   }
 
   async dispatchActuatorOverride(
