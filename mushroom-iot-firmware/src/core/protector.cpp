@@ -1,0 +1,152 @@
+#include "core/protector.h"
+#include "config.h"
+#include <cmath>
+
+#ifndef UNIT_TEST
+#include <Arduino.h>
+#else
+#include "Arduino.h"
+#endif
+
+namespace protector {
+
+namespace {
+
+bool isLockActive(uint32_t now, uint32_t lock_until_ms) {
+    return static_cast<int32_t>(lock_until_ms - now) > 0;
+}
+
+void clearManualLatch(manual::ManualLatchEntry& latch) {
+    latch.active = false;
+    latch.forced_state = AppIntent::AUTO;
+    latch.expires_ms = 0;
+}
+
+bool get_channel_state(const relay_control::RelayStatePod& rs, AppChannel ch) {
+    if (ch == AppChannel::MIST) return rs.mist_active;
+    if (ch == AppChannel::LAMP) return rs.lamp_active;
+    if (ch == AppChannel::FAN) return rs.fan_active;
+    if (ch == AppChannel::HWAT) return rs.hwat_active;
+    return false;
+}
+
+void set_channel_state(relay_control::RelayStatePod& rs, AppChannel ch, bool val) {
+    if (ch == AppChannel::MIST) rs.mist_active = val;
+    if (ch == AppChannel::LAMP) rs.lamp_active = val;
+    if (ch == AppChannel::FAN) rs.fan_active = val;
+    if (ch == AppChannel::HWAT) rs.hwat_active = val;
+}
+
+} // namespace
+
+SystemProtector::SystemProtector() {
+    reset();
+}
+
+void SystemProtector::reset() {
+    prev_fuzzy_enabled = true;
+    has_previous_fuzzy_mode = false;
+    for (auto& state : states) {
+        state.is_on = false;
+        state.on_start_ms = 0;
+        state.lock_until_ms = 0;
+    }
+}
+
+void SystemProtector::update(
+    uint32_t now,
+    bool fuzzy_enabled,
+    float temp_air,
+    float humidity_air,
+    manual::ManualLatchArray& manual_latches,
+    relay_control::RelayStatePod& relay_states
+) {
+    // A startup in AOFF is not an AON -> AOFF transition. Capture the
+    // initial mode first; actual runtime transitions are handled below.
+    if (!has_previous_fuzzy_mode) {
+        prev_fuzzy_enabled = fuzzy_enabled;
+        has_previous_fuzzy_mode = true;
+    }
+
+    // Priority 0: AON -> AOFF transition. Manual state and every relay must
+    // be cleared synchronously before any later control stage can use them.
+    if (prev_fuzzy_enabled && !fuzzy_enabled) {
+        for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
+            set_channel_state(relay_states, static_cast<AppChannel>(i), false);
+            clearManualLatch(manual_latches[i]);
+            states[i].is_on = false;
+            states[i].on_start_ms = 0;
+        }
+        prev_fuzzy_enabled = fuzzy_enabled;
+        return;
+    }
+    prev_fuzzy_enabled = fuzzy_enabled;
+
+    // 2. Process each channel
+    for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
+        AppChannel ch = static_cast<AppChannel>(i);
+        ChannelProtectorState& state = states[i];
+
+        // Priority 1: Cooldown / Forced-OFF Lock
+        if (isLockActive(now, state.lock_until_ms)) {
+            set_channel_state(relay_states, ch, false);
+            clearManualLatch(manual_latches[i]);
+            state.is_on = false;
+            state.on_start_ms = 0;
+            continue; // Force override, bypass bio rule ON checks
+        }
+
+        // Priority 2: Absolute Bio Bounds Guarding
+        if (ch == AppChannel::LAMP && std::isfinite(temp_air)) {
+            if (temp_air >= config::hardware::ThTOP) {
+                // Over-temp: Turn OFF heating lamp and Lock for 5 minutes (300,000ms)
+                set_channel_state(relay_states, ch, false);
+                clearManualLatch(manual_latches[i]);
+                state.lock_until_ms = now + config::hardware::LAMP_OVER_TEMP_COOLDOWN_MS;
+                state.is_on = false;
+                state.on_start_ms = 0;
+                continue;
+            } else if (temp_air <= config::hardware::ThBOT) {
+                // Under-temp: Force heating Lamp ON
+                set_channel_state(relay_states, ch, true);
+            }
+        } else if (ch == AppChannel::MIST && std::isfinite(humidity_air)) {
+            if (humidity_air >= config::hardware::HmTOP) {
+                // Over-humidity: Turn OFF mist and Lock for 10 minutes (600,000ms)
+                set_channel_state(relay_states, ch, false);
+                clearManualLatch(manual_latches[i]);
+                state.lock_until_ms = now + config::hardware::MIST_OVER_HUMIDITY_COOLDOWN_MS;
+                state.is_on = false;
+                state.on_start_ms = 0;
+                continue;
+            } else if (humidity_air <= config::hardware::HmBOT) {
+                // Under-humidity: Force mist pump ON
+                set_channel_state(relay_states, ch, true);
+            }
+        }
+
+        // Priority 3: Normal checking and continuous limit (3-minute ON -> 30s OFF cooldown)
+        bool final_active = get_channel_state(relay_states, ch);
+
+        if (final_active) {
+            if (!state.is_on) {
+                state.is_on = true;
+                state.on_start_ms = now;
+            } else {
+                if (now - state.on_start_ms >= config::hardware::MAX_ON_DURATION_MS) { // 3 minutes ON
+                    // Force OFF and Lock for 30s (30,000ms)
+                    set_channel_state(relay_states, ch, false);
+                    clearManualLatch(manual_latches[i]);
+                    state.lock_until_ms = now + config::hardware::COOLDOWN_DURATION_MS;
+                    state.is_on = false;
+                    state.on_start_ms = 0;
+                }
+            }
+        } else {
+            state.is_on = false;
+            state.on_start_ms = 0;
+        }
+    }
+}
+
+} // namespace protector

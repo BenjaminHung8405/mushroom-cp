@@ -25,7 +25,7 @@ namespace config
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).
         // Hold 5 seconds during runtime to force SoftAP config portal.
-        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 4;
+        constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
         // PIN_BUTTON_UP / PIN_BUTTON_DOWN đã bị xóa:
         // GPIO 15 và 16 được dùng cho nút tủ điện (cabinet_buttons: LAMP, FAN).
@@ -46,7 +46,25 @@ namespace config
 
         // Injected at build time from the repository's shared .env file.
         // This keeps firmware and the web client on the same public API origin.
-#if !defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE) || !defined(IOT_TENANT) || !defined(BOOTSTRAP_USERNAME) || !defined(BOOTSTRAP_PASSWORD)
+#ifdef UNIT_TEST
+#ifndef DEFAULT_MQTT_BROKER_URL
+#define DEFAULT_MQTT_BROKER_URL "mushroomapp.mitelai.com"
+#endif
+#ifndef DEFAULT_MQTT_PORT_VALUE
+#define DEFAULT_MQTT_PORT_VALUE 1883
+#endif
+#ifndef IOT_TENANT
+#define IOT_TENANT "test_tenant"
+#endif
+#ifndef BOOTSTRAP_USERNAME
+#define BOOTSTRAP_USERNAME "test_user"
+#endif
+#ifndef BOOTSTRAP_PASSWORD
+#define BOOTSTRAP_PASSWORD "test_pass"
+#endif
+#endif
+
+#if !defined(UNIT_TEST) && (!defined(DEFAULT_MQTT_BROKER_URL) || !defined(DEFAULT_MQTT_PORT_VALUE) || !defined(IOT_TENANT) || !defined(BOOTSTRAP_USERNAME) || !defined(BOOTSTRAP_PASSWORD))
 #error "Firmware MQTT defaults, tenant, and bootstrap credentials must be provided by the PlatformIO environment script"
 #endif
         constexpr const char *DEFAULT_MQTT_BROKER = DEFAULT_MQTT_BROKER_URL;
@@ -108,8 +126,31 @@ namespace config
         constexpr uint8_t PIN_BTN_LAMP = 15; // Nút Đèn — INPUT_PULLUP, debounce 8-sample shift-register
         constexpr uint8_t PIN_BTN_FAN  = 16; // Nút Quạt — INPUT_PULLUP, debounce 8-sample shift-register
 
-        // Manual latch duration (30 seconds)
+        // Configurable button polling interval (20ms to prevent CPU context choke)
+        constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 20;
+
+        // Manual override duration while auto mode is enabled (AON).
         constexpr uint32_t MANUAL_LATCH_TTL_MS = 30000;
+        // Manual ON duration while auto mode is disabled (AOFF).
+        constexpr uint32_t MANUAL_AOFF_LATCH_TTL_MS = 180000;
+
+        // Continuous-operation safety lock for every relay channel.
+        constexpr uint32_t MAX_ON_DURATION_MS = 180000;
+        constexpr uint32_t COOLDOWN_DURATION_MS = 30000;
+        constexpr uint32_t LAMP_OVER_TEMP_COOLDOWN_MS = 300000;
+        constexpr uint32_t MIST_OVER_HUMIDITY_COOLDOWN_MS = 600000;
+
+        // NVS Keys for Bio Thresholds
+        constexpr const char *KEY_BIO_T_MAX = "bio_t_max";
+        constexpr const char *KEY_BIO_T_MIN = "bio_t_min";
+        constexpr const char *KEY_BIO_H_MAX = "bio_h_max";
+        constexpr const char *KEY_BIO_H_MIN = "bio_h_min";
+
+        // Dynamic bio thresholds (loaded from NVS)
+        extern float ThTOP;
+        extern float ThBOT;
+        extern float HmTOP;
+        extern float HmBOT;
     } // namespace hardware
 
     namespace control

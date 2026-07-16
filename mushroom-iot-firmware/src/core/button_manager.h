@@ -1,21 +1,21 @@
 #pragma once
 
-#include <cstdint>    // For uint8_t, uint32_t
-#include <functional> // For std::function
+#include <cstdint>
 
 namespace button_manager
 {
 
-    enum ButtonState
-    {
-        BUTTON_RELEASED = 0,
-        BUTTON_PRESSED = 1
-    };
+enum ButtonState
+{
+    BUTTON_RELEASED = 0,
+    BUTTON_PRESSED = 1
+};
 
-    // Initialize button GPIOs
-    void init_buttons();
-
-    // Read the debounced state of a button
-    ButtonState get_button_state(uint8_t pin);
+/**
+ * @deprecated Cabinet button handling is performed by taskCabinetButtons().
+ * These compatibility functions expose its Schmitt-triggered input state.
+ */
+void init_buttons();
+ButtonState get_button_state(uint8_t pin);
 
 } // namespace button_manager

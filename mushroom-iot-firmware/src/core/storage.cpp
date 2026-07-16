@@ -685,6 +685,61 @@ namespace storage
         return elapsed_sec > 0;
     }
 
+    bool StorageManager::save_bio_thresholds(float t_max, float t_min, float h_max, float h_min)
+    {
+        if (!std::isfinite(t_max) || !std::isfinite(t_min) ||
+            !std::isfinite(h_max) || !std::isfinite(h_min) ||
+            t_min >= t_max || h_min >= h_max)
+        {
+            Serial.println("[STORAGE] Error: Invalid bio threshold range.");
+            return false;
+        }
+
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for writing bio thresholds.");
+            return false;
+        }
+        const size_t t_max_bytes = prefs.putFloat(config::hardware::KEY_BIO_T_MAX, t_max);
+        const size_t t_min_bytes = prefs.putFloat(config::hardware::KEY_BIO_T_MIN, t_min);
+        const size_t h_max_bytes = prefs.putFloat(config::hardware::KEY_BIO_H_MAX, h_max);
+        const size_t h_min_bytes = prefs.putFloat(config::hardware::KEY_BIO_H_MIN, h_min);
+        prefs.end();
+        if (t_max_bytes == 0 || t_min_bytes == 0 || h_max_bytes == 0 || h_min_bytes == 0)
+        {
+            Serial.println("[STORAGE] Error: Failed to save bio thresholds.");
+            return false;
+        }
+        Serial.printf("[STORAGE] Saved bio thresholds: T_MAX=%.2f T_MIN=%.2f H_MAX=%.2f H_MIN=%.2f\n",
+                      t_max, t_min, h_max, h_min);
+        return true;
+    }
+
+    bool StorageManager::load_bio_thresholds(float &t_max, float &t_min, float &h_max, float &h_min)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            Serial.println("[STORAGE] Error: Failed to open NVS for reading bio thresholds.");
+            return false;
+        }
+        if (prefs.isKey(config::hardware::KEY_BIO_T_MAX) &&
+            prefs.isKey(config::hardware::KEY_BIO_T_MIN) &&
+            prefs.isKey(config::hardware::KEY_BIO_H_MAX) &&
+            prefs.isKey(config::hardware::KEY_BIO_H_MIN))
+        {
+            t_max = prefs.getFloat(config::hardware::KEY_BIO_T_MAX, 35.0f);
+            t_min = prefs.getFloat(config::hardware::KEY_BIO_T_MIN, 29.0f);
+            h_max = prefs.getFloat(config::hardware::KEY_BIO_H_MAX, 80.0f);
+            h_min = prefs.getFloat(config::hardware::KEY_BIO_H_MIN, 65.0f);
+            prefs.end();
+            return true;
+        }
+        prefs.end();
+        return false;
+    }
+
     bool StorageManager::factory_reset()
     {
         Preferences prefs;

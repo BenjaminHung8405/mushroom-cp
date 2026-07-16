@@ -10,6 +10,7 @@
 #include "core/serial_mutex.h"
 #include "core/storage.h"
 #include "core/manual_control.h"
+#include "core/protector.h"
 #include "core/crop_profile_storage.h"
 #include "core/time_confidence.h"
 #include <ctime>
@@ -672,7 +673,7 @@ static void runControlPipelineStep(
                 ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
                 
                 if (decision == ManualDecision::Accepted) {
-                    manual::updateLatchOnAccepted(req, now, manualLatch);
+                    manual::updateLatchOnAccepted(req, now, manualLatch, config::FUZZY_CONTROL_ENABLED);
                     if (time_conf::getTimeConfidence() == TimeConfidence::Trusted) {
                         PersistedManualOverride ovr{};
                         ovr.intent = req.intent;
@@ -757,13 +758,27 @@ static void runControlPipelineStep(
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 
+    // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
+    static protector::SystemProtector systemProtector;
+    systemProtector.update(
+        now,
+        config::FUZZY_CONTROL_ENABLED,
+        telemetry.temp_air,
+        telemetry.humidity_air,
+        manualLatch,
+        relayState
+    );
+
+    // Apply the final protected binary states to the physical active-LOW relays
+    relay_control::writeRelays(relayState);
+
     const RelayOutputsPod actuatorSnapshot = {
         relayState.mist_active,
         relayState.fan_active,
         relayState.lamp_active,  // lamp_stage_active
         false,                   // lamp_stage2_active (single-lamp hardware)
         relayState.hwat_active,
-        !rtcTime.valid || (rtcTime.hour == 11U || rtcTime.hour == 12U ||
+        rtcTime.valid && (rtcTime.hour == 11U || rtcTime.hour == 12U ||
             (rtcTime.hour == 13U && rtcTime.minute <= 30U)),
         {0, 0},
     };

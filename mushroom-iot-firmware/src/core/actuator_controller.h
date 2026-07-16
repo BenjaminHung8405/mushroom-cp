@@ -72,4 +72,9 @@ void applyDirectOutputs(
     const FuzzyController::ArbitratedOutputsPod &outputs,
     RelayStatePod &state);
 
+/**
+ * Writes the binary relay states to physical GPIO pins.
+ */
+void writeRelays(const RelayStatePod &state);
+
 } // namespace relay_control

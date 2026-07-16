@@ -33,7 +33,8 @@ ManualDecision evaluateSafetyGate(
 void updateLatchOnAccepted(
     const ManualRequest &req,
     uint32_t now,
-    ManualLatchArray &latch);
+    ManualLatchArray &latch,
+    bool fuzzy_enabled);
 
 /**
  * @brief Expire manual latches past their TTL.

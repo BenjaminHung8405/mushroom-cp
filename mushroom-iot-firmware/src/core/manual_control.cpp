@@ -83,7 +83,8 @@ ManualDecision evaluateSafetyGate(
 void updateLatchOnAccepted(
     const ManualRequest &req,
     uint32_t now,
-    ManualLatchArray &latch)
+    ManualLatchArray &latch,
+    bool fuzzy_enabled)
 {
     size_t idx = static_cast<size_t>(req.channel);
     if (idx >= latch.size()) {
@@ -96,7 +97,11 @@ void updateLatchOnAccepted(
     } else {
         latch[idx].active = true;
         latch[idx].forced_state = req.intent;
-        latch[idx].expires_ms = now + config::hardware::MANUAL_LATCH_TTL_MS;
+        // 30s TTL in AON, 3m (180s) TTL in AOFF
+        uint32_t ttl = fuzzy_enabled
+            ? config::hardware::MANUAL_LATCH_TTL_MS
+            : config::hardware::MANUAL_AOFF_LATCH_TTL_MS;
+        latch[idx].expires_ms = now + ttl;
     }
 }
 

@@ -117,6 +117,24 @@ public:
         return defaultValue;
     }
 
+    size_t putFloat(const char* key, float value) {
+        if (!_opened || _read_only) return 0;
+        _global_storage[_current_namespace][key] = std::to_string(value);
+        return sizeof(value);
+    }
+
+    float getFloat(const char* key, float defaultValue = 0.0f) {
+        if (!_opened) return defaultValue;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                try { return std::stof(key_it->second); } catch (...) {}
+            }
+        }
+        return defaultValue;
+    }
+
     size_t putUChar(const char* key, uint8_t value) {
         if (!_opened || _read_only) return 0;
         _global_storage[_current_namespace][key] = std::to_string(value);

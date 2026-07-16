@@ -230,6 +230,16 @@ namespace storage
         bool load_elapsed_seconds(uint32_t &elapsed_sec);
 
         /**
+         * @brief Saves configurable bio protection thresholds to NVS.
+         */
+        bool save_bio_thresholds(float t_max, float t_min, float h_max, float h_min);
+
+        /**
+         * @brief Loads configurable bio protection thresholds from NVS.
+         */
+        bool load_bio_thresholds(float &t_max, float &t_min, float &h_max, float &h_min);
+
+        /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.
          * @return true if reset successfully, false otherwise.
          */

@@ -83,6 +83,7 @@ public:
     const char* getTenant() const;
     const char* getDeviceId() const;
     uint8_t getReportingQos() const;
+    unsigned long getReconnectInterval() const { return current_reconnect_backoff_; }
 
 private:
     MqttManager();

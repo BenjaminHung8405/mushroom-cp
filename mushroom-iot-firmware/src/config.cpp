@@ -109,5 +109,13 @@ namespace config
         }
     }
 
+    namespace hardware
+    {
+        float ThTOP = 35.0f;
+        float ThBOT = 29.0f;
+        float HmTOP = 80.0f;
+        float HmBOT = 65.0f;
+    }
+
     bool FUZZY_CONTROL_ENABLED = true;
 }

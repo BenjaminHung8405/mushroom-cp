@@ -13,6 +13,10 @@
 #define LOW 0x00
 #define HIGH 0x01
 
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+
 extern std::map<uint8_t, uint8_t> mock_pin_modes;
 extern std::map<uint8_t, uint8_t> mock_pin_values;
 extern std::map<uint8_t, int> mock_pin_write_order;
@@ -32,18 +36,68 @@ inline int digitalRead(uint8_t pin) {
     return value == mock_pin_values.end() ? HIGH : value->second;
 }
 
+inline void noInterrupts() {}
+inline void interrupts() {}
 
-class String : public std::string {
+
+class String {
+private:
+    std::string _str;
 public:
-    String() : std::string() {}
-    String(const char* str) : std::string(str ? str : "") {}
-    String(const std::string& str) : std::string(str) {}
-    String(int val) : std::string(std::to_string(val)) {}
+    String() : _str("") {}
+    String(const char* str) : _str(str ? str : "") {}
+    String(const std::string& str) : _str(str) {}
+    String(int val) : _str(std::to_string(val)) {}
 
-    const char* c_str() const { return std::string::c_str(); }
-    size_t length() const { return std::string::length(); }
-    bool isEmpty() const { return empty(); }
+    const char* c_str() const { return _str.c_str(); }
+    size_t length() const { return _str.length(); }
+    bool isEmpty() const { return _str.empty(); }
+    bool endsWith(const char* suffix) const {
+        if (!suffix) return false;
+        size_t suffix_len = strlen(suffix);
+        if (_str.length() < suffix_len) return false;
+        return _str.compare(_str.length() - suffix_len, suffix_len, suffix) == 0;
+    }
+    bool endsWith(const String& suffix) const {
+        return endsWith(suffix.c_str());
+    }
+    void clear() { _str.clear(); }
+
+    bool operator==(const char* other) const { return _str == other; }
+    bool operator==(const String& other) const { return _str == other._str; }
+    bool operator!=(const char* other) const { return _str != other; }
+    bool operator!=(const String& other) const { return _str != other._str; }
+    String& operator+=(const char* other) { _str += other; return *this; }
+    String& operator+=(const String& other) { _str += other._str; return *this; }
+    operator const char*() const { return _str.c_str(); }
+
+    size_t write(uint8_t c) {
+        _str.push_back(c);
+        return 1;
+    }
+    size_t write(const uint8_t* buffer, size_t size) {
+        _str.append(reinterpret_cast<const char*>(buffer), size);
+        return size;
+    }
 };
+
+inline String operator+(const char* lhs, const String& rhs) {
+    std::string s(lhs);
+    s += rhs.c_str();
+    return String(s);
+}
+
+inline String operator+(const String& lhs, const char* rhs) {
+    std::string s(lhs.c_str());
+    s += rhs;
+    return String(s);
+}
+
+inline String operator+(const String& lhs, const String& rhs) {
+    std::string s(lhs.c_str());
+    s += rhs.c_str();
+    return String(s);
+}
 
 class HardwareSerial {
 public:

@@ -51,6 +51,11 @@ void ConfigManager::init() {
     _device_id = config::network::resolve_device_identity();
     _mqtt_user = _device_id; // Mosquitto ACL requires username == client ID == device ID.
 
+    // Load bio thresholds from NVS, fallback and save defaults if missing
+    if (!storage.load_bio_thresholds(config::hardware::ThTOP, config::hardware::ThBOT, config::hardware::HmTOP, config::hardware::HmBOT)) {
+        storage.save_bio_thresholds(config::hardware::ThTOP, config::hardware::ThBOT, config::hardware::HmTOP, config::hardware::HmBOT);
+    }
+
     config::network::STA_SSID = _ssid;
     config::network::STA_PASS = _pass;
     config::network::MQTT_BROKER_VAL = _mqtt_broker;

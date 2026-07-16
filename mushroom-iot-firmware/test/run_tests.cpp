@@ -18,6 +18,7 @@
 #include "network/web_interface/web_interface.h"
 #include "core/encoder.h"
 #include "core/manual_control.h"
+#include "core/protector.h"
 #include "core/crop_profile_storage.h"
 #include "core/crop_profile_validator.h"
 #include "core/time_confidence.h"
@@ -76,7 +77,7 @@ int main() {
     Serial.println("--- Starting StorageManager Unit Tests ---");
 
     storage::StorageManager& storage = storage::StorageManager::get_instance();
-    
+
     // 1. Initialize
     assert(storage.init() == true);
 
@@ -114,40 +115,36 @@ int main() {
     assert(loaded_user == "admin");
     assert(loaded_mqtt_pass == "adminpass");
 
-    // 8. Backend API URL check when empty, then save/load
-    assert(storage.has_backend_config() == false);
-    String backend_url;
-    assert(storage.load_backend_config(backend_url) == false);
-    assert(storage.save_backend_config("http://192.168.1.10:3001") == true);
-    assert(storage.has_backend_config() == true);
-    String loaded_backend_url;
-    assert(storage.load_backend_config(loaded_backend_url) == true);
-    assert(loaded_backend_url == "http://192.168.1.10:3001");
+    // 8. Provisioning record save/load
+    uint16_t loaded_interval = 0;
+    uint8_t loaded_qos = 0;
+    assert(storage.load_provisioning(loaded_interval, loaded_qos) == false);
+    assert(storage.save_provisioning(45, 1) == true);
+    assert(storage.load_provisioning(loaded_interval, loaded_qos) == true);
+    assert(loaded_interval == 45);
+    assert(loaded_qos == 1);
 
     // 9. Clear WiFi credentials
     assert(storage.clear_wifi_credentials() == true);
     assert(storage.has_wifi_credentials() == false);
     assert(storage.load_wifi_credentials(loaded_ssid, loaded_pass) == false);
 
-    // MQTT and Backend API URL should still exist
+    // MQTT config should still exist
     assert(storage.has_mqtt_config() == true);
-    assert(storage.has_backend_config() == true);
 
     // 10. Factory Reset
     assert(storage.factory_reset() == true);
     assert(storage.has_mqtt_config() == false);
-    assert(storage.has_backend_config() == false);
+    assert(storage.load_provisioning(loaded_interval, loaded_qos) == false);
 
     // 11. Test dynamic configuration loading
     // Initial status should be empty
     assert(config::network::STA_SSID == "");
     assert(config::network::STA_PASS == "");
-    assert(config::network::BACKEND_API_URL == config::network::DEFAULT_BACKEND_URL);
 
     // Save new values
     assert(storage.save_wifi_credentials("DynamicWiFi", "dynamicpass123") == true);
     assert(storage.save_mqtt_config("192.168.1.99", 1884, "dynamic_user", "dynamic_pass") == true);
-    assert(storage.save_backend_config("http://farm.local:3001") == true);
 
     // Load config
     assert(config::network::load_runtime_config() == true);
@@ -159,7 +156,6 @@ int main() {
     assert(config::network::MQTT_PORT_VAL == 1884);
     assert(config::network::MQTT_USER_VAL == "mushroom_s3_unittest");
     assert(config::network::MQTT_PASSWORD_VAL == "dynamic_pass");
-    assert(config::network::BACKEND_API_URL == "http://farm.local:3001");
 
     // Clean up
     assert(storage.factory_reset() == true);
@@ -176,7 +172,7 @@ int main() {
         // 2. Save and load valid Backend Snapshot
         storage::BackendSetpointSnapshot valid_back = { 25.5f, 80.0f, 1200.0f, true };
         assert(storage.save_backend_snapshot(valid_back) == true);
-        
+
         storage::BackendSetpointSnapshot loaded_back;
         assert(storage.load_backend_snapshot(loaded_back) == true);
         assert(loaded_back.temp_target == 25.5f);
@@ -243,7 +239,7 @@ int main() {
         // 5. Hardware Override Snapshot
         storage::HardwareOverrideSnapshot valid_hw = { 25.5f, 80.0f, true };
         assert(storage.save_hardware_override(valid_hw) == true);
-        
+
         storage::HardwareOverrideSnapshot loaded_hw;
         assert(storage.load_hardware_override(loaded_hw) == true);
         assert(loaded_hw.temp_target == 25.5f);
@@ -326,10 +322,10 @@ int main() {
 
     // 12. Test WiFi Manager Connection Logic
     Serial.println("[TEST] Starting WiFi Manager Unit Tests...");
-    
+
     // Ensure NVS is empty
     assert(storage.has_wifi_credentials() == false);
-    
+
     // Reset mock states
     WiFi.mock_status = WL_IDLE_STATUS;
     WiFi.mock_mode = WIFI_OFF;
@@ -341,10 +337,10 @@ int main() {
     // Test init_wifi when NVS is empty (should result in SOFTAP_ACTIVE)
     assert(wifi::init_wifi() == wifi::WifiState::SOFTAP_ACTIVE);
     assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
-    
+
     // Save credentials to NVS
     assert(storage.save_wifi_credentials("WiFi_STA_Test", "sta_password") == true);
-    
+
     // Test init_wifi when NVS has credentials (should result in STA_CONNECTING)
     assert(wifi::init_wifi() == wifi::WifiState::STA_CONNECTING);
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTING);
@@ -394,7 +390,7 @@ int main() {
 
     // 11.7 Verify Fallback to SoftAP after 3 failed attempts
     Serial.println("[TEST] Verifying fallback to SoftAP after 3 failed connection attempts...");
-    
+
     // Attempt 1 failed at offset=27000, state is STA_DISCONNECTED.
     // Transition to Attempt 2: Reconnection interval is 10s. Advance to offset=38000.
     mock_millis_offset = 38000;
@@ -420,7 +416,7 @@ int main() {
     // This was the 3rd failed attempt! We should fall back to SOFTAP_ACTIVE.
     assert(wifi::get_wifi_state() == wifi::WifiState::SOFTAP_ACTIVE);
     assert(WiFi.disconnect_called == true);
-    
+
     // Verify Multi-core event bits synchronization (WIFI_SOFTAP_BIT set, WIFI_CONNECTED_BIT clear)
     assert((mock_event_group_bits & WIFI_SOFTAP_BIT) != 0);
     assert((mock_event_group_bits & WIFI_CONNECTED_BIT) == 0);
@@ -453,22 +449,15 @@ int main() {
     assert(mqtt_manager.init() == false);
     assert(mqtt_manager.getState() == mqtt::MqttState::ERROR_NO_CONFIG);
 
-    // 12.2 Test successful initialization and dynamic topic resolution
+    // 12.2 Test successful initialization
     config::network::MQTT_BROKER_VAL = "192.168.1.50";
     config::network::MQTT_PORT_VAL = 1883;
     config::network::MQTT_CLIENT_ID_VAL = "esp32_mushroom_test_client";
     config::network::MQTT_USER_VAL = "esp32_mushroom_test_client";
     config::network::MQTT_PASSWORD_VAL = "test_pass";
-    
+
     assert(mqtt_manager.init() == true);
     assert(mqtt_manager.getState() == mqtt::MqttState::IDLE);
-    
-    {
-        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
-        assert(topics.status == "mushroom/device/esp32_mushroom_test_client/status");
-        assert(topics.telemetry == "mushroom/device/esp32_mushroom_test_client/telemetry");
-        assert(topics.setpoint == "mushroom/device/esp32_mushroom_test_client/setpoint");
-    }
 
     // 12.3 Test loop behavior when WiFi is disconnected (no connection)
     // WiFiManager is currently in STA_DISCONNECTED (from step 11)
@@ -486,7 +475,7 @@ int main() {
     WiFi.mock_status = WL_CONNECTED;
     wifi::check_wifi_connection();
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
-    
+
     // Call loop, it should transition state when reconnect_mqtt is called in UNIT_TEST mock
     mqtt_manager.loop();
     assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
@@ -496,7 +485,7 @@ int main() {
     PubSubClient::mock_connected = false;
     PubSubClient::mock_connect_result = false;
     PubSubClient::mock_state = 4;  // MQTT_CONNECT_UNAUTHORIZED
-    config::network::AUTH_JWT_TOKEN = "test_jwt_token";
+    config::network::MQTT_PASSWORD_VAL = "test_jwt_token";
     mock_millis_offset += 5000;
     mqtt_manager.loop();  // detects connection loss -> DISCONNECTED
     mock_millis_offset += 5000;
@@ -511,7 +500,7 @@ int main() {
 
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
-    
+
     // Ensure client is currently CONNECTED and interval is reset to 2000 ms
     assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
     assert(mqtt_manager.getReconnectInterval() == 2000);
@@ -520,7 +509,7 @@ int main() {
     WiFi.mock_status = WL_DISCONNECTED;
     wifi::check_wifi_connection();
     assert(wifi::get_wifi_state() == wifi::WifiState::STA_DISCONNECTED);
-    
+
     // Call loop to detect WiFi loss, transition to ERROR_NO_WIFI, and disconnect MQTT
     PubSubClient::mock_connected = false;
     mqtt_manager.loop();
@@ -599,9 +588,7 @@ int main() {
     Serial.println("[TEST] Testing Task C3 - MQTT message parsing...");
     assert(PubSubClient::mock_callback != nullptr);
 
-    const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
-    char setpoint_topic[100];
-    strcpy(setpoint_topic, topics.setpoint.c_str());
+    char setpoint_topic[] = "test_tenant/esp32/esp32_mushroom_test_client/down/command";
 
     // Case A: Valid JSON with temperatureSetpoint and humiditySetpoint
     {
@@ -671,7 +658,7 @@ int main() {
 
         std::string payload = "{\"cmd\":\"full_sync\"}";
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
-        
+
         assert(getSharedForceFullPublish() == true);
 
         // Reset it back
@@ -693,7 +680,7 @@ int main() {
     // Case L: Actuator overrides via new contract { actuator, state }
     {
         Serial.println("--- Case L: Actuator overrides via new contract { actuator, state } ---");
-        
+
         if (g_mqtt_override_queue == nullptr)
         {
             g_mqtt_override_queue = xQueueCreate(8, sizeof(ManualRequest));
@@ -702,34 +689,34 @@ int main() {
         {
             xQueueReset(g_mqtt_override_queue);
         }
-        
+
         // 1. Force ON mist
         {
             std::string payload = "{\"actuator\":\"mist\",\"state\":true}";
             PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
-            
+
             ManualRequest req;
             assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
             assert(req.channel == AppChannel::MIST);
             assert(req.intent == AppIntent::FORCE_ON);
         }
-        
+
         // 2. Force OFF fan
         {
             std::string payload = "{\"actuator\":\"fan\",\"state\":false}";
             PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
-            
+
             ManualRequest req;
             assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
             assert(req.channel == AppChannel::FAN);
             assert(req.intent == AppIntent::FORCE_OFF);
         }
-        
+
         // 3. Auto heater_air (which aliases to LAMP)
         {
             std::string payload = "{\"actuator\":\"heater_air\",\"state\":null}";
             PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
-            
+
             ManualRequest req;
             assert(xQueueReceive(g_mqtt_override_queue, &req, 0) == pdTRUE);
             assert(req.channel == AppChannel::LAMP);
@@ -791,21 +778,21 @@ int main() {
 
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
-    
+
     // Reset sensors initialization status for this test
     sensors::reset_sensors_initialized_for_test();
 
     // 16.1 Test before initialization
     float t_sht = 0, h_sht = 0, t_ds = 0, co2_scd = 0;
     TelemetryData telemetry_mock;
-    
+
     assert(sensors::read_sht30(t_sht, h_sht) == false);
     assert(std::isnan(t_sht) && std::isnan(h_sht));
     assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_NOT_INITIALIZED);
-    
+
     assert(sensors::read_scd30(co2_scd) == false);
     assert(std::isnan(co2_scd));
-    
+
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
     assert(std::isnan(telemetry_mock.temp_air));
     assert(std::isnan(telemetry_mock.humidity_air));
@@ -842,7 +829,7 @@ int main() {
     assert(sensors::read_sht30(t_sht, h_sht) == false);
     assert(std::isnan(t_sht) && std::isnan(h_sht));
     assert(sensors::get_last_error_sht30() == sensors::SensorError::ERR_DISCONNECTED);
-    
+
     assert(sensors::read_all_telemetry(telemetry_mock) == false);
     assert(std::isnan(telemetry_mock.temp_air));       // Failed SHT30
     assert(std::isnan(telemetry_mock.humidity_air));   // Failed SHT30
@@ -1087,7 +1074,7 @@ int main() {
 
     // 21. Test Task A1 - MathEngine Fuzzy Area calculation
     Serial.println("[TEST] Starting Task A1 - MathEngine Unit Tests...");
-    
+
     // Case 1: All membership values are zero. Centroid denominator K should be 0.
     {
         float kz = -999.0f, k = -999.0f;
@@ -1230,7 +1217,7 @@ int main() {
         assert(std::abs(mid.temp_target - 29.75f) < 1e-4f);
         assert(std::abs(mid.humidity_target - 89.5f) < 1e-4f);
         assert(std::abs(mid.co2_target - 925.0f) < 1e-4f);
-        
+
         // Check POD type properties
         assert(std::is_pod<Trajectory::SetpointPod>::value == true);
         assert(sizeof(Trajectory::SetpointPod) == 12); // 3 floats * 4 bytes
@@ -1558,26 +1545,31 @@ int main() {
         assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
+        // With corrected fail-safe: invalid RTC must NOT force HWat/Mist to 0.0f
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
 
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.
         RelayStatePod state = {false, false, false, false};
         const ArbitratedOutputsPod onDemand = {0.60f, 0.0f, 0.0f, 0.0f};
         relay_control::applyDirectOutputs(onDemand, state);
+        relay_control::writeRelays(state);
         assert(state.lamp_active == true);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
         relay_control::applyDirectOutputs(onDemand, state);
+        relay_control::writeRelays(state);
         assert(state.lamp_active == true);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
 
         const ArbitratedOutputsPod holdDemand = {0.50f, 0.0f, 0.0f, 0.0f};
         relay_control::applyDirectOutputs(holdDemand, state);
+        relay_control::writeRelays(state);
         assert(state.lamp_active == true);
 
         const ArbitratedOutputsPod offDemand = {0.40f, 0.0f, 0.0f, 0.0f};
         relay_control::applyDirectOutputs(offDemand, state);
+        relay_control::writeRelays(state);
         assert(state.lamp_active == false);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
     }
@@ -1602,9 +1594,9 @@ int main() {
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) == 1);
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
 
-        // RTC is unavailable (fail-safe), so hardwareProtectionOverride() forces
-        // HWat and Mist to 0.0 demand → direct dispatcher keeps both relay pins HIGH (OFF).
-        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
+        // RTC is unavailable (fail-safe), so hardwareProtectionOverride() DOES NOT force
+        // HWat and Mist to 0.0 demand. Under under-temperature fallback (30C vs 25C), HWat resolves ON (LOW).
+        assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == LOW);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
         // HAir and Exhaust are unaffected by the blackout interlock; LAMP is
@@ -1629,7 +1621,7 @@ int main() {
         assert(Telemetry::isDeltaExceeded(25.0f, 25.1f, 0.2f) == false);
         assert(Telemetry::isDeltaExceeded(25.0f, 25.25f, 0.2f) == true);
         assert(Telemetry::isDeltaExceeded(25.0f, 24.75f, 0.2f) == true);
-        
+
         // NAN behaviors
         assert(Telemetry::isDeltaExceeded(NAN, NAN, 1.0f) == false);
         assert(Telemetry::isDeltaExceeded(25.0f, NAN, 1.0f) == true);
@@ -1689,7 +1681,7 @@ int main() {
 
         // 30.11 Test buildDeltaPayload
         TelemetryData baseline = { 25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}} };
-        
+
         // 30.11.1 NONE publish type should yield empty string
         assert(Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::NONE) == "");
 
@@ -1697,7 +1689,7 @@ int main() {
         String full_payload = Telemetry::buildDeltaPayload(baseline, baseline, Telemetry::PublishType::FULL);
         {
             StaticJsonDocument<1024> doc;
-            DeserializationError err = deserializeJson(doc, full_payload);
+            DeserializationError err = deserializeJson(doc, full_payload.c_str());
             assert(!err);
             assert(doc.containsKey("temp_air"));
             assert(std::fabs(doc["temp_air"].as<float>() - 25.0f) < 0.01f);
@@ -1719,7 +1711,7 @@ int main() {
         assert(Telemetry::evaluateDeltaThresholds(actuator_changed, actuator_state, 2000UL) == Telemetry::PublishType::DELTA);
         String actuator_delta_payload = Telemetry::buildDeltaPayload(actuator_changed, baseline, Telemetry::PublishType::DELTA);
         StaticJsonDocument<512> actuator_doc;
-        assert(!deserializeJson(actuator_doc, actuator_delta_payload));
+        assert(!deserializeJson(actuator_doc, actuator_delta_payload.c_str()));
         JsonObject actuator_root = actuator_doc["actuators"];
         assert(actuator_root["mist_active"] == true);
         assert(actuator_root["fan_active"] == true);
@@ -1733,7 +1725,7 @@ int main() {
         String temp_delta_payload = Telemetry::buildDeltaPayload(temp_changed, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
-            DeserializationError err = deserializeJson(doc, temp_delta_payload);
+            DeserializationError err = deserializeJson(doc, temp_delta_payload.c_str());
             assert(!err);
             assert(doc.containsKey("temp_air"));
             assert(std::fabs(doc["temp_air"].as<float>() - 25.3f) < 0.01f);
@@ -1746,7 +1738,7 @@ int main() {
         String multi_delta_payload = Telemetry::buildDeltaPayload(temp_humid_changed, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
-            DeserializationError err = deserializeJson(doc, multi_delta_payload);
+            DeserializationError err = deserializeJson(doc, multi_delta_payload.c_str());
             assert(!err);
             assert(doc.containsKey("temp_air"));
             assert(std::fabs(doc["temp_air"].as<float>() - 25.3f) < 0.01f);
@@ -1760,7 +1752,7 @@ int main() {
         String co2_delta_payload = Telemetry::buildDeltaPayload(co2_became_valid, baseline, Telemetry::PublishType::DELTA);
         {
             StaticJsonDocument<256> doc;
-            DeserializationError err = deserializeJson(doc, co2_delta_payload);
+            DeserializationError err = deserializeJson(doc, co2_delta_payload.c_str());
             assert(!err);
             assert(!doc.containsKey("temp_air"));
             assert(!doc.containsKey("humidity_air"));
@@ -1780,35 +1772,35 @@ int main() {
             // 1. full_sync + publish failed -> next scan remains FULL
             setSharedForceFullPublish(true);
             PubSubClient::mock_publish_result = false;
-            
+
             unsigned long now = 1000UL;
             processTelemetryPublication(now, mock_tel, telemetryState);
-            
+
             // Assertions:
             // Since publish failed, telemetryState.lastPubTimeMs must still be 0 (no commit)
             assert(telemetryState.lastPubTimeMs == 0UL);
             // Since publish failed, the shared_forceFullPublish flag must have been restored to true
             assert(getSharedForceFullPublish() == true);
-            
+
             // 3. Callback receives full_sync during publish -> subsequent request remains pending
             // Reset state
             telemetryState = Telemetry::makeInitialState();
             setSharedForceFullPublish(true);
-            
+
             // Consume the flag manually (simulate starting processTelemetryPublication):
             bool consumed = consumeSharedForceFullPublish();
             assert(consumed == true);
             assert(getSharedForceFullPublish() == false);
-            
+
             // Simulate callback setting it to true during publication:
             setSharedForceFullPublish(true);
-            
+
             // Complete successful publish:
             Telemetry::commitSuccessfulPublish(telemetryState, mock_tel, 3000UL);
-            
+
             // Assert that the new request was NOT cleared:
             assert(getSharedForceFullPublish() == true);
-            
+
             // 4. Reconnect and publish successfully -> new flag is cleared
             // First, consume the flag and publish
             PubSubClient::mock_publish_result = true;
@@ -1824,7 +1816,7 @@ int main() {
         // 31.1 Test update_shared_system_state and get_shared_system_state
         SharedSystemState state = { 24.5f, 85.0f, 600.0f, 25.0f, 80.0f, 1000.0f, 0.45f, 0.0f, 0.12f, 0.0f, {true, false, true, true, false, false, {0, 0}} };
         updateSharedSystemState(state);
-        
+
         SharedSystemState loaded = getSharedSystemState();
         assert(std::fabs(loaded.temp_air - 24.5f) < 0.01f);
         assert(std::fabs(loaded.humidity_air - 85.0f) < 0.01f);
@@ -1839,7 +1831,7 @@ int main() {
         assert(loaded.actuators.mist_active == true);
         assert(loaded.actuators.lamp_stage_active == true);
         assert(loaded.actuators.lamp_stage2_active == true);
-        
+
         // 31.2 Test WebInterface stubs and rate-limiting
         web_interface::initServer();
         assert(web_interface::isServerRunning() == false); // False under UNIT_TEST
@@ -1938,9 +1930,7 @@ int main() {
         storage.factory_reset();
 
         // 33.2 Mock incoming baseline setpoint update
-        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
-        char setpoint_topic[100];
-        strcpy(setpoint_topic, topics.setpoint.c_str());
+        char setpoint_topic[] = "test_tenant/esp32/esp32_mushroom_test_client/down/command";
 
         std::string payload = "{\"temperatureSetpoint\":28.50,\"humiditySetpoint\":80.00,\"co2Setpoint\":900.00}";
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
@@ -2206,9 +2196,7 @@ int main() {
         assert(storage.save_backend_snapshot(retainedBaseline) == true);
         clearQueue(xBaselineQueue);
         Preferences::mock_fail_put_bytes = true;
-        const mqtt::MqttTopics& topics = mqtt_manager.getResolvedTopics();
-        char setpointTopic[100];
-        strcpy(setpointTopic, topics.setpoint.c_str());
+        char setpointTopic[] = "test_tenant/esp32/esp32_mushroom_test_client/down/command";
         std::string failedPersistPayload = "{\"temperatureSetpoint\":29.0}";
         PubSubClient::mock_callback(setpointTopic, reinterpret_cast<uint8_t*>(&failedPersistPayload[0]), failedPersistPayload.length());
         Preferences::mock_fail_put_bytes = false;
@@ -2298,7 +2286,7 @@ int main() {
         Trajectory::SetpointPod setpoints = {};
         setpoints.temp_target = 25.0f;
         setpoints.humidity_target = 80.0f;
-        
+
         relay_control::RtcTimePod rtcTime = {};
         rtcTime.valid = true;
         rtcTime.hour = 8;
@@ -2371,9 +2359,9 @@ int main() {
         {
             manual::ManualLatchArray latch = {};
             ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
-            manual::updateLatchOnAccepted(req, 1000UL, latch);
+            manual::updateLatchOnAccepted(req, 1000UL, latch, true);
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
-            
+
             // expire_ms should be 1000 + 30000 = 31000
             assert(latch[static_cast<size_t>(AppChannel::MIST)].expires_ms == 31000UL);
 
@@ -2390,7 +2378,7 @@ int main() {
         {
             manual::ManualLatchArray latch = {};
             ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
-            manual::updateLatchOnAccepted(req, 1000UL, latch);
+            manual::updateLatchOnAccepted(req, 1000UL, latch, true);
 
             telemetry.humidity_air = 70.0f;
             rtcTime.hour = 12; // Blackout time
@@ -2398,7 +2386,7 @@ int main() {
 
             FuzzyController::ArbitratedOutputsPod outputs = {0.5f, 0.5f, 0.5f, 0.5f};
             manual::applyManualLatchToOutputs(outputs, latch, 2000UL, telemetry, setpoints, rtcTime, cropDay);
-            
+
             // The latch should be cleared because of sensor/blackout violation during force_on!
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == false);
             assert(outputs.Mist == 0.5f); // Latch cleared, returns to fuzzy command
@@ -2420,7 +2408,7 @@ int main() {
         // S2-G9: Test asymmetric debounce integrating counter (k) lọc nhiễu thành công
         {
             cabinet_buttons::reset_for_test();
-            
+
             // Set up clean request queue
             if (g_manual_request_queue == nullptr) {
                 g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
@@ -2470,7 +2458,7 @@ int main() {
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
             cabinet_buttons::process_cabinet_buttons();
             // Since k = 190 >= CL (50), a single LOW sample immediately jumps k back to CH (200).
-            
+
             // 4. Stable release: pin goes HIGH.
             // Requires 150 samples to decrement from 200 to 50 (still pressed).
             // Then 1 more sample to decrement to 49 (triggers release).
@@ -2482,7 +2470,7 @@ int main() {
             // At 150 samples HIGH, k is 50. Still pressed.
             // 151st sample HIGH, k becomes 49, triggering release.
             cabinet_buttons::process_cabinet_buttons();
-            
+
             // Released should not push new request to queue
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
         }
@@ -2516,11 +2504,11 @@ int main() {
             validProf.checkpoint_count = 3;
             validProf.crop_start_epoch_s = 1000;
             validProf.total_crop_days = 10;
-            
+
             validProf.checkpoints[0] = {1, 24.0f, 85.0f};
             validProf.checkpoints[1] = {5, 22.0f, 88.0f};
             validProf.checkpoints[2] = {10, 20.0f, 90.0f};
-            
+
             validProf.crc32 = storage::CropProfileStorage::calculateCRC32(
                 reinterpret_cast<const uint8_t*>(&validProf),
                 sizeof(PersistedCropProfile) - sizeof(uint32_t)
@@ -2657,7 +2645,7 @@ int main() {
         // Sprint 4 Track B Time Confidence Unit Tests
         {
             Serial.println("[TEST] Starting Sprint 4 Track B Time Confidence Unit Tests...");
-            
+
             // 1. Initial boot transitions & RTC state check
             time_conf::initializeTimeConfidence(false); // boot without RTC
             assert(time_conf::getTimeConfidence() == TimeConfidence::Uncertain);
@@ -2792,9 +2780,7 @@ int main() {
         assert(ota::check_ota_trigger(url) == false);
 
         // Test MQTT command "ota_update" integration
-        const mqtt::MqttTopics& topics = mqtt::MqttManager::getInstance().getResolvedTopics();
-        char cmd_topic[120];
-        strcpy(cmd_topic, topics.setpoint.c_str());
+        char cmd_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/command";
 
         std::string ota_payload = "{\"cmd\":\"ota_update\",\"url\":\"https://example.com/ota-update.bin\"}";
         PubSubClient::mock_callback(cmd_topic, (uint8_t*)ota_payload.c_str(), ota_payload.length());
@@ -2809,7 +2795,7 @@ int main() {
 
         // 1. Reset state
         config::FUZZY_CONTROL_ENABLED = false;
-        
+
         sensors::init_sensors_placeholder();
         mock_pin_modes.clear();
         mock_pin_values.clear();
@@ -2864,14 +2850,13 @@ int main() {
         cfg.init();
 
         // 2. Set and save credentials via unified saveNetworkConfig
-        assert(cfg.saveNetworkConfig("ConfigWifi", "ConfigPass", "http://mybackend.local:3000", "10.0.0.5", 1884, "mushroom_s3_unittest", "mock_jwt_token_123") == true);
+        assert(cfg.saveNetworkConfig("ConfigWifi", "ConfigPass", "10.0.0.5", 1884, "mock_jwt_token_123") == true);
 
         // 3. Verify getters return updated values
         assert(cfg.getWifiSSID() == "ConfigWifi");
         assert(cfg.getWifiPass() == "ConfigPass");
         assert(cfg.getMqttBroker() == "10.0.0.5");
         assert(cfg.getMqttPort() == 1884);
-        assert(cfg.getBackendUrl() == "http://mybackend.local:3000");
         assert(cfg.getMqttPass() == "mock_jwt_token_123");
 
         // 4. Verify propagation to legacy config globals
@@ -2879,15 +2864,10 @@ int main() {
         assert(config::network::STA_PASS == "ConfigPass");
         assert(config::network::MQTT_BROKER_VAL == "10.0.0.5");
         assert(config::network::MQTT_PORT_VAL == 1884);
-        assert(config::network::BACKEND_API_URL == "http://mybackend.local:3000");
         assert(config::network::MQTT_PASSWORD_VAL == "mock_jwt_token_123");
 
-        // 5. Test synchronization from legacy configuration modifications via getJwtToken
-        config::network::MQTT_PASSWORD_VAL = "direct_modified_token";
-        assert(cfg.getJwtToken() == "direct_modified_token");
-
-        // 6. Test save to NVS and reload again
-        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass", "https://prod.backend.com", "retained.broker.com", 1885, "mushroom_s3_unittest", "mock_jwt_token_123") == true);
+        // 5. Test save to NVS and reload again
+        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass", "retained.broker.com", 1885, "mock_jwt_token_123") == true);
 
         // Force a re-init from NVS
         cfg.init();
@@ -2895,7 +2875,172 @@ int main() {
         assert(cfg.getWifiPass() == "SavedPass");
         assert(cfg.getMqttBroker() == "retained.broker.com");
         assert(cfg.getMqttPort() == 1885);
-        assert(cfg.getBackendUrl() == "https://prod.backend.com");
+    }
+
+    // 41. Test SystemProtector, Bio Rules, NVS Bio Thresholds, and Active-LOW Mapping
+    {
+        Serial.println("--- Starting SystemProtector & Bio Rules Unit Tests ---");
+
+        // 41.1 NVS Storage Persistence for Bio Thresholds
+        storage::StorageManager& storage = storage::StorageManager::get_instance();
+        storage.factory_reset();
+
+        float t_max = 0, t_min = 0, h_max = 0, h_min = 0;
+        // Verify load fails on empty NVS
+        assert(storage.load_bio_thresholds(t_max, t_min, h_max, h_min) == false);
+
+        // Save custom values
+        assert(storage.save_bio_thresholds(34.5f, 28.5f, 79.5f, 64.5f) == true);
+        assert(storage.load_bio_thresholds(t_max, t_min, h_max, h_min) == true);
+        assert(t_max == 34.5f);
+        assert(t_min == 28.5f);
+        assert(h_max == 79.5f);
+        assert(h_min == 64.5f);
+
+        // Restore defaults for protector testing
+        config::hardware::ThTOP = 35.0f;
+        config::hardware::ThBOT = 29.0f;
+        config::hardware::HmTOP = 80.0f;
+        config::hardware::HmBOT = 65.0f;
+        storage.save_bio_thresholds(35.0f, 29.0f, 80.0f, 65.0f);
+
+        // 41.2 Dynamic Manual Override TTL (30s in AON, 3m in AOFF)
+        manual::ManualLatchArray latches;
+        for (auto& l : latches) {
+            l.active = false;
+            l.forced_state = AppIntent::AUTO;
+            l.expires_ms = 0;
+        }
+
+        ManualRequest req;
+        req.channel = AppChannel::LAMP;
+        req.intent = AppIntent::FORCE_ON;
+
+        // AON Mode (fuzzy_enabled = true) -> TTL must be 30 seconds (30,000ms)
+        manual::updateLatchOnAccepted(req, 1000UL, latches, true);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms == 31000UL);
+
+        // AOFF Mode (fuzzy_enabled = false) -> TTL must be 3 minutes (180,000ms)
+        manual::updateLatchOnAccepted(req, 1000UL, latches, false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms == 181000UL);
+
+        // 41.3 AON -> AOFF Transition Cuts Off Relays Instantly
+        protector::SystemProtector sys_protector;
+        relay_control::RelayStatePod states = {true, true, true, true};
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms = 50000UL;
+
+        // Fuzzy enabled is true, so no transition yet
+        sys_protector.update(1000UL, true, 25.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
+
+        // Transition: fuzzy_enabled goes false -> immediate cutoff and override clear
+        sys_protector.update(2000UL, false, 25.0f, 70.0f, latches, states);
+        assert(states.lamp_active == false);
+        assert(states.mist_active == false);
+        assert(states.fan_active == false);
+        assert(states.hwat_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+
+        // 41.4 Priority 1 Bio Bounds (Over-Limit Locks Cooldown)
+        sys_protector.reset();
+        states = {true, true, true, true};
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+
+        // Over-Temp (36C >= ThTOP) -> Lamp forced OFF and locked in cooldown for 5 mins
+        sys_protector.update(1000UL, true, 36.0f, 70.0f, latches, states);
+        assert(states.lamp_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+
+        // Attempting to turn Lamp ON during 5-minute cooldown (at 2 mins) must fail
+        states.lamp_active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        sys_protector.update(121000UL, true, 25.0f, 70.0f, latches, states);
+        assert(states.lamp_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+
+        // After cooldown expires (5 minutes + 1s = 301,000ms elapsed) -> Lamp can turn ON again
+        states.lamp_active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        sys_protector.update(302000UL, true, 25.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+
+        // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked in cooldown for 10 mins
+        states.mist_active = true;
+        latches[static_cast<size_t>(AppChannel::MIST)].active = true;
+        sys_protector.update(303000UL, true, 25.0f, 81.0f, latches, states);
+        assert(states.mist_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
+
+        // Attempting to turn Mist ON during 10-minute cooldown (at 4 mins) must fail
+        states.mist_active = true;
+        latches[static_cast<size_t>(AppChannel::MIST)].active = true;
+        sys_protector.update(543000UL, true, 25.0f, 70.0f, latches, states);
+        assert(states.mist_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
+
+        // After cooldown expires (10 mins + 1s elapsed) -> Mist can turn ON again
+        states.mist_active = true;
+        latches[static_cast<size_t>(AppChannel::MIST)].active = true;
+        sys_protector.update(904000UL, true, 25.0f, 70.0f, latches, states);
+        assert(states.mist_active == true);
+
+        // 41.5 Priority 1 Bio Bounds (Under-Limit Force ON)
+        sys_protector.reset();
+        states = {false, false, false, false};
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].forced_state = AppIntent::FORCE_OFF;
+
+        // Under-temp (28C <= ThBOT) -> Lamp is forced ON, ignoring the manual FORCE_OFF override
+        sys_protector.update(1000UL, true, 28.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+
+        // Under-humidity (64% <= HmBOT) -> Mist is forced ON
+        states.mist_active = false;
+        sys_protector.update(2000UL, true, 30.0f, 64.0f, latches, states);
+        assert(states.mist_active == true);
+
+        // 41.6 Priority 3 time-based limits (3-minute continuous ON -> 30s OFF cooldown)
+        sys_protector.reset();
+        states = {true, true, true, true};
+
+        // Start tracking Lamp ON time
+        sys_protector.update(1000UL, true, 30.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+
+        // Lamp remains ON for 2.9 minutes
+        sys_protector.update(179000UL, true, 30.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+
+        // Lamp exceeds 3 minutes ON (180s) -> forced OFF and locked for 30s
+        sys_protector.update(182000UL, true, 30.0f, 70.0f, latches, states);
+        assert(states.lamp_active == false);
+
+        // Attempting to turn Lamp ON during 30s cooldown must fail
+        states.lamp_active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        sys_protector.update(192000UL, true, 30.0f, 70.0f, latches, states);
+        assert(states.lamp_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+
+        // After 30s cooldown passes, Lamp can turn ON again
+        states.lamp_active = true;
+        latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
+        sys_protector.update(213000UL, true, 30.0f, 70.0f, latches, states);
+        assert(states.lamp_active == true);
+
+        // 41.7 Active-LOW Output Mapping Verifications
+        mock_pin_values.clear();
+        states.lamp_active = true;
+        states.mist_active = false;
+        relay_control::writeRelays(states);
+
+        // Active-LOW SSR Mapping: ON = LOW (0), OFF = HIGH (1)
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+        assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
     }
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");

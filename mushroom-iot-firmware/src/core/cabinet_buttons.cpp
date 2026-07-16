@@ -2,6 +2,7 @@
 #include "config.h"
 #include "core/models.h"
 #include "core/serial_mutex.h"
+#include "core/sst.h"
 
 #ifndef UNIT_TEST
 #include <Arduino.h>
@@ -14,106 +15,72 @@
 
 namespace cabinet_buttons
 {
+    // Define the Schmitt Trigger input instances with 20ms poll interval
+    // MAX_CNT = 10 (200ms), ON_THRESH = 1 (20ms), OFF_THRESH = 8 (160ms)
+    static SchmittTriggerInput sst_mist(config::hardware::PIN_BTN_MIST, LOW, 10, 1, 8, config::hardware::BUTTON_POLL_INTERVAL_MS);
+    static SchmittTriggerInput sst_fan(config::hardware::PIN_BTN_FAN, LOW, 10, 1, 8, config::hardware::BUTTON_POLL_INTERVAL_MS);
+    static SchmittTriggerInput sst_lamp(config::hardware::PIN_BTN_LAMP, LOW, 10, 1, 8, config::hardware::BUTTON_POLL_INTERVAL_MS);
 
-    static constexpr uint16_t CL = 50;
-    static constexpr uint16_t CH = 200;
-
-    struct ButtonState
+    struct ButtonWrapper
     {
-        uint8_t pin;
-        uint16_t k;            // Debounce counter
-        bool current_state;    // Debounced state (active-LOW: true = released, false = pressed)
-        AppChannel channel;    // Corresponding control channel
-        AppIntent next_intent; // Toggle state: alternates FORCE_ON ↔ AUTO on each press
+        SchmittTriggerInput& sst;
+        AppChannel channel;
+        AppIntent next_intent;
     };
 
-    static ButtonState buttons[] = {
-        {config::hardware::PIN_BTN_MIST, 0, true, AppChannel::MIST, AppIntent::FORCE_ON},
-        {config::hardware::PIN_BTN_FAN, 0, true, AppChannel::FAN, AppIntent::FORCE_ON},
-        {config::hardware::PIN_BTN_LAMP, 0, true, AppChannel::LAMP, AppIntent::FORCE_ON}};
+    static ButtonWrapper buttons[] = {
+        {sst_mist, AppChannel::MIST, AppIntent::FORCE_ON},
+        {sst_fan, AppChannel::FAN, AppIntent::FORCE_ON},
+        {sst_lamp, AppChannel::LAMP, AppIntent::FORCE_ON}
+    };
 
     void process_cabinet_buttons()
     {
         for (auto &btn : buttons)
         {
-            // Read active-LOW physical state (LOW = pressed, HIGH = released)
-            bool pin_is_low = (digitalRead(btn.pin) == LOW);
+            // Update and get Schmitt trigger event
+            int event = btn.sst.update();
 
-            if (pin_is_low)
+            if (event == EVENT_ON)
             {
-                if (btn.k <= CL)
+                // Capture current dynamic intent (invert current logic state)
+                SharedSystemState system_state = getSharedSystemState();
+                bool is_active = false;
+                if (btn.channel == AppChannel::MIST)
                 {
-                    btn.k++;
+                    is_active = system_state.actuators.mist_active;
                 }
-                else
+                else if (btn.channel == AppChannel::FAN)
                 {
-                    btn.k = CH;
+                    is_active = system_state.actuators.fan_active;
                 }
+                else if (btn.channel == AppChannel::LAMP)
+                {
+                    is_active = system_state.actuators.lamp_stage_active;
+                }
+
+                AppIntent intent_to_send = is_active ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+                btn.next_intent = (intent_to_send == AppIntent::FORCE_ON) ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+
+                if (g_manual_request_queue != nullptr)
+                {
+                    ManualRequest req;
+                    req.channel = btn.channel;
+                    req.intent = intent_to_send;
+                    req.request_ms = millis();
+                    xQueueSend(g_manual_request_queue, &req, 0);
+                }
+
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[BUTTON] Debounced PRESS on Channel %d → intent=%d (next=%d)\n",
+                              static_cast<int>(btn.channel),
+                              static_cast<int>(intent_to_send),
+                              static_cast<int>(btn.next_intent));
             }
-            else
+            else if (event == EVENT_OFF)
             {
-                if (btn.k >= CL)
-                {
-                    btn.k--;
-                }
-                else
-                {
-                    btn.k = 0;
-                }
-            }
-
-            bool was_pressed = !btn.current_state; // current_state: true = released, false = pressed
-            bool now_pressed = (btn.k >= CL);
-
-            if (now_pressed != was_pressed)
-            {
-                if (now_pressed)
-                {
-                    // Transition to PRESSED
-                    btn.current_state = false;
-
-                    // Capture current dynamic intent (invert current logic state)
-                    SharedSystemState system_state = getSharedSystemState();
-                    bool is_active = false;
-                    if (btn.channel == AppChannel::MIST)
-                    {
-                        is_active = system_state.actuators.mist_active;
-                    }
-                    else if (btn.channel == AppChannel::FAN)
-                    {
-                        is_active = system_state.actuators.fan_active;
-                    }
-                    else if (btn.channel == AppChannel::LAMP)
-                    {
-                        is_active = system_state.actuators.lamp_stage_active;
-                    }
-
-                    AppIntent intent_to_send = is_active ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
-                    btn.next_intent = (intent_to_send == AppIntent::FORCE_ON) ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
-
-                    if (g_manual_request_queue != nullptr)
-                    {
-                        ManualRequest req;
-                        req.channel = btn.channel;
-                        req.intent = intent_to_send;
-                        req.request_ms = millis();
-                        xQueueSend(g_manual_request_queue, &req, 0);
-                    }
-
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.printf("[BUTTON] Debounced PRESS on Channel %d → intent=%d (next=%d)\n",
-                                  static_cast<int>(btn.channel),
-                                  static_cast<int>(intent_to_send),
-                                  static_cast<int>(btn.next_intent));
-                }
-                else
-                {
-                    // Transition to RELEASED
-                    btn.current_state = true;
-
-                    ScopedSerialLock guard(SerialLock::get_instance());
-                    Serial.printf("[BUTTON] Debounced RELEASE on Channel %d\n", static_cast<int>(btn.channel));
-                }
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[BUTTON] Debounced RELEASE on Channel %d\n", static_cast<int>(btn.channel));
             }
         }
     }
@@ -122,8 +89,7 @@ namespace cabinet_buttons
     {
         for (auto &btn : buttons)
         {
-            btn.k = 0;
-            btn.current_state = true;
+            btn.sst.reset();
             btn.next_intent = AppIntent::FORCE_ON; // Reset toggle state
         }
     }
@@ -134,8 +100,6 @@ namespace cabinet_buttons
         {
             if (btn.channel == channel)
             {
-                // Latch was auto-released externally (TTL/safety). Reset toggle so the
-                // next physical press sends FORCE_ON, not a stale AUTO.
                 btn.next_intent = AppIntent::FORCE_ON;
                 ScopedSerialLock guard(SerialLock::get_instance());
                 Serial.printf("[BUTTON] Latch released on Channel %d → next_intent reset to FORCE_ON\n",
@@ -152,14 +116,16 @@ void taskCabinetButtons(void *pvParameters)
 {
     (void)pvParameters;
 
-    // Hard configure GPIO with internal Pull-up
-    for (auto &btn : cabinet_buttons::buttons)
-    {
-        pinMode(btn.pin, INPUT_PULLUP);
-    }
+    // Initialize the physical pins via SchmittTrigger begin()
+    cabinet_buttons::sst_mist.begin();
+    cabinet_buttons::sst_fan.begin();
+    cabinet_buttons::sst_lamp.begin();
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1) > 0 ? pdMS_TO_TICKS(1) : 1; // 1ms sampling interval (at least 1 tick)
+    // 20ms sampling interval driven by config constant
+    const TickType_t xFrequency = pdMS_TO_TICKS(config::hardware::BUTTON_POLL_INTERVAL_MS) > 0
+        ? pdMS_TO_TICKS(config::hardware::BUTTON_POLL_INTERVAL_MS)
+        : 1;
 
     while (true)
     {

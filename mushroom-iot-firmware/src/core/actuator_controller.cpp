@@ -183,7 +183,8 @@ void writeRelayIfChanged(uint8_t pin, bool& state, bool active) {
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod& outputs,
     const RtcTimePod& rtcTime) {
-    if (!isValidRtcTime(rtcTime) || isMiddayBlackout(rtcTime)) {
+    // ONLY override if RTC is valid AND we are in the blackout window
+    if (isValidRtcTime(rtcTime) && isMiddayBlackout(rtcTime)) {
         outputs.HWat = 0.0f;
         outputs.Mist = 0.0f;
     }
@@ -192,22 +193,17 @@ void hardwareProtectionOverride(
 void applyDirectOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
     RelayStatePod& state) {
-    writeRelayIfChanged(
-        config::pins::PIN_RELAY_LAMP,
-        state.lamp_active,
-        resolveBinaryDemand(outputs.HLamp, state.lamp_active));
-    writeRelayIfChanged(
-        config::pins::PIN_RELAY_HWAT,
-        state.hwat_active,
-        resolveBinaryDemand(outputs.HWat, state.hwat_active));
-    writeRelayIfChanged(
-        config::pins::PIN_RELAY_MIST,
-        state.mist_active,
-        resolveBinaryDemand(outputs.Mist, state.mist_active));
-    writeRelayIfChanged(
-        config::pins::PIN_RELAY_FAN,
-        state.fan_active,
-        resolveBinaryDemand(outputs.Exh, state.fan_active));
+    state.lamp_active = resolveBinaryDemand(outputs.HLamp, state.lamp_active);
+    state.hwat_active = resolveBinaryDemand(outputs.HWat, state.hwat_active);
+    state.mist_active = resolveBinaryDemand(outputs.Mist, state.mist_active);
+    state.fan_active = resolveBinaryDemand(outputs.Exh, state.fan_active);
+}
+
+void writeRelays(const RelayStatePod& state) {
+    digitalWrite(config::pins::PIN_RELAY_LAMP, state.lamp_active ? LOW : HIGH);
+    digitalWrite(config::pins::PIN_RELAY_HWAT, state.hwat_active ? LOW : HIGH);
+    digitalWrite(config::pins::PIN_RELAY_MIST, state.mist_active ? LOW : HIGH);
+    digitalWrite(config::pins::PIN_RELAY_FAN, state.fan_active ? LOW : HIGH);
 }
 
 } // namespace relay_control
