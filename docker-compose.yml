@@ -137,8 +137,7 @@ services:
       dockerfile: Dockerfile
     container_name: mushroom_ui
     restart: always
-    ports:
-      - "${UI_HOST_PORT:-6001}:3000"
+    # Port is NOT exposed to host. Traffic goes through mushroom-nginx (port 6001).
     env_file:
       - .env
     environment:
