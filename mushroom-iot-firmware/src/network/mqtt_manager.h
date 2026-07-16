@@ -35,9 +35,13 @@ enum class MqttState : uint8_t {
  */
 struct LastCommandSlot {
     char id[37];                // current command_id (hex string)
-    char relay_id[10];          // set on SUCCESS so duplicate can reply same actual_state
-    bool active;                // true after a non-rejected execution
-    uint32_t actual_state_bits; // bit 0=mist ON, bit 1=fan ON, ...
+    char relay_id[10];          // relay_1 through relay_4
+    bool active;                // true while awaiting or caching a terminal ACK
+    bool pending;               // true until Core 1 accepts or rejects the request
+    bool requested_on;          // requested logical relay state
+    uint8_t channel;            // AppChannel value for matching a Core 1 ACK
+    uint32_t started_ms;        // millis() when the request was enqueued
+    uint32_t actual_state_bits; // bit 0: cached final ON state for duplicate ACKs
 } __attribute__((aligned(4)));
 
 class MqttManager {
@@ -75,6 +79,9 @@ public:
 
     /** Publish a Core 1 manual-control acknowledgement immediately (non-retained). */
     bool publishManualAck(const ManualAck& ack);
+
+    /** Resolve a pending MQTT SET_RELAY command from Core 1's safety decision. */
+    bool resolveManualAck(const ManualAck& ack);
 
     /** Provisioning announce QoS 1 (non-retained). Called by handleConnectionSuccess(). */
     bool publishProvisioningAnnounce();
@@ -123,8 +130,7 @@ private:
     void dispatchCommand(JsonObject root);
     void executeRelayCommand(JsonObject params, String command_id,
                              uint32_t issue_epoch_s);
-    void queueRelayToCore1(uint8_t pin, bool activate);
-    bool readActualRelayState(uint8_t pin);
+    bool queueRelayToCore1(uint8_t pin, bool activate);
     void recordProcessedCommand(String command_id, uint32_t latency_ms,
                                 const char* relay_id, bool relay_on);
     void replayDuplicateAck(const char* command_id, uint32_t latency_ms);

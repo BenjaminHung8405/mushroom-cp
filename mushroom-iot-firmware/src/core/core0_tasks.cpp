@@ -52,10 +52,16 @@ static void drainManualAckQueue()
         }
     }
 
-    if (has_pending_ack && mqtt::MqttManager::getInstance().isConnected() &&
-        mqtt::MqttManager::getInstance().publishManualAck(pending_ack))
-    {
-        has_pending_ack = false;
+    if (has_pending_ack) {
+        // Resolve the originating MQTT command only after Core 1 has made
+        // its safety decision. This avoids reading a stale GPIO in the MQTT callback.
+        mqtt::MqttManager::getInstance().resolveManualAck(pending_ack);
+
+        if (mqtt::MqttManager::getInstance().isConnected() &&
+            mqtt::MqttManager::getInstance().publishManualAck(pending_ack))
+        {
+            has_pending_ack = false;
+        }
     }
 }
 

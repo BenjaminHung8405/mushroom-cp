@@ -530,7 +530,11 @@ void MqttManager::dispatchCommand(JsonObject root)
         return;
     }
     if (last_cmd_.active && sameText(last_cmd_.id, command_id_raw)) {
-        replayDuplicateAck(command_id_raw, millis() - started_ms);
+        // The original command is still waiting for Core 1. Never claim success
+        // from a stale GPIO read; its terminal ACK will be emitted after arbitration.
+        if (!last_cmd_.pending) {
+            replayDuplicateAck(command_id_raw, millis() - started_ms);
+        }
         return;
     }
     const char* action = root["action"] | "";
@@ -585,21 +589,28 @@ void MqttManager::executeRelayCommand(JsonObject params, String command_id, uint
     }
 
     const bool requested_on = sameText(state, "ON");
-    queueRelayToCore1(pin, requested_on);
-    const bool actual_on = readActualRelayState(pin);
-    const uint32_t latency_ms = millis() - started_ms;
-    if (actual_on != requested_on) {
-        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", latency_ms, relay_id, actual_on,
-                          "GPIO_FAULT", "Relay state did not match requested state");
+    if (!queueRelayToCore1(pin, requested_on)) {
+        publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, relay_id, false,
+                          "CONTROL_QUEUE_UNAVAILABLE", "Core 1 control queue is unavailable or full");
         return;
     }
 
-    recordProcessedCommand(command_id, latency_ms, relay_id, actual_on);
-    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", latency_ms, relay_id, actual_on,
-                      nullptr, nullptr);
+    // Core 1 owns safety arbitration and the physical GPIO write. Do not read
+    // GPIO here: this callback runs before the next Core 1 control tick.
+    memset(&last_cmd_, 0, sizeof(last_cmd_));
+    strncpy(last_cmd_.id, command_id.c_str(), sizeof(last_cmd_.id) - 1);
+    strncpy(last_cmd_.relay_id, relay_id, sizeof(last_cmd_.relay_id) - 1);
+    last_cmd_.active = true;
+    last_cmd_.pending = true;
+    last_cmd_.requested_on = requested_on;
+    last_cmd_.channel = static_cast<uint8_t>(
+        pin == config::pins::PIN_RELAY_MIST ? AppChannel::MIST :
+        pin == config::pins::PIN_RELAY_FAN ? AppChannel::FAN :
+        pin == config::pins::PIN_RELAY_LAMP ? AppChannel::LAMP : AppChannel::HWAT);
+    last_cmd_.started_ms = started_ms;
 }
 
-void MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
+bool MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
 {
     // Core 1 owns relay arbitration. Existing V3 scope exposes mist/fan/lamp
     // through its manual request queue; water-heater has no manual channel yet.
@@ -610,17 +621,57 @@ void MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
     else if (pin == config::pins::PIN_RELAY_LAMP) request.channel = AppChannel::LAMP;
     else if (pin == config::pins::PIN_RELAY_HWAT) request.channel = AppChannel::HWAT;
     else supported = false;
-    if (!supported || g_mqtt_override_queue == nullptr) return;
+    if (!supported || g_mqtt_override_queue == nullptr) return false;
     request.intent = activate ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
     request.request_ms = millis();
-    xQueueSend(g_mqtt_override_queue, &request, 0);
+    return xQueueSend(g_mqtt_override_queue, &request, 0) == pdTRUE;
 }
 
-bool MqttManager::readActualRelayState(uint8_t pin)
+bool MqttManager::resolveManualAck(const ManualAck& ack)
 {
-    // Relays are active LOW. GPIO readback is only confirmation; Core 1 arbitration
-    // may still reject the queued manual request on a subsequent control tick.
-    return digitalRead(pin) == LOW;
+    if (!last_cmd_.active || !last_cmd_.pending ||
+        last_cmd_.channel != static_cast<uint8_t>(ack.channel)) {
+        return true;
+    }
+    if (!client_.connected()) {
+        return false;
+    }
+
+    const uint32_t latency_ms = millis() - last_cmd_.started_ms;
+    const bool accepted = ack.decision == ManualDecision::Accepted;
+    const bool actual_on = accepted && ack.effective_intent == AppIntent::FORCE_ON;
+    if (accepted) {
+        const bool published = publishCommandAck(last_cmd_.id, "SUCCESS", latency_ms, last_cmd_.relay_id,
+                                                 actual_on, nullptr, nullptr);
+        if (published) {
+            last_cmd_.pending = false;
+            last_cmd_.actual_state_bits = actual_on ? 1U : 0U;
+        }
+        return published;
+    }
+
+    const char* error_code = "SAFETY_REJECTED";
+    const char* error_message = "Core 1 safety gate rejected the relay request";
+    if (ack.decision == ManualDecision::RejectedTemp) {
+        error_code = "TEMPERATURE_LIMIT";
+        error_message = "Lamp request rejected by temperature safety limit";
+    } else if (ack.decision == ManualDecision::RejectedHumi) {
+        error_code = "HUMIDITY_LIMIT";
+        error_message = "Mist request rejected by humidity safety limit";
+    } else if (ack.decision == ManualDecision::RejectedBlackout) {
+        error_code = "BLACKOUT_ACTIVE";
+        error_message = "Request rejected during the biosafety blackout window";
+    } else if (ack.decision == ManualDecision::RejectedNAN) {
+        error_code = "SENSOR_INVALID";
+        error_message = "Request rejected because required sensor data is invalid";
+    }
+    const bool published = publishCommandAck(last_cmd_.id, "FAILED", latency_ms, last_cmd_.relay_id,
+                                             false, error_code, error_message);
+    if (published) {
+        last_cmd_.pending = false;
+        last_cmd_.actual_state_bits = 0U;
+    }
+    return published;
 }
 
 void MqttManager::recordProcessedCommand(String command_id, uint32_t latency_ms,
