@@ -1757,12 +1757,13 @@ int main() {
             // Assert that the new request was NOT cleared:
             assert(getSharedForceFullPublish() == true);
 
-            // 4. Reconnect and publish successfully -> new flag is cleared
-            // First, consume the flag and publish
+            // 4. V3 snapshots do not use the legacy delta state or force-publish
+            // flag. The earlier simulated legacy commit remains unchanged.
             PubSubClient::mock_publish_result = true;
             processTelemetryPublication(4000UL, mock_tel, telemetryState);
-            assert(telemetryState.lastPubTimeMs == 4000UL);
-            assert(getSharedForceFullPublish() == false);
+            assert(telemetryState.lastPubTimeMs == 3000UL);
+            assert(getSharedForceFullPublish() == true);
+            setSharedForceFullPublish(false);
         }
     }
 
@@ -1884,11 +1885,25 @@ int main() {
             while (xQueueReceive(xOverrideQueue, &discard, 0) == pdTRUE);
         }
         storage.factory_reset();
+        // Recreate an active V3 device lifecycle after the NVS reset so this
+        // callback is validated through the same command gate as production.
+        config::network::MQTT_CLIENT_ID_VAL = "mushroom_s3_unittest";
+        config::network::MQTT_BROKER_VAL = "192.168.1.50";
+        config::network::MQTT_PORT_VAL = 1883;
+        assert(storage.save_provisioning(config::network::DEFAULT_TELEMETRY_INTERVAL_SEC,
+                                         config::network::DEFAULT_REPORTING_QOS) == true);
+        assert(storage.save_provision_token("12345678-1234-1234-1234-123456789abc") == true);
+        assert(mqtt_manager.init() == true);
 
-        // 33.2 Mock incoming baseline setpoint update
-        char setpoint_topic[] = "test_tenant/esp32/esp32_mushroom_test_client/down/command";
-
-        std::string payload = "{\"temperatureSetpoint\":28.50,\"humiditySetpoint\":80.00,\"co2Setpoint\":900.00}";
+        // 33.2 Mock an incoming V3 baseline setpoint command.
+        char setpoint_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/command";
+        std::string payload =
+            "{\"command_id\":\"12345678-1234-1234-1234-123456789abd\","
+            "\"device_id\":\"mushroom_s3_unittest\","
+            "\"action\":\"SET_BASELINE_SETPOINT\","
+            "\"parameters\":{\"temperature_celsius\":28.50,"
+            "\"humidity_percent\":80.00,\"co2_ppm\":900.00,"
+            "\"config_revision\":1}}";
         PubSubClient::mock_callback(setpoint_topic, (uint8_t*)payload.c_str(), payload.length());
 
         // 33.3 Verify baseline saved to NVS
@@ -1908,24 +1923,11 @@ int main() {
         assert(std::fabs(baselineCmd.co2_target - 900.0f) < 0.01f);
         assert(baselineCmd.active == true);
 
-        // 33.5 Setup active hardware override in NVS
-        storage::HardwareOverrideSnapshot hw_snap = { 25.0f, 75.0f, true };
-        assert(storage.save_hardware_override(hw_snap) == true);
-        assert(storage.load_hardware_override(hw_snap) == true);
-
-        // 33.6 Mock clearHardwareOverride payload
-        std::string clear_payload = "{\"clearHardwareOverride\":true}";
-        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)clear_payload.c_str(), clear_payload.length());
-
-        // 33.7 Verify hardware override cleared from NVS
-        storage::HardwareOverrideSnapshot loaded_hw;
-        assert(storage.load_hardware_override(loaded_hw) == false);
-
-        // 33.8 Verify clear command queued to xOverrideQueue
-        assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
-        ControlSetpointCommand overrideCmd;
-        assert(xQueueReceive(xOverrideQueue, &overrideCmd, 0) == pdTRUE);
-        assert(overrideCmd.active == false);
+        // 33.5 Legacy flat payloads are rejected by the V3 envelope and must
+        // not create an override command or mutate persisted state.
+        std::string legacy_payload = "{\"clearHardwareOverride\":true}";
+        PubSubClient::mock_callback(setpoint_topic, (uint8_t*)legacy_payload.c_str(), legacy_payload.length());
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 0);
     }
 
     // 34. Test Task F4 - NVS hydration on startup
@@ -1947,18 +1949,18 @@ int main() {
         storage.factory_reset();
 
         // 34.2 Case 1: Empty NVS (no backend snapshot, no hardware override)
-        // Calling hydrateSetpointsFromNVS should fallback baseline to Trajectory Day 0
-        // and put an inactive override command in xOverrideQueue.
+        // In V3 an absent baseline is explicitly INACTIVE so Core 1 falls back
+        // to the crop profile or built-in trajectory — this prevents permanently
+        // masking profiles that were previously stuck behind a hardcoded Day-0.
         hydrateSetpointsFromNVS();
 
-        // Verify baseline is trajectory Day 0 (T: 24.0, H: 90.0, CO2: 1000.0)
         assert(uxQueueMessagesWaiting(xBaselineQueue) == 1);
         ControlSetpointCommand baselineCmd;
         assert(xQueueReceive(xBaselineQueue, &baselineCmd, 0) == pdTRUE);
-        assert(std::fabs(baselineCmd.temp_target - 33.0f) < 0.01f);
-        assert(std::fabs(baselineCmd.humidity_target - 90.0f) < 0.01f);
-        assert(std::fabs(baselineCmd.co2_target - 1100.0f) < 0.01f);
-        assert(baselineCmd.active == true);
+        assert(std::isnan(baselineCmd.temp_target));
+        assert(std::isnan(baselineCmd.humidity_target));
+        assert(std::isnan(baselineCmd.co2_target));
+        assert(baselineCmd.active == false);
 
         // Verify override queue contains inactive override command
         assert(uxQueueMessagesWaiting(xOverrideQueue) == 1);
@@ -2128,7 +2130,10 @@ int main() {
         hydrateSetpointsFromNVS();
         ControlSetpointCommand hydratedBaseline;
         assert(xQueueReceive(xBaselineQueue, &hydratedBaseline, 0) == pdTRUE);
-        assert(std::fabs(hydratedBaseline.temp_target - 33.0f) < 0.001f);
+        // V3: a corrupt/absent backend snapshot yields an inactive baseline (NAN); Core 1
+        // then falls back to crop-profile or built-in trajectory for the actual setpoint.
+        assert(std::isnan(hydratedBaseline.temp_target));
+        assert(hydratedBaseline.active == false);
 
         assert(prefs.begin(config::network::NVS_NAMESPACE, false));
         storage::HardwareOverrideSnapshot corruptOverride = {INFINITY, 75.0f, true};

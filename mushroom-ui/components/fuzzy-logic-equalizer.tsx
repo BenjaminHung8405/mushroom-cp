@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
+import { useSelectedDevice } from '@/lib/selected-device-context'
 import { LightTimelineBlock } from '@/lib/types'
 import { AlertCircle, Lightbulb, Lock, Unlock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -10,6 +11,7 @@ import {
   updateBatchCheckpoints,
   type CheckpointInput,
 } from '@/lib/batch-api'
+import { postApplyCropProfile } from '@/lib/telemetry-api'
 
 interface TimelineProps {
   title: string
@@ -695,6 +697,7 @@ export function FuzzyLogicEqualizer() {
     activeBatchId,
     saveAsNewProfile,
   } = useBatch()
+  const { selectedDeviceId } = useSelectedDevice()
 
   const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
   const [localShockEnd, setLocalShockEnd] = useState(thermalShockEnd)
@@ -704,6 +707,7 @@ export function FuzzyLogicEqualizer() {
     humidity: Checkpoint[]
   } | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   // Reset initial checkpoints when active batch ID changes
@@ -779,7 +783,32 @@ export function FuzzyLogicEqualizer() {
         temperature: [...temperatureCheckpoints],
         humidity: [...humidityCheckpoints],
       })
-      setToast({ message: 'Lưu thay đổi checkpoints thành công!', type: 'success' })
+
+      if (!selectedDeviceId) {
+        setToast({ message: 'Đã lưu checkpoints. Hãy chọn thiết bị để đồng bộ crop profile.', type: 'success' })
+        return
+      }
+
+      // A crop-profile command contains paired temperature/humidity checkpoints
+      // for every crop day and clears any legacy direct baseline on the device.
+      const humidityByDay = new Map(humidityCheckpoints.map((cp) => [cp.day, cp.value]))
+      const checkpoints = temperatureCheckpoints.map((temperature) => ({
+        cropDay: temperature.day,
+        temperatureCelsius: temperature.value,
+        humidityPercent: humidityByDay.get(temperature.day) ?? humidityCheckpoints[0]?.value,
+      }))
+      if (checkpoints.some((checkpoint) => checkpoint.humidityPercent === undefined)) {
+        throw new Error('Mỗi checkpoint nhiệt độ phải có checkpoint độ ẩm cùng ngày để đồng bộ thiết bị.')
+      }
+
+      setIsSyncing(true)
+      const sync = await postApplyCropProfile(selectedDeviceId, {
+        cropStartEpochSec: Math.floor(Date.now() / 1000),
+        totalCropDays,
+        checkpoints: checkpoints as Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>,
+      })
+      if (!sync.success) throw new Error(sync.message)
+      setToast({ message: 'Đã lưu. Đang đồng bộ profile xuống thiết bị; chờ ACK và telemetry xác nhận.', type: 'success' })
     } catch (err) {
       setToast({
         message: err instanceof Error ? err.message : 'Không thể lưu thay đổi checkpoints.',
@@ -787,6 +816,7 @@ export function FuzzyLogicEqualizer() {
       })
     } finally {
       setIsSaving(false)
+      setIsSyncing(false)
     }
   }
 
@@ -901,13 +931,13 @@ export function FuzzyLogicEqualizer() {
             {activeBatchId ? (
               <Button
                 onClick={handleSaveChanges}
-                disabled={!isDirty || isSaving}
+                disabled={!isDirty || isSaving || isSyncing}
                 className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold transition-all shadow-md shadow-emerald-950/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm h-9 md:h-10 rounded-md"
               >
-                {isSaving ? (
+                {isSaving || isSyncing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>Đang lưu...</span>
+                    <span>{isSyncing ? 'Đang đồng bộ...' : 'Đang lưu...'}</span>
                   </>
                 ) : (
                   <span>Lưu thay đổi vụ đang chạy</span>
