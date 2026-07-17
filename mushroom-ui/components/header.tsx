@@ -22,8 +22,8 @@ export function Header() {
     monitoredDeviceId,
   } = useRealTelemetry()
 
-  const showDeviceOfflineAlert = deviceStatus === 'offline' && !deviceAlertDismissed
-  const showDeviceStaleAlert = deviceStatus === 'stale' && !deviceAlertDismissed
+  const showDeviceOfflineAlert = deviceStatus === 'OFFLINE' && !deviceAlertDismissed
+  const showDeviceStaleAlert = (deviceStatus === 'DEGRADED_LATENCY' || deviceStatus === 'SENSOR_FAULT') && !deviceAlertDismissed
 
   const alerts: Array<{
     id: string
@@ -170,11 +170,11 @@ export function Header() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <AlertTriangle className="w-5 h-5" style={{ color: '#F59E0B' }} />
               <span className="text-xs font-bold uppercase tracking-widest" style={{ color: '#F59E0B' }}>
-                ⚠ Dữ liệu chưa cập nhật
+                ⚠ {deviceStatus === 'SENSOR_FAULT' ? 'Cảm biến không phản hồi' : 'Kết nối yếu'}
               </span>
             </div>
             <div className="flex-1 text-xs text-amber-200/80">
-              Thiết bị tại nhà nấm (<code className="bg-amber-900/40 px-1 rounded text-amber-300">{monitoredDeviceId}</code>) vẫn kết nối nhưng chưa gửi dữ liệu mới. Vui lòng kiểm tra thiết bị hoặc cảm biến.
+              Thiết bị tại nhà nấm (<code className="bg-amber-900/40 px-1 rounded text-amber-300">{monitoredDeviceId}</code>) vẫn kết nối nhưng telemetry đang trễ. Vui lòng kiểm tra sóng Wi-Fi hoặc cảm biến.
             </div>
             <Button
               variant="ghost"
@@ -227,7 +227,7 @@ export function Header() {
           <div>
             <h2 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
               Nhà nấm rơm Beta
-              {deviceStatus === 'offline' ? (
+              {deviceStatus === 'OFFLINE' ? (
                 <span
                   className="text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase animate-pulse"
                   style={{
@@ -238,11 +238,11 @@ export function Header() {
                 >
                   Mất kết nối
                 </span>
-              ) : deviceStatus === 'stale' ? (
+              ) : deviceStatus === 'DEGRADED_LATENCY' ? (
                 <span className="text-[10px] font-semibold bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase">
-                  Dữ liệu chưa cập nhật
+                  Kết nối yếu
                 </span>
-              ) : deviceStatus === 'online' ? (
+              ) : deviceStatus === 'ONLINE_ACTIVE' ? (
                 <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase">
                   Đang hoạt động
                 </span>

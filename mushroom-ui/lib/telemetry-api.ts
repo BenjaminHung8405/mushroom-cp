@@ -54,6 +54,9 @@ export interface OperatingModeEvent {
 export interface DeviceStatusEvent {
   deviceId: string
   status: 'online' | 'offline'
+  health: 'ONLINE_ACTIVE' | 'DEGRADED_LATENCY' | 'SENSOR_FAULT' | 'OFFLINE' | 'UNKNOWN'
+  lastTelemetryAt: string | null
+  receivedAt: string
   timestamp: string
 }
 

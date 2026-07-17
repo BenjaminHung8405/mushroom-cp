@@ -2,11 +2,12 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   OnModuleDestroy,
   OnModuleInit,
   forwardRef,
 } from '@nestjs/common';
-import { Subject } from 'rxjs';
+import { Subject, Subscription } from 'rxjs';
 import * as mqtt from 'mqtt';
 import { DeviceRegistryService } from '../device/device-registry.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,11 +15,15 @@ import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
+import { DeviceHealthService, HealthState } from '../device-health/device-health.service';
 
 export interface DeviceStatusEvent {
   deviceId: string;
   houseId: string;
   status: 'online' | 'offline';
+  health: HealthState;
+  lastTelemetryAt: string | null;
+  receivedAt: string;
   timestamp: string;
 }
 
@@ -128,6 +133,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly pendingConfig = new Map<string, PendingConfigCommand>();
   private readonly configSyncCache = new Map<string, DeviceConfigSyncEvent>();
   public readonly configSync$ = new Subject<DeviceConfigSyncEvent>();
+  private healthSubscription: Subscription | null = null;
 
   constructor(
     @Inject(forwardRef(() => DeviceRegistryService))
@@ -135,13 +141,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(Device)
     private readonly deviceRepo: Repository<Device>,
     private readonly mqttAuth: MqttAuthService,
+    @Optional() private readonly deviceHealth?: DeviceHealthService,
   ) {}
 
   onModuleInit(): void {
+    this.healthSubscription = this.deviceHealth?.healthChanges$.subscribe((event) => {
+      this.deviceStateCache.set(event.deviceId, event);
+      this.deviceStatus$.next(event);
+    }) ?? null;
     this.connect();
   }
 
   onModuleDestroy(): void {
+    this.healthSubscription?.unsubscribe();
+    this.healthSubscription = null;
     for (const pending of this.pendingConfig.values()) clearTimeout(pending.timeout);
     this.pendingConfig.clear();
     this.client?.end(true);
@@ -223,9 +236,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!data || Array.isArray(data)) throw new Error('payload must be an object');
       const receivedAt = new Date();
       if (parsedTopic.feature === 'status') {
-        this.handleStatus(record.deviceId, record.houseId, data, receivedAt);
+        this.handleStatus(record, data, receivedAt);
       } else if (parsedTopic.feature === 'telemetry') {
-        this.handleTelemetry(record.deviceId, record.houseId, data, receivedAt);
+        this.handleTelemetry(record, data, receivedAt);
       } else if (parsedTopic.feature === 'provisioning_announce') {
         this.handleProvisioning(record.deviceId, data, receivedAt);
       } else if (parsedTopic.feature === 'manual_ack') {
@@ -307,20 +320,28 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleStatus(
-    deviceId: string,
-    houseId: string,
+    record: import('../device/device-registry.service').DeviceRecord,
     data: Record<string, unknown>,
     receivedAt: Date,
   ): void {
+    const { deviceId, houseId } = record;
     const online = data.online;
     if (typeof online !== 'boolean') {
       this.logger.warn(`Dropped status without boolean online from '${deviceId}'.`);
       return;
     }
-    const event: DeviceStatusEvent = {
+    const healthEvent = this.deviceHealth?.handleLwtStatus(
+      record,
+      online ? 'online' : 'offline',
+      receivedAt,
+    );
+    const event: DeviceStatusEvent = healthEvent ?? {
       deviceId,
       houseId,
       status: online ? 'online' : 'offline',
+      health: online ? HealthState.ONLINE_ACTIVE : HealthState.OFFLINE,
+      lastTelemetryAt: null,
+      receivedAt: receivedAt.toISOString(),
       timestamp: receivedAt.toISOString(),
     };
     this.deviceStateCache.set(deviceId, event);
@@ -329,11 +350,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleTelemetry(
-    deviceId: string,
-    houseId: string,
+    record: import('../device/device-registry.service').DeviceRecord,
     data: Record<string, unknown>,
     receivedAt: Date,
   ): void {
+    const { deviceId, houseId } = record;
     const readings = this.object(data.readings);
     const control = this.object(data.control);
     const event: TelemetryEvent = {
@@ -361,6 +382,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.telemetry$.next(event);
+    const healthEvent = this.deviceHealth?.handleTelemetryReceived(
+      record,
+      receivedAt,
+    );
+    if (healthEvent) this.deviceStateCache.set(deviceId, healthEvent);
     this.confirmAppliedFromTelemetry(deviceId, event.control?.configRevision ?? null);
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
@@ -521,6 +547,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     state: 'ON' | 'OFF',
     issuedBy = 'system',
   ): Promise<string> {
+    this.assertCommandAllowed(deviceId);
     const commandId = crypto.randomUUID();
     await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, {
       $schema: 'https://iot.acme.com/schema/v1/command',
@@ -546,6 +573,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       configRevision?: number;
     },
   ): Promise<DeviceConfigSyncEvent> {
+    this.assertCommandAllowed(deviceId);
     const revision = payload.configRevision ?? this.nextRevision(deviceId);
     this.validateSetpoint(payload.temperatureSetpoint, payload.humiditySetpoint, payload.co2Setpoint ?? 1000);
     return this.dispatchConfigCommand(deviceId, 'baseline_setpoint', revision, {
@@ -560,6 +588,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   async dispatchCropProfile(deviceId: string, profile: CropProfileCommand): Promise<DeviceConfigSyncEvent> {
+    this.assertCommandAllowed(deviceId);
     const revision = profile.configRevision ?? this.nextRevision(deviceId);
     if (!Number.isInteger(profile.totalCropDays) || profile.totalCropDays < 1 || profile.totalCropDays > 365 ||
       profile.checkpoints.length < 1 || profile.checkpoints.length > 10) {
@@ -591,6 +620,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     deviceId: string,
     mode: 'AI' | 'MANUAL',
   ): Promise<void> {
+    this.assertCommandAllowed(deviceId);
     this.logger.log(`dispatchSetOperatingMode: switching ${deviceId} to ${mode}`);
     await this.publish(`${this.tenant}/esp32/${deviceId}/down/command`, {
       $schema: 'https://iot.acme.com/schema/v1/command',
@@ -636,6 +666,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     const commandState: 'ON' | 'OFF' = state === true ? 'ON' : 'OFF';
     await this.dispatchRelayCommand(deviceId, relayId, commandState, 'user-override');
+  }
+
+  private assertCommandAllowed(deviceId: string): void {
+    if (this.deviceHealth && !this.deviceHealth.isCommandAllowed(deviceId)) {
+      throw new Error(`Device '${deviceId}' is not healthy enough to accept commands.`);
+    }
   }
 
   getConfigSync(deviceId: string): DeviceConfigSyncEvent | null {

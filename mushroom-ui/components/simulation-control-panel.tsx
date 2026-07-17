@@ -161,17 +161,17 @@ export function SimulationControlPanel() {
         {/* Current status display */}
         <div className="flex items-center gap-2 text-[10px]">
           <span className="text-slate-500">Trạng thái hiện tại:</span>
-          {deviceStatus === 'offline' && (
+          {deviceStatus === 'OFFLINE' && (
             <span className="font-bold text-red-400 flex items-center gap-1">
-              <WifiOff className="w-3 h-3" /> OFFLINE (LWT kích hoạt)
+              <WifiOff className="w-3 h-3" /> OFFLINE (lwt)
             </span>
           )}
-          {deviceStatus === 'online' && (
+          {deviceStatus === 'ONLINE_ACTIVE' && (
             <span className="font-bold text-emerald-400 flex items-center gap-1">
               <Wifi className="w-3 h-3" /> ONLINE
             </span>
           )}
-          {deviceStatus === 'unknown' && (
+          {deviceStatus === 'UNKNOWN' && (
             <span className="font-bold text-slate-400">UNKNOWN</span>
           )}
         </div>
@@ -179,10 +179,10 @@ export function SimulationControlPanel() {
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={simulateDeviceOffline}
-            disabled={deviceStatus === 'offline'}
+            disabled={deviceStatus === 'OFFLINE'}
             className="flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase rounded border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
-              background: deviceStatus !== 'offline' ? 'rgba(220,20,60,0.08)' : undefined,
+              background: deviceStatus !== 'OFFLINE' ? 'rgba(220,20,60,0.08)' : undefined,
               borderColor: 'rgba(220,20,60,0.35)',
               color: '#DC143C',
             }}
@@ -192,7 +192,7 @@ export function SimulationControlPanel() {
           </button>
           <button
             onClick={simulateDeviceOnline}
-            disabled={deviceStatus === 'online'}
+            disabled={deviceStatus === 'ONLINE_ACTIVE'}
             className="flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase rounded border border-emerald-700/50 bg-emerald-950/20 text-emerald-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Wifi className="w-3 h-3" />

@@ -13,7 +13,7 @@ import { subscribeDeviceStatusStream } from './telemetry-api'
  * 'stale'   - LWT online but no valid telemetry for >20s
  * 'unknown' - Not yet received any status from backend (initial state)
  */
-export type DeviceStatus = 'online' | 'offline' | 'stale' | 'unknown'
+export type DeviceStatus = 'ONLINE_ACTIVE' | 'DEGRADED_LATENCY' | 'SENSOR_FAULT' | 'OFFLINE' | 'UNKNOWN'
 
 interface SimulationContextType {
   isSimulationActive: boolean
@@ -70,17 +70,17 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
 
   // Dev Sandbox keeps a local connection-state override. The monitored ID is
   // sourced from SelectedDeviceContext, never from build-time environment.
-  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('unknown')
+  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('UNKNOWN')
 
   // Keep the simulation sandbox's connection indicator aligned with the
   // currently selected physical device.
   useEffect(() => {
-    setDeviceStatus('unknown')
+    setDeviceStatus('UNKNOWN')
     if (!selectedDeviceId) return
 
     return subscribeDeviceStatusStream((event) => {
       if (event.deviceId === selectedDeviceId) {
-        setDeviceStatus(event.status)
+        setDeviceStatus(event.health)
       }
     })
   }, [selectedDeviceId])
@@ -159,8 +159,8 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   }, [temperatureSetpoint, humiditySetpoint])
 
   // --- Dev Sandbox: Simulate LWT events for UI testing ---
-  const simulateDeviceOffline = () => setDeviceStatus('offline')
-  const simulateDeviceOnline  = () => setDeviceStatus('online')
+  const simulateDeviceOffline = () => setDeviceStatus('OFFLINE')
+  const simulateDeviceOnline  = () => setDeviceStatus('ONLINE_ACTIVE')
 
   return (
     <SimulationContext.Provider

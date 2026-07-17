@@ -6,6 +6,8 @@ import { DeviceRegistryService } from '../device/device-registry.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
+import { DeviceHealthService } from '../device-health/device-health.service';
+import { DeviceHealthService } from '../device-health/device-health.service';
 
 const mockMqttClient = {
   on: jest.fn(),
@@ -58,6 +60,7 @@ describe('MqttService', () => {
       }),
       refreshOne: jest.fn().mockResolvedValue(null),
       touchLastSeen: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn(), loadAll: jest.fn(), onModuleInit: jest.fn(), upsertCache: jest.fn(), invalidate: jest.fn(), listCached: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -66,6 +69,11 @@ describe('MqttService', () => {
         { provide: DeviceRegistryService, useValue: registry },
         { provide: getRepositoryToken(Device), useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() } },
         { provide: MqttAuthService, useValue: { enforceProvisionRateLimit: jest.fn() } },
+        { provide: DeviceHealthService, useValue: {
+          healthChanges$: { subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })) },
+          handleLwtStatus: jest.fn(), handleTelemetryReceived: jest.fn(),
+          isCommandAllowed: jest.fn(() => true),
+        } },
       ],
     }).compile();
 

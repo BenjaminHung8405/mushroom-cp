@@ -65,6 +65,7 @@ describe('TelemetryService', () => {
       }),
       refreshOne: jest.fn().mockResolvedValue(null),
       touchLastSeen: jest.fn().mockResolvedValue(undefined),
+      getEnabled: jest.fn(), loadAll: jest.fn(), onModuleInit: jest.fn(), upsertCache: jest.fn(), invalidate: jest.fn(), listCached: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({

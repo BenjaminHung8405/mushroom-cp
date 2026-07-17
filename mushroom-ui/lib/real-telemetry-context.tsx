@@ -30,29 +30,12 @@ import { useSelectedDevice } from './selected-device-context'
  *   - SSE /devices/status/stream (LWT online/offline)
  *
  * Display status is composed:
- *   offline > stale (LWT online + telemetry age > 20s) > online > unknown
+ * Health is authoritative from backend SSE; provider never runs a clock ticker.
  */
 
-/** LWT-only status from backend SSE (never includes 'stale'). */
+const SNAPSHOT_REFRESH_MS = 8_000
+
 type LwtStatus = 'online' | 'offline' | 'unknown'
-
-const STALE_MS = 20_000
-const STALE_TICK_MS = 5_000
-const SNAPSHOT_REFRESH_MS = 5_000
-
-function deriveDeviceStatus(
-  lwt: LwtStatus,
-  lastTelemetryMs: number | null,
-  onlineSinceMs: number | null,
-  nowMs: number,
-): DeviceStatus {
-  if (lwt === 'offline') return 'offline'
-  if (lwt === 'unknown') return 'unknown'
-
-  const freshnessBaseline = lastTelemetryMs ?? onlineSinceMs
-  if (freshnessBaseline === null) return 'online'
-  return nowMs - freshnessBaseline > STALE_MS ? 'stale' : 'online'
-}
 
 interface RealTelemetryContextType {
   /** Configuration synchronisation status — null means no pending command or unknown */
@@ -116,24 +99,15 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
 
   // LWT truth is never written by the stale path.
   const [lwtStatus, setLwtStatus] = useState<LwtStatus>('unknown')
-  const [onlineSinceMs, setOnlineSinceMs] = useState<number | null>(null)
+  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('UNKNOWN')
 
-  const lastTelemetryMs = useMemo(() => {
-    if (!snapshot?.time) return null
-    const ms = new Date(snapshot.time).getTime()
-    return Number.isFinite(ms) ? ms : null
-  }, [snapshot?.time])
-
-  // Lightweight clock tick that forces freshness re-evaluation without
-  // recreating the interval or capturing the snapshot in its callback.
-  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Reset device-scoped state whenever the dashboard selection changes.
   useEffect(() => {
     setSnapshot(null)
     prevSnapshotRef.current = null
     setLwtStatus('unknown')
-    setOnlineSinceMs(null)
+    setDeviceStatus('UNKNOWN')
   }, [selectedDeviceId])
 
   // Initial snapshot and live telemetry are tied to the selected device.
@@ -174,12 +148,8 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     return subscribeDeviceStatusStream((ev: DeviceStatusEvent) => {
       if (ev.deviceId === selectedDeviceId) {
         setLwtStatus(ev.status)
-        if (ev.status === 'online') {
-          const timestamp = new Date(ev.timestamp).getTime()
-          setOnlineSinceMs(Number.isFinite(timestamp) ? timestamp : Date.now())
-        } else {
-          setOnlineSinceMs(null)
-        }
+        setDeviceStatus(ev.health)
+
       }
     })
   }, [selectedDeviceId])
@@ -199,27 +169,13 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     return () => { cancelled = true; unsub() }
   }, [selectedDeviceId])
 
-  // Stale evaluation tick — only advances the clock; derivation is pure.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNowMs(Date.now())
-    }, STALE_TICK_MS)
-    return () => clearInterval(timer)
-  }, [])
-
-  const deviceStatus = useMemo(
-    () => deriveDeviceStatus(lwtStatus, lastTelemetryMs, onlineSinceMs, nowMs),
-    [lwtStatus, lastTelemetryMs, onlineSinceMs, nowMs],
-  )
-
   // Relay states are valid only while the reporting telemetry is fresh. Never
   // keep rendering a last-known ON state after the ESP32 stops reporting.
   const hasFreshTelemetry =
-    lwtStatus !== 'offline' &&
-    lastTelemetryMs !== null && nowMs - lastTelemetryMs <= STALE_MS
-  const humidityCurrent = snapshot?.humidityMeasured ?? null
-  const temperatureCurrent = snapshot?.temperatureMeasured ?? null
-  const co2Current = snapshot?.co2Measured ?? null
+    deviceStatus === 'ONLINE_ACTIVE' || deviceStatus === 'DEGRADED_LATENCY'
+  const humidityCurrent = hasFreshTelemetry ? (snapshot?.humidityMeasured ?? null) : null
+  const temperatureCurrent = hasFreshTelemetry ? (snapshot?.temperatureMeasured ?? null) : null
+  const co2Current = hasFreshTelemetry ? (snapshot?.co2Measured ?? null) : null
   const isLoading = snapshot === null && lwtStatus === 'unknown'
   const lastTelemetryAt = snapshot?.time ?? null
 

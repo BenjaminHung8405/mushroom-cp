@@ -136,7 +136,7 @@ export function StandardActuatorsControl({
   }
 
   const applyAction = async (actuator: 'fan' | 'lamp' | 'mist', state: EdgeState) => {
-    if (!monitoredDeviceId || state === null || operatingMode === null) return
+    if (!monitoredDeviceId || state === null || operatingMode === null || controlsBlocked) return
     setActionPending(actuator)
     const result = await postActuatorOverride(monitoredDeviceId, actuator, !state)
     setActionPending(null)
@@ -144,7 +144,7 @@ export function StandardActuatorsControl({
   }
 
   const startAll = async () => {
-    if (!monitoredDeviceId || operatingMode === null) return
+    if (!monitoredDeviceId || operatingMode === null || controlsBlocked) return
     setActionPending('all')
     const requests: Promise<{ success: boolean; message: string }>[] = []
     if (fanActive === false) requests.push(postActuatorOverride(monitoredDeviceId, 'fan', true))
@@ -168,19 +168,22 @@ export function StandardActuatorsControl({
   const lastTelemetryLabel = lastTelemetryAt
     ? new Date(lastTelemetryAt).toLocaleString('vi-VN')
     : 'Chưa nhận được'
-  const deviceStatusLabel = deviceStatus === 'online'
-    ? 'Online'
-    : deviceStatus === 'offline'
-      ? 'Offline'
-      : deviceStatus === 'stale'
-        ? 'Stale'
-        : 'Chưa xác định'
-  const deviceStatusColor = deviceStatus === 'online'
+  const controlsBlocked = deviceStatus === 'SENSOR_FAULT' || deviceStatus === 'OFFLINE' || deviceStatus === 'UNKNOWN'
+  const deviceStatusLabel = deviceStatus === 'ONLINE_ACTIVE'
+    ? 'Đang hoạt động'
+    : deviceStatus === 'DEGRADED_LATENCY'
+      ? 'Kết nối yếu'
+      : deviceStatus === 'SENSOR_FAULT'
+        ? 'Lỗi cảm biến'
+        : deviceStatus === 'OFFLINE'
+          ? 'Offline'
+          : 'Chưa xác định'
+  const deviceStatusColor = deviceStatus === 'ONLINE_ACTIVE'
     ? 'text-emerald-300'
-    : deviceStatus === 'offline'
-      ? 'text-red-300'
-      : deviceStatus === 'stale'
-        ? 'text-amber-300'
+    : deviceStatus === 'DEGRADED_LATENCY'
+      ? 'text-amber-300'
+      : deviceStatus === 'SENSOR_FAULT' || deviceStatus === 'OFFLINE'
+        ? 'text-red-300'
         : 'text-slate-400'
   const relayTelemetryDetails = (relayId: string) => (
     <div className="mt-2 space-y-0.5 text-[11px] text-slate-400">
@@ -207,8 +210,8 @@ export function StandardActuatorsControl({
           <div className="font-bold text-foreground">{isFuzzyOff ? '🔌 Fuzzy Logic: OFF' : '● Fuzzy Logic: ON'}</div>
           <div className="mt-0.5 text-muted-foreground">{isFuzzyOff ? 'Lệnh manual được giữ; Safety Protector vẫn có quyền ép bật/tắt, giới hạn 3 phút và cooldown.' : 'Fuzzy tạo output nền; lệnh manual đảo relay 30 giây rồi trả quyền cho Fuzzy. Safety Protector luôn có quyền chặn.'}</div>
           <div className="mt-2 flex gap-2">
-            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
-            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
+            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
+            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending || controlsBlocked} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
           </div>
         </div>
       </div>
@@ -233,7 +236,7 @@ export function StandardActuatorsControl({
             <p className="mt-2 text-sm text-slate-400">Fuzzy sẽ dừng tạo output nền. Relay giữ trạng thái hiện tại; lệnh manual sẽ được giữ cho đến lệnh mới. Safety Protector vẫn luôn có quyền ép bật/tắt để bảo vệ thiết bị và nấm.</p>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowManualConfirm(false)} className="rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Quay lại</button>
-              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
+              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending || controlsBlocked} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
             </div>
           </div>
         </div>
