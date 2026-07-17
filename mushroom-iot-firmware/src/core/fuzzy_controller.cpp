@@ -79,13 +79,12 @@ DualHeaterOutputsPod executeDualHeaterRules(float errorTemp, float errorHumid) {
     const float dry = risingDemand(errorHumid, HUMID_DRY_FULL);
     const float wet = risingDemand(-errorHumid, HUMID_WET_FULL);
 
-    // Cold & dry: air heat has priority; mist only receives residual budget.
-    // This keeps mutually cancelling actuators from both sitting at high duty.
-    outputs.HLamp = cold * (1.0f - wet);
+    // The water heater is not installed, so the heat lamp supplies all thermal
+    // demand whether the room is dry or wet.
+    outputs.HLamp = cold;
     outputs.Mist = dry * (1.0f - cold);
 
-    // Cold & wet: water heat only; no mist and no thermal exhaust.
-    outputs.HWat = cold * wet;
+    outputs.HWat = 0.0f;
 
     // When not cold, excess humidity is vented. Over-temperature also
     // independently requests exhaust. CO2 exhaust is merged later (B3).

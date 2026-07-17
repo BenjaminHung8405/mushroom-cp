@@ -1290,7 +1290,8 @@ int main() {
     {
         using FuzzyController::DualHeaterOutputsPod;
 
-        // 25.1 Cold & dry: prioritize air heat and suppress mist while cold.
+        // 25.1 Cold & dry: heat lamp supplies the full thermal demand and
+        // suppresses mist while cold.
         const DualHeaterOutputsPod coldDry =
             FuzzyController::executeDualHeaterRules(4.0f, 20.0f);
         assert(std::abs(coldDry.HLamp - 1.0f) < 1e-6f);
@@ -1298,11 +1299,12 @@ int main() {
         assert(coldDry.Mist == 0.0f);
         assert(coldDry.ExhTH == 0.0f);
 
-        // 25.2 Cold & wet: use water heat only; do not mist or exhaust heat.
+        // 25.2 Cold & wet: water heater is unavailable, so HLamp still
+        // provides heat; do not mist or exhaust heat.
         const DualHeaterOutputsPod coldWet =
             FuzzyController::executeDualHeaterRules(4.0f, -20.0f);
-        assert(coldWet.HLamp == 0.0f);
-        assert(std::abs(coldWet.HWat - 1.0f) < 1e-6f);
+        assert(std::abs(coldWet.HLamp - 1.0f) < 1e-6f);
+        assert(coldWet.HWat == 0.0f);
         assert(coldWet.Mist == 0.0f);
         assert(coldWet.ExhTH == 0.0f);
 

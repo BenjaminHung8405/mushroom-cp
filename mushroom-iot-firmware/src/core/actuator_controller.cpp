@@ -150,8 +150,10 @@ namespace {
 
 constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 11U * 60U;
 constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 13U * 60U + 30U;
-constexpr float FUZZY_ON_THRESHOLD = 0.55f;
-constexpr float FUZZY_OFF_THRESHOLD = 0.45f;
+// Temperature demand reaches 1.0 at a 4°C deficit. This 0.25/0.15
+// hysteresis starts heating at about 1.0°C below target and stops near 0.6°C.
+constexpr float FUZZY_ON_THRESHOLD = 0.25f;
+constexpr float FUZZY_OFF_THRESHOLD = 0.15f;
 
 bool isValidRtcTime(const RtcTimePod& rtcTime) {
     return rtcTime.valid && rtcTime.hour < 24U && rtcTime.minute < 60U;
@@ -198,14 +200,16 @@ void applyDirectOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
     RelayStatePod& state) {
     state.lamp_active = resolveBinaryDemand(outputs.HLamp, state.lamp_active);
-    state.hwat_active = resolveBinaryDemand(outputs.HWat, state.hwat_active);
+    // Water heater is not installed. Heat demand is routed to HLamp instead,
+    // and relay_3 remains de-energized regardless of an old/manual command.
+    state.hwat_active = false;
     state.mist_active = resolveBinaryDemand(outputs.Mist, state.mist_active);
     state.fan_active = resolveBinaryDemand(outputs.Exh, state.fan_active);
 }
 
 void writeRelays(const RelayStatePod& state) {
     digitalWrite(config::pins::PIN_RELAY_LAMP, state.lamp_active ? LOW : HIGH);
-    digitalWrite(config::pins::PIN_RELAY_HWAT, state.hwat_active ? LOW : HIGH);
+    digitalWrite(config::pins::PIN_RELAY_HWAT, HIGH);
     digitalWrite(config::pins::PIN_RELAY_MIST, state.mist_active ? LOW : HIGH);
     digitalWrite(config::pins::PIN_RELAY_FAN, state.fan_active ? LOW : HIGH);
 }

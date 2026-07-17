@@ -173,9 +173,10 @@ namespace config
     } // namespace safe_offline
 
     /** Global operating mode — persisted across reboots. */
-    enum class OperatingMode : uint8_t {
-        AI,       // Tự động hoá (Fuzzy) đang hoạt động
-        MANUAL,   // Người dùng đang ép điều khiển
+    enum class OperatingMode : uint8_t
+    {
+        AI,     // Tự động hoá (Fuzzy) đang hoạt động
+        MANUAL, // Người dùng đang ép điều khiển
     };
 
     /** Cho phép chuyển đổi chế độ vận hành toàn cục từ giao diện/web. */
