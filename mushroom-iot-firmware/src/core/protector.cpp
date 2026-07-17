@@ -58,6 +58,7 @@ void SystemProtector::update(
     bool fuzzy_enabled,
     float temp_air,
     float humidity_air,
+    bool mist_blackout_active,
     manual::ManualLatchArray& manual_latches,
     relay_control::RelayStatePod& relay_states
 ) {
@@ -78,7 +79,18 @@ void SystemProtector::update(
         AppChannel ch = static_cast<AppChannel>(i);
         ChannelProtectorState& state = states[i];
 
-        // Priority 1: Cooldown / Forced-OFF Lock
+        // Priority 1: The time-confidence/midday interlock is non-bypassable.
+        // It is evaluated before all protector rules so a low-humidity rule
+        // cannot re-enable Mist during the blackout window.
+        if (ch == AppChannel::MIST && mist_blackout_active) {
+            set_channel_state(relay_states, ch, false);
+            clearManualLatch(manual_latches[i]);
+            state.is_on = false;
+            state.on_start_ms = 0;
+            continue;
+        }
+
+        // Priority 2: Cooldown / Forced-OFF Lock
         if (isLockActive(now, state.lock_until_ms)) {
             set_channel_state(relay_states, ch, false);
             // A persistent Fuzzy-OFF FORCE_ON remains an operator intent while
@@ -91,7 +103,7 @@ void SystemProtector::update(
             continue; // Force override, bypass bio rule ON checks
         }
 
-        // Priority 2: Absolute Bio Bounds Guarding
+        // Priority 3: Absolute Bio Bounds Guarding
         if (ch == AppChannel::LAMP && std::isfinite(temp_air)) {
             if (temp_air >= config::hardware::ThTOP) {
                 // Over-temp: Turn OFF heating lamp and Lock for 5 minutes (300,000ms)
@@ -120,7 +132,7 @@ void SystemProtector::update(
             }
         }
 
-        // Priority 3: Normal checking and continuous limit (3-minute ON -> 30s OFF cooldown)
+        // Priority 4: Normal checking and continuous limit (3-minute ON -> 30s OFF cooldown)
         bool final_active = get_channel_state(relay_states, ch);
 
         if (final_active) {

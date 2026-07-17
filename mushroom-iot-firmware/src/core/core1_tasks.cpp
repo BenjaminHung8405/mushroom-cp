@@ -875,13 +875,14 @@ static void runControlPipelineStep(
         fuzzyEnabled,
         telemetry.temp_air,
         telemetry.humidity_air,
+        relay_control::isSafetyBlackoutActive(rtcTime),
         manualLatch,
         relayState
     );
 
-    // This is the final actuator boundary: SystemProtector may force Mist ON
-    // for low humidity, so apply the non-bypassable blackout after every other
-    // policy and immediately before physical relay writes.
+    // Defense in depth at the final GPIO boundary. The interlock already ran
+    // inside SystemProtector before duty-cycle/bio-bound rules; reapplying it
+    // here guarantees a later policy change cannot energize Mist.
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 

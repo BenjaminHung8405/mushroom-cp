@@ -190,7 +190,6 @@ void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod& outputs,
     const RtcTimePod& rtcTime) {
     if (isSafetyBlackoutActive(rtcTime)) {
-        outputs.HWat = 0.0f;
         outputs.Mist = 0.0f;
     }
 }

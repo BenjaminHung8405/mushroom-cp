@@ -53,10 +53,10 @@ struct RelayStatePod {
     bool fan_active;
 } __attribute__((aligned(4)));
 
-/** True when the edge must enforce the non-bypassable Mist/HWat safety interlock. */
+/** True when the edge must enforce the non-bypassable Mist safety interlock. */
 bool isSafetyBlackoutActive(const RtcTimePod &rtcTime);
 
-/** Forces water heating and mist OFF when the safety interlock is active. */
+/** Forces Mist OFF when the safety interlock is active. */
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod &outputs,
     const RtcTimePod &rtcTime);

@@ -64,9 +64,6 @@ ManualDecision evaluateSafetyGate(
         return ManualDecision::Accepted;
     }
     else if (request.channel == AppChannel::HWAT) {
-        if (relay_control::isSafetyBlackoutActive(rtcTime)) {
-            return ManualDecision::RejectedBlackout;
-        }
         return ManualDecision::Accepted;
     }
 
@@ -121,25 +118,22 @@ void autoClearOnSensorViolation(
     const Trajectory::SetpointPod &setpoints,
     const relay_control::RtcTimePod &rtcTime)
 {
-    size_t mistIdx = static_cast<size_t>(AppChannel::MIST);
-    if (latch[mistIdx].active && latch[mistIdx].forced_state == AppIntent::FORCE_ON) {
-        if (!std::isfinite(telemetry.humidity_air) ||
-            telemetry.humidity_air >= MIST_WARNING_LIMIT_RH ||
-            relay_control::isSafetyBlackoutActive(rtcTime))
-        {
-            latch[mistIdx].active = false;
-            latch[mistIdx].forced_state = AppIntent::AUTO;
-            latch[mistIdx].expires_ms = 0;
-        }
+    const size_t mistIdx = static_cast<size_t>(AppChannel::MIST);
+    // A safety blackout invalidates every Mist latch, including FORCE_OFF.
+    // This lets Core 1 emit the normal release acknowledgement and erase the
+    // persisted override before SystemProtector reaches the physical relay.
+    const bool mistBlackout = relay_control::isSafetyBlackoutActive(rtcTime);
+    if (latch[mistIdx].active &&
+        (mistBlackout ||
+         (latch[mistIdx].forced_state == AppIntent::FORCE_ON &&
+          (!std::isfinite(telemetry.humidity_air) ||
+           telemetry.humidity_air >= MIST_WARNING_LIMIT_RH))))
+    {
+        latch[mistIdx].active = false;
+        latch[mistIdx].forced_state = AppIntent::AUTO;
+        latch[mistIdx].expires_ms = 0;
     }
 
-    const size_t hwatIdx = static_cast<size_t>(AppChannel::HWAT);
-    if (latch[hwatIdx].active && latch[hwatIdx].forced_state == AppIntent::FORCE_ON &&
-        relay_control::isSafetyBlackoutActive(rtcTime)) {
-        latch[hwatIdx].active = false;
-        latch[hwatIdx].forced_state = AppIntent::AUTO;
-        latch[hwatIdx].expires_ms = 0;
-    }
 
     size_t lampIdx = static_cast<size_t>(AppChannel::LAMP);
     if (latch[lampIdx].active && latch[lampIdx].forced_state == AppIntent::FORCE_ON) {

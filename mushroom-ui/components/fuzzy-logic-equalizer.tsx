@@ -919,7 +919,7 @@ export function FuzzyLogicEqualizer() {
             <div className="flex flex-col gap-1.5">
               <h4 className="font-semibold text-foreground text-xs sm:text-sm">Khóa an toàn tại ESP32</h4>
               <p className="text-[10px] sm:text-xs text-muted-foreground">
-                11:00–13:30 (Asia/Ho_Chi_Minh): Mist và gia nhiệt nước bị tắt; không thể thay đổi từ ứng dụng.
+                11:00–13:30 (Asia/Ho_Chi_Minh): Edge cưỡng bức tắt Máy phun sương; không thể thay đổi từ ứng dụng.
               </p>
             </div>
           </div>
@@ -929,9 +929,9 @@ export function FuzzyLogicEqualizer() {
           }`}>
             <Lock className="w-4 h-4" />
             <span>{middayBlackoutActive === true
-              ? 'Đang trong giờ cấm — kích hoạt bởi Edge'
+              ? 'ĐANG KHÓA BƠM'
               : middayBlackoutActive === false
-                ? 'ESP32 đang giám sát — ngoài giờ cấm'
+                ? 'HỆ THỐNG SẴN SÀNG'
                 : 'Chưa xác minh từ ESP32'}</span>
           </div>
         </div>

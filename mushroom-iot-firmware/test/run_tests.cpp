@@ -1499,17 +1499,17 @@ int main() {
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 31U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
-        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
 
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.
@@ -2285,18 +2285,18 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
-        // Hard blackout rejects HWat and clears a pre-existing FORCE_ON latch.
+        // Blackout only gates Mist; HWAT remains independently controllable.
         {
             relay_control::RtcTimePod blackoutTime{true, 12U, 0U};
             ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL };
             assert(manual::evaluateSafetyGate(hwatReq, telemetry, setpoints, blackoutTime, cropDay) ==
-                   ManualDecision::RejectedBlackout);
+                   ManualDecision::Accepted);
             manual::ManualLatchArray latch{};
-            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 0U};
+            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_OFF, 0U};
             latch[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
             manual::autoClearOnSensorViolation(latch, telemetry, setpoints, blackoutTime);
             assert(!latch[static_cast<size_t>(AppChannel::MIST)].active);
-            assert(!latch[static_cast<size_t>(AppChannel::HWAT)].active);
+            assert(latch[static_cast<size_t>(AppChannel::HWAT)].active);
         }
 
         // S2-G4: Test gate Lamp block khi temp=setpoint+4
@@ -2893,12 +2893,12 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms = 50000UL;
 
         // Fuzzy enabled is true, so no transition yet
-        sys_protector.update(1000UL, true, 25.0f, 70.0f, latches, states);
+        sys_protector.update(1000UL, true, 25.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
 
         // Transition: fuzzy_enabled goes false -> immediate cutoff and override clear
-        sys_protector.update(2000UL, false, 25.0f, 70.0f, latches, states);
+        sys_protector.update(2000UL, false, 25.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == false);
         assert(states.mist_active == false);
         assert(states.fan_active == false);
@@ -2911,27 +2911,27 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
 
         // Over-Temp (36C >= ThTOP) -> Lamp forced OFF and locked in cooldown for 5 mins
-        sys_protector.update(1000UL, true, 36.0f, 70.0f, latches, states);
+        sys_protector.update(1000UL, true, 36.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // Attempting to turn Lamp ON during 5-minute cooldown (at 2 mins) must fail
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(121000UL, true, 25.0f, 70.0f, latches, states);
+        sys_protector.update(121000UL, true, 25.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // After cooldown expires (5 minutes + 1s = 301,000ms elapsed) -> Lamp can turn ON again
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(302000UL, true, 25.0f, 70.0f, latches, states);
+        sys_protector.update(302000UL, true, 25.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
         // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked in cooldown for 10 mins
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(303000UL, true, 25.0f, 81.0f, latches, states);
+        sys_protector.update(303000UL, true, 25.0f, 81.0f, false, latches, states);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
@@ -2940,7 +2940,7 @@ int main() {
         // over-humidity does NOT override the forced-OFF from this assertion.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(543000UL, true, 25.0f, 85.0f, latches, states);
+        sys_protector.update(543000UL, true, 25.0f, 85.0f, false, latches, states);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
@@ -2951,7 +2951,7 @@ int main() {
         sys_protector.reset();
         relay_control::RelayStatePod s2 = {true, true, true, true};
         manual::ManualLatchArray l2{};
-        sys_protector.update(904000UL, true, 25.0f, 70.0f, l2, s2);
+        sys_protector.update(904000UL, true, 25.0f, 70.0f, false, l2, s2);
         assert(s2.mist_active == true);
 
         // 41.5 Priority 1 Bio Bounds (Under-Limit Force ON)
@@ -2961,12 +2961,24 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].forced_state = AppIntent::FORCE_OFF;
 
         // Under-temp (28C <= ThBOT) -> Lamp is forced ON, ignoring the manual FORCE_OFF override
-        sys_protector.update(1000UL, true, 28.0f, 70.0f, latches, states);
+        sys_protector.update(1000UL, true, 28.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
-        // Under-humidity (64% <= HmBOT) -> Mist is forced ON
+        // Midday/fail-safe blackout runs before bio bounds: low humidity cannot
+        // re-enable Mist, and its manual latch is released while HWAT is untouched.
+        states.mist_active = true;
+        states.hwat_active = true;
+        latches[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 0U};
+        latches[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
+        sys_protector.update(1500UL, true, 30.0f, 64.0f, true, latches, states);
+        assert(states.mist_active == false);
+        assert(states.hwat_active == true);
+        assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
+        assert(latches[static_cast<size_t>(AppChannel::HWAT)].active == true);
+
+        // Under-humidity (64% <= HmBOT) -> Mist is forced ON outside blackout
         states.mist_active = false;
-        sys_protector.update(2000UL, true, 30.0f, 64.0f, latches, states);
+        sys_protector.update(2000UL, true, 30.0f, 64.0f, false, latches, states);
         assert(states.mist_active == true);
 
         // 41.6 Priority 3 time-based limits (3-minute continuous ON -> 30s OFF cooldown)
@@ -2974,28 +2986,28 @@ int main() {
         states = {true, true, true, true};
 
         // Start tracking Lamp ON time
-        sys_protector.update(1000UL, true, 30.0f, 70.0f, latches, states);
+        sys_protector.update(1000UL, true, 30.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
         // Lamp remains ON for 2.9 minutes
-        sys_protector.update(179000UL, true, 30.0f, 70.0f, latches, states);
+        sys_protector.update(179000UL, true, 30.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
         // Lamp exceeds 3 minutes ON (180s) -> forced OFF and locked for 30s
-        sys_protector.update(182000UL, true, 30.0f, 70.0f, latches, states);
+        sys_protector.update(182000UL, true, 30.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == false);
 
         // Attempting to turn Lamp ON during 30s cooldown must fail
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(192000UL, true, 30.0f, 70.0f, latches, states);
+        sys_protector.update(192000UL, true, 30.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // After 30s cooldown passes, Lamp can turn ON again
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(213000UL, true, 30.0f, 70.0f, latches, states);
+        sys_protector.update(213000UL, true, 30.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
         // 41.7 Active-LOW Output Mapping Verifications

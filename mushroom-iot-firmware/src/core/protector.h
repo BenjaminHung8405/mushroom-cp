@@ -31,6 +31,7 @@ public:
         bool fuzzy_enabled,
         float temp_air,
         float humidity_air,
+        bool mist_blackout_active,
         manual::ManualLatchArray& manual_latches,
         relay_control::RelayStatePod& relay_states
     );
