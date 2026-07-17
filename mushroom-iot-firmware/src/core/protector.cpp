@@ -68,18 +68,9 @@ void SystemProtector::update(
         has_previous_fuzzy_mode = true;
     }
 
-    // Priority 0: AON -> AOFF transition. Manual state and every relay must
-    // be cleared synchronously before any later control stage can use them.
-    if (prev_fuzzy_enabled && !fuzzy_enabled) {
-        for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
-            set_channel_state(relay_states, static_cast<AppChannel>(i), false);
-            clearManualLatch(manual_latches[i]);
-            states[i].is_on = false;
-            states[i].on_start_ms = 0;
-        }
-        prev_fuzzy_enabled = fuzzy_enabled;
-        return;
-    }
+    // Mode transitions are atomically applied by Core 1 before this method.
+    // Do not clear relays or latches here: that would race policy ownership and
+    // violates the Fuzzy ON -> OFF bumpless-transfer requirement.
     prev_fuzzy_enabled = fuzzy_enabled;
 
     // 2. Process each channel
@@ -90,7 +81,11 @@ void SystemProtector::update(
         // Priority 1: Cooldown / Forced-OFF Lock
         if (isLockActive(now, state.lock_until_ms)) {
             set_channel_state(relay_states, ch, false);
-            clearManualLatch(manual_latches[i]);
+            // A persistent Fuzzy-OFF FORCE_ON remains an operator intent while
+            // the relay cools down, so it can be safely reconsidered later.
+            if (fuzzy_enabled || manual_latches[i].forced_state != AppIntent::FORCE_ON) {
+                clearManualLatch(manual_latches[i]);
+            }
             state.is_on = false;
             state.on_start_ms = 0;
             continue; // Force override, bypass bio rule ON checks
@@ -136,7 +131,12 @@ void SystemProtector::update(
                 if (now - state.on_start_ms >= config::hardware::MAX_ON_DURATION_MS) { // 3 minutes ON
                     // Force OFF and Lock for 30s (30,000ms)
                     set_channel_state(relay_states, ch, false);
-                    clearManualLatch(manual_latches[i]);
+                    // Persistent Fuzzy-OFF FORCE_ON survives the cooldown and is
+                    // reevaluated after the lock expires. Timed Fuzzy-ON latches
+                    // are released as before.
+                    if (fuzzy_enabled || manual_latches[i].forced_state != AppIntent::FORCE_ON) {
+                        clearManualLatch(manual_latches[i]);
+                    }
                     state.lock_until_ms = now + config::hardware::COOLDOWN_DURATION_MS;
                     state.is_on = false;
                     state.on_start_ms = 0;

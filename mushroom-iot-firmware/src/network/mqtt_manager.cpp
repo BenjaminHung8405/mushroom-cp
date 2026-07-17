@@ -491,7 +491,7 @@ void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& te
     root["device_id"] = device_id_;
     root["sequence_number"] = ++sequence_number_;
     root["uptime_sec"] = millis() / 1000UL;
-    root["operating_mode"] = config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI ? "AI" : "MANUAL";
+    root["operating_mode"] = getOperatingModeSnapshot() == config::OperatingMode::AI ? "AI" : "MANUAL";
     JsonObject readings = root.createNestedObject("readings");
     if (std::isnan(telemetry.temp_air)) readings["temperature_celsius"] = nullptr;
     else readings["temperature_celsius"] = telemetry.temp_air;
@@ -782,15 +782,23 @@ void MqttManager::executeOperatingModeCommand(JsonObject root, String command_id
         return;
     }
 
-    if (!storage::StorageManager::get_instance().save_operating_mode(static_cast<uint8_t>(nextMode))) {
+    // Core 1 owns mode, latches and relay arbitration. MQTT only validates and
+    // enqueues a fixed-size event so a transition cannot tear a control tick.
+    if (!queueOperatingModeToCore1(nextMode, command_id, started_ms)) {
         publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
-                          "PERSISTENCE_FAILED", "Unable to persist operating mode");
-        return;
+                          "CONTROL_QUEUE_FULL", "Core 1 control queue is full; retry the command");
     }
-    config::GLOBAL_OPERATING_MODE = nextMode;
-    setSharedForceFullPublish(true);
-    publishCommandAck(const_cast<char*>(command_id.c_str()), "SUCCESS", millis() - started_ms,
-                      nullptr, false, nullptr, nullptr);
+}
+
+bool MqttManager::queueOperatingModeToCore1(
+    config::OperatingMode mode, const String& command_id, unsigned long received_ms)
+{
+    ControlEvent event{};
+    event.type = ControlEventType::OperatingMode;
+    event.mode = static_cast<uint8_t>(mode);
+    event.received_ms = received_ms;
+    strncpy(event.command_id, command_id.c_str(), sizeof(event.command_id) - 1U);
+    return enqueueControlEvent(event);
 }
 
 void MqttManager::executeRelayCommand(JsonObject params, String command_id, uint32_t issue_epoch_s)
@@ -821,7 +829,7 @@ void MqttManager::executeRelayCommand(JsonObject params, String command_id, uint
     const bool requested_on = sameText(state, "ON");
     if (!queueRelayToCore1(pin, requested_on)) {
         publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, relay_id, false,
-                          "CONTROL_QUEUE_UNAVAILABLE", "Core 1 control queue is unavailable or full");
+                          "CONTROL_QUEUE_FULL", "Core 1 control queue is full; retry the command");
         return;
     }
 
@@ -851,10 +859,14 @@ bool MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
     else if (pin == config::pins::PIN_RELAY_LAMP) request.channel = AppChannel::LAMP;
     else if (pin == config::pins::PIN_RELAY_HWAT) request.channel = AppChannel::HWAT;
     else supported = false;
-    if (!supported || g_mqtt_override_queue == nullptr) return false;
+    if (!supported) return false;
     request.intent = activate ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
     request.request_ms = millis();
-    return xQueueSend(g_mqtt_override_queue, &request, 0) == pdTRUE;
+    ControlEvent event{};
+    event.type = ControlEventType::ManualRequest;
+    event.manual = request;
+    event.received_ms = request.request_ms;
+    return enqueueControlEvent(event);
 }
 
 bool MqttManager::resolveManualAck(const ManualAck& ack)
@@ -979,7 +991,7 @@ bool MqttManager::publishCommandAck(char* command_id, const char* status,
         JsonObject error = doc.createNestedObject("error");
         error["code"] = error_code;
         error["message"] = error_message == nullptr ? "Command failed" : error_message;
-        error["retry_eligible"] = false;
+        error["retry_eligible"] = sameText(error_code, "CONTROL_QUEUE_FULL");
     }
     String payload;
     serializeJson(doc, payload);

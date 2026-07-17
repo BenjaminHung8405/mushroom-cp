@@ -65,6 +65,35 @@ static void drainManualAckQueue()
     }
 }
 
+static void drainOperatingModeAckQueue()
+{
+    static bool has_pending_ack = false;
+    static OperatingModeAck pending_ack{};
+
+    if (!has_pending_ack && g_operating_mode_ack_queue != nullptr &&
+        xQueueReceive(g_operating_mode_ack_queue, &pending_ack, 0) == pdTRUE)
+    {
+        has_pending_ack = true;
+    }
+
+    if (!has_pending_ack) return;
+
+    mqtt::MqttManager& manager = mqtt::MqttManager::getInstance();
+    if (!manager.isConnected()) return;
+
+    const bool published = manager.publishCommandAck(
+        pending_ack.command_id,
+        pending_ack.success ? "SUCCESS" : "FAILED",
+        pending_ack.latency_ms,
+        nullptr,
+        false,
+        pending_ack.success ? nullptr : pending_ack.error_code,
+        pending_ack.success ? nullptr : pending_ack.error_message);
+    if (published) {
+        has_pending_ack = false;
+    }
+}
+
 static void processWebServer()
 {
 #ifndef UNIT_TEST
@@ -212,9 +241,10 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 4. Drain telemetry queue from Core 1
         drainTelemetryQueue(last_known_telemetry);
 
-        // 4b. Forward manual ACKs independently of the telemetry interval.
-        // A pending ACK is retained locally until MQTT accepts it after reconnect.
+        // 4b. Forward Core-1 authoritative acknowledgements independently of
+        // telemetry. Pending ACKs survive network recovery on Core 0.
         drainManualAckQueue();
+        drainOperatingModeAckQueue();
 
         // 5. Publish after Core 1 has produced a final relay-state snapshot. This
         // is deliberately not driven by ManualAck: an ACK only confirms a request;

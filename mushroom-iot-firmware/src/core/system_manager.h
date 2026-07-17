@@ -20,6 +20,7 @@ typedef void* EventGroupHandle_t;
 #endif
 
 #include "core/models.h"
+#include "config.h"
 
 // Wifi Event Bits for multi-core synchronization
 #define WIFI_CONNECTED_BIT          (1 << 0)
@@ -43,6 +44,9 @@ extern TaskHandle_t hTaskHWButton;
 bool getSharedForceFullPublish();
 bool consumeSharedForceFullPublish();
 void setSharedForceFullPublish(bool val);
+
+/** Returns Core-1-owned operating-mode mirror for telemetry serialization. */
+config::OperatingMode getOperatingModeSnapshot();
 
 enum class ControlSource : uint8_t {
     SafeOffline,
@@ -161,17 +165,28 @@ extern QueueHandle_t xActuatorOverrideQueue;
 /**
  * @brief Handle for the FreeRTOS queue carrying manual requests (Core 0/buttons to Core 1).
  */
-extern QueueHandle_t g_manual_request_queue;
-
 /**
- * @brief Handle for the FreeRTOS queue carrying manual/MQTT overrides (Core 0/MQTT to Core 1).
+ * @brief Unified, non-blocking Core 0 -> Core 1 control event queue.
+ * Core 1 drains this FIFO at the beginning of each control tick.
  */
+extern QueueHandle_t g_control_event_queue;
+
+/** Enqueue a control event without blocking. Returns false when the queue is full. */
+bool enqueueControlEvent(const ControlEvent& event);
+
+// Deprecated test-only compatibility handles. They are never consumed by the
+// production pipeline; all real producers use g_control_event_queue.
+extern QueueHandle_t g_manual_request_queue;
 extern QueueHandle_t g_mqtt_override_queue;
+
 
 /**
  * @brief Handle for the FreeRTOS queue carrying manual acks (Core 1 to Core 0).
  */
 extern QueueHandle_t g_manual_ack_queue;
+
+/** Core 1 -> Core 0 operating-mode command acknowledgements. */
+extern QueueHandle_t g_operating_mode_ack_queue;
 
 /**
  * @brief Handle for the FreeRTOS queue carrying complete validated crop profiles from Core 0 to Core 1.

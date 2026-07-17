@@ -35,11 +35,24 @@ QueueHandle_t xTelemetryQueue = nullptr;
 QueueHandle_t xBaselineQueue  = nullptr;
 QueueHandle_t xOverrideQueue  = nullptr;
 QueueHandle_t xActuatorOverrideQueue = nullptr;
-QueueHandle_t g_manual_request_queue = nullptr;
-QueueHandle_t g_mqtt_override_queue = nullptr;
+QueueHandle_t g_control_event_queue = nullptr;
+QueueHandle_t g_manual_request_queue = nullptr; // deprecated compatibility only
+QueueHandle_t g_mqtt_override_queue = nullptr; // deprecated compatibility only
 QueueHandle_t g_manual_ack_queue = nullptr;
+QueueHandle_t g_operating_mode_ack_queue = nullptr;
 QueueHandle_t g_profile_update_queue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
+
+bool enqueueControlEvent(const ControlEvent& event)
+{
+    return g_control_event_queue != nullptr &&
+           xQueueSend(g_control_event_queue, &event, 0) == pdTRUE;
+}
+
+config::OperatingMode getOperatingModeSnapshot()
+{
+    return config::GLOBAL_OPERATING_MODE;
+}
 
 volatile bool shared_forceFullPublish = false;
 static PersistedCropProfile activeProfile;
@@ -517,6 +530,133 @@ static void updateWebInterfaceState(
     updateSharedSystemState(localState);
 }
 
+namespace {
+
+void enqueueManualAck(const ManualAck& ack)
+{
+    if (g_manual_ack_queue != nullptr) {
+        (void)xQueueSend(g_manual_ack_queue, &ack, 0);
+    }
+}
+
+void enqueueOperatingModeAck(const OperatingModeAck& ack)
+{
+    if (g_operating_mode_ack_queue != nullptr) {
+        (void)xQueueSend(g_operating_mode_ack_queue, &ack, 0);
+    }
+}
+
+void clearAllManualOverrides(manual::ManualLatchArray& manualLatch)
+{
+    manual::resetAllManualLatchesOnAOffTransition(manualLatch);
+    for (size_t i = 0; i < manualLatch.size(); ++i) {
+        const AppChannel channel = static_cast<AppChannel>(i);
+        storage::CropProfileStorage::getInstance().clearManualOverride(channel);
+        if (channel == AppChannel::MIST || channel == AppChannel::FAN ||
+            channel == AppChannel::LAMP) {
+            cabinet_buttons::notify_latch_released(channel);
+        }
+    }
+}
+
+void applyManualControlEvent(
+    const ManualRequest& request,
+    uint32_t now,
+    bool fuzzyEnabled,
+    manual::ManualLatchArray& manualLatch,
+    const TelemetryData& telemetry,
+    const Trajectory::SetpointPod& setpoints)
+{
+    const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
+    const ManualDecision decision = manual::evaluateSafetyGate(
+        request, telemetry, setpoints, rtcTime, getCurrentCropDay());
+
+    ManualAck ack{};
+    ack.channel = request.channel;
+    ack.requested_intent = request.intent;
+    ack.decision = decision;
+    ack.release_reason = ManualReleaseReason::None;
+    ack.time_confidence = time_conf::getTimeConfidence();
+    ack.ack_ms = now;
+
+    const size_t index = static_cast<size_t>(request.channel);
+    if (decision == ManualDecision::Accepted) {
+        manual::updateLatchOnAccepted(request, now, manualLatch, fuzzyEnabled);
+        ack.effective_intent = request.intent;
+        ack.expires_ms = index < manualLatch.size() ? manualLatch[index].expires_ms : 0U;
+    } else if (index < manualLatch.size() && manualLatch[index].active) {
+        ack.effective_intent = manualLatch[index].forced_state;
+        ack.expires_ms = manualLatch[index].expires_ms;
+    } else {
+        ack.effective_intent = AppIntent::AUTO;
+        ack.expires_ms = 0U;
+    }
+    enqueueManualAck(ack);
+}
+
+void applyOperatingModeControlEvent(
+    const ControlEvent& event,
+    uint32_t now,
+    manual::ManualLatchArray& manualLatch)
+{
+    OperatingModeAck ack{};
+    strncpy(ack.command_id, event.command_id, sizeof(ack.command_id) - 1U);
+    ack.latency_ms = now - event.received_ms;
+
+    const bool validMode = event.mode == static_cast<uint8_t>(config::OperatingMode::AI) ||
+                           event.mode == static_cast<uint8_t>(config::OperatingMode::MANUAL);
+    if (!validMode) {
+        ack.success = false;
+        strncpy(ack.error_code, "INVALID_OPERATING_MODE", sizeof(ack.error_code) - 1U);
+        strncpy(ack.error_message, "mode must be AI or MANUAL", sizeof(ack.error_message) - 1U);
+        enqueueOperatingModeAck(ack);
+        return;
+    }
+
+    const config::OperatingMode nextMode = static_cast<config::OperatingMode>(event.mode);
+    const config::OperatingMode previousMode = config::GLOBAL_OPERATING_MODE;
+    if (!storage::StorageManager::get_instance().save_operating_mode(static_cast<uint8_t>(nextMode))) {
+        ack.success = false;
+        strncpy(ack.error_code, "PERSISTENCE_FAILED", sizeof(ack.error_code) - 1U);
+        strncpy(ack.error_message, "Unable to persist operating mode", sizeof(ack.error_message) - 1U);
+        enqueueOperatingModeAck(ack);
+        return;
+    }
+
+    // Core 1 is the sole writer. Re-entering Fuzzy ON releases persistent
+    // Fuzzy-OFF latches, while ON -> OFF deliberately keeps the final state.
+    config::GLOBAL_OPERATING_MODE = nextMode;
+    if (previousMode == config::OperatingMode::MANUAL &&
+        nextMode == config::OperatingMode::AI) {
+        clearAllManualOverrides(manualLatch);
+    }
+    setSharedForceFullPublish(true);
+    ack.success = true;
+    enqueueOperatingModeAck(ack);
+}
+
+void drainControlEvents(
+    uint32_t now,
+    const TelemetryData& telemetry,
+    const Trajectory::SetpointPod& setpoints,
+    manual::ManualLatchArray& manualLatch)
+{
+    if (g_control_event_queue == nullptr) return;
+
+    ControlEvent event{};
+    while (xQueueReceive(g_control_event_queue, &event, 0) == pdTRUE) {
+        if (event.type == ControlEventType::OperatingMode) {
+            applyOperatingModeControlEvent(event, now, manualLatch);
+        } else if (event.type == ControlEventType::ManualRequest) {
+            const bool fuzzyEnabled = config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI &&
+                                      config::FUZZY_CONTROL_ENABLED;
+            applyManualControlEvent(event.manual, now, fuzzyEnabled, manualLatch, telemetry, setpoints);
+        }
+    }
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // FreeRTOS task entry point — pinned to Core 1
 // ---------------------------------------------------------------------------
@@ -666,26 +806,11 @@ static void runControlPipelineStep(
     const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
         tunerState, errorTemp, errorHumid, dtSeconds);
 
-    // MANUAL -> AI must release any still-valid user latch before Fuzzy gets
-    // its first tick back. Relay arbitration remains exclusively on Core 1.
-    static config::OperatingMode previousOperatingMode = config::OperatingMode::AI;
+    // All cross-core commands are applied by this Core-1-owned FIFO before
+    // constructing the tick's base demand or entering SystemProtector.
+    drainControlEvents(now, telemetry, setpoints, manualLatch);
+
     const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
-    if (previousOperatingMode == config::OperatingMode::MANUAL &&
-        operatingMode == config::OperatingMode::AI)
-    {
-        manual::resetAllManualLatchesOnAOffTransition(manualLatch);
-        for (size_t i = 0; i < manualLatch.size(); ++i)
-        {
-            const AppChannel channel = static_cast<AppChannel>(i);
-            storage::CropProfileStorage::getInstance().clearManualOverride(channel);
-            if (channel == AppChannel::MIST || channel == AppChannel::FAN ||
-                channel == AppChannel::LAMP)
-            {
-                cabinet_buttons::notify_latch_released(channel);
-            }
-        }
-    }
-    previousOperatingMode = operatingMode;
 
     FuzzyController::ArbitratedOutputsPod outputs;
     const bool fuzzyEnabled = config::FUZZY_CONTROL_ENABLED &&
@@ -699,9 +824,8 @@ static void runControlPipelineStep(
     }
     else
     {
-        // Bumpless MANUAL transfer: reuse the final, protector-resolved state
-        // from the preceding Core 1 tick. Later manual latches may override a
-        // channel, but hardware protection and SystemProtector still win.
+        // Fuzzy OFF retains the preceding final state as the base demand;
+        // manual latches and the protector still arbitrate every relay.
         outputs = {
             relayState.lamp_active ? 1.0f : 0.0f,
             relayState.hwat_active ? 1.0f : 0.0f,
@@ -709,64 +833,6 @@ static void runControlPipelineStep(
             relayState.fan_active ? 1.0f : 0.0f,
         };
     }
-
-    // pipeline: baseline → override → fuzzy → tuner → arbitrate → manual latch → protection → direct ON/OFF
-
-    // E2: Drain the two manual override queues: g_manual_request_queue and g_mqtt_override_queue
-    auto drainManualQueue = [&](QueueHandle_t q) {
-        if (q != nullptr) {
-            ManualRequest req;
-            while (xQueueReceive(q, &req, 0) == pdTRUE) {
-                uint16_t cropDay = getCurrentCropDay();
-                const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
-                ManualDecision decision = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
-                
-                if (decision == ManualDecision::Accepted) {
-                    manual::updateLatchOnAccepted(req, now, manualLatch, fuzzyEnabled);
-                    if (time_conf::getTimeConfidence() == TimeConfidence::Trusted) {
-                        PersistedManualOverride ovr{};
-                        ovr.intent = req.intent;
-                        ovr.expires_epoch_s = (req.intent == AppIntent::AUTO) ? 0 : (static_cast<uint32_t>(time(nullptr)) + 900);
-                        storage::CropProfileStorage::getInstance().saveManualOverride(req.channel, ovr);
-                    }
-                    ManualAck ack;
-                    ack.channel = req.channel;
-                    ack.requested_intent = req.intent;
-                    ack.decision = ManualDecision::Accepted;
-                    ack.effective_intent = req.intent;
-                    ack.release_reason = ManualReleaseReason::None;
-                    ack.time_confidence = time_conf::getTimeConfidence();
-                    ack.expires_ms = manualLatch[static_cast<size_t>(req.channel)].expires_ms;
-                    ack.ack_ms = now;
-                    if (g_manual_ack_queue != nullptr) {
-                        xQueueSend(g_manual_ack_queue, &ack, 0);
-                    }
-                } else {
-                    ManualAck ack;
-                    ack.channel = req.channel;
-                    ack.requested_intent = req.intent;
-                    ack.decision = decision;
-                    size_t idx = static_cast<size_t>(req.channel);
-                    if (idx < manualLatch.size() && manualLatch[idx].active) {
-                        ack.effective_intent = manualLatch[idx].forced_state;
-                        ack.expires_ms = manualLatch[idx].expires_ms;
-                    } else {
-                        ack.effective_intent = AppIntent::AUTO;
-                        ack.expires_ms = 0;
-                    }
-                    ack.release_reason = ManualReleaseReason::None;
-                    ack.time_confidence = time_conf::getTimeConfidence();
-                    ack.ack_ms = now;
-                    if (g_manual_ack_queue != nullptr) {
-                        xQueueSend(g_manual_ack_queue, &ack, 0);
-                    }
-                }
-            }
-        }
-    };
-
-    drainManualQueue(g_manual_request_queue);
-    drainManualQueue(g_mqtt_override_queue);
 
     // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
     uint16_t cropDay = getCurrentCropDay();
@@ -781,7 +847,8 @@ static void runControlPipelineStep(
         if (prevLatch[i].active && !manualLatch[i].active) {
             storage::CropProfileStorage::getInstance().clearManualOverride(static_cast<AppChannel>(i));
             ManualReleaseReason reason = ManualReleaseReason::None;
-            if (static_cast<int32_t>(now - prevLatch[i].expires_ms) >= 0) {
+            if (prevLatch[i].expires_ms != 0U &&
+                static_cast<int32_t>(now - prevLatch[i].expires_ms) >= 0) {
                 reason = ManualReleaseReason::TTLExpired;
             } else {
                 reason = ManualReleaseReason::SafetyLimitReached;
@@ -889,6 +956,15 @@ void taskCore1Control(void* /*pvParameters*/)
     sensors::init_sensors_placeholder();
     actuators::init_actuators_gpio();
 
+    // Core 1 owns the mode mirror from initialization onward.
+    uint8_t persistedMode = static_cast<uint8_t>(config::OperatingMode::AI);
+    if (storage::StorageManager::get_instance().load_operating_mode(persistedMode) &&
+        persistedMode == static_cast<uint8_t>(config::OperatingMode::MANUAL)) {
+        config::GLOBAL_OPERATING_MODE = config::OperatingMode::MANUAL;
+    } else {
+        config::GLOBAL_OPERATING_MODE = config::OperatingMode::AI;
+    }
+
     // Load persisted crop profile once on boot
     hasActiveProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
     if (hasActiveProfile) {
@@ -924,34 +1000,9 @@ void taskCore1Control(void* /*pvParameters*/)
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     manual::ManualLatchArray manualLatch{};
     
-    // Restore manual overrides from NVS
-    {
-        time_t now_epoch_s = time(nullptr);
-        TimeConfidence tc = time_conf::getTimeConfidence();
-        for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
-            AppChannel ch = static_cast<AppChannel>(i);
-            PersistedManualOverride ovr{};
-            if (storage::CropProfileStorage::getInstance().loadManualOverride(ch, ovr)) {
-                if (tc == TimeConfidence::Uncertain) {
-                    manualLatch[i].active = false;
-                    manualLatch[i].forced_state = AppIntent::AUTO;
-                    manualLatch[i].expires_ms = 0;
-                    storage::CropProfileStorage::getInstance().clearManualOverride(ch);
-                } else {
-                    if (static_cast<uint32_t>(now_epoch_s) < ovr.expires_epoch_s) {
-                        manualLatch[i].active = true;
-                        manualLatch[i].forced_state = ovr.intent;
-                        uint32_t remaining_s = ovr.expires_epoch_s - static_cast<uint32_t>(now_epoch_s);
-                        manualLatch[i].expires_ms = millis() + (remaining_s * 1000);
-                    } else {
-                        manualLatch[i].active = false;
-                        manualLatch[i].forced_state = AppIntent::AUTO;
-                        manualLatch[i].expires_ms = 0;
-                        storage::CropProfileStorage::getInstance().clearManualOverride(ch);
-                    }
-                }
-            }
-        }
+    // Manual latches never survive reboot: relays start fail-safe OFF.
+    for (size_t i = 0; i < manualLatch.size(); ++i) {
+        storage::CropProfileStorage::getInstance().clearManualOverride(static_cast<AppChannel>(i));
     }
     unsigned long lastSensorMs = 0U;
     unsigned long lastControlMs = millis();

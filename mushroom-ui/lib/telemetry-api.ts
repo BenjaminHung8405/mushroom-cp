@@ -149,8 +149,8 @@ export function subscribeDeviceStatusStream(
 }
 
 /**
- * POST /api/backend/devices/:id/operating-mode — switches AI ↔ MANUAL.
- * Returns immediately; firmware persists and publishes full snapshot shortly.
+ * POST /api/backend/devices/:id/operating-mode — wire-compatible Fuzzy toggle
+ * (AI = Fuzzy ON, MANUAL = Fuzzy OFF). Firmware confirms via ACK/telemetry.
  */
 export async function postSetOperatingMode(
   deviceId: string,

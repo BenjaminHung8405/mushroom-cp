@@ -97,26 +97,18 @@ void initQueues()
                       static_cast<unsigned>(sizeof(ActuatorOverrideCommand)));
     }
 
-    g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
-    if (g_manual_request_queue == nullptr)
+    // One FIFO establishes the only Core 0 -> Core 1 ordering boundary for
+    // MQTT mode/relay commands and physical cabinet-button requests. Producers
+    // always use a zero wait time and drop a new event when this queue is full.
+    g_control_event_queue = xQueueCreate(8, sizeof(ControlEvent));
+    if (g_control_event_queue == nullptr)
     {
-        Serial.println("[MAIN] FATAL: Failed to create g_manual_request_queue!");
+        Serial.println("[MAIN] FATAL: Failed to create g_control_event_queue!");
     }
     else
     {
-        Serial.printf("[MAIN] g_manual_request_queue created (depth=8, item=%u bytes).\n",
-                      static_cast<unsigned>(sizeof(ManualRequest)));
-    }
-
-    g_mqtt_override_queue = xQueueCreate(8, sizeof(ManualRequest));
-    if (g_mqtt_override_queue == nullptr)
-    {
-        Serial.println("[MAIN] FATAL: Failed to create g_mqtt_override_queue!");
-    }
-    else
-    {
-        Serial.printf("[MAIN] g_mqtt_override_queue created (depth=8, item=%u bytes).\n",
-                      static_cast<unsigned>(sizeof(ManualRequest)));
+        Serial.printf("[MAIN] g_control_event_queue created (depth=8, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(ControlEvent)));
     }
 
     g_manual_ack_queue = xQueueCreate(8, sizeof(ManualAck));
@@ -128,6 +120,12 @@ void initQueues()
     {
         Serial.printf("[MAIN] g_manual_ack_queue created (depth=8, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ManualAck)));
+    }
+
+    g_operating_mode_ack_queue = xQueueCreate(8, sizeof(OperatingModeAck));
+    if (g_operating_mode_ack_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_operating_mode_ack_queue!");
     }
 
     g_profile_update_queue = xQueueCreate(1, sizeof(PersistedCropProfile));

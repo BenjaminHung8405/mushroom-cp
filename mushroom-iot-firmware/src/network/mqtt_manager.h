@@ -129,6 +129,8 @@ private:
     // Command dispatcher
     void dispatchCommand(JsonObject root);
     void executeOperatingModeCommand(JsonObject root, String command_id, unsigned long started_ms);
+    bool queueOperatingModeToCore1(config::OperatingMode mode, const String& command_id,
+                                   unsigned long received_ms);
     void executeBaselineSetpointCommand(JsonObject params, String command_id,
                                         unsigned long started_ms);
     void executeCropProfileCommand(JsonObject params, String command_id,

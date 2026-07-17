@@ -101,11 +101,12 @@ void updateLatchOnAccepted(
     } else {
         latch[idx].active = true;
         latch[idx].forced_state = req.intent;
-        // 30s TTL in AON, 3m (180s) TTL in AOFF
-        uint32_t ttl = fuzzy_enabled
-            ? config::hardware::MANUAL_LATCH_TTL_MS
-            : config::hardware::MANUAL_AOFF_LATCH_TTL_MS;
-        latch[idx].expires_ms = now + ttl;
+        // Fuzzy ON uses a bounded 30-second intervention. Fuzzy OFF keeps the
+        // manual intent until another command replaces it; the Protector still
+        // owns all bio-bound, cooldown, and maximum-runtime decisions.
+        latch[idx].expires_ms = fuzzy_enabled
+            ? now + config::hardware::MANUAL_LATCH_TTL_MS
+            : 0U;
     }
 }
 
@@ -114,7 +115,8 @@ void updateLatchDecay(
     uint32_t now)
 {
     for (size_t i = 0; i < latch.size(); ++i) {
-        if (latch[i].active) {
+        // expires_ms == 0 denotes a persistent Fuzzy-OFF manual command.
+        if (latch[i].active && latch[i].expires_ms != 0U) {
             if (static_cast<int32_t>(now - latch[i].expires_ms) >= 0) {
                 latch[i].active = false;
                 latch[i].forced_state = AppIntent::AUTO;

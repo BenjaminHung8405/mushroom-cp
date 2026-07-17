@@ -40,7 +40,7 @@ function ActuatorStatusRow({
     : state
       ? 'Tắt thiết bị'
       : 'Bật thiết bị'
-  const actionDisabled = unavailable || uninstalled || locked || mode !== 'MANUAL' || isPending
+  const actionDisabled = unavailable || uninstalled || locked || mode === null || isPending
 
   return (
     <div className={`p-4 rounded-lg border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
@@ -77,9 +77,9 @@ function ActuatorStatusRow({
         <button
           disabled={actionDisabled}
           onClick={onAction}
-          title={mode !== 'MANUAL' ? 'Chuyển sang Người dùng điều khiển để thao tác thiết bị.' : locked ? lockReason : actionLabel}
+          title={locked ? lockReason : actionLabel}
           className="min-w-28 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >{isPending ? 'Đang gửi...' : locked ? 'Khóa an toàn' : mode === 'AI' ? 'Đang tự động' : actionLabel}</button>
+        >{isPending ? 'Đang gửi...' : locked ? 'Khóa an toàn' : actionLabel}</button>
       </div>
     </div>
   )
@@ -103,7 +103,7 @@ export function StandardActuatorsControl({
   mistActive = null,
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot } = useRealTelemetry()
+  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot, mistAck, fanAck, lampAck } = useRealTelemetry()
   const cropDayInt = snapshot?.cropDayInt ?? 0
   const [showManualConfirm, setShowManualConfirm] = useState(false)
   const [modePending, setModePending] = useState(false)
@@ -133,7 +133,7 @@ export function StandardActuatorsControl({
   }
 
   const applyAction = async (actuator: 'fan' | 'lamp' | 'mist', state: EdgeState) => {
-    if (!monitoredDeviceId || state === null || operatingMode !== 'MANUAL') return
+    if (!monitoredDeviceId || state === null || operatingMode === null) return
     setActionPending(actuator)
     const result = await postActuatorOverride(monitoredDeviceId, actuator, !state)
     setActionPending(null)
@@ -141,7 +141,7 @@ export function StandardActuatorsControl({
   }
 
   const startAll = async () => {
-    if (!monitoredDeviceId || operatingMode !== 'MANUAL') return
+    if (!monitoredDeviceId || operatingMode === null) return
     setActionPending('all')
     const requests: Promise<{ success: boolean; message: string }>[] = []
     if (fanActive === false) requests.push(postActuatorOverride(monitoredDeviceId, 'fan', true))
@@ -162,7 +162,12 @@ export function StandardActuatorsControl({
     : humidityCurrent !== null && humidityCurrent >= 90
       ? 'Độ ẩm vượt giới hạn an toàn (90%)'
       : undefined
-  const manualMode = operatingMode === 'MANUAL'
+  const fuzzyEnabled = operatingMode === 'AI'
+  const isFuzzyOff = operatingMode === 'MANUAL'
+  const manualAcks = [mistAck, fanAck, lampAck]
+  const activeTimedAck = fuzzyEnabled
+    ? manualAcks.find((ack) => ack !== null && ack.expires_ms !== null && ack.expires_ms > Date.now()) ?? null
+    : null
 
   return (
     <Card className="p-6 border border-slate-700/50 bg-slate-950/40 relative">
@@ -171,17 +176,21 @@ export function StandardActuatorsControl({
           <h3 className="font-semibold text-foreground text-lg">Thiết bị trong phòng nấm</h3>
           <p className="text-xs text-muted-foreground mt-1">Trạng thái vật lý và nguồn điều khiển có hiệu lực.</p>
         </div>
-        <div className={`rounded-lg border px-3 py-2 text-xs ${manualMode ? 'border-amber-500/30 bg-amber-950/20' : 'border-cyan-500/30 bg-cyan-950/20'}`}>
-          <div className="font-bold text-foreground">{manualMode ? '🔌 Người dùng điều khiển' : '● Điều khiển bởi AI'}</div>
-          <div className="mt-0.5 text-muted-foreground">{manualMode ? 'Fuzzy Logic đã dừng; chỉ lệnh thủ công và bảo vệ có hiệu lực.' : 'Fuzzy Logic điều khiển relay trong giới hạn an toàn.'}</div>
+        <div className={`rounded-lg border px-3 py-2 text-xs ${isFuzzyOff ? 'border-amber-500/30 bg-amber-950/20' : 'border-cyan-500/30 bg-cyan-950/20'}`}>
+          <div className="font-bold text-foreground">{isFuzzyOff ? '🔌 Fuzzy Logic: OFF' : '● Fuzzy Logic: ON'}</div>
+          <div className="mt-0.5 text-muted-foreground">{isFuzzyOff ? 'Lệnh manual được giữ; Safety Protector vẫn có quyền ép bật/tắt, giới hạn 3 phút và cooldown.' : 'Fuzzy tạo output nền; lệnh manual đảo relay 30 giây rồi trả quyền cho Fuzzy. Safety Protector luôn có quyền chặn.'}</div>
           <div className="mt-2 flex gap-2">
-            {manualMode ? <>
-              <button onClick={() => void startAll()} disabled={actionPending !== null} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
-              <button onClick={() => void setOperatingMode('AI')} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">Bật lại AI</button>
-            </> : <button onClick={() => setShowManualConfirm(true)} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">Chuyển sang thủ công</button>}
+            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
+            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
           </div>
         </div>
       </div>
+
+      {activeTimedAck && (
+        <p className="mb-3 rounded border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-200">
+          Manual override đang có hiệu lực trong 30 giây; sau đó relay trả quyền cho Fuzzy Logic.
+        </p>
+      )}
 
       <div className="space-y-3">
         <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending === 'fan'} onAction={() => void applyAction('fan', fanActive)} />
@@ -193,11 +202,11 @@ export function StandardActuatorsControl({
       {showManualConfirm && (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/85 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-lg border border-amber-500/30 bg-slate-900 p-5 shadow-xl">
-            <h4 className="font-semibold text-foreground">Tắt Tự động hóa (AI)?</h4>
-            <p className="mt-2 text-sm text-slate-400">Bạn đang tắt Fuzzy Control. Các thiết bị sẽ ngừng vận hành ngay bây giờ. Sau đó bạn có thể khởi động từng thiết bị hoặc dùng nút “Khởi động tất cả”. Bảo vệ an toàn vẫn luôn có quyền tắt thiết bị.</p>
+            <h4 className="font-semibold text-foreground">Tắt Fuzzy Logic?</h4>
+            <p className="mt-2 text-sm text-slate-400">Fuzzy sẽ dừng tạo output nền. Relay giữ trạng thái hiện tại; lệnh manual sẽ được giữ cho đến lệnh mới. Safety Protector vẫn luôn có quyền ép bật/tắt để bảo vệ thiết bị và nấm.</p>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowManualConfirm(false)} className="rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Quay lại</button>
-              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt AI'}</button>
+              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
             </div>
           </div>
         </div>

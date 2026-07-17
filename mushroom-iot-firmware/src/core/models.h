@@ -81,6 +81,36 @@ struct ManualRequest {
     uint32_t   request_ms;  // millis() lúc phát request
 } __attribute__((aligned(4)));
 
+/**
+ * @brief Single Core 0/Core 1 control-plane event.
+ *
+ * Producers only enqueue this fixed-size POD. Core 1 is the sole owner of
+ * operating mode, manual latches, protection state, and physical relays.
+ */
+enum class ControlEventType : uint8_t {
+    ManualRequest = 0,
+    OperatingMode = 1,
+};
+
+struct ControlEvent {
+    ControlEventType type;
+    uint8_t mode;                 ///< config::OperatingMode value for OperatingMode events
+    uint16_t reserved;
+    ManualRequest manual;         ///< Valid only when type == ManualRequest
+    char command_id[37];          ///< MQTT UUID for an OperatingMode event; empty for a button
+    uint32_t received_ms;
+} __attribute__((aligned(4)));
+
+/** Core 1 -> Core 0 result for a queued operating-mode command. */
+struct OperatingModeAck {
+    char command_id[37];
+    bool success;
+    uint8_t reserved[2];
+    uint32_t latency_ms;
+    char error_code[24];
+    char error_message[64];
+} __attribute__((aligned(4)));
+
 // Payload từ Web UI qua MQTT override topic — cùng schema với ManualRequest.
 struct ActuatorOverridePayload {
     AppChannel channel;

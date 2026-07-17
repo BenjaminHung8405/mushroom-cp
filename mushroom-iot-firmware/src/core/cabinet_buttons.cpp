@@ -59,23 +59,34 @@ namespace cabinet_buttons
                     is_active = system_state.actuators.lamp_stage_active;
                 }
 
-                AppIntent intent_to_send = is_active ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
-                btn.next_intent = (intent_to_send == AppIntent::FORCE_ON) ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+                const AppIntent intent_to_send = is_active ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+                ControlEvent controlEvent{};
+                controlEvent.type = ControlEventType::ManualRequest;
+                controlEvent.manual.channel = btn.channel;
+                controlEvent.manual.intent = intent_to_send;
+                controlEvent.manual.request_ms = millis();
+                controlEvent.received_ms = controlEvent.manual.request_ms;
 
-                if (g_manual_request_queue != nullptr)
-                {
-                    ManualRequest req;
-                    req.channel = btn.channel;
-                    req.intent = intent_to_send;
-                    req.request_ms = millis();
-                    xQueueSend(g_manual_request_queue, &req, 0);
-                }
-
+                const bool queued = enqueueControlEvent(controlEvent);
                 ScopedSerialLock guard(SerialLock::get_instance());
-                Serial.printf("[BUTTON] Debounced PRESS on Channel %d → intent=%d (next=%d)\n",
-                              static_cast<int>(btn.channel),
-                              static_cast<int>(intent_to_send),
-                              static_cast<int>(btn.next_intent));
+                if (queued)
+                {
+                    // The physical final relay snapshot remains authoritative;
+                    // only advance button state after the non-blocking enqueue.
+                    btn.next_intent = (intent_to_send == AppIntent::FORCE_ON)
+                        ? AppIntent::FORCE_OFF : AppIntent::FORCE_ON;
+                    Serial.printf("[BUTTON] Debounced PRESS on Channel %d → intent=%d (next=%d)\n",
+                                  static_cast<int>(btn.channel),
+                                  static_cast<int>(intent_to_send),
+                                  static_cast<int>(btn.next_intent));
+                }
+                else
+                {
+                    // Never block Core 0. A future press will recalculate intent
+                    // from the Core-1 final relay state.
+                    Serial.printf("[CONTROL] Queue full; physical button event dropped (channel=%d).\n",
+                                  static_cast<int>(btn.channel));
+                }
             }
             else if (event == EVENT_OFF)
             {
