@@ -1,5 +1,6 @@
 #include "core/actuator_controller.h"
 #include "config.h"
+#include "core/time_confidence.h"
 #ifndef UNIT_TEST
 #include <Arduino.h>
 #else
@@ -142,6 +143,7 @@ namespace actuators
 #endif
 
 #include "config.h"
+#include "core/time_confidence.h"
 
 namespace relay_control {
 namespace {
@@ -180,11 +182,14 @@ void writeRelayIfChanged(uint8_t pin, bool& state, bool active) {
 
 } // namespace
 
+bool isSafetyBlackoutActive(const RtcTimePod& rtcTime) {
+    return !time_conf::isTimeUsable() || !isValidRtcTime(rtcTime) || isMiddayBlackout(rtcTime);
+}
+
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod& outputs,
     const RtcTimePod& rtcTime) {
-    // ONLY override if RTC is valid AND we are in the blackout window
-    if (isValidRtcTime(rtcTime) && isMiddayBlackout(rtcTime)) {
+    if (isSafetyBlackoutActive(rtcTime)) {
         outputs.HWat = 0.0f;
         outputs.Mist = 0.0f;
     }

@@ -13,7 +13,17 @@ export interface DayTrack {
   active: boolean
 }
 
-export const PROFILE_PRESETS = {
+interface ProfilePreset {
+  name: string
+  tempCheckpoints: Checkpoint[]
+  humidityCheckpoints: Checkpoint[]
+  lightDaysActive: number
+  totalCropDays?: number
+  tempOptimalRange?: [number, number]
+  humidityOptimalRange?: [number, number]
+}
+
+export const PROFILE_PRESETS: Record<string, ProfilePreset> = {
   dry_season: {
     name: 'Tối ưu mùa khô',
     tempCheckpoints: [
@@ -77,14 +87,7 @@ interface BatchContextType {
   setHumidityCheckpoints: (checkpoints: Checkpoint[]) => void
   lightDayStates: DayTrack[]
   setLightDayStates: (states: DayTrack[]) => void
-  
-  thermalShockProtection: boolean
-  setThermalShockProtection: (active: boolean) => void
-  thermalShockStart: string
-  setThermalShockStart: (time: string) => void
-  thermalShockEnd: string
-  setThermalShockEnd: (time: string) => void
-  
+
   tempOptimalRange: [number, number]
   setTempOptimalRange: (range: [number, number]) => void
   humidityOptimalRange: [number, number]
@@ -171,14 +174,14 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState('Tối ưu mùa khô')
   const [totalCropDays, setTotalCropDays] = useState(21)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
-  const [customProfiles, setCustomProfiles] = useState<Record<string, any>>({})
+  const [customProfiles, setCustomProfiles] = useState<Record<string, ProfilePreset>>({})
 
   // Load custom profiles from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('custom_mushroom_profiles')
     if (saved) {
       try {
-        setCustomProfiles(JSON.parse(saved))
+        setCustomProfiles(JSON.parse(saved) as Record<string, ProfilePreset>)
       } catch (e) {
         console.error('Failed to parse custom profiles from localStorage:', e)
       }
@@ -237,9 +240,6 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
     }))
   )
 
-  const [thermalShockProtection, setThermalShockProtection] = useState(true)
-  const [thermalShockStart, setThermalShockStart] = useState('11:00')
-  const [thermalShockEnd, setThermalShockEnd] = useState('13:30')
 
   const [tempOptimalRange, setTempOptimalRange] = useState<[number, number]>([28, 35])
   const [humidityOptimalRange, setHumidityOptimalRange] = useState<[number, number]>([70, 90])
@@ -313,9 +313,6 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
 
     if (preset.tempOptimalRange) setTempOptimalRange(preset.tempOptimalRange)
     if (preset.humidityOptimalRange) setHumidityOptimalRange(preset.humidityOptimalRange)
-    if (preset.thermalShockProtection !== undefined) setThermalShockProtection(preset.thermalShockProtection)
-    if (preset.thermalShockStart) setThermalShockStart(preset.thermalShockStart)
-    if (preset.thermalShockEnd) setThermalShockEnd(preset.thermalShockEnd)
   }
 
   // Transactionally scale total crop days and all checkpoints/schedules
@@ -356,9 +353,6 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
       totalCropDays,
       tempOptimalRange,
       humidityOptimalRange,
-      thermalShockProtection,
-      thermalShockStart,
-      thermalShockEnd,
     }
     const updated = { ...customProfiles, [key]: newPreset }
     setCustomProfiles(updated)
@@ -372,9 +366,6 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
     totalCropDays,
     tempOptimalRange,
     humidityOptimalRange,
-    thermalShockProtection,
-    thermalShockStart,
-    thermalShockEnd,
     customProfiles,
   ])
 
@@ -406,12 +397,6 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
         setHumidityCheckpoints,
         lightDayStates,
         setLightDayStates,
-        thermalShockProtection,
-        setThermalShockProtection,
-        thermalShockStart,
-        setThermalShockStart,
-        thermalShockEnd,
-        setThermalShockEnd,
         tempOptimalRange,
         setTempOptimalRange,
         humidityOptimalRange,

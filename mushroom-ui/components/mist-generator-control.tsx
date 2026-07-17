@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useSimulation } from '@/lib/simulation-context'
-import { useBatch } from '@/lib/batch-context'
+import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { ArrowRight, ArrowLeft, Activity, AlertCircle, Shield, Lock } from 'lucide-react'
 
 interface MistGeneratorControlProps {
@@ -14,34 +13,13 @@ interface MistGeneratorControlProps {
 type MotorState = 'idle' | 'forward' | 'backward'
 
 export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlProps) {
-  const {
-    thermalShockProtection,
-    thermalShockStart,
-    thermalShockEnd,
-  } = useBatch()
-  const {
-    simulatedTimeMinutes,
-  } = useSimulation()
+  const { middayBlackoutActive } = useRealTelemetry()
   const [motorState, setMotorState] = useState<MotorState>('idle')
   const [position, setPosition] = useState(50) // 0-100% travel
   const [endLimitActivated, setEndLimitActivated] = useState(false)
 
-  // Helper helper to convert 'HH:MM' string to total minutes
-  const timeToMinutes = (timeStr: string): number => {
-    if (!timeStr || !timeStr.includes(':')) return 0
-    const [h, m] = timeStr.split(':').map(Number)
-    return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m)
-  }
-
-  const startMin = timeToMinutes(thermalShockStart || "11:00")
-  const endMin = timeToMinutes(thermalShockEnd || "13:30")
-
-  // Robust check supporting both normal and cross-midnight ranges
-  const isTimeInWindow = startMin <= endMin
-    ? simulatedTimeMinutes >= startMin && simulatedTimeMinutes <= endMin
-    : simulatedTimeMinutes >= startMin || simulatedTimeMinutes <= endMin
-
-  const isBlackoutActive = thermalShockProtection && isTimeInWindow
+  const isBlackoutActive = middayBlackoutActive === true
+  const blackoutUnknown = middayBlackoutActive === null
 
   // Automatically halt motor if blackout is triggered
   useEffect(() => {
@@ -255,8 +233,10 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {isBlackoutActive ? (
             <span className="text-red-400 font-medium flex items-center gap-1">
               <Lock className="w-3.5 h-3.5" />
-              Đã khóa điều khiển từ {thermalShockStart} đến {thermalShockEnd}
+              ESP32 đang áp dụng Blackout an toàn 11:00–13:30.
             </span>
+          ) : blackoutUnknown ? (
+            'Chưa xác minh trạng thái Blackout từ ESP32.'
           ) : (
             '💡 Máy sẽ tự dừng khi đến hai đầu đường ray'
           )}

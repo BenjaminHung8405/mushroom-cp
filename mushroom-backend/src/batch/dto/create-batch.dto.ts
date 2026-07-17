@@ -6,8 +6,6 @@ import {
   Max,
   IsOptional,
   IsNumber,
-  IsBoolean,
-  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -56,21 +54,4 @@ export class CreateBatchDto {
   @Max(100)
   humidityOptimalMax?: number;
 
-  @IsOptional()
-  @IsBoolean()
-  thermalShockProtection?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/, {
-    message: 'thermalShockStart must be in HH:MM:SS format',
-  })
-  thermalShockStart?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/, {
-    message: 'thermalShockEnd must be in HH:MM:SS format',
-  })
-  thermalShockEnd?: string;
 }

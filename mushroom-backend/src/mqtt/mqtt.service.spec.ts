@@ -148,7 +148,7 @@ describe('MqttService', () => {
           lamp_stage_active: true,
           lamp_stage2_active: false,
           heater_water_active: false,
-          midday_blackout_active: false,
+          midday_blackout_active: true,
         });
         done();
       });
@@ -162,9 +162,24 @@ describe('MqttService', () => {
               relay_2: 'OFF',
               relay_3: 'OFF',
               relay_4: 'ON',
+              midday_blackout_active: true,
             },
           }),
         ),
+      );
+    });
+
+    it('marks blackout unavailable when the edge omits the field', (done) => {
+      service.telemetry$.subscribe((event) => {
+        expect(event.actuators?.midday_blackout_active).toBeNull();
+        done();
+      });
+      messageCallback(
+        'mushroom/esp32/device-1/up/telemetry',
+        Buffer.from(JSON.stringify({
+          readings: { temperature_celsius: 25.5, humidity_percent: 80 },
+          actuator_states: { relay_1: 'OFF', relay_2: 'OFF', relay_3: 'OFF', relay_4: 'OFF' },
+        })),
       );
     });
 

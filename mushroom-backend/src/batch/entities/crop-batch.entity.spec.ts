@@ -21,9 +21,6 @@ describe('CropBatch Entity', () => {
     batch.tempOptimalMax = 35.0;
     batch.humidityOptimalMin = 70.0;
     batch.humidityOptimalMax = 90.0;
-    batch.thermalShockProtection = true;
-    batch.thermalShockStart = '11:00:00';
-    batch.thermalShockEnd = '13:30:00';
     batch.updatedAt = new Date();
 
     expect(batch).toBeDefined();
@@ -38,9 +35,6 @@ describe('CropBatch Entity', () => {
     expect(batch.tempOptimalMax).toBe(35.0);
     expect(batch.humidityOptimalMin).toBe(70.0);
     expect(batch.humidityOptimalMax).toBe(90.0);
-    expect(batch.thermalShockProtection).toBe(true);
-    expect(batch.thermalShockStart).toBe('11:00:00');
-    expect(batch.thermalShockEnd).toBe('13:30:00');
     expect(batch.updatedAt).toBeInstanceOf(Date);
   });
 });

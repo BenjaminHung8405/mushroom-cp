@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <time.h>
+#include <cstdlib>
 
 #include "config.h"
 #include "core/actuator_controller.h"
@@ -22,6 +23,8 @@ void setup()
     actuators::init_actuators_gpio();
 
     Serial.println("[MAIN] ESP32 Firmware Starting...");
+    setenv("TZ", "UTC-7", 1);
+    tzset();
 
     // 2. Khởi tạo I2C bus và cảm biến SHT30
     sensors::init_sensors_placeholder();
@@ -38,24 +41,9 @@ void setup()
     }
     storage::CropProfileStorage::getInstance().init();
 
-    // S4-B3: Check boot time state.
-    PersistedTimeState timeState{};
-    bool hasSavedTime = storage::CropProfileStorage::getInstance().loadTimeState(timeState);
-    
-    // Initialize initial time confidence based on hardware RTC existence (we mock this or set as false for ESP32 without DS3231)
-    time_conf::initializeTimeConfidence(false); 
-    
-    if (hasSavedTime) {
-        time_t saved = static_cast<time_t>(timeState.last_trusted_epoch_s);
-        struct tm* tm_info = localtime(&saved);
-        if (tm_info && tm_info->tm_year >= (2026 - 1900)) {
-            time_conf::setTimeConfidence(TimeConfidence::Holdover);
-#ifndef UNIT_TEST
-            timeval tv = { static_cast<time_t>(timeState.last_trusted_epoch_s), 0 };
-            settimeofday(&tv, nullptr);
-#endif
-        }
-    }
+    // This node has no hardware RTC. Persisted time is retained only for audit;
+    // it must never make the safety interlock permissive after a reboot.
+    time_conf::initializeTimeConfidence(false);
 
     // 4. Initialize ConfigManager to load and cache configuration
     storage::ConfigManager::getInstance().init();

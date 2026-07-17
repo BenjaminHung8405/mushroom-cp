@@ -279,9 +279,8 @@ bool isFinite(float value)
     return std::isfinite(value);
 }
 
-// RTC integration is intentionally fail-safe until an RTC/NTP provider is
-// wired into Core 1. An invalid sample makes hardwareProtectionOverride()
-// force HWat and Mist OFF, as required by the biosafety hard rule.
+// The local timezone is configured at boot. This sample is usable only while
+// SNTP trust (or bounded holdover) remains valid; the safety helper fails closed.
 relay_control::RtcTimePod readRtcTimeFailSafe()
 {
 #ifndef UNIT_TEST
@@ -290,13 +289,10 @@ relay_control::RtcTimePod readRtcTimeFailSafe()
     time(&now);
     localtime_r(&now, &timeinfo);
     
-    // Check if the system time is synchronized. If not synced, year will be 1970 (tm_year = 70)
-    // We assume any year >= 2026 is synced since current local time is 2026.
-    if (timeinfo.tm_year >= (2026 - 1900))
-    {
+    if (time_conf::isTimeUsable()) {
         return relay_control::RtcTimePod{
-            true, 
-            static_cast<uint8_t>(timeinfo.tm_hour), 
+            true,
+            static_cast<uint8_t>(timeinfo.tm_hour),
             static_cast<uint8_t>(timeinfo.tm_min)
         };
     }
@@ -869,9 +865,7 @@ static void runControlPipelineStep(
         }
     }
 
-    // Safety interlock is applied before the direct binary relay dispatcher.
     const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
-    relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
@@ -885,7 +879,13 @@ static void runControlPipelineStep(
         relayState
     );
 
-    // Apply the final protected binary states to the physical active-LOW relays
+    // This is the final actuator boundary: SystemProtector may force Mist ON
+    // for low humidity, so apply the non-bypassable blackout after every other
+    // policy and immediately before physical relay writes.
+    relay_control::hardwareProtectionOverride(outputs, rtcTime);
+    relay_control::applyDirectOutputs(outputs, relayState);
+
+    // Apply the final protected binary states to the physical active-LOW relays.
     relay_control::writeRelays(relayState);
 
     const RelayOutputsPod actuatorSnapshot = {
@@ -894,8 +894,7 @@ static void runControlPipelineStep(
         relayState.lamp_active,  // lamp_stage_active
         false,                   // lamp_stage2_active (single-lamp hardware)
         relayState.hwat_active,
-        rtcTime.valid && (rtcTime.hour == 11U || rtcTime.hour == 12U ||
-            (rtcTime.hour == 13U && rtcTime.minute <= 30U)),
+        relay_control::isSafetyBlackoutActive(rtcTime),
         {0, 0},
     };
     telemetry.actuators = actuatorSnapshot;

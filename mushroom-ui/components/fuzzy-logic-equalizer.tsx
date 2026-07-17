@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
 import { useSelectedDevice } from '@/lib/selected-device-context'
+import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { LightTimelineBlock } from '@/lib/types'
-import { AlertCircle, Lightbulb, Lock, Unlock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { AlertCircle, Lightbulb, Lock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   updateBatchCheckpoints,
@@ -676,18 +677,12 @@ export function FuzzyLogicEqualizer() {
   const {
     profileName,
     setProfileName,
-    thermalShockProtection,
-    setThermalShockProtection,
     temperatureCheckpoints,
     setTemperatureCheckpoints,
     humidityCheckpoints,
     setHumidityCheckpoints,
     lightDayStates,
     setLightDayStates,
-    thermalShockStart,
-    setThermalShockStart,
-    thermalShockEnd,
-    setThermalShockEnd,
     tempOptimalRange,
     setTempOptimalRange,
     humidityOptimalRange,
@@ -698,9 +693,7 @@ export function FuzzyLogicEqualizer() {
     saveAsNewProfile,
   } = useBatch()
   const { selectedDeviceId } = useSelectedDevice()
-
-  const [localShockStart, setLocalShockStart] = useState(thermalShockStart)
-  const [localShockEnd, setLocalShockEnd] = useState(thermalShockEnd)
+  const { middayBlackoutActive } = useRealTelemetry()
 
   const [initialCheckpoints, setInitialCheckpoints] = useState<{
     temperature: Checkpoint[]
@@ -820,44 +813,6 @@ export function FuzzyLogicEqualizer() {
     }
   }
 
-  useEffect(() => {
-    setLocalShockStart(thermalShockStart)
-  }, [thermalShockStart])
-
-  useEffect(() => {
-    setLocalShockEnd(thermalShockEnd)
-  }, [thermalShockEnd])
-
-  const handleShockStartBlur = () => {
-    if (localShockStart && localShockStart.includes(':')) {
-      setThermalShockStart(localShockStart)
-    } else {
-      setLocalShockStart(thermalShockStart)
-    }
-  }
-
-  const handleShockEndBlur = () => {
-    if (localShockEnd && localShockEnd.includes(':')) {
-      setThermalShockEnd(localShockEnd)
-    } else {
-      setLocalShockEnd(thermalShockEnd)
-    }
-  }
-
-  const handleShockStartKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleShockStartBlur()
-      e.currentTarget.blur()
-    }
-  }
-
-  const handleShockEndKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleShockEndBlur()
-      e.currentTarget.blur()
-    }
-  }
-
   const lightBlocks = useMemo<LightTimelineBlock[]>(() => {
     const blocks: LightTimelineBlock[] = []
     if (lightDayStates.length === 0) return blocks
@@ -951,54 +906,34 @@ export function FuzzyLogicEqualizer() {
           </div>
         </div>
 
-        {/* Intraday Thermal Shock Protection */}
-        <div
-          className={`p-4 rounded-lg border mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-            thermalShockProtection
-              ? 'border-amber-500/30 bg-amber-950/20'
+        {/* Edge-authoritative hard safety interlock */}
+        <div className={`p-4 rounded-lg border mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+          middayBlackoutActive === true
+            ? 'border-red-500/50 bg-red-950/30'
+            : middayBlackoutActive === false
+              ? 'border-emerald-500/30 bg-emerald-950/15'
               : 'border-slate-700/50 bg-slate-900/20'
-          }`}
-        >
+        }`}>
           <div className="flex items-center gap-3">
-            <AlertCircle className="w-5.5 h-5.5 text-amber-400 shrink-0" />
+            <AlertCircle className={`w-5.5 h-5.5 shrink-0 ${middayBlackoutActive === true ? 'text-red-400' : 'text-amber-400'}`} />
             <div className="flex flex-col gap-1.5">
-              <h4 className="font-semibold text-foreground text-xs sm:text-sm">
-                Tạm ngưng phun sương vào giờ nắng nóng
-              </h4>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] sm:text-xs text-muted-foreground">Tạm ngưng từ:</span>
-                <input
-                  type="time"
-                  value={localShockStart}
-                  onChange={(e) => setLocalShockStart(e.target.value)}
-                  onBlur={handleShockStartBlur}
-                  onKeyDown={handleShockStartKeyDown}
-                  disabled={!thermalShockProtection}
-                  className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <span className="text-[10px] sm:text-xs text-muted-foreground">đến:</span>
-                <input
-                  type="time"
-                  value={localShockEnd}
-                  onChange={(e) => setLocalShockEnd(e.target.value)}
-                  onBlur={handleShockEndBlur}
-                  onKeyDown={handleShockEndKeyDown}
-                  disabled={!thermalShockProtection}
-                  className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-              </div>
+              <h4 className="font-semibold text-foreground text-xs sm:text-sm">Khóa an toàn tại ESP32</h4>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
+                11:00–13:30 (Asia/Ho_Chi_Minh): Mist và gia nhiệt nước bị tắt; không thể thay đổi từ ứng dụng.
+              </p>
             </div>
           </div>
-          <button
-            onClick={() => setThermalShockProtection(!thermalShockProtection)}
-            className="p-2 rounded-lg hover:bg-slate-700/30 transition-colors self-end sm:self-center"
-          >
-            {thermalShockProtection ? (
-              <Lock className="w-5 h-5 text-amber-400" />
-            ) : (
-              <Unlock className="w-5 h-5 text-slate-500" />
-            )}
-          </button>
+          <div className={`flex items-center gap-2 text-[11px] font-semibold ${
+            middayBlackoutActive === true ? 'text-red-300 animate-pulse' :
+            middayBlackoutActive === false ? 'text-emerald-300' : 'text-slate-400'
+          }`}>
+            <Lock className="w-4 h-4" />
+            <span>{middayBlackoutActive === true
+              ? 'Đang trong giờ cấm — kích hoạt bởi Edge'
+              : middayBlackoutActive === false
+                ? 'ESP32 đang giám sát — ngoài giờ cấm'
+                : 'Chưa xác minh từ ESP32'}</span>
+          </div>
         </div>
       </div>
 

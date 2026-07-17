@@ -53,10 +53,10 @@ struct RelayStatePod {
     bool fan_active;
 } __attribute__((aligned(4)));
 
-/**
- * Forces water heating and mist OFF when RTC time is invalid or in the
- * non-bypassable 11:00–13:30 biosafety blackout.
- */
+/** True when the edge must enforce the non-bypassable Mist/HWat safety interlock. */
+bool isSafetyBlackoutActive(const RtcTimePod &rtcTime);
+
+/** Forces water heating and mist OFF when the safety interlock is active. */
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod &outputs,
     const RtcTimePod &rtcTime);

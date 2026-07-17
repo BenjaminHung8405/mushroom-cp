@@ -224,7 +224,6 @@ describe('BatchService', () => {
       expect(result.humidityOptimalMax).toBe(90.0);
       expect(result.targetTemp).toBe(31.5);
       expect(result.targetHumid).toBe(80.0);
-      expect(result.thermalShockProtection).toBe(true);
       expect(result.lightStatus).toBe('OFF');
     });
 
@@ -239,9 +238,6 @@ describe('BatchService', () => {
         tempOptimalMax: 34.0,
         humidityOptimalMin: 70.0,
         humidityOptimalMax: 90.0,
-        thermalShockProtection: true,
-        thermalShockStart: '11:00:00',
-        thermalShockEnd: '13:30:00',
       } as any;
 
       beforeEach(() => {

@@ -32,12 +32,6 @@ describe('TelemetryService', () => {
     humidity_optimal_min: 70.0,
     humidityOptimalMax: 90.0,
     humidity_optimal_max: 90.0,
-    thermalShockProtection: true,
-    thermal_shock_protection: true,
-    thermalShockStart: '11:00:00',
-    thermal_shock_start: '11:00:00',
-    thermalShockEnd: '13:30:00',
-    thermal_shock_end: '13:30:00',
     lightStatus: 'OFF',
     light_status: 'OFF',
   };

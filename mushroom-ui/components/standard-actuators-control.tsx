@@ -18,6 +18,7 @@ interface ActuatorStatusRowProps {
   lockReason?: string
   uninstalled?: boolean
   isPending?: boolean
+  telemetryDetails?: React.ReactNode
   onAction: () => void
 }
 
@@ -31,10 +32,11 @@ function ActuatorStatusRow({
   lockReason,
   uninstalled = false,
   isPending = false,
+  telemetryDetails,
   onAction,
 }: ActuatorStatusRowProps) {
   const unavailable = state === null
-  const source = locked ? 'safety' : mode === 'MANUAL' ? 'user' : 'ai'
+  const source = locked ? 'safety' : mode === 'MANUAL' ? 'user' : mode === 'AI' ? 'ai' : 'unknown'
   const actionLabel = unavailable
     ? 'Chưa có dữ liệu'
     : state
@@ -57,17 +59,18 @@ function ActuatorStatusRow({
           </h4>
           <p className="text-xs mt-0.5 text-muted-foreground">{description}</p>
           <div className={`mt-1.5 flex items-center gap-1 text-[11px] font-medium ${
-            source === 'safety' ? 'text-red-400' : source === 'user' ? 'text-amber-300' : 'text-cyan-300'
+            source === 'safety' ? 'text-red-400' : source === 'user' ? 'text-amber-300' : source === 'ai' ? 'text-cyan-300' : 'text-slate-400'
           }`}>
-            {source === 'safety' ? <ShieldAlert size={12} /> : <span className="text-sm leading-none">{source === 'user' ? '🔌' : '●'}</span>}
-            <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Lệnh từ người dùng' : 'Điều khiển bởi AI'}</span>
+            {source === 'safety' ? <ShieldAlert size={12} /> : <span className="text-sm leading-none">{source === 'user' ? '🔌' : source === 'ai' ? '●' : '○'}</span>}
+            <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Lệnh từ người dùng' : source === 'ai' ? 'Điều khiển bởi AI' : 'Chưa xác định nguồn điều khiển'}</span>
           </div>
           {locked && lockReason && (
             <div className="flex items-center gap-1 text-[11px] text-red-300 font-medium mt-1">
               <ShieldAlert size={12} /><span>Bảo vệ: {lockReason}. Thiết bị chưa thể bật lại.</span>
             </div>
           )}
-          {unavailable && !uninstalled && <p className="text-[11px] text-slate-500 mt-1">Chưa nhận được dữ liệu</p>}
+          {telemetryDetails}
+          {unavailable && !uninstalled && <p className="text-[11px] text-slate-500 mt-1">Chưa nhận được dữ liệu xác nhận từ ESP32</p>}
         </div>
       </div>
       <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
@@ -103,7 +106,7 @@ export function StandardActuatorsControl({
   mistActive = null,
   blackoutActive = null,
 }: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot, mistAck, fanAck, lampAck } = useRealTelemetry()
+  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot, mistAck, fanAck, lampAck, deviceStatus, lastTelemetryAt } = useRealTelemetry()
   const cropDayInt = snapshot?.cropDayInt ?? 0
   const [showManualConfirm, setShowManualConfirm] = useState(false)
   const [modePending, setModePending] = useState(false)
@@ -162,6 +165,30 @@ export function StandardActuatorsControl({
     : humidityCurrent !== null && humidityCurrent >= 90
       ? 'Độ ẩm vượt giới hạn an toàn (90%)'
       : undefined
+  const lastTelemetryLabel = lastTelemetryAt
+    ? new Date(lastTelemetryAt).toLocaleString('vi-VN')
+    : 'Chưa nhận được'
+  const deviceStatusLabel = deviceStatus === 'online'
+    ? 'Online'
+    : deviceStatus === 'offline'
+      ? 'Offline'
+      : deviceStatus === 'stale'
+        ? 'Stale'
+        : 'Chưa xác định'
+  const deviceStatusColor = deviceStatus === 'online'
+    ? 'text-emerald-300'
+    : deviceStatus === 'offline'
+      ? 'text-red-300'
+      : deviceStatus === 'stale'
+        ? 'text-amber-300'
+        : 'text-slate-400'
+  const relayTelemetryDetails = (relayId: string) => (
+    <div className="mt-2 space-y-0.5 text-[11px] text-slate-400">
+      <p>Telemetry cuối: <span className="text-slate-200">{lastTelemetryLabel}</span></p>
+      <p>Relay nguồn: <span className="font-mono text-slate-200">{relayId}</span></p>
+      <p>ESP32: <span className={`font-medium ${deviceStatusColor}`}>{deviceStatusLabel}</span></p>
+    </div>
+  )
   const fuzzyEnabled = operatingMode === 'AI'
   const isFuzzyOff = operatingMode === 'MANUAL'
   const manualAcks = [mistAck, fanAck, lampAck]
@@ -193,10 +220,10 @@ export function StandardActuatorsControl({
       )}
 
       <div className="space-y-3">
-        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending === 'fan'} onAction={() => void applyAction('fan', fanActive)} />
-        <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending === 'lamp'} onAction={() => void applyAction('lamp', lampStageActive)} />
-        <ActuatorStatusRow name="Thiết bị làm ấm nước" description="Thiết bị này chưa được lắp đặt phần cứng" icon={<Zap className="w-5 h-5 text-blue-400" />} state={heaterWaterActive} mode={operatingMode} uninstalled onAction={() => {}} />
-        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending === 'mist'} onAction={() => void applyAction('mist', mistActive)} />
+        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending === 'fan'} telemetryDetails={relayTelemetryDetails('relay_2')} onAction={() => void applyAction('fan', fanActive)} />
+        <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending === 'lamp'} telemetryDetails={relayTelemetryDetails('relay_4')} onAction={() => void applyAction('lamp', lampStageActive)} />
+        <ActuatorStatusRow name="Thiết bị làm ấm nước" description="Thiết bị này chưa được lắp đặt phần cứng" icon={<Zap className="w-5 h-5 text-blue-400" />} state={heaterWaterActive} mode={operatingMode} uninstalled telemetryDetails={relayTelemetryDetails('relay_3')} onAction={() => {}} />
+        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
       </div>
 
       {showManualConfirm && (

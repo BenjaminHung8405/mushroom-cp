@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
+#include <esp_sntp.h>
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -47,6 +48,14 @@ namespace wifi
     // Set only after the portal response is sent; processed outside HTTP callbacks.
     static bool restart_pending = false;
     static unsigned long restart_at_ms = 0;
+#ifndef UNIT_TEST
+    static void on_sntp_sync(struct timeval *timeval)
+    {
+        if (timeval != nullptr && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+            time_conf::onTimeSyncSuccess(static_cast<int64_t>(timeval->tv_sec));
+        }
+    }
+#endif
 
     // Các hằng số cấu hình thời gian (ms)
     constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
@@ -574,13 +583,19 @@ namespace wifi
             {
                 Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
 #ifndef UNIT_TEST
-                configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+                sntp_set_time_sync_notification_cb(on_sntp_sync);
+                configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 #endif
                 reconnect_attempts = 0;
                 set_state(WifiState::STA_CONNECTED);
 
-                // B2: Sync NTP success -> Trusted Time
-                time_conf::onTimeSyncSuccess(time(nullptr));
+                // Wi-Fi association is not time synchronization. The state stays
+                // fail-safe until SNTP reports a completed synchronization.
+#ifndef UNIT_TEST
+                if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+                    time_conf::onTimeSyncSuccess(time(nullptr));
+                }
+#endif
             }
             else if (now - connection_start_time >= WIFI_CONNECTION_TIMEOUT_MS)
             {

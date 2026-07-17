@@ -212,6 +212,11 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     [lwtStatus, lastTelemetryMs, onlineSinceMs, nowMs],
   )
 
+  // Relay states are valid only while the reporting telemetry is fresh. Never
+  // keep rendering a last-known ON state after the ESP32 stops reporting.
+  const hasFreshTelemetry =
+    lwtStatus !== 'offline' &&
+    lastTelemetryMs !== null && nowMs - lastTelemetryMs <= STALE_MS
   const humidityCurrent = snapshot?.humidityMeasured ?? null
   const temperatureCurrent = snapshot?.temperatureMeasured ?? null
   const co2Current = snapshot?.co2Measured ?? null
@@ -249,17 +254,21 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const temperatureSetpoint = snapshot?.temperatureSetpoint ?? null
   const humiditySetpoint = snapshot?.humiditySetpoint ?? null
 
-  const fanActive = snapshot?.convectionFanActive ?? null
-  const lampStageActive = snapshot?.lampStageActive ?? null
-  const lampStage2Active = snapshot?.lampStage2Active ?? null
-  const heaterWaterActive = snapshot?.heaterWaterActive ?? null
-  const mistActive = snapshot?.mistGeneratorActive ?? null
-  const middayBlackoutActive = snapshot?.middayBlackoutActive ?? null
+  const fanActive = hasFreshTelemetry ? snapshot?.convectionFanActive ?? null : null
+  const lampStageActive = hasFreshTelemetry ? snapshot?.lampStageActive ?? null : null
+  const lampStage2Active = hasFreshTelemetry ? snapshot?.lampStage2Active ?? null : null
+  const heaterWaterActive = hasFreshTelemetry ? snapshot?.heaterWaterActive ?? null : null
+  const mistActive = hasFreshTelemetry ? snapshot?.mistGeneratorActive ?? null : null
+  const middayBlackoutActive = hasFreshTelemetry
+    ? snapshot?.middayBlackoutActive ?? null
+    : null
 
   const mistAck = snapshot?.mistAck ?? null
   const fanAck = snapshot?.fanAck ?? null
   const lampAck = snapshot?.lampAck ?? null
-  const operatingMode: 'AI' | 'MANUAL' | null = snapshot?.operatingMode ?? null
+  const operatingMode: 'AI' | 'MANUAL' | null = hasFreshTelemetry
+    ? snapshot?.operatingMode ?? null
+    : null
 
   return (
     <RealTelemetryContext.Provider

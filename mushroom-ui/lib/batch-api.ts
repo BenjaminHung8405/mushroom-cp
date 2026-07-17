@@ -36,9 +36,6 @@ export interface CreateBatchInput {
   tempOptimalMax?: number
   humidityOptimalMin?: number
   humidityOptimalMax?: number
-  thermalShockProtection?: boolean
-  thermalShockStart?: string
-  thermalShockEnd?: string
 }
 
 export interface CheckpointInput {

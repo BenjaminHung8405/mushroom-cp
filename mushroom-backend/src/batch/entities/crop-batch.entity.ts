@@ -87,15 +87,6 @@ export class CropBatch {
   })
   humidityOptimalMax: number;
 
-  @Column({ name: 'thermal_shock_protection', type: 'boolean', default: true })
-  thermalShockProtection: boolean;
-
-  @Column({ name: 'thermal_shock_start', type: 'time', default: '11:00:00' })
-  thermalShockStart: string;
-
-  @Column({ name: 'thermal_shock_end', type: 'time', default: '13:30:00' })
-  thermalShockEnd: string;
-
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

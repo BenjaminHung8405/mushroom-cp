@@ -1494,6 +1494,7 @@ int main() {
         using relay_control::RtcTimePod;
 
         // The biosafety blackout cannot be bypassed by fuzzy/manual demand.
+        time_conf::setTimeConfidence(TimeConfidence::Trusted);
         ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
@@ -1501,9 +1502,14 @@ int main() {
         assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
-        // With corrected fail-safe: invalid RTC must NOT force HWat/Mist to 0.0f
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
+        protectedOut.HWat = 1.0f;
+        protectedOut.Mist = 1.0f;
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 31U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
+        assert(protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f);
 
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.
@@ -2279,6 +2285,20 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
+        // Hard blackout rejects HWat and clears a pre-existing FORCE_ON latch.
+        {
+            relay_control::RtcTimePod blackoutTime{true, 12U, 0U};
+            ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL };
+            assert(manual::evaluateSafetyGate(hwatReq, telemetry, setpoints, blackoutTime, cropDay) ==
+                   ManualDecision::RejectedBlackout);
+            manual::ManualLatchArray latch{};
+            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 0U};
+            latch[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
+            manual::autoClearOnSensorViolation(latch, telemetry, setpoints, blackoutTime);
+            assert(!latch[static_cast<size_t>(AppChannel::MIST)].active);
+            assert(!latch[static_cast<size_t>(AppChannel::HWAT)].active);
+        }
+
         // S2-G4: Test gate Lamp block khi temp=setpoint+4
         {
             telemetry.temp_air = setpoints.temp_target + 4.0f;
@@ -2584,6 +2604,9 @@ int main() {
             time_conf::initializeTimeConfidence(true); // boot with RTC
             assert(time_conf::getTimeConfidence() == TimeConfidence::Trusted);
 
+            // Reset the no-RTC deployment before testing SNTP-owned trust.
+            time_conf::initializeTimeConfidence(false);
+
             // 2. Sync success NVS write state check
             storage::CropProfileStorage::getInstance().clearTimeState();
             time_conf::onTimeSyncSuccess(2000000000LL); // Sync successful
@@ -2597,7 +2620,14 @@ int main() {
             time_conf::onConnectionLoss();
             assert(time_conf::getTimeConfidence() == TimeConfidence::Holdover);
 
-            // 4. Safe offline setpoint fallback evaluation under Uncertainty
+            // 4. Holdover expires after 48 hours without a confirmed SNTP sync.
+            const unsigned long beforeHoldoverExpiry = mock_millis_offset;
+            mock_millis_offset += time_conf::HOLDOVER_MAX_MS;
+            time_conf::refresh();
+            assert(time_conf::getTimeConfidence() == TimeConfidence::Uncertain);
+            mock_millis_offset = beforeHoldoverExpiry;
+
+            // 5. Safe offline setpoint fallback evaluation under Uncertainty
             time_conf::setTimeConfidence(TimeConfidence::Uncertain);
         }
 

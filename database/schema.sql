@@ -55,11 +55,6 @@ CREATE TABLE crop_batches (
     humidity_optimal_min NUMERIC(3,1) DEFAULT 70.0,
     humidity_optimal_max NUMERIC(3,1) DEFAULT 90.0,
     
-    -- Cấu hình khung giờ khóa tưới sốc nhiệt động
-    thermal_shock_protection BOOLEAN DEFAULT TRUE,
-    thermal_shock_start TIME DEFAULT '11:00:00',
-    thermal_shock_end TIME DEFAULT '13:30:00',
-    
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -126,9 +121,9 @@ CREATE TABLE telemetry_logs (
     -- Trạng thái bật/tắt thiết bị chấp hành (ON/OFF)
     mist_generator_active BOOLEAN,                -- Edge-authoritative máy phun sương
     convection_fan_active BOOLEAN,                -- Edge-authoritative quạt đối lưu
-    heating_lamp_active BOOLEAN DEFAULT FALSE,    -- Legacy compatibility only; no longer written/read by new API
-    heater_air_active BOOLEAN,                    -- Edge-authoritative H_AIR SSR state
-    heater_water_active BOOLEAN,                  -- Edge-authoritative H_WAT hardware slot SSR state
+    lamp_stage_active BOOLEAN,                  -- Edge-authoritative HLamp (relay_4) state
+    lamp_stage2_active BOOLEAN,                   -- Reserved second heating-lamp stage
+    heater_water_active BOOLEAN,                  -- Edge-authoritative HWat hardware slot (relay_3) state
 
     -- Edge-authoritative safety interlock state
     midday_blackout_active BOOLEAN

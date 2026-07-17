@@ -57,9 +57,6 @@ export function BatchStatusPanel() {
     spawnRunningEndDay,
     tempOptimalRange,
     humidityOptimalRange,
-    thermalShockProtection,
-    thermalShockStart,
-    thermalShockEnd,
   } = useBatch()
   const [batch, setBatch] = useState<ActiveBatch | null>(null)
   const [houseName, setHouseName] = useState<string | null>(null)
@@ -134,9 +131,6 @@ export function BatchStatusPanel() {
         tempOptimalMax: tempOptimalRange[1],
         humidityOptimalMin: humidityOptimalRange[0],
         humidityOptimalMax: humidityOptimalRange[1],
-        thermalShockProtection,
-        thermalShockStart: thermalShockStart.length === 5 ? `${thermalShockStart}:00` : thermalShockStart,
-        thermalShockEnd: thermalShockEnd.length === 5 ? `${thermalShockEnd}:00` : thermalShockEnd,
       })
 
       // 2. Immediately update checkpoints for the newly created batch

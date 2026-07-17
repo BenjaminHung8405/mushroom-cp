@@ -28,7 +28,8 @@ export interface EdgeActuatorState {
   lamp_stage_active: boolean;
   lamp_stage2_active: boolean;
   heater_water_active: boolean;
-  midday_blackout_active: boolean;
+  /** Null means legacy/malformed firmware telemetry did not confirm the interlock. */
+  midday_blackout_active: boolean | null;
 }
 
 export interface TelemetryEvent {
@@ -498,7 +499,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       heater_water_active: on('relay_3'),
       lamp_stage_active: on('relay_4'),
       lamp_stage2_active: false,
-      midday_blackout_active: false,
+      midday_blackout_active: typeof states.midday_blackout_active === 'boolean'
+        ? states.midday_blackout_active
+        : null,
     };
   }
 
@@ -538,9 +541,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       temperatureSetpoint: number;
       humiditySetpoint: number;
       co2Setpoint?: number;
-      thermal_shock_protection?: boolean;
-      thermal_shock_start?: string;
-      thermal_shock_end?: string;
       control_mode: 'fuzzy_tpc';
       setpoint_ttl_sec: number;
       configRevision?: number;

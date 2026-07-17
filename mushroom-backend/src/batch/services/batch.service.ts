@@ -33,12 +33,6 @@ export interface BatchContext {
   humidity_optimal_min: number;
   humidityOptimalMax: number;
   humidity_optimal_max: number;
-  thermalShockProtection: boolean;
-  thermal_shock_protection: boolean;
-  thermalShockStart: string;
-  thermal_shock_start: string;
-  thermalShockEnd: string;
-  thermal_shock_end: string;
   lightStatus: 'ON' | 'OFF';
   light_status: 'ON' | 'OFF';
 }
@@ -246,12 +240,6 @@ export class BatchService {
       humidity_optimal_min: activeBatch.humidityOptimalMin,
       humidityOptimalMax: activeBatch.humidityOptimalMax,
       humidity_optimal_max: activeBatch.humidityOptimalMax,
-      thermalShockProtection: activeBatch.thermalShockProtection,
-      thermal_shock_protection: activeBatch.thermalShockProtection,
-      thermalShockStart: activeBatch.thermalShockStart,
-      thermal_shock_start: activeBatch.thermalShockStart,
-      thermalShockEnd: activeBatch.thermalShockEnd,
-      thermal_shock_end: activeBatch.thermalShockEnd,
       lightStatus,
       light_status: lightStatus,
     };
@@ -335,12 +323,6 @@ export class BatchService {
       humidity_optimal_min: 70.0,
       humidityOptimalMax: 90.0,
       humidity_optimal_max: 90.0,
-      thermalShockProtection: true,
-      thermal_shock_protection: true,
-      thermalShockStart: '11:00:00',
-      thermal_shock_start: '11:00:00',
-      thermalShockEnd: '13:30:00',
-      thermal_shock_end: '13:30:00',
       lightStatus: 'OFF',
       light_status: 'OFF',
     };

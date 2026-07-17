@@ -5,9 +5,6 @@
 namespace manual {
 
 namespace {
-constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 11U * 60U;
-constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 13U * 60U + 30U;
-
 constexpr float MIST_WARNING_LIMIT_RH = 92.0f;
 // LAMP_WARNING_DELTA_C: ngưỡng warning mềm (+3°C so với setpoint).
 constexpr float LAMP_WARNING_DELTA_C = 3.0f;
@@ -16,16 +13,6 @@ constexpr float LAMP_WARNING_DELTA_C = 3.0f;
 // Giá trị 45°C = giới hạn sinh học nấm rơm (tết tiêu hoàn toàn > 45°C).
 constexpr float LAMP_HARD_CUTOFF_C = 45.0f;
 
-bool isMiddayBlackout(const relay_control::RtcTimePod& rtcTime) {
-    const uint16_t minuteOfDay =
-        static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
-    return minuteOfDay >= MIDDAY_BLACKOUT_START_MINUTE &&
-           minuteOfDay <= MIDDAY_BLACKOUT_END_MINUTE;
-}
-
-bool isValidRtcTime(const relay_control::RtcTimePod& rtcTime) {
-    return rtcTime.valid && rtcTime.hour < 24U && rtcTime.minute < 60U;
-}
 } // namespace
 
 ManualDecision evaluateSafetyGate(
@@ -46,7 +33,7 @@ ManualDecision evaluateSafetyGate(
         if (telemetry.humidity_air >= MIST_WARNING_LIMIT_RH) {
             return ManualDecision::RejectedHumi;
         }
-        if (!isValidRtcTime(rtcTime) || isMiddayBlackout(rtcTime)) {
+        if (relay_control::isSafetyBlackoutActive(rtcTime)) {
             return ManualDecision::RejectedBlackout;
         }
         return ManualDecision::Accepted;
@@ -77,7 +64,9 @@ ManualDecision evaluateSafetyGate(
         return ManualDecision::Accepted;
     }
     else if (request.channel == AppChannel::HWAT) {
-        // Hardware protection is still applied after manual arbitration.
+        if (relay_control::isSafetyBlackoutActive(rtcTime)) {
+            return ManualDecision::RejectedBlackout;
+        }
         return ManualDecision::Accepted;
     }
 
@@ -136,13 +125,20 @@ void autoClearOnSensorViolation(
     if (latch[mistIdx].active && latch[mistIdx].forced_state == AppIntent::FORCE_ON) {
         if (!std::isfinite(telemetry.humidity_air) ||
             telemetry.humidity_air >= MIST_WARNING_LIMIT_RH ||
-            !isValidRtcTime(rtcTime) ||
-            isMiddayBlackout(rtcTime))
+            relay_control::isSafetyBlackoutActive(rtcTime))
         {
             latch[mistIdx].active = false;
             latch[mistIdx].forced_state = AppIntent::AUTO;
             latch[mistIdx].expires_ms = 0;
         }
+    }
+
+    const size_t hwatIdx = static_cast<size_t>(AppChannel::HWAT);
+    if (latch[hwatIdx].active && latch[hwatIdx].forced_state == AppIntent::FORCE_ON &&
+        relay_control::isSafetyBlackoutActive(rtcTime)) {
+        latch[hwatIdx].active = false;
+        latch[hwatIdx].forced_state = AppIntent::AUTO;
+        latch[hwatIdx].expires_ms = 0;
     }
 
     size_t lampIdx = static_cast<size_t>(AppChannel::LAMP);
@@ -219,11 +215,11 @@ void applyManualLatchToOutputs(
     }
 
     // Water heater. The non-bypassable hardware protection runs after this latch.
-    size_t hwatIdx = static_cast<size_t>(AppChannel::HWAT);
-    if (latch[hwatIdx].active) {
-        if (latch[hwatIdx].forced_state == AppIntent::FORCE_ON) {
+    const size_t hwatOutputIdx = static_cast<size_t>(AppChannel::HWAT);
+    if (latch[hwatOutputIdx].active) {
+        if (latch[hwatOutputIdx].forced_state == AppIntent::FORCE_ON) {
             outputs.HWat = 1.0f;
-        } else if (latch[hwatIdx].forced_state == AppIntent::FORCE_OFF) {
+        } else if (latch[hwatOutputIdx].forced_state == AppIntent::FORCE_OFF) {
             outputs.HWat = 0.0f;
         }
     }
