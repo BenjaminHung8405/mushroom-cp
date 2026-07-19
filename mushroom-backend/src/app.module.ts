@@ -8,6 +8,7 @@ import { BatchModule } from './batch/batch.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { AuthModule } from './auth/auth.module';
 import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
+import { OfflineSyncModule } from './offline-sync/offline-sync.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
     TelemetryModule,
     AuthModule, // POST /auth/token for ESP32 bootstrap
     MqttAuthModule,
+    OfflineSyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],

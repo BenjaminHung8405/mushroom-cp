@@ -22,6 +22,7 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/typeorm.config.ts"
   },
   "dependencies": {
+    "@influxdata/influxdb-client": "^1.35.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
