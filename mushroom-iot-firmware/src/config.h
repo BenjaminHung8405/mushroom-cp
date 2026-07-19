@@ -27,6 +27,9 @@ namespace config
         // Hold 5 seconds during runtime to force SoftAP config portal.
         constexpr uint8_t PIN_WIFI_CONFIG_BUTTON = 0;
 
+        // Power-fail detector is active LOW. GPIO14 is dedicated to this circuit.
+        constexpr uint8_t PIN_POWER_LOSS = 14;
+
         // PIN_BUTTON_UP / PIN_BUTTON_DOWN đã bị xóa:
         // GPIO 15 và 16 được dùng cho nút tủ điện (cabinet_buttons: LAMP, FAN).
         // Tham chiếu đúng: config::hardware::PIN_BTN_LAMP (15), PIN_BTN_FAN (16).
@@ -95,6 +98,7 @@ namespace config
         constexpr const char *KEY_OP_MODE = "op_mode";
         constexpr const char *KEY_START_TIME = "start_time";
         constexpr const char *KEY_ELAPSED_SEC = "elapsed_sec";
+        constexpr const char *KEY_BOOT_COUNT = "boot_count";
 
         // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
         extern String STA_SSID;

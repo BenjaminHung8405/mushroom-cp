@@ -5,6 +5,7 @@
 #include "core/serial_mutex.h"
 #include "network/web_interface/web_interface.h"
 #include "core/telemetry.h"
+#include "core/offline_storage.h"
 #include "protocols/mqtt_callbacks.h"
 #include <ArduinoJson.h>
 #include <cmath>
@@ -222,6 +223,17 @@ void taskCore0Communication(void* /*pvParameters*/)
 
         // 2. Process MQTT loop (non-blocking)
         mqtt::MqttManager::getInstance().loop();
+
+        // Periodic durable checkpoint: network loss must not leave the whole
+        // ring vulnerable until it reaches the high-watermark or power fails.
+        static unsigned long lastOfflineCheckpointMs = 0;
+        const unsigned long checkpointNow = millis();
+        if (!mqtt::MqttManager::getInstance().isConnected() &&
+            checkpointNow - lastOfflineCheckpointMs >= 60000UL)
+        {
+            offline_storage::OfflineStorage::getInstance().flushPendingToLittleFs();
+            lastOfflineCheckpointMs = checkpointNow;
+        }
 
         // 2b. In unit tests, drain the network queue synchronously
         #ifdef UNIT_TEST

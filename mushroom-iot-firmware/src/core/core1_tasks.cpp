@@ -13,6 +13,8 @@
 #include "core/protector.h"
 #include "core/crop_profile_storage.h"
 #include "core/time_confidence.h"
+#include "core/offline_storage.h"
+#include "network/mqtt_manager.h"
 #include <ctime>
 
 #ifndef UNIT_TEST
@@ -899,6 +901,19 @@ static void runControlPipelineStep(
         {0, 0},
     };
     telemetry.actuators = actuatorSnapshot;
+
+    // The ring stores only while MQTT is down. Sampling is fixed at 30 seconds
+    // regardless of the faster control/sensor cadence.
+    static unsigned long lastOfflineCaptureMs = 0;
+    if (!mqtt::MqttManager::getInstance().isConnected() &&
+        (lastOfflineCaptureMs == 0U || now - lastOfflineCaptureMs >= 30000UL))
+    {
+        offline_storage::OfflineStorage::getInstance().capture(
+            telemetry.temp_air, telemetry.humidity_air,
+            actuatorSnapshot.mist_active, actuatorSnapshot.lamp_stage_active,
+            now / 1000UL);
+        lastOfflineCaptureMs = now;
+    }
 
     static RelayOutputsPod lastEnqueuedActuators = {false, false, false, false, false, false, {0, 0}};
     const bool actuatorChanged =

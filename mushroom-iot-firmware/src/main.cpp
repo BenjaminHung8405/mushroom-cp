@@ -9,6 +9,7 @@
 #include "core/serial_mutex.h"
 #include "core/sensors.h"
 #include "core/storage.h"
+#include "core/offline_storage.h"
 #include "core/system_manager.h"
 #include "core/telemetry.h"
 #include "core/time_confidence.h"
@@ -40,6 +41,18 @@ void setup()
         Serial.println("[MAIN] ERROR: NVS Storage initialization failed!");
     }
     storage::CropProfileStorage::getInstance().init();
+
+    // Offline journal must be ready before WiFi/MQTT tasks can start.
+    if (!offline_storage::OfflineStorage::getInstance().begin())
+    {
+        Serial.println("[MAIN] WARNING: Edge offline storage is unavailable.");
+    }
+    else
+    {
+        // The GPIO ISR was configured during fail-safe GPIO init; only now is
+        // the PSRAM/LittleFS-backed task allowed to receive its notification.
+        offline_storage::OfflineStorage::getInstance().startPowerLossTask();
+    }
 
     // This node has no hardware RTC. Persisted time is retained only for audit;
     // it must never make the safety interlock permissive after a reboot.

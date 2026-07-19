@@ -89,6 +89,9 @@ public:
     /** Called by the worker task for a deferred MQTT callback message. */
     void processNetworkMessage(const NetworkMessage& message);
 
+    /** Sends one binary offline telemetry chunk; ACK controls journal reclamation. */
+    bool send_sync_burst();
+
     /* ---- State accessors ---- */
     bool isConnected();
     MqttState getState() const;
@@ -119,6 +122,7 @@ private:
 
     // Provisioning
     bool applyBootstrapResponse(JsonObject root);
+    void handleSyncBurstAck(JsonObject root);
     bool publishBootstrapClaim();
     String resolveBootstrapMac() const;
 

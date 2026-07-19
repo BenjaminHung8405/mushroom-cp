@@ -21,6 +21,8 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
         msg.type = CommandType::BOOTSTRAP_RESPONSE;
     } else if (strstr(topic, "/down/command") != nullptr) {
         msg.type = CommandType::DEVICE_COMMAND;
+    } else if (strstr(topic, "/down/sync-burst/ack") != nullptr) {
+        msg.type = CommandType::SYNC_BURST_ACK;
     } else {
         return;
     }

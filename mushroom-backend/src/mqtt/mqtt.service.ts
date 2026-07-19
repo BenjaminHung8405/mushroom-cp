@@ -16,6 +16,7 @@ import { Repository } from 'typeorm';
 import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 import { DeviceHealthService, HealthState } from '../device-health/device-health.service';
+import { decodeOfflineSyncBurst, type OfflineSyncBurst } from './offline-sync';
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -28,11 +29,11 @@ export interface DeviceStatusEvent {
 }
 
 export interface EdgeActuatorState {
-  mist_active: boolean;
-  fan_active: boolean;
-  lamp_stage_active: boolean;
-  lamp_stage2_active: boolean;
-  heater_water_active: boolean;
+  mist_active: boolean | null;
+  fan_active: boolean | null;
+  lamp_stage_active: boolean | null;
+  lamp_stage2_active: boolean | null;
+  heater_water_active: boolean | null;
   /** Null means legacy/malformed firmware telemetry did not confirm the interlock. */
   midday_blackout_active: boolean | null;
 }
@@ -115,7 +116,8 @@ type UplinkFeature =
   | 'telemetry'
   | 'provisioning_announce'
   | 'command_ack'
-  | 'manual_ack';
+  | 'manual_ack'
+  | 'sync_burst';
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -128,6 +130,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   /** Core 1 manual-control acknowledgements, forwarded to telemetry SSE. */
   public readonly manualAck$ = new Subject<{ deviceId: string; ack: ManualAckEvent }>();
   public readonly commandAck$ = new Subject<CommandAckEvent>();
+  /** Validated binary offline chunks; consumers persist them before ACKing. */
+  public readonly offlineSyncBurst$ = new Subject<{ deviceId: string; houseId: string; receivedAt: Date; burst: OfflineSyncBurst }>();
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
   private readonly unknownRefreshes = new Set<string>();
   private readonly pendingConfig = new Map<string, PendingConfigCommand>();
@@ -201,6 +205,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `${this.tenant}/esp32/+/up/telemetry`,
       `${this.tenant}/esp32/+/up/provisioning/announce`,
       `${this.tenant}/esp32/+/up/command/ack`,
+      `${this.tenant}/esp32/+/up/sync-burst`,
       `${this.tenant}/provision/request`,
     ];
     for (const topic of subscriptions) {
@@ -232,9 +237,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      const receivedAt = new Date();
+      if (parsedTopic.feature === 'sync_burst') {
+        const burst = decodeOfflineSyncBurst(payload);
+        this.offlineSyncBurst$.next({ deviceId: record.deviceId, houseId: record.houseId, receivedAt, burst });
+        return;
+      }
       const data = JSON.parse(payload.toString()) as Record<string, unknown>;
       if (!data || Array.isArray(data)) throw new Error('payload must be an object');
-      const receivedAt = new Date();
       if (parsedTopic.feature === 'status') {
         this.handleStatus(record, data, receivedAt);
       } else if (parsedTopic.feature === 'telemetry') {
@@ -495,6 +505,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
     if (parts[0] !== this.tenant || parts[1] !== 'esp32' || !validId(parts[2]) || parts[3] !== 'up') return null;
     if (parts.length === 5 && parts[4] === 'telemetry') return { deviceId: parts[2], feature: 'telemetry' };
+    if (parts.length === 5 && parts[4] === 'sync-burst') return { deviceId: parts[2], feature: 'sync_burst' };
     if (parts.length === 6 && parts[4] === 'provisioning' && parts[5] === 'announce') {
       return { deviceId: parts[2], feature: 'provisioning_announce' };
     }
@@ -539,6 +550,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       assigned_config: { telemetry_interval_sec: 30, command_timeout_sec: 10, reporting_qos: 1 },
       server_timestamp_utc: new Date().toISOString(),
     }, true);
+  }
+
+  async acknowledgeOfflineSyncBurst(
+    deviceId: string,
+    burst: Pick<OfflineSyncBurst, 'bootCount' | 'chunkIndex' | 'chunkCrc32'>,
+  ): Promise<void> {
+    await this.publish(`${this.tenant}/esp32/${deviceId}/down/sync-burst/ack`, {
+      boot_count: burst.bootCount,
+      chunk_index: burst.chunkIndex,
+      chunk_crc32: burst.chunkCrc32,
+    });
   }
 
   async dispatchRelayCommand(

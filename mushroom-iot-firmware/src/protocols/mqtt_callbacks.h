@@ -17,6 +17,7 @@ namespace mqtt {
 enum class CommandType : uint8_t {
     BOOTSTRAP_RESPONSE,
     DEVICE_COMMAND,
+    SYNC_BURST_ACK,
     UNKNOWN
 };
 

@@ -235,6 +235,9 @@ namespace storage
          */
         bool load_elapsed_seconds(uint32_t &elapsed_sec);
 
+        /** Increment and persist the boot session counter before network/tasks begin. */
+        bool increment_boot_count(uint32_t &boot_count);
+
         /**
          * @brief Saves configurable bio protection thresholds to NVS.
          */

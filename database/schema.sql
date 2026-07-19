@@ -30,6 +30,16 @@ CREATE TABLE devices (
 CREATE INDEX idx_devices_house ON devices(house_id);
 CREATE INDEX idx_devices_token ON devices(token);
 
+-- Idempotency receipts for at-least-once binary offline sync chunks.
+CREATE TABLE offline_sync_receipts (
+    device_id VARCHAR(50) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    boot_count BIGINT NOT NULL,
+    chunk_index BIGINT NOT NULL,
+    chunk_crc32 BIGINT NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (device_id, boot_count, chunk_index, chunk_crc32)
+);
+
 -- 2. Thư viện lưu trữ các Profile cấu hình mẫu (Presets)
 CREATE TABLE growth_profiles (
     id VARCHAR(50) PRIMARY KEY,

@@ -18,4 +18,17 @@ The pull-down is mandatory hardware protection; firmware setting GPIO LOW after 
 
 ## Time integrity
 
-The backend currently records `receivedAt`, not device sample time. Do not add offline store-and-forward telemetry until firmware has NTP/RTC and sends `sampled_at`; delayed samples otherwise receive an incorrect timestamp.
+Live telemetry uses backend `receivedAt`. Offline binary sync uses `boot_count` + `delta_time_s`; the backend stores an explicitly interpolated timestamp rather than claiming device UTC.
+
+
+## Offline telemetry power-loss capture
+
+- GPIO **14** is dedicated to the active-LOW power-loss detector. Do not share it
+  with a button or relay signal. The firmware wakes a high-priority task from its
+  ISR; it never writes LittleFS from interrupt context.
+- The power-fail circuit needs a measured hold-up budget sufficient for the
+  **worst-case 4.5 MiB PSRAM ring flush** plus LittleFS write/flush latency. A
+  capacitor/UPS that only holds the detector signal is insufficient.
+- Flash writes cannot be guaranteed after the rail collapses. The journal is
+  append-only and recovers complete records after an interrupted write, but a
+  hold-up test on production hardware remains mandatory.

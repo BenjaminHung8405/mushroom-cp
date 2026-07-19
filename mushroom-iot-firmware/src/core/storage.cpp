@@ -808,4 +808,24 @@ namespace storage
         }
         return cleared;
     }
+
+    bool StorageManager::increment_boot_count(uint32_t &boot_count)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            Serial.println("[STORAGE] Failed to open NVS for boot_count.");
+            return false;
+        }
+        const uint32_t previous = prefs.getUInt(config::network::KEY_BOOT_COUNT, 0U);
+        boot_count = previous == UINT32_MAX ? 1U : previous + 1U;
+        const bool written = prefs.putUInt(config::network::KEY_BOOT_COUNT, boot_count) == sizeof(boot_count);
+        prefs.end();
+        if (!written)
+        {
+            Serial.println("[STORAGE] Failed to persist boot_count.");
+        }
+        return written;
+    }
+
 } // namespace storage

@@ -1,6 +1,7 @@
 #include "core/actuator_controller.h"
 #include "config.h"
 #include "core/time_confidence.h"
+#include "core/offline_storage.h"
 #ifndef UNIT_TEST
 #include <Arduino.h>
 #else
@@ -78,6 +79,13 @@ namespace actuators
 
         // Cabinet buttons (active LOW). Keep INPUT only.
         init_cabinet_buttons_gpio();
+
+        // Dedicated active-LOW power-fail signal. The ISR only wakes the
+        // pre-created flush task; it never executes flash/filesystem code.
+        pinMode(config::pins::PIN_POWER_LOSS, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(config::pins::PIN_POWER_LOSS), []() IRAM_ATTR {
+            offline_storage::OfflineStorage::getInstance().notifyPowerLossFromISR();
+        }, FALLING);
     }
 
     void init_wifi_config_button_gpio()
@@ -144,6 +152,7 @@ namespace actuators
 
 #include "config.h"
 #include "core/time_confidence.h"
+#include "core/offline_storage.h"
 
 namespace relay_control {
 namespace {

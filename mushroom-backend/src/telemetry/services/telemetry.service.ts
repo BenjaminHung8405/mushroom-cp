@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Subscription, Subject } from 'rxjs';
 import { MqttService, ManualAckEvent, TelemetryEvent } from '../../mqtt/mqtt.service';
+import type { OfflineSyncBurst } from '../../mqtt/offline-sync';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
 import { DeviceRegistryService } from '../../device/device-registry.service';
@@ -72,6 +73,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetryService.name);
   private telemetrySubscription: Subscription | null = null;
   private manualAckSubscription: Subscription | null = null;
+  private offlineSyncSubscription: Subscription | null = null;
   public readonly telemetryUpdates$ = new Subject<TelemetrySnapshot>();
   /** Keyed by deviceId (MQTT identity), never by houseId. */
   private readonly latestCache = new Map<string, TelemetrySnapshot>();
@@ -101,6 +103,14 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         this.handleManualAck(deviceId, ack);
       },
     );
+    this.offlineSyncSubscription = this.mqttService.offlineSyncBurst$?.subscribe(
+      ({ deviceId, houseId, receivedAt, burst }) => {
+        this.processOfflineSyncBurst(deviceId, houseId, receivedAt, burst).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error(`Offline burst persistence failed for ${deviceId}: ${message}`);
+        });
+      },
+    ) ?? null;
     this.logger.log(
       'TelemetryService initialized and subscribed to telemetry stream.',
     );
@@ -115,6 +125,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       this.manualAckSubscription.unsubscribe();
       this.logger.log('Unsubscribed from MQTT manual ack stream.');
     }
+    this.offlineSyncSubscription?.unsubscribe();
+    this.offlineSyncSubscription = null;
   }
 
   /**
@@ -148,6 +160,44 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     // baseline state and make desired/applied configuration impossible to track.
     // Configuration is dispatched only by an explicit Apply/Sync flow, retry,
     // or device-reconnect policy.
+  }
+
+  /** Persists a binary offline chunk before publishing its application ACK. */
+  private async processOfflineSyncBurst(
+    deviceId: string,
+    houseId: string,
+    receivedAt: Date,
+    burst: OfflineSyncBurst,
+  ): Promise<void> {
+    const receipt = await this.db.query(
+      `SELECT 1 FROM offline_sync_receipts
+       WHERE device_id = $1 AND boot_count = $2 AND chunk_index = $3 AND chunk_crc32 = $4`,
+      [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
+    );
+    if (receipt.rows.length === 0) {
+      const context = await this.batchService.getBatchContext(houseId, receivedAt);
+      for (const record of burst.records) {
+        const timestamp = new Date(receivedAt.getTime() -
+          (burst.sessionLastDeltaS - record.deltaTimeS) * 1000);
+        const event: TelemetryEvent = {
+          deviceId, houseId, temp_air: record.temp, humidity_air: record.humid,
+          co2_level: null,
+          actuators: {
+            mist_active: record.mistState, fan_active: null,
+            lamp_stage_active: record.lampState, lamp_stage2_active: null,
+            heater_water_active: null, midday_blackout_active: null,
+          },
+          receivedAt: timestamp, timestamp: timestamp.toISOString(),
+        };
+        await this.saveTelemetryLog(houseId, event, context, timestamp);
+      }
+      await this.db.query(
+        `INSERT INTO offline_sync_receipts (device_id, boot_count, chunk_index, chunk_crc32, received_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
+      );
+    }
+    await this.mqttService.acknowledgeOfflineSyncBurst(deviceId, burst);
   }
 
   async getLatestTelemetry(

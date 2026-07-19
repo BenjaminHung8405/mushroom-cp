@@ -9,6 +9,7 @@
 #include "core/config_manager.h"
 #include "core/serial_mutex.h"
 #include "core/storage.h"
+#include "core/offline_storage.h"
 #include "core/crop_profile_storage.h"
 #include "core/crop_profile_validator.h"
 #include "core/system_manager.h"
@@ -276,6 +277,7 @@ bool MqttManager::doConnect()
         current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
         publishStatus(true);
         publishProvisioningAnnounce(); // best effort metadata; never gates active lifecycle
+        send_sync_burst(); // queued data is synced before the next normal telemetry interval
         Serial.printf("[MQTT] Connected as %s (ACTIVE).\n", device_id_.c_str());
     }
     return true;
@@ -289,7 +291,9 @@ void MqttManager::subscribePerLifecycle()
         return;
     }
     const String command = tenant_ + "/esp32/" + device_id_ + "/down/command";
+    const String sync_ack = tenant_ + "/esp32/" + device_id_ + "/down/sync-burst/ack";
     client_.subscribe(command.c_str(), MQTT_QOS);
+    client_.subscribe(sync_ack.c_str(), MQTT_QOS);
 }
 
 void MqttManager::onCallbackStatic(char* topic, uint8_t* payload, unsigned int length)
@@ -330,6 +334,8 @@ void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
     }
     if (topic_text.endsWith("/down/command")) {
         dispatchCommand(root);
+    } else if (topic_text.endsWith("/down/sync-burst/ack")) {
+        handleSyncBurstAck(root);
     }
 }
 
@@ -1024,6 +1030,37 @@ bool MqttManager::publishManualAck(const ManualAck& ack)
     return client_.publish(topic.c_str(), payload.c_str());
 }
 
+void MqttManager::handleSyncBurstAck(JsonObject root)
+{
+    const uint32_t boot_count = root["boot_count"] | 0U;
+    const uint32_t chunk_index = root["chunk_index"] | 0U;
+    const uint32_t chunk_crc32 = root["chunk_crc32"] | 0U;
+    if (offline_storage::OfflineStorage::getInstance().acknowledgeBurst(
+            boot_count, chunk_index, chunk_crc32)) {
+        send_sync_burst(); // application ACK makes the next oldest chunk eligible
+    }
+}
+
+bool MqttManager::send_sync_burst()
+{
+    if (!provisioned_ || !client_.connected()) return false;
+    uint8_t* payload = nullptr;
+    size_t length = 0;
+    uint32_t boot_count = 0;
+    uint32_t chunk_index = 0;
+    uint32_t chunk_crc = 0;
+    if (!offline_storage::OfflineStorage::getInstance().prepareNextBurst(
+            payload, length, boot_count, chunk_index, chunk_crc)) {
+        return false;
+    }
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/sync-burst";
+    if (!client_.publish(topic.c_str(), payload, static_cast<unsigned int>(length), false)) {
+        offline_storage::OfflineStorage::getInstance().cancelInFlightBurst();
+        return false;
+    }
+    return true;
+}
+
 bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms)
 {
     const unsigned long interval_ms = static_cast<unsigned long>(telemetry_interval_sec_) * 1000UL;
@@ -1057,6 +1094,8 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         topic = tenant_ + "/provision/response/" + bootstrap_mac_;
     } else if (message.type == CommandType::DEVICE_COMMAND) {
         topic = tenant_ + "/esp32/" + device_id_ + "/down/command";
+    } else if (message.type == CommandType::SYNC_BURST_ACK) {
+        topic = tenant_ + "/esp32/" + device_id_ + "/down/sync-burst/ack";
     } else {
         return;
     }
