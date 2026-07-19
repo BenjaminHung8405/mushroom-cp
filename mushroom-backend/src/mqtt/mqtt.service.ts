@@ -388,7 +388,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       timestamp: receivedAt.toISOString(),
     };
     if (event.temp_air === null && event.humidity_air === null) {
-      this.logger.warn(`Dropped telemetry without finite SHT readings from '${deviceId}'.`);
+      const describe = (value: unknown) => value === undefined ? 'missing' : value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+      this.logger.warn(
+        `Dropped telemetry without finite SHT readings from '${deviceId}' ` +
+        `(temperature_celsius=${describe(readings?.temperature_celsius)}, humidity_percent=${describe(readings?.humidity_percent)}).`,
+      );
       return;
     }
     this.telemetry$.next(event);

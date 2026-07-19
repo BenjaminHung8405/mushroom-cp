@@ -6,17 +6,13 @@ import { SensorDataCard } from '@/components/sensor-data-card'
 import { SimulationControlPanel } from '@/components/simulation-control-panel'
 import { BatchStatusPanel } from '@/components/batch-status-panel'
 import { StandardActuatorsControl } from '@/components/standard-actuators-control'
-import { Card } from '@/components/ui/card'
+import { OfflineMonitoringDashboard } from '@/components/offline-monitoring-dashboard'
 import { BatchProvider, useBatch } from '@/lib/batch-context'
 import { SimulationProvider } from '@/lib/simulation-context'
-import { SelectedDeviceProvider, useSelectedDevice } from '@/lib/selected-device-context'
+import { SelectedDeviceProvider } from '@/lib/selected-device-context'
 import { RealTelemetryProvider, useRealTelemetry } from '@/lib/real-telemetry-context'
 import { useEffect, useState } from 'react'
 import { Sliders } from 'lucide-react'
-import {
-  fetchTelemetryHistory,
-  type TelemetrySnapshot,
-} from '@/lib/telemetry-api'
 
 function getStatus(
   current: number | null,
@@ -28,102 +24,6 @@ function getStatus(
   if (critical && (current < critical[0] || current > critical[1])) return 'critical'
   if (current < min || current > max) return 'warning'
   return 'optimal'
-}
-
-function EnvironmentalHistoryChart() {
-  const { selectedDeviceId } = useSelectedDevice()
-  const [points, setPoints] = useState<TelemetrySnapshot[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!selectedDeviceId) {
-      setPoints([])
-      setLoading(false)
-      return
-    }
-
-    let cancelled = false
-    setLoading(true)
-    const to = new Date()
-    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
-    fetchTelemetryHistory(selectedDeviceId, from, to, '15 minutes').then((rows) => {
-      if (!cancelled) {
-        setPoints(rows)
-        setLoading(false)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedDeviceId])
-
-  const temps = points
-    .map((p) => p.temperatureMeasured)
-    .filter((v): v is number => v !== null && v !== undefined)
-  const minT = temps.length ? Math.min(...temps) : 20
-  const maxT = temps.length ? Math.max(...temps) : 40
-  const span = Math.max(maxT - minT, 1)
-
-  return (
-    <Card className="p-6 border border-slate-700/50 bg-slate-950/40 h-full min-h-96 flex flex-col">
-      <h3 className="font-semibold text-foreground mb-2">
-        Diễn biến nhiệt độ trong 24 giờ
-      </h3>
-      <p className="text-xs text-muted-foreground mb-4">
-        Dữ liệu được tổng hợp theo từng 15 phút
-      </p>
-
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
-          Đang tải dữ liệu...
-        </div>
-      ) : points.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center rounded-lg bg-gradient-to-br from-slate-900/20 to-emerald-900/10 border border-dashed border-slate-700/30 py-12">
-          <p className="text-sm text-muted-foreground mb-2">Chưa có dữ liệu lịch sử</p>
-          <p className="text-xs text-slate-600">
-            Biểu đồ sẽ xuất hiện khi hệ thống có đủ dữ liệu đo.
-          </p>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col gap-2">
-          <div className="relative h-48 border border-slate-800 rounded-lg bg-slate-950/60 overflow-hidden">
-            <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
-              <polyline
-                fill="none"
-                stroke="#34d399"
-                strokeWidth="0.6"
-                points={points
-                  .map((p, i) => {
-                    const x = points.length === 1 ? 0 : (i / (points.length - 1)) * 100
-                    const t = p.temperatureMeasured ?? minT
-                    const y = 38 - ((t - minT) / span) * 34
-                    return `${x},${y}`
-                  })
-                  .join(' ')}
-              />
-            </svg>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-400">
-            <div>
-              Lần đo: <span className="text-foreground font-semibold">{points.length}</span>
-            </div>
-            <div>
-              Nhiệt độ thấp/cao:{' '}
-              <span className="text-foreground font-semibold">
-                {minT.toFixed(1)}/{maxT.toFixed(1)}°C
-              </span>
-            </div>
-            <div>
-              Độ ẩm gần nhất:{' '}
-              <span className="text-foreground font-semibold">
-                {points[points.length - 1]?.humidityMeasured?.toFixed(1) ?? '—'}%
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-    </Card>
-  )
 }
 
 function DashboardContent() {
@@ -271,9 +171,7 @@ const cfgSync = configSync
         />
       </div>
 
-      <div className="col-span-1 md:col-span-2 lg:col-span-2 space-y-4">
-        <EnvironmentalHistoryChart />
-      </div>
+      <OfflineMonitoringDashboard />
 
       <div className="col-span-1 md:col-span-2 lg:col-span-4">
         <FuzzyLogicEqualizer />

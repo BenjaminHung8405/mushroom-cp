@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { BatchModule } from '../batch/batch.module';
 import { DeviceModule } from '../device/device.module';
+import { OfflineSyncModule } from '../offline-sync/offline-sync.module';
 import { TelemetryController } from './controllers/telemetry.controller';
 import { TelemetryService } from './services/telemetry.service';
 
 @Module({
-  imports: [MqttModule, BatchModule, DeviceModule],
+  imports: [MqttModule, BatchModule, DeviceModule, OfflineSyncModule],
   controllers: [TelemetryController],
   providers: [TelemetryService],
   exports: [TelemetryService],

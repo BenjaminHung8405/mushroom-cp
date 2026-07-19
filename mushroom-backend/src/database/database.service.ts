@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
@@ -17,6 +17,17 @@ export class DatabaseService implements OnModuleInit {
         error instanceof Error ? error.message : String(error);
       this.logger.error(`❌ Database connection test failed: ${errorMessage}`);
     }
+  }
+
+  /** Execute related writes atomically; callers receive a query adapter scoped to one transaction. */
+  async transaction<T>(work: (query: <R = unknown>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>) => Promise<T>): Promise<T> {
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      const query = async <R = unknown>(text: string, params?: unknown[]): Promise<{ rows: R[] }> => {
+        const result = await manager.query(text, params);
+        return { rows: Array.isArray(result) ? (result as R[]) : [] };
+      };
+      return work(query);
+    });
   }
 
   /**

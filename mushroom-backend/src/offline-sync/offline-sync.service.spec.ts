@@ -1,15 +1,17 @@
-import { OfflineSyncService } from './offline-sync.service';
+import { ServiceUnavailableException } from '@nestjs/common';
+import { OfflineSyncService, toOfflineHistoryPoint } from './offline-sync.service';
+import type { OfflineSyncBurst } from '../mqtt/offline-sync';
 
-function record(boot: number, delta: number, temp: number, humid: number, mist: number, lamp: number): Buffer {
-  const buffer = Buffer.alloc(18);
-  buffer.writeUInt32LE(boot, 0);
-  buffer.writeUInt32LE(delta, 4);
-  buffer.writeFloatLE(temp, 8);
-  buffer.writeFloatLE(humid, 12);
-  buffer.writeUInt8(mist, 16);
-  buffer.writeUInt8(lamp, 17);
-  return buffer;
-}
+const burst: OfflineSyncBurst = {
+  bootCount: 7,
+  chunkIndex: 3,
+  chunkCrc32: 123,
+  sessionLastDeltaS: 30,
+  records: [
+    { bootCount: 7, deltaTimeS: 0, temp: 28.5, humid: 85, mistState: true, lampState: false },
+    { bootCount: 7, deltaTimeS: 30, temp: 27, humid: 82, mistState: false, lampState: true },
+  ],
+};
 
 describe('OfflineSyncService', () => {
   const originalEnv = { ...process.env };
@@ -24,29 +26,68 @@ describe('OfflineSyncService', () => {
 
   afterAll(() => { process.env = originalEnv; });
 
-  it('decodes packed little-endian OfflineTelemetryStruct records', () => {
+  it('rejects burst persistence when InfluxDB is not configured', async () => {
     const service = new OfflineSyncService();
-    const records = service.parsePacket(Buffer.concat([
-      record(3, 30, 29.5, 81.25, 1, 0),
-      record(4, 5, 30.25, 80.5, 0, 1),
-    ]));
-    expect(records).toEqual([
-      { bootCount: 3, deltaTimeS: 30, temp: 29.5, humid: 81.25, mistState: true, lampState: false },
-      { bootCount: 4, deltaTimeS: 5, temp: 30.25, humid: 80.5, mistState: false, lampState: true },
+    await expect(service.writeBurst('device-1', burst, new Date())).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('writes three measurements per record with deterministic sync-burst timestamps', async () => {
+    const service = new OfflineSyncService() as unknown as {
+      writeApi: { writePoint: jest.Mock; flush: jest.Mock };
+      writeBurst: OfflineSyncService['writeBurst'];
+    };
+    const writePoint = jest.fn();
+    service.writeApi = { writePoint, flush: jest.fn().mockResolvedValue(undefined) };
+    const receivedAt = new Date('2026-07-19T12:00:00.000Z');
+
+    await service.writeBurst('device-1', burst, receivedAt);
+
+    expect(writePoint).toHaveBeenCalledTimes(6);
+    expect(service.writeApi.flush).toHaveBeenCalledTimes(1);
+    const points = writePoint.mock.calls.map(([point]) => point);
+    expect(points.map((point: { _name: string }) => point.name)).toEqual([
+      'environment_telemetry', 'actuator_events', 'system_status',
+      'environment_telemetry', 'actuator_events', 'system_status',
     ]);
+    expect(points[0].tags).toMatchObject({ device_id: 'device-1', data_quality: 'trusted', boot_count: '7' });
+    expect(points[0].time.getTime()).toBe(receivedAt.getTime() - 30_000);
+    expect(points[3].time.getTime()).toBe(receivedAt.getTime());
   });
 
-  it('rejects malformed packet lengths without throwing', () => {
-    const service = new OfflineSyncService();
-    expect(service.parsePacket(Buffer.alloc(17))).toEqual([]);
+  it('propagates Influx flush failures so the caller can withhold ACK', async () => {
+    const service = new OfflineSyncService() as unknown as {
+      writeApi: { writePoint: jest.Mock; flush: jest.Mock };
+      writeBurst: OfflineSyncService['writeBurst'];
+    };
+    service.writeApi = { writePoint: jest.fn(), flush: jest.fn().mockRejectedValue(new Error('Influx unavailable')) };
+    await expect(service.writeBurst('device-1', burst, new Date())).rejects.toThrow('Influx unavailable');
   });
 
-  it('classifies greatest boot_count as trusted and older sessions as degraded', async () => {
-    const service = new OfflineSyncService();
-    const result = await service.ingest('device-1', Buffer.concat([
-      record(1, 0, 28, 80, 0, 0),
-      record(2, 10, 29, 81, 1, 1),
-    ]), new Date('2026-07-19T00:00:20.000Z'));
-    expect(result).toMatchObject({ currentBootCount: 2, trustedRecords: 1, degradedRecords: 1 });
+  it('maps valid Influx history rows and keeps optional measurements nullable', () => {
+    expect(toOfflineHistoryPoint({
+      _time: '2026-07-19T00:00:00.000Z', data_quality: 'trusted', boot_count: '7',
+      temperature_c: 28.5, humidity_percent: 85, mist_state: true, lamp_state: false, delta_time_s: 30,
+    })).toEqual({
+      time: '2026-07-19T00:00:00.000Z', dataQuality: 'trusted', bootCount: 7,
+      temperature: 28.5, humidity: 85, mistState: true, lampState: false, deltaTimeS: 30,
+      fuzzyTempDemand: null, fuzzyHumidDemand: null,
+    });
+    expect(toOfflineHistoryPoint({ _time: 'not-a-date' })).toBeNull();
+  });
+
+  it('returns mapped history and exposes unavailable Influx queries', async () => {
+    const service = new OfflineSyncService() as unknown as {
+      queryApi: { collectRows: jest.Mock }; influxBucket: string; getHistory: OfflineSyncService['getHistory'];
+    };
+    service.influxBucket = 'mushroom';
+    service.queryApi = { collectRows: jest.fn().mockResolvedValue([{
+      _time: '2026-07-19T00:00:00.000Z', data_quality: 'trusted', boot_count: 2,
+      temperature_c: 27, humidity_percent: 86, mist_state: false, lamp_state: true, delta_time_s: 5,
+    }]) };
+    await expect(service.getHistory('device-1', new Date('2026-07-19T00:00:00.000Z'), new Date('2026-07-19T01:00:00.000Z')))
+      .resolves.toMatchObject([{ dataQuality: 'trusted', bootCount: 2, temperature: 27, lampState: true }]);
+    service.queryApi.collectRows.mockRejectedValueOnce(new Error('Influx unavailable'));
+    await expect(service.getHistory('device-1', new Date('2026-07-19T00:00:00.000Z'), new Date('2026-07-19T01:00:00.000Z')))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

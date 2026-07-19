@@ -11,6 +11,7 @@ import type { OfflineSyncBurst } from '../../mqtt/offline-sync';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
 import { DeviceRegistryService } from '../../device/device-registry.service';
+import { OfflineSyncService } from '../../offline-sync/offline-sync.service';
 
 export interface ManualAckState {
   channel: 0 | 1 | 2;
@@ -85,6 +86,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     private readonly batchService: BatchService,
     private readonly db: DatabaseService,
     private readonly registry: DeviceRegistryService,
+    private readonly offlineSync: OfflineSyncService,
   ) {}
 
   onModuleInit(): void {
@@ -162,7 +164,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     // or device-reconnect policy.
   }
 
-  /** Persists a binary offline chunk before publishing its application ACK. */
+  /** Persists a validated binary chunk to InfluxDB and PostgreSQL before application ACK. */
   private async processOfflineSyncBurst(
     deviceId: string,
     houseId: string,
@@ -174,30 +176,48 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
        WHERE device_id = $1 AND boot_count = $2 AND chunk_index = $3 AND chunk_crc32 = $4`,
       [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
     );
-    if (receipt.rows.length === 0) {
-      const context = await this.batchService.getBatchContext(houseId, receivedAt);
-      for (const record of burst.records) {
-        const timestamp = new Date(receivedAt.getTime() -
-          (burst.sessionLastDeltaS - record.deltaTimeS) * 1000);
-        const event: TelemetryEvent = {
-          deviceId, houseId, temp_air: record.temp, humidity_air: record.humid,
-          co2_level: null,
-          actuators: {
-            mist_active: record.mistState, fan_active: null,
-            lamp_stage_active: record.lampState, lamp_stage2_active: null,
-            heater_water_active: null, midday_blackout_active: null,
-          },
-          receivedAt: timestamp, timestamp: timestamp.toISOString(),
-        };
-        await this.saveTelemetryLog(houseId, event, context, timestamp);
+    const identity = `device=${deviceId} boot=${burst.bootCount} chunk=${burst.chunkIndex} crc=${burst.chunkCrc32}`;
+
+    try {
+      if (receipt.rows.length === 0) {
+        await this.offlineSync.writeBurst(deviceId, burst, receivedAt);
+        this.logger.log(`Offline sync Influx persistence succeeded ${identity}`);
+
+        const context = await this.batchService.getBatchContext(houseId, receivedAt);
+        await this.db.transaction(async (query) => {
+          for (const record of burst.records) {
+            const timestamp = new Date(receivedAt.getTime() -
+              (burst.sessionLastDeltaS - record.deltaTimeS) * 1000);
+            const event: TelemetryEvent = {
+              deviceId, houseId, temp_air: record.temp, humidity_air: record.humid,
+              co2_level: null,
+              actuators: {
+                mist_active: record.mistState, fan_active: null,
+                lamp_stage_active: record.lampState, lamp_stage2_active: null,
+                heater_water_active: null, midday_blackout_active: null,
+              },
+              receivedAt: timestamp, timestamp: timestamp.toISOString(),
+            };
+            await this.saveTelemetryLog(houseId, event, context, timestamp, query);
+          }
+          await query(
+            `INSERT INTO offline_sync_receipts (device_id, boot_count, chunk_index, chunk_crc32, received_at)
+             VALUES ($1, $2, $3, $4, NOW())`,
+            [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
+          );
+        });
+        this.logger.log(`Offline sync PostgreSQL persistence succeeded ${identity}`);
+      } else {
+        this.logger.log(`Offline sync receipt already exists; replaying ACK ${identity}`);
       }
-      await this.db.query(
-        `INSERT INTO offline_sync_receipts (device_id, boot_count, chunk_index, chunk_crc32, received_at)
-         VALUES ($1, $2, $3, $4, NOW())`,
-        [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
-      );
+
+      await this.mqttService.acknowledgeOfflineSyncBurst(deviceId, burst);
+      this.logger.log(`Offline sync ACK sent ${identity}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Offline sync persistence failed; ACK withheld ${identity}: ${message}`);
+      throw error;
     }
-    await this.mqttService.acknowledgeOfflineSyncBurst(deviceId, burst);
   }
 
   async getLatestTelemetry(
@@ -313,11 +333,12 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     event: TelemetryEvent,
     context: BatchContext,
     timestamp: Date,
+    query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> = this.db.query.bind(this.db),
   ): Promise<void> {
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
     const actuators = event.actuators;
-    await this.db.query(
+    await query(
       `
       INSERT INTO telemetry_logs (
         time, batch_id, house_id, crop_day_int,
