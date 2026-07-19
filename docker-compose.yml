@@ -50,6 +50,35 @@ services:
       - mushroom-network
 
   # ==========================================
+  # 3. TIME-SERIES DATABASE: InfluxDB v2
+  # ==========================================
+  mushroom-influxdb:
+    image: influxdb:2.7-alpine
+    container_name: mushroom_influxdb
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${INFLUXDB_HOST_PORT:-8086}:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_INIT_USERNAME}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN}
+    volumes:
+      - ${DATA_PATH:-./data}/mushroom_influxdb_data:/var/lib/influxdb2
+      - ${DATA_PATH:-./data}/mushroom_influxdb_config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mushroom-network
+
+  # ==========================================
   # 4. BACKEND: NestJS Application
   # ==========================================
   mushroom-backend:
@@ -70,8 +99,18 @@ services:
       - MQTT_PORT=1883
       - MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
       - MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - OFFLINE_SYNC_MQTT_URL=mqtt://mushroom-mqtt:1883
+      - OFFLINE_SYNC_MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
+      - OFFLINE_SYNC_MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - OFFLINE_SYNC_MQTT_CLIENT_ID=${OFFLINE_SYNC_MQTT_CLIENT_ID:-mushroom_offline_sync}
+      - INFLUXDB_URL=http://mushroom-influxdb:8086
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-mushroom}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-mushroom_iot}
     depends_on:
       mushroom-db:
+        condition: service_healthy
+      mushroom-influxdb:
         condition: service_healthy
     networks:
       - mushroom-network

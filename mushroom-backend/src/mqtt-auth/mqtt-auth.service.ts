@@ -84,12 +84,13 @@ export class MqttAuthService {
       );
     }
 
-    return (
-      username.length > 0 &&
-      username === clientId &&
-      topic.startsWith(`${this.tenant}/esp32/${username}/`) &&
-      (access === 1 || access === 2 || access === 3 || access === 4)
-    );
+    if (!username || username !== clientId || ![1, 2, 3, 4].includes(access)) return false;
+
+    // Phase 3 offline binary transport remains per-device, even though it uses
+    // the legacy devices/{id}/sync_burst topic shape.
+    if (topic === `devices/${username}/sync_burst`) return access === 2;
+
+    return topic.startsWith(`${this.tenant}/esp32/${username}/`);
   }
 
   enforceProvisionRateLimit(macAddress: string): void {
