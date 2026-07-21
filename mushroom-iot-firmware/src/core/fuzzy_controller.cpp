@@ -38,6 +38,10 @@ inline float safeUnit(float value) {
     return isFinite(value) ? clampUnit(value) : 0.0f;
 }
 
+inline float safeScale(float value) {
+    return isFinite(value) && value > 0.0f ? value : 0.0f;
+}
+
 // Bounds a gain into AdaptiveTuner's hardware-safe band. Invalid values fail
 // safe to 0.0 so the corresponding actuator channel is forced OFF.
 inline float safeGain(float value) {
@@ -138,15 +142,19 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2) {
 ArbitratedOutputsPod arbitrateOutputs(
     const DualHeaterOutputsPod& thermalOutputs,
     float exhCO2,
-    const AdaptiveTuner::GainsPod& gains) {
-    // Apply adaptive gains only to the heaters/mist channels. Post-gain
-    // products are hard-clamped to the unit interval for the direct relay stage.
+    const AdaptiveTuner::GainsPod& gains,
+    float lampGainScale,
+    float mistGainScale) {
+    // Apply dynamic scales with adaptive gains before the single final clamp.
+    // Remote tuning may only influence HLamp and Mist.
     const float hLampDemand = clampUnit(
-        safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HLamp));
+        safeUnit(thermalOutputs.HLamp) * safeGain(gains.gain_HLamp) *
+        safeScale(lampGainScale));
     const float hWatDemand = clampUnit(
         safeUnit(thermalOutputs.HWat) * safeGain(gains.gain_HWat));
     const float mistDemand = clampUnit(
-        safeUnit(thermalOutputs.Mist) * safeGain(gains.gain_Mist));
+        safeUnit(thermalOutputs.Mist) * safeGain(gains.gain_Mist) *
+        safeScale(mistGainScale));
 
     // Keep the CO2 and thermal/humidity rule bases independent until this
     // single arbitration point. std::max gives either demand full authority

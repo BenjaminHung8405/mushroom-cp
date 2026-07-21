@@ -103,6 +103,9 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2);
  * @brief Applies adaptive gains and resolves the two exhaust requests.
  *
  * HLamp, HWat, and Mist are multiplied by their respective adaptive gains.
+ * The lamp and mist products are additionally multiplied by their validated
+ * dynamic tuning scales before the single final hard clamp. HWat and exhaust
+ * deliberately remain outside the dynamic tuning contract.
  * Thermal/humidity and CO2 exhaust demands are decoupled and merged with
  * std::max so either subsystem can independently request the shared exhaust
  * channel. Results after gain multiplication are hard-clamped to [0.0, 1.0].
@@ -114,11 +117,15 @@ float executeCO2Rules(CO2RuleState& state, float errorCO2);
  * @param thermalOutputs Raw normalized temperature/humidity outputs.
  * @param exhCO2 Raw normalized CO2 exhaust demand.
  * @param gains Adaptive gains for HLamp, HWat, and Mist.
+ * @param lampGainScale Dynamic scale for HLamp; invalid values fail safe OFF.
+ * @param mistGainScale Dynamic scale for Mist; invalid values fail safe OFF.
  * @return Normalized post-arbitration demands for the protection/GPIO stage.
  */
 ArbitratedOutputsPod arbitrateOutputs(
     const DualHeaterOutputsPod& thermalOutputs,
     float exhCO2,
-    const AdaptiveTuner::GainsPod& gains);
+    const AdaptiveTuner::GainsPod& gains,
+    float lampGainScale,
+    float mistGainScale);
 
 } // namespace FuzzyController

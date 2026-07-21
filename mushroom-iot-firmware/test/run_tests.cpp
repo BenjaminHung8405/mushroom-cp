@@ -2136,7 +2136,7 @@ int main() {
         const AdaptiveTuner::GainsPod nominal = {1.0f, 1.0f, 1.0f};
         const DualHeaterOutputsPod raw = {0.40f, 0.30f, 0.20f, 0.35f};
         const ArbitratedOutputsPod nominalOut =
-            FuzzyController::arbitrateOutputs(raw, 0.60f, nominal);
+            FuzzyController::arbitrateOutputs(raw, 0.60f, nominal, 1.0f, 1.0f);
 
         // 27.1 Nominal gains preserve actuator demands and CO2 takes the
         // shared exhaust relay whenever its demand exceeds the TH request.
@@ -2147,7 +2147,7 @@ int main() {
 
         // 27.2 Thermal/humidity demand remains authoritative if it is larger.
         const ArbitratedOutputsPod thermalExhaust =
-            FuzzyController::arbitrateOutputs(raw, 0.10f, nominal);
+            FuzzyController::arbitrateOutputs(raw, 0.10f, nominal, 1.0f, 1.0f);
         assert(std::abs(thermalExhaust.Exh - 0.35f) < 1e-6f);
 
         // 27.3 Per-channel adaptive gains apply only to HLamp/HWat/Mist, and
@@ -2155,7 +2155,7 @@ int main() {
         const AdaptiveTuner::GainsPod adjusted = {2.5f, 0.5f, 2.0f};
         const DualHeaterOutputsPod gainRaw = {0.80f, 0.80f, 0.60f, 0.20f};
         const ArbitratedOutputsPod adjustedOut =
-            FuzzyController::arbitrateOutputs(gainRaw, 0.10f, adjusted);
+            FuzzyController::arbitrateOutputs(gainRaw, 0.10f, adjusted, 1.0f, 1.0f);
         assert(adjustedOut.HLamp == 1.0f);  // 0.80 * 2.5 -> clamp to 1.0
         assert(std::abs(adjustedOut.HWat - 0.40f) < 1e-6f);
         assert(adjustedOut.Mist == 1.0f);  // 0.60 * 2.0 -> clamp to 1.0
@@ -2167,7 +2167,7 @@ int main() {
         const DualHeaterOutputsPod malformedRaw = {NAN, -1.0f, 2.0f, INFINITY};
         const AdaptiveTuner::GainsPod malformedGains = {NAN, 100.0f, NAN};
         const ArbitratedOutputsPod safeOut = FuzzyController::arbitrateOutputs(
-            malformedRaw, NAN, malformedGains);
+            malformedRaw, NAN, malformedGains, 1.0f, 1.0f);
         assert(safeOut.HLamp == 0.0f);   // NaN raw -> safeUnit -> 0
         assert(safeOut.HWat == 0.0f);   // -1.0 raw -> clampUnit -> 0
         assert(safeOut.Mist == 0.0f);   // NaN gain -> safeGain -> 0
@@ -2177,10 +2177,35 @@ int main() {
         const DualHeaterOutputsPod boundedRaw = {0.50f, 0.50f, 0.50f, 0.0f};
         const AdaptiveTuner::GainsPod outOfBandGains = {100.0f, -100.0f, 100.0f};
         const ArbitratedOutputsPod boundedOut = FuzzyController::arbitrateOutputs(
-            boundedRaw, 0.0f, outOfBandGains);
+            boundedRaw, 0.0f, outOfBandGains, 1.0f, 1.0f);
         assert(boundedOut.HLamp == 1.0f);  // 0.5 * max gain 2.5 -> clamp
         assert(std::abs(boundedOut.HWat - 0.25f) < 1e-6f);
         assert(boundedOut.Mist == 1.0f);
+
+        // 27.6 Regression: adaptive gain and dynamic scale are combined
+        // before the only final clamp. HWat and Exh cannot be remotely tuned.
+        const AdaptiveTuner::GainsPod saturatedGains = {2.5f, 2.0f, 2.5f};
+        const DualHeaterOutputsPod saturationRaw = {1.0f, 0.42f, 0.75f, 0.33f};
+        const ArbitratedOutputsPod saturationOut = FuzzyController::arbitrateOutputs(
+            saturationRaw, 0.20f, saturatedGains, 0.80f, 0.80f);
+        assert(saturationOut.HLamp == 1.0f);  // 1.0 * 2.5 * 0.8 -> clamp
+        assert(saturationOut.Mist == 1.0f);   // 0.75 * 2.0 * 0.8 -> clamp
+        assert(std::abs(saturationOut.HWat - 0.84f) < 1e-6f);
+        assert(std::abs(saturationOut.Exh - 0.33f) < 1e-6f);
+
+        const ArbitratedOutputsPod scaleClamped = FuzzyController::arbitrateOutputs(
+            saturationRaw, 0.20f, saturatedGains, 1.20f, 1.20f);
+        assert(scaleClamped.HLamp == 1.0f);
+        assert(scaleClamped.Mist == 1.0f);
+        assert(std::abs(scaleClamped.HWat - 0.84f) < 1e-6f);
+        assert(std::abs(scaleClamped.Exh - 0.33f) < 1e-6f);
+
+        const ArbitratedOutputsPod invalidTuning = FuzzyController::arbitrateOutputs(
+            saturationRaw, 0.20f, saturatedGains, NAN, INFINITY);
+        assert(invalidTuning.HLamp == 0.0f);
+        assert(invalidTuning.Mist == 0.0f);
+        assert(std::abs(invalidTuning.HWat - 0.84f) < 1e-6f);
+        assert(std::abs(invalidTuning.Exh - 0.33f) < 1e-6f);
 
         assert(std::is_pod<ArbitratedOutputsPod>::value == true);
         assert(sizeof(ArbitratedOutputsPod) == 16);

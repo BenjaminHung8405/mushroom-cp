@@ -2,6 +2,36 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:53:58+0700] - Task E2: Khắc phục thứ tự clamp của dynamic tuning theo QA
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - Sửa đổi: [fuzzy_controller.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/fuzzy_controller.h)
+  - Sửa đổi: [fuzzy_controller.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/fuzzy_controller.cpp)
+  - Sửa đổi: [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Nguyên nhân gốc là helper hậu xử lý nhận `ArbitratedOutputsPod` đã clamp, khiến scale được nhân sau clamp và làm sai semantics khi adaptive gain bão hòa. Đã đưa `lamp_gain_scale`/`mist_gain_scale` vào `arbitrateOutputs()`: `raw demand × adaptive gain × tuning scale → clamp` đúng một lần trước manual latch/protector. `HWat` và `Exh` không nhận tuning scale.
+  - Bổ sung regression tích hợp tại arbitration cho hai trường hợp bão hòa bắt buộc (`1.0 × 2.5 × 0.8` và `0.75 × 2.0 × 0.8` đều ra `1.0`), scale `1.2` clamp đúng, `NaN`/`Infinity` fail-safe, và bất biến `HWat`/`Exh`.
+  - Đã chạy host suite tái lập bằng `g++ -std=c++17 -DUNIT_TEST -Isrc -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src test/run_tests.cpp $(find src -type f -name '*.cpp') -o /tmp/mushroom_run_tests_e2 && /tmp/mushroom_run_tests_e2`; kết quả `--- All Unit Tests Passed Successfully! ---` (một warning có sẵn ở `run_tests.cpp:309`). Đã chạy `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg`; kết quả `SUCCESS`. `git diff --check` sạch.
+
+## [2026-07-21T16:45:17+0700] - Task E2: Áp dụng dynamic tuning scale sau fuzzy/adaptive gain
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [fuzzy_controller.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/fuzzy_controller.h)
+  - Sửa đổi: [fuzzy_controller.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/fuzzy_controller.cpp)
+  - Sửa đổi: [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - Thêm pure helper `FuzzyController::applyDynamicTuningScales()` để nhân riêng `HLamp` và `Mist` với `lamp_gain_scale`/`mist_gain_scale`, fail-safe về `0` khi scale không hữu hạn/không dương và clamp kết quả về `[0,1]`.
+  - Core 1 gọi helper đúng sau `arbitrateOutputs()` (fuzzy + adaptive gain) và trước manual latch, hardware protection, `SystemProtector`, blackout/final GPIO. `HWat` và `Exh` được giữ nguyên; không thay đổi setpoint, bio-bound, manual override, blackout hoặc cơ chế direct relay.
+  - Bổ sung unit test xác nhận scale danh định, clamp vượt ngưỡng, xử lý `NaN`/`Infinity`, cùng bất biến `HWat`/`Exh` không bị remote tuning tác động. Đã biên dịch và chạy đầy đủ host suite bằng `g++ -std=c++17 -DUNIT_TEST ...`; kết quả `--- All Unit Tests Passed Successfully! ---`. `git diff --check` sạch. Còn một warning có sẵn, không liên quan tại `run_tests.cpp:309` về so sánh string literal. PlatformIO CLI không có trong môi trường nên chưa chạy `pio run`.
+
 ## [2026-07-21T16:38:24+07:00] - Task E1: Core 1 nhận cấu hình tuning tại ranh giới control tick
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

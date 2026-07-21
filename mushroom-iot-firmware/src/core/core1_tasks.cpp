@@ -831,7 +831,14 @@ static void runControlPipelineStep(
         const FuzzyController::DualHeaterOutputsPod thermalDemands =
             FuzzyController::executeDualHeaterRules(errorTemp, errorHumid);
         const float co2Demand = FuzzyController::executeCO2Rules(co2State, errorCO2);
-        outputs = FuzzyController::arbitrateOutputs(thermalDemands, co2Demand, gains);
+        // The arbiter applies adaptive gain and the two tuning scales before
+        // its final clamp, then manual latches and safety protection follow.
+        outputs = FuzzyController::arbitrateOutputs(
+            thermalDemands,
+            co2Demand,
+            gains,
+            s_activeTuning.lamp_gain_scale,
+            s_activeTuning.mist_gain_scale);
     }
     else
     {
