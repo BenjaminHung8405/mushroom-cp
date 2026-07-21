@@ -495,24 +495,10 @@ boolean PubSubClientQos1::publishQos1(const char* topic, const uint8_t* payload,
         return false;
     }
 
-    const unsigned long startedAt = millis();
-    while (connected() && millis() - startedAt < this->socketTimeout * 1000UL) {
-        if (!_client->available()) {
-            delay(1);
-            continue;
-        }
-        uint8_t remainingLengthBytes;
-        const uint16_t packetLength = readPacket(&remainingLengthBytes);
-        if (packetLength >= 2 && (this->buffer[0] & 0xF0) == MQTTPUBACK) {
-            const uint16_t ackId = (this->buffer[remainingLengthBytes + 1] << 8) |
-                                   this->buffer[remainingLengthBytes + 2];
-            if (ackId == messageId) {
-                lastInActivity = millis();
-                return true;
-            }
-        }
-    }
-    return false;
+    // PUBACK is consumed by loop() on the normal MQTT worker cadence. Never
+    // wait here: a silent broker must not stall telemetry or the Core-0 queue.
+    (void)messageId;
+    return true;
 }
 
 boolean PubSubClientQos1::publish_P(const char* topic, const char* payload, boolean retained) {

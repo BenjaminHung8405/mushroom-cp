@@ -21,7 +21,7 @@
 #   - INFLUXDB_URL: URL API InfluxDB (mặc định: http://localhost:8086)
 #   - INFLUXDB_TOKEN: Admin Token để xác thực (bắt buộc)
 #   - INFLUXDB_ORG: Tên organization (mặc định: mushroom)
-#   - INFLUXDB_ANALYTICS_BUCKET: Tên bucket analytics cần tạo (mặc định: mushroom_analytics)
+#   - INFLUXDB_ANALYTICS_BUCKET: Tên bucket analytics cần tạo (bắt buộc)
 #   - INFLUXDB_ANALYTICS_RETENTION_DAYS: Số ngày lưu trữ tối đa (0 = vô hạn, mặc định: 0)
 #
 # Xử lý sự cố / Recovery:
@@ -62,14 +62,36 @@ fi
 INFL_URL="${INFLUXDB_URL:-http://localhost:8086}"
 INFL_TOKEN="${INFLUXDB_TOKEN:-}"
 INFL_ORG="${INFLUXDB_ORG:-mushroom}"
-ANALYTICS_BUCKET="${INFLUXDB_ANALYTICS_BUCKET:-mushroom_analytics}"
+ANALYTICS_BUCKET="${INFLUXDB_ANALYTICS_BUCKET:-}"
 RETENTION_DAYS="${INFLUXDB_ANALYTICS_RETENTION_DAYS:-0}"
 
-# Kiểm tra token bắt buộc
+if [[ ! "$INFL_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^[:space:]]*)?$ ]]; then
+  echo "[ERROR] INFLUXDB_URL must be a valid http(s) URL with a host." >&2
+  exit 1
+fi
+if [[ ! "$INFL_ORG" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
+  echo "[ERROR] INFLUXDB_ORG must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}." >&2
+  exit 1
+fi
+if [[ ! "$ANALYTICS_BUCKET" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
+  echo "[ERROR] INFLUXDB_ANALYTICS_BUCKET is required and must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}." >&2
+  exit 1
+fi
+if [[ ! "$RETENTION_DAYS" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "[ERROR] INFLUXDB_ANALYTICS_RETENTION_DAYS must be a non-negative integer." >&2
+  exit 1
+fi
 if [ -z "$INFL_TOKEN" ]; then
   echo "[ERROR] INFLUXDB_TOKEN is required but not defined in environment or .env file." >&2
   exit 1
 fi
+
+urlencode() {
+  node -p 'encodeURIComponent(process.argv[1])' "$1"
+}
+
+BUCKET_QUERY=$(urlencode "$ANALYTICS_BUCKET")
+ORG_QUERY=$(urlencode "$INFL_ORG")
 
 echo "=========================================================="
 echo "Starting InfluxDB Analytics Bucket Provisioning"
@@ -83,7 +105,7 @@ echo "=========================================================="
 echo "Verifying if bucket '${ANALYTICS_BUCKET}' already exists..."
 BUCKET_RESPONSE=$(curl -s -w "\n%{http_code}" \
   -H "Authorization: Token ${INFL_TOKEN}" \
-  "${INFL_URL}/api/v2/buckets?name=${ANALYTICS_BUCKET}&org=${INFL_ORG}")
+  "${INFL_URL}/api/v2/buckets?name=${BUCKET_QUERY}&org=${ORG_QUERY}")
 
 HTTP_STATUS=$(echo "$BUCKET_RESPONSE" | tail -n 1)
 BODY=$(echo "$BUCKET_RESPONSE" | sed '$d')
@@ -121,7 +143,7 @@ fi
 echo "Bucket does not exist. Fetching ID for Organization '${INFL_ORG}'..."
 ORG_RESPONSE=$(curl -s -w "\n%{http_code}" \
   -H "Authorization: Token ${INFL_TOKEN}" \
-  "${INFL_URL}/api/v2/orgs?org=${INFL_ORG}")
+  "${INFL_URL}/api/v2/orgs?org=${ORG_QUERY}")
 
 ORG_STATUS=$(echo "$ORG_RESPONSE" | tail -n 1)
 ORG_BODY=$(echo "$ORG_RESPONSE" | sed '$d')
@@ -149,21 +171,14 @@ fi
 echo "Found Organization ID: ${ORG_ID}"
 
 # 3. Chuẩn bị payload và retention rules
-if [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -gt 0 ]; then
+if [ "$RETENTION_DAYS" -gt 0 ]; then
   RETENTION_SECONDS=$(( RETENTION_DAYS * 86400 ))
-  RULES_JSON="[{\"type\": \"expire\", \"everySeconds\": ${RETENTION_SECONDS}}]"
+  PAYLOAD=$(jq -n --arg org_id "$ORG_ID" --arg bucket "$ANALYTICS_BUCKET" --argjson seconds "$RETENTION_SECONDS" \
+    '{orgID: $org_id, name: $bucket, retentionRules: [{type: "expire", everySeconds: $seconds}]}')
 else
-  RULES_JSON="[]"
+  PAYLOAD=$(jq -n --arg org_id "$ORG_ID" --arg bucket "$ANALYTICS_BUCKET" \
+    '{orgID: $org_id, name: $bucket, retentionRules: []}')
 fi
-
-PAYLOAD=$(cat <<EOF
-{
-  "orgID": "${ORG_ID}",
-  "name": "${ANALYTICS_BUCKET}",
-  "retentionRules": ${RULES_JSON}
-}
-EOF
-)
 
 # 4. Thực hiện POST request để tạo bucket
 echo "Creating bucket '${ANALYTICS_BUCKET}'..."

@@ -1,3 +1,29 @@
+## [2026-07-21T17:45:06+0700] - Task A1, A2, A5, B2, B3, C2–C5, C7, D4: Khắc phục phản hồi QA vòng 2
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-backend/src/mqtt/constants/mqtt-topics.const.ts`
+  - `mushroom-backend/src/mqtt/constants/mqtt-topics.const.spec.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts`
+  - `mushroom-backend/src/mqtt-auth/acl.tuning.spec.ts`
+  - `mushroom-backend/src/influx/services/influx-db.service.ts`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.ts`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.spec.ts`
+  - `scripts/provision-influx.sh`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.h`
+  - `.gitignore`, `mushroom-iot-firmware/.gitignore` (loại/ignore runtime DB và binary host test)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Backend subscribe ACK tuning bằng `getTuningReportedPattern()`, parse theo shared contract, type-guard payload và lấy device identity duy nhất từ topic; ACL device chuyển sang allow-list deny-by-default.
+  - Firmware hoàn tất NVS commit/readback trước queue handoff, rollback durable về effective config cũ khi queue fail, chỉ cập nhật active sau handoff thành công; loại allocation `String` và debug command logs trên validation path.
+  - QoS 1 publish không còn busy-wait/delay trong MQTT worker; `client.loop()` tiếp tục xử lý traffic/PUBACK. Influx writer dùng bounded WriteApi buffer và `writeFailed` callback để log an toàn, không ngắt MQTT stream. Script provisioning bắt buộc bucket analytics, validate/URL-encode input và tạo JSON bằng `jq -n`.
+  - Đã chạy: `pnpm test --runInBand` (**162/162 PASS**), `pnpm build` (PASS), host firmware build/test từ source vào `/tmp/mushroom-firmware-tests` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `bash -n scripts/provision-influx.sh`, kiểm tra reject bucket/retention invalid, và `git diff --check` (sạch).
+
 # WALKTHROUGH LOG — IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.

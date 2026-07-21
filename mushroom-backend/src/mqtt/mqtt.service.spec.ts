@@ -7,7 +7,6 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 import { DeviceHealthService } from '../device-health/device-health.service';
-import { DeviceHealthService } from '../device-health/device-health.service';
 
 const mockMqttClient = {
   on: jest.fn(),
@@ -114,6 +113,36 @@ describe('MqttService', () => {
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
       expect(registry.refreshOne).toHaveBeenCalledWith('unknown-device');
       done();
+    });
+
+    it('subscribes to tuning reported QoS 1 and routes a valid ACK by topic identity', (done) => {
+      (service as any).subscribeToDeviceTopics();
+      expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
+        'mushroom/esp32/+/up/tuning/reported', { qos: 1 }, expect.any(Function),
+      );
+      service.tuningReported$.subscribe((event) => {
+        expect(event.deviceId).toBe('device-1');
+        expect(event.commandId).toBe('11111111-1111-1111-1111-111111111111');
+        expect(event.status).toBe('ACCEPTED');
+        done();
+      });
+      messageCallback('mushroom/esp32/device-1/up/tuning/reported', Buffer.from(JSON.stringify({
+        device_id: 'device-1', command_id: '11111111-1111-1111-1111-111111111111',
+        status: 'ACCEPTED', persisted: true,
+      })));
+    });
+
+    it('drops malformed and unknown-device tuning ACKs', () => {
+      const next = jest.spyOn(service.tuningReported$, 'next');
+      messageCallback('mushroom/esp32/device-1/up/tuning/reported', Buffer.from(JSON.stringify({
+        device_id: 'device-1', status: 'ACCEPTED', persisted: true,
+      })));
+      registry.getEnabled.mockReturnValue(undefined);
+      messageCallback('mushroom/esp32/unknown-device/up/tuning/reported', Buffer.from(JSON.stringify({
+        device_id: 'unknown-device', command_id: '11111111-1111-1111-1111-111111111111',
+        status: 'ACCEPTED', persisted: true,
+      })));
+      expect(next).not.toHaveBeenCalled();
     });
 
     it('should drop telemetry from disabled device', (done) => {

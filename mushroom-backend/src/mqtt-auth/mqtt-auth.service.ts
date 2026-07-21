@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { Device } from '../device/entities/device.entity';
+import { getTuningDesiredTopic, getTuningReportedTopic, parseTuningTopic } from '../mqtt/constants/mqtt-topics.const';
 
 export interface MqttAuthRequest {
   username?: string;
@@ -104,35 +105,28 @@ export class MqttAuthService {
 
     if (!username || username !== clientId || ![1, 2, 3, 4].includes(access)) return false;
 
-    // Check for tuning topics first (deny-by-default and least privilege)
-    const desiredMatch = topic.match(new RegExp(`^([^/]+)/esp32/([^/]+)/down/tuning/desired$`));
-    const reportedMatch = topic.match(new RegExp(`^([^/]+)/esp32/([^/]+)/up/tuning/reported$`));
-
-    if (desiredMatch) {
-      const [_, topicTenant, topicDeviceId] = desiredMatch;
-      // Must match tenant and device's own username
-      if (topicTenant !== this.tenant || topicDeviceId !== username) {
-        return false;
-      }
-      // Device can only read/subscribe (1 = read, 4 = subscribe)
-      return access === 1 || access === 4;
-    }
-
-    if (reportedMatch) {
-      const [_, topicTenant, topicDeviceId] = reportedMatch;
-      // Must match tenant and device's own username
-      if (topicTenant !== this.tenant || topicDeviceId !== username) {
-        return false;
-      }
-      // Device can only publish (2 = write)
-      return access === 2;
+    const tuningTopic = parseTuningTopic(topic);
+    if (tuningTopic) {
+      if (tuningTopic.tenant !== this.tenant || tuningTopic.deviceId !== username) return false;
+      if (tuningTopic.kind === 'desired') return topic === getTuningDesiredTopic(this.tenant, username) && (access === 1 || access === 4);
+      return topic === getTuningReportedTopic(this.tenant, username) && access === 2;
     }
 
     // Phase 3 offline binary transport remains per-device, even though it uses
     // the legacy devices/{id}/sync_burst topic shape.
     if (topic === `devices/${username}/sync_burst`) return access === 2;
 
-    return topic.startsWith(`${this.tenant}/esp32/${username}/`);
+    // Device ACL is an explicit allow-list. Every unmatched topic/access pair
+    // is denied rather than inheriting access from the device namespace.
+    const writableTopics = [
+      `${this.tenant}/esp32/${username}/status`,
+      `${this.tenant}/esp32/${username}/up/telemetry`,
+      `${this.tenant}/esp32/${username}/up/provisioning/announce`,
+      `${this.tenant}/esp32/${username}/up/command/ack`,
+      `${this.tenant}/esp32/${username}/up/manual/ack`,
+      `${this.tenant}/esp32/${username}/up/sync-burst`,
+    ];
+    return access === 2 && writableTopics.includes(topic);
   }
 
   enforceProvisionRateLimit(macAddress: string): void {

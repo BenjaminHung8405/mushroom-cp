@@ -2,6 +2,7 @@ import {
   getTuningDesiredTopic,
   getTuningReportedTopic,
   getTuningReportedPattern,
+  parseTuningTopic,
   validateSegment,
 } from './mqtt-topics.const';
 
@@ -59,6 +60,17 @@ describe('MQTT Topics Constants', () => {
       const pattern = getTuningReportedPattern('mushroom');
       expect(pattern).toBe('mushroom/esp32/+/up/tuning/reported');
     });
+  });
+
+  it('parses only exact tuning topic variants from the shared contract', () => {
+    expect(parseTuningTopic('mushroom/esp32/device1/down/tuning/desired')).toEqual({
+      tenant: 'mushroom', deviceId: 'device1', kind: 'desired',
+    });
+    expect(parseTuningTopic('mushroom/esp32/device1/up/tuning/reported')).toEqual({
+      tenant: 'mushroom', deviceId: 'device1', kind: 'reported',
+    });
+    expect(parseTuningTopic('mushroom/esp32/device1/up/tuning/reported/extra')).toBeNull();
+    expect(parseTuningTopic('mushroom/esp32/+/up/tuning/reported')).toBeNull();
   });
 
   it('does not export a cross-tenant reported wildcard', () => {

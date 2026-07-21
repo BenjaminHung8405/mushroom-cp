@@ -27,7 +27,7 @@ describe('InfluxModule', () => {
 
     mockConfigService = {
       get: jest.fn((key: string) => {
-        if (key === 'INFLUXDB_BUCKET') return 'test_bucket';
+        if (key === 'INFLUXDB_ANALYTICS_BUCKET') return 'test_bucket';
         return undefined;
       }),
     };

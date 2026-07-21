@@ -21,17 +21,30 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
     private readonly mqttService: MqttService,
     private readonly configService: ConfigService,
   ) {
-    this.bucket = this.configService.get('INFLUXDB_BUCKET') ?? '';
+    this.bucket = this.configService.get('INFLUXDB_ANALYTICS_BUCKET') ?? '';
   }
 
   onModuleInit(): void {
     if (!this.bucket) {
-      this.logger.error('INFLUXDB_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.');
+      this.logger.error('INFLUXDB_ANALYTICS_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.');
       return;
     }
 
     try {
-      this.writeApi = this.influxDbService.getWriteApi(this.bucket, 'ms');
+      this.writeApi = this.influxDbService.getWriteApi(this.bucket, 'ms', {
+        batchSize: 250,
+        flushInterval: 1_000,
+        maxBufferLines: 1_000,
+        maxRetries: 0,
+        writeFailed: (error, lines) => {
+          const deviceId = this.deviceIdFromLine(lines[0]) ?? 'unknown';
+          this.logger.error(`Failed to write controller history point for device ${deviceId}: ${error.message}`);
+          return Promise.resolve(); // Drop the bounded batch; never propagate into MQTT.
+        },
+      });
+      if (!this.writeApi) {
+        this.logger.error('InfluxDB WriteApi is unavailable. ControlHistoryInfluxWriter will not record data.');
+      }
     } catch (err: any) {
       this.logger.error(`Failed to initialize InfluxDB WriteApi: ${err.message}`);
     }
@@ -148,9 +161,9 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
     this.writeApi.writePoint(influxPoint);
   }
 
-  private handleWriteError(error: Error, point: LiveTelemetryPoint): void {
-    this.logger.error(
-      `Failed to write controller history point for device ${point.deviceId}: ${error.message}`,
-    );
+  private deviceIdFromLine(line: string | undefined): string | null {
+    if (!line) return null;
+    const match = /(?:^|,)device_id=([^, ]+)/.exec(line);
+    return match?.[1] ?? null;
   }
 }

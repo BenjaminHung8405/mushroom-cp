@@ -152,7 +152,7 @@ public:
    boolean publish(const char* topic, const char* payload, boolean retained);
    boolean publish(const char* topic, const uint8_t * payload, unsigned int plength);
    boolean publish(const char* topic, const uint8_t * payload, unsigned int plength, boolean retained);
-   /** Publish QoS 1 and wait for the broker PUBACK. Retain is explicit. */
+   /** Queue a QoS 1 PUBLISH; loop() processes PUBACK without blocking callers. */
    boolean publishQos1(const char* topic, const uint8_t* payload,
                        unsigned int plength, boolean retained);
    boolean publish_P(const char* topic, const char* payload, boolean retained);

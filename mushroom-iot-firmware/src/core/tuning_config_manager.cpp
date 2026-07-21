@@ -113,11 +113,15 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         return TuningResult::DUPLICATE;
     }
 
-    // Two-phase envelope: boot only adopts COMMITTED records. A reset after
-    // the pending write, queue handoff, or failed final write therefore falls
-    // back to the last committed generation instead of adopting an unacked
-    // candidate.
+    // Complete the durable two-slot commit before handing the value to Core 1.
+    // Core 1 must never observe a configuration that cannot survive a reboot.
     if (!writeRecord(incoming_params, TUNING_NVS_PENDING_COMMIT)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
+        unlock();
+        return TuningResult::REJECTED;
+    }
+
+    if (!saveToNvs(incoming_params)) {
         reason = TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
@@ -125,13 +129,12 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
 
     if (g_tuning_config_queue == nullptr ||
         xQueueOverwrite(g_tuning_config_queue, &incoming_params) != pdTRUE) {
-        reason = TuningReason::QUEUE_FULL_ERROR;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-
-    if (!saveToNvs(incoming_params)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
+        // Restore the previous effective value before reporting a rejection.
+        // A reset in this recovery path therefore never hydrates a candidate
+        // that Core 1 did not receive.
+        const bool rollbackPending = writeRecord(_active_params, TUNING_NVS_PENDING_COMMIT);
+        const bool rollbackCommitted = rollbackPending && saveToNvs(_active_params);
+        reason = rollbackCommitted ? TuningReason::QUEUE_FULL_ERROR : TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }
@@ -358,17 +361,10 @@ bool TuningConfigManager::writeRecord(const DynamicTuningParams& params, uint8_t
     size_t read_bytes = prefs.getBytes(key, &readback, sizeof(TuningNvsRecord));
     prefs.end();
 
-    if (read_bytes != sizeof(TuningNvsRecord)) {
-        std::printf("[DEBUG] read_bytes (%zu) != sizeof(TuningNvsRecord) (%zu)\n", read_bytes, sizeof(TuningNvsRecord));
-        return false;
-    }
+    if (read_bytes != sizeof(TuningNvsRecord)) return false;
 
     uint32_t calc_crc = calculateCRC32(reinterpret_cast<const uint8_t*>(&readback), offsetof(TuningNvsRecord, crc32));
-    if (calc_crc != readback.crc32 || readback.crc32 != new_rec.crc32 || readback.generation != new_rec.generation) {
-        std::printf("[DEBUG] CRC or Gen mismatch: calc_crc=0x%08X, readback.crc32=0x%08X, new_rec.crc32=0x%08X, readback.gen=%u, new_rec.gen=%u\n",
-                    calc_crc, readback.crc32, new_rec.crc32, readback.generation, new_rec.generation);
-        return false;
-    }
+    if (calc_crc != readback.crc32 || readback.crc32 != new_rec.crc32 || readback.generation != new_rec.generation) return false;
 
     return true;
 }
@@ -384,8 +380,10 @@ bool TuningConfigManager::_validateSchemaVersion(const JsonVariant& doc) {
 bool TuningConfigManager::_validateDeviceId(const JsonVariant& doc) {
     JsonVariant dev_id = doc["device_id"];
     if (dev_id.isNull() || !dev_id.is<const char*>()) return false;
-    String expected = config::network::resolve_device_identity();
-    return expected.equals(dev_id.as<const char*>());
+    const char* actual = dev_id.as<const char*>();
+    const char* expected = config::network::MQTT_CLIENT_ID_VAL.c_str();
+    if (expected == nullptr || expected[0] == '\0') return false;
+    return std::strcmp(expected, actual) == 0;
 }
 
 bool TuningConfigManager::_validateCommandIdFormat(const char* uuid_str) {
@@ -412,22 +410,20 @@ bool TuningConfigManager::_validateConfigBounds(const JsonVariant& config) {
     JsonVariant mist_on = config["mist_on_threshold"];
     JsonVariant mist_off = config["mist_off_threshold"];
     
-    if (!_validateNoNanInfinity(lamp)) { std::printf("[DEBUG] lamp failed NoNanInfinity\n"); return false; }
-    if (!_validateNoNanInfinity(mist)) { std::printf("[DEBUG] mist failed NoNanInfinity\n"); return false; }
-    if (!_validateNoNanInfinity(mist_on)) { std::printf("[DEBUG] mist_on failed NoNanInfinity\n"); return false; }
-    if (!_validateNoNanInfinity(mist_off)) { std::printf("[DEBUG] mist_off failed NoNanInfinity\n"); return false; }
+    if (!_validateNoNanInfinity(lamp)) return false;
+    if (!_validateNoNanInfinity(mist)) return false;
+    if (!_validateNoNanInfinity(mist_on)) return false;
+    if (!_validateNoNanInfinity(mist_off)) return false;
     
     float l_val = lamp.as<float>();
     float m_val = mist.as<float>();
     float mon_val = mist_on.as<float>();
     float moff_val = mist_off.as<float>();
     
-    std::printf("[DEBUG] l_val=%f, m_val=%f, mon_val=%f, moff_val=%f\n", l_val, m_val, mon_val, moff_val);
-    
-    if (l_val < 0.80f || l_val > 1.20f) { std::printf("[DEBUG] l_val out of bounds\n"); return false; }
-    if (m_val < 0.80f || m_val > 1.20f) { std::printf("[DEBUG] m_val out of bounds\n"); return false; }
-    if (mon_val < 0.20f || mon_val > 0.35f) { std::printf("[DEBUG] mon_val out of bounds\n"); return false; }
-    if (moff_val < 0.10f || moff_val > 0.20f) { std::printf("[DEBUG] moff_val out of bounds\n"); return false; }
+    if (l_val < 0.80f || l_val > 1.20f) return false;
+    if (m_val < 0.80f || m_val > 1.20f) return false;
+    if (mon_val < 0.20f || mon_val > 0.35f) return false;
+    if (moff_val < 0.10f || moff_val > 0.20f) return false;
     
     return true;
 }

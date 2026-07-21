@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InfluxDB, WriteApi, QueryApi } from '@influxdata/influxdb-client';
+import { InfluxDB, WriteApi, QueryApi, WriteOptions } from '@influxdata/influxdb-client';
 import { ConfigService } from './config.service';
 
 @Injectable()
@@ -22,11 +22,15 @@ export class InfluxDbService {
     this.influx = new InfluxDB({ url, token });
   }
 
-  getWriteApi(bucket: string, precision: 'ms' | 's' | 'us' | 'ns' = 'ms'): WriteApi | null {
+  getWriteApi(
+    bucket: string,
+    precision: 'ms' | 's' | 'us' | 'ns' = 'ms',
+    options?: Partial<WriteOptions>,
+  ): WriteApi | null {
     if (!this.influx) {
       return null;
     }
-    return this.influx.getWriteApi(this.org, bucket, precision);
+    return this.influx.getWriteApi(this.org, bucket, precision, options);
   }
 
   getQueryApi(): QueryApi | null {

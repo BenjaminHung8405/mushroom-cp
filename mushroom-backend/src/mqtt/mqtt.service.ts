@@ -17,6 +17,7 @@ import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 import { DeviceHealthService, HealthState } from '../device-health/device-health.service';
 import { decodeOfflineSyncBurst, type OfflineSyncBurst } from './offline-sync';
+import { getTuningReportedPattern, parseTuningTopic } from './constants/mqtt-topics.const';
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -111,13 +112,23 @@ export interface CommandAckEvent {
   receivedAt: Date;
 }
 
+export interface TuningReportedEvent {
+  deviceId: string;
+  commandId: string;
+  status: 'ACCEPTED' | 'DUPLICATE' | 'REJECTED';
+  reasonCode: string | null;
+  persisted: boolean;
+  receivedAt: Date;
+}
+
 type UplinkFeature =
   | 'status'
   | 'telemetry'
   | 'provisioning_announce'
   | 'command_ack'
   | 'manual_ack'
-  | 'sync_burst';
+  | 'sync_burst'
+  | 'tuning_reported';
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -130,6 +141,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   /** Core 1 manual-control acknowledgements, forwarded to telemetry SSE. */
   public readonly manualAck$ = new Subject<{ deviceId: string; ack: ManualAckEvent }>();
   public readonly commandAck$ = new Subject<CommandAckEvent>();
+  /** Strictly validated tuning ACKs. Device identity always comes from the topic. */
+  public readonly tuningReported$ = new Subject<TuningReportedEvent>();
   /** Validated binary offline chunks; consumers persist them before ACKing. */
   public readonly offlineSyncBurst$ = new Subject<{ deviceId: string; houseId: string; receivedAt: Date; burst: OfflineSyncBurst }>();
   private readonly deviceStateCache = new Map<string, DeviceStatusEvent>();
@@ -206,6 +219,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `${this.tenant}/esp32/+/up/provisioning/announce`,
       `${this.tenant}/esp32/+/up/command/ack`,
       `${this.tenant}/esp32/+/up/sync-burst`,
+      getTuningReportedPattern(this.tenant),
       `${this.tenant}/provision/request`,
     ];
     for (const topic of subscriptions) {
@@ -253,6 +267,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.handleProvisioning(record.deviceId, data, receivedAt);
       } else if (parsedTopic.feature === 'manual_ack') {
         this.handleManualAck(record.deviceId, data, receivedAt);
+      } else if (parsedTopic.feature === 'tuning_reported') {
+        this.handleTuningReported(record.deviceId, data, receivedAt);
       } else {
         this.handleCommandAck(record.deviceId, data, receivedAt);
       }
@@ -499,9 +515,34 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
 
+  private handleTuningReported(deviceId: string, data: Record<string, unknown>, receivedAt: Date): void {
+    const commandId = typeof data.command_id === 'string' ? data.command_id : '';
+    const status = data.status;
+    const persisted = data.persisted;
+    if (!commandId || !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(String(status)) || typeof persisted !== 'boolean') {
+      this.logger.warn(`Dropped malformed tuning ACK from '${deviceId}'.`);
+      return;
+    }
+    if (data.device_id !== deviceId) {
+      this.logger.warn(`Dropped tuning ACK with mismatched device_id for '${deviceId}'.`);
+      return;
+    }
+    const reasonCode = typeof data.reason_code === 'string' ? data.reason_code : null;
+    if ((status === 'REJECTED') !== (reasonCode !== null)) {
+      this.logger.warn(`Dropped tuning ACK with invalid reason_code for '${deviceId}'.`);
+      return;
+    }
+    this.tuningReported$.next({ deviceId, commandId, status: status as TuningReportedEvent['status'], reasonCode, persisted, receivedAt });
+    void this.registry.touchLastSeen(deviceId, receivedAt);
+  }
+
   private parseUplinkTopic(
     topic: string,
   ): { deviceId: string; feature: UplinkFeature } | null {
+    const tuningTopic = parseTuningTopic(topic);
+    if (tuningTopic?.tenant === this.tenant && tuningTopic.kind === 'reported') {
+      return { deviceId: tuningTopic.deviceId, feature: 'tuning_reported' };
+    }
     const parts = topic.split('/');
     const validId = (value: string) => /^[a-zA-Z0-9_-]{1,50}$/.test(value);
     if (parts.length === 4 && parts[0] === this.tenant && parts[1] === 'esp32' && validId(parts[2]) && parts[3] === 'status') {

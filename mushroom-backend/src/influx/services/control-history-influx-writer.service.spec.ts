@@ -27,7 +27,7 @@ describe('ControlHistoryInfluxWriter', () => {
 
     mockConfigService = {
       get: jest.fn((key: string) => {
-        if (key === 'INFLUXDB_BUCKET') return 'test_bucket';
+        if (key === 'INFLUXDB_ANALYTICS_BUCKET') return 'test_bucket';
         return undefined;
       }),
     };
@@ -55,8 +55,13 @@ describe('ControlHistoryInfluxWriter', () => {
 
   it('should initialize and subscribe onModuleInit', () => {
     writer.onModuleInit();
-    expect(mockConfigService.get).toHaveBeenCalledWith('INFLUXDB_BUCKET');
-    expect(mockInfluxDbService.getWriteApi).toHaveBeenCalledWith('test_bucket', 'ms');
+    expect(mockConfigService.get).toHaveBeenCalledWith('INFLUXDB_ANALYTICS_BUCKET');
+    expect(mockInfluxDbService.getWriteApi).toHaveBeenCalledWith('test_bucket', 'ms', expect.objectContaining({
+      batchSize: 250,
+      maxBufferLines: 1_000,
+      maxRetries: 0,
+      writeFailed: expect.any(Function),
+    }));
   });
 
   it('should process telemetry events and write to InfluxDB with dataQuality="good"', async () => {
@@ -211,5 +216,11 @@ describe('ControlHistoryInfluxWriter', () => {
     writer.onModuleInit();
     await writer.onModuleDestroy();
     expect(mockWriteApi.close).toHaveBeenCalled();
+  });
+
+  it('drops asynchronous write failures without creating an unhandled rejection', async () => {
+    writer.onModuleInit();
+    const options = mockInfluxDbService.getWriteApi.mock.calls[0][2];
+    await expect(options.writeFailed(new Error('offline'), ['controller_history,device_id=device-123 value=1'])).resolves.toBeUndefined();
   });
 });
