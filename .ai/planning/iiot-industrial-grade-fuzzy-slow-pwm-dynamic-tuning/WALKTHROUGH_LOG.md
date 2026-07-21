@@ -2,6 +2,20 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:43:00+07:00] - Task D3: Parse desired trong worker và gọi `TuningConfigManager::processCommand`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [mqtt_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/network/mqtt_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - `TUNING_DESIRED` được tách khỏi luồng `onMessage()` chung và chỉ được xử lý trong `processNetworkMessage()`, tức Network Worker Core 0 là execution context duy nhất thực hiện deserialize, validation, NVS persistence và dispatch queue.
+  - Worker kiểm tra lại `payload_length`, parse bằng `StaticJsonDocument<512>` trên stack, và mọi `DeserializationError` đều bị log là `REJECTED/INVALID_SCHEMA` rồi return an toàn, không làm thay đổi state.
+  - JSON hợp lệ được chuyển trực tiếp tới `storage::TuningConfigManager::processCommand()`; MQTT callback vẫn chỉ phân loại/copy bounded như Task D2, không thực hiện JSON/NVS/GPIO.
+  - Bổ sung regression test kiểm tra malformed JSON không mutate active tuning/queue và valid JSON được parse, persist, rồi enqueue đúng revision. Biên dịch lại toàn bộ host test bằng `g++ -std=c++17 -DUNIT_TEST ...` và chạy thành công (`--- All Unit Tests Passed Successfully! ---`); `git diff --check` không báo whitespace error. Cảnh báo cũ không liên quan tại `run_tests.cpp:306` về so sánh string literal vẫn còn khi compile.
+
 ## [2026-07-21T16:18:00+07:00] - Task D2: Nhận diện desired topic và dispatch payload vào `g_network_worker_queue`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

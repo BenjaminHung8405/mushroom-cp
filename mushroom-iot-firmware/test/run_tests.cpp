@@ -556,6 +556,46 @@ int main() {
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
 
+    // 12.4f Task D3: tuning JSON is parsed only by the deferred worker with a
+    // fixed 512-byte document; malformed input must be rejected without a
+    // state mutation, while a valid command reaches TuningConfigManager.
+    Serial.println("[TEST] Testing Task D3 - Deferred bounded tuning parsing...");
+    {
+        storage::TuningConfigManager& tuning = storage::TuningConfigManager::getInstance();
+        tuning.resetForTest();
+        xQueueReset(g_tuning_config_queue);
+
+        mqtt::NetworkMessage malformed{};
+        malformed.type = mqtt::CommandType::TUNING_DESIRED;
+        const char malformed_payload[] = "{invalid";
+        malformed.payload_length = sizeof(malformed_payload) - 1;
+        std::memcpy(malformed.payload, malformed_payload, malformed.payload_length);
+        mqtt_manager.processNetworkMessage(malformed);
+
+        DynamicTuningParams active = tuning.getActiveParams();
+        assert(active.revision == 0);
+        assert(xQueueReceive(g_tuning_config_queue, &active, 0) == pdFALSE);
+
+        mqtt::NetworkMessage valid{};
+        valid.type = mqtt::CommandType::TUNING_DESIRED;
+        const char valid_payload[] =
+            "{\"schema_version\":1,\"device_id\":\"mushroom_s3_unittest\","
+            "\"command_id\":\"d3333333-1234-1234-1234-123456789012\",\"revision\":77,"
+            "\"config\":{\"lamp_gain_scale\":1.1,\"mist_gain_scale\":0.9,"
+            "\"mist_on_threshold\":0.28,\"mist_off_threshold\":0.18}}";
+        static_assert(sizeof(valid_payload) - 1 <= mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES,
+                      "D3 test payload must fit the desired-command bound");
+        valid.payload_length = sizeof(valid_payload) - 1;
+        std::memcpy(valid.payload, valid_payload, valid.payload_length);
+        mqtt_manager.processNetworkMessage(valid);
+
+        active = tuning.getActiveParams();
+        assert(active.revision == 77);
+        assert(std::strcmp(active.command_id, "d3333333-1234-1234-1234-123456789012") == 0);
+        assert(xQueueReceive(g_tuning_config_queue, &active, 0) == pdTRUE);
+        assert(active.revision == 77);
+    }
+
     // Ensure client is currently CONNECTED. Backoff value is internal detail
     // that varies per-platform; we only verify state machine transitions.
     assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);

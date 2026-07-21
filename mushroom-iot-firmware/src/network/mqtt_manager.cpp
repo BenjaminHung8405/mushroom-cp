@@ -14,6 +14,7 @@
 #include "core/crop_profile_validator.h"
 #include "core/system_manager.h"
 #include "core/time_confidence.h"
+#include "core/tuning_config_manager.h"
 #include "network/wifi_manager.h"
 #include "protocols/mqtt_callbacks.h"
 
@@ -1096,6 +1097,35 @@ bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, un
 
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
+    if (message.type == CommandType::TUNING_DESIRED) {
+        // Desired tuning commands are deliberately parsed only in this Core-0
+        // worker context. The MQTT callback merely performs a bounded copy.
+        if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
+            message.payload_length > sizeof(message.payload)) {
+            Serial.println("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: invalid payload length.");
+            return;
+        }
+
+        StaticJsonDocument<512> document;
+        const DeserializationError error = deserializeJson(
+            document, message.payload, message.payload_length);
+        if (error) {
+            Serial.printf("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: %s.\n",
+                          error.c_str());
+            return;
+        }
+
+        storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
+        const storage::TuningResult result =
+            storage::TuningConfigManager::getInstance().processCommand(
+                document.as<JsonVariant>(), reason);
+        if (result == storage::TuningResult::REJECTED) {
+            Serial.printf("[MQTT] Tuning command REJECTED, reason=%u.\n",
+                          static_cast<unsigned>(reason));
+        }
+        return;
+    }
+
     String topic;
     if (message.type == CommandType::BOOTSTRAP_RESPONSE) {
         topic = tenant_ + "/provision/response/" + bootstrap_mac_;
@@ -1103,8 +1133,6 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         topic = tenant_ + "/esp32/" + device_id_ + "/down/command";
     } else if (message.type == CommandType::SYNC_BURST_ACK) {
         topic = tenant_ + "/esp32/" + device_id_ + "/down/sync-burst/ack";
-    } else if (message.type == CommandType::TUNING_DESIRED) {
-        topic = tenant_ + "/esp32/" + device_id_ + "/down/tuning/desired";
     } else {
         return;
     }
