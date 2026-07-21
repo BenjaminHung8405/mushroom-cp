@@ -53,7 +53,7 @@ public:
     /**
      * @brief Process a desired tuning JSON command.
      * Validates schema, device ID, bounds, UUID, and does semantic diff.
-     * If valid, persists to NVS double-buffer and posts to queue.
+     * If valid, stages in NVS, posts to queue, then marks the record READY.
      * @param doc The parsed JSON object/variant.
      * @param reason Out parameter to receive the detail reason.
      * @return TuningResult ACCEPTED, REJECTED, or DUPLICATE.

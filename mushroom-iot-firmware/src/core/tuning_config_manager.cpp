@@ -113,15 +113,10 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         return TuningResult::DUPLICATE;
     }
 
-    // Complete the durable two-slot commit before handing the value to Core 1.
-    // Core 1 must never observe a configuration that cannot survive a reboot.
+    // Stage a record which boot deliberately ignores. The old READY record
+    // remains the only hydrateable value until the Core-0 -> Core-1 handoff
+    // has succeeded.
     if (!writeRecord(incoming_params, TUNING_NVS_PENDING_COMMIT)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-
-    if (!saveToNvs(incoming_params)) {
         reason = TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
@@ -129,12 +124,25 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
 
     if (g_tuning_config_queue == nullptr ||
         xQueueOverwrite(g_tuning_config_queue, &incoming_params) != pdTRUE) {
-        // Restore the previous effective value before reporting a rejection.
-        // A reset in this recovery path therefore never hydrates a candidate
-        // that Core 1 did not receive.
-        const bool rollbackPending = writeRecord(_active_params, TUNING_NVS_PENDING_COMMIT);
-        const bool rollbackCommitted = rollbackPending && saveToNvs(_active_params);
-        reason = rollbackCommitted ? TuningReason::QUEUE_FULL_ERROR : TuningReason::NVS_WRITE_ERROR;
+        // Do not attempt a rollback: a failed rollback can itself make a
+        // rejected candidate durable. The staged record is non-hydrateable,
+        // while the previous READY record remains authoritative after reboot.
+        reason = TuningReason::QUEUE_FULL_ERROR;
+        unlock();
+        return TuningResult::REJECTED;
+    }
+
+    // Mark READY only after handoff. If this fails, undo the live handoff on a
+    // best-effort basis and raise a persistence fault; boot still selects the
+    // previous READY record because this candidate remains PENDING.
+    if (!saveToNvs(incoming_params)) {
+        const bool queueRestored =
+            g_tuning_config_queue != nullptr &&
+            xQueueOverwrite(g_tuning_config_queue, &_active_params) == pdTRUE;
+        if (!queueRestored) {
+            Serial.println("[TUNING] FATAL: readiness commit and control rollback failed; reboot required.");
+        }
+        reason = TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }

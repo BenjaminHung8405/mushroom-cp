@@ -2,7 +2,30 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
+const productionSecretKeys = [
+  'MQTT_BACKEND_PASS',
+  'MQTT_BOOTSTRAP_SECRET',
+  'POSTGRES_PASSWORD',
+  'INFLUXDB_TOKEN',
+  'INFLUXDB_INIT_PASSWORD',
+] as const;
+
+function assertProductionSecrets(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const unsafeKeys = productionSecretKeys.filter((key) => {
+    const value = process.env[key]?.trim();
+    return !value || /change_me|changeme|default|example|replace_me/i.test(value);
+  });
+  if (unsafeKeys.length > 0) {
+    throw new Error(
+      `Refusing production startup with missing or placeholder secrets: ${unsafeKeys.join(', ')}`,
+    );
+  }
+}
+
 async function bootstrap() {
+  assertProductionSecrets();
   const app = await NestFactory.create(AppModule);
 
   // Enable global validation pipe for whitelisting and validation of body payloads

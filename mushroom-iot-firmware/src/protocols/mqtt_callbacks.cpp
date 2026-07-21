@@ -9,23 +9,36 @@
 namespace mqtt {
 namespace {
 
-constexpr char TUNING_DESIRED_TOPIC_SUFFIX[] = "/down/tuning/desired";
+constexpr size_t MAX_TUNING_DESIRED_TOPIC_BYTES = 160;
+char expected_tuning_desired_topic[MAX_TUNING_DESIRED_TOPIC_BYTES]{};
+size_t expected_tuning_desired_topic_length = 0;
 
 bool isTuningDesiredTopic(const char* topic)
 {
-    if (topic == nullptr) {
+    if (topic == nullptr || expected_tuning_desired_topic_length == 0) {
         return false;
     }
 
     const size_t topic_length = strlen(topic);
-    constexpr size_t suffix_length = sizeof(TUNING_DESIRED_TOPIC_SUFFIX) - 1;
-    return topic_length >= suffix_length &&
-           strcmp(topic + topic_length - suffix_length, TUNING_DESIRED_TOPIC_SUFFIX) == 0;
+    return topic_length == expected_tuning_desired_topic_length &&
+           memcmp(topic, expected_tuning_desired_topic, topic_length) == 0;
 }
 
 } // namespace
 
 QueueHandle_t g_network_worker_queue = nullptr;
+
+bool MessageDispatcher::setExpectedTuningDesiredTopic(const char* topic)
+{
+    if (topic == nullptr) return false;
+    const size_t length = strnlen(topic, MAX_TUNING_DESIRED_TOPIC_BYTES);
+    if (length == 0 || length >= MAX_TUNING_DESIRED_TOPIC_BYTES) return false;
+
+    memcpy(expected_tuning_desired_topic, topic, length);
+    expected_tuning_desired_topic[length] = '\0';
+    expected_tuning_desired_topic_length = length;
+    return true;
+}
 
 void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int length)
 {

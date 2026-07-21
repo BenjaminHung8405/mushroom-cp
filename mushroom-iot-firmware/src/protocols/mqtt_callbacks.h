@@ -34,6 +34,8 @@ extern QueueHandle_t g_network_worker_queue;
 
 class MessageDispatcher {
 public:
+    /** Configure the sole desired topic accepted by the callback. */
+    static bool setExpectedTuningDesiredTopic(const char* topic);
     /** Non-blocking classification/copy from the PubSubClient callback. */
     static void dispatch(char* topic, uint8_t* payload, unsigned int length);
 };

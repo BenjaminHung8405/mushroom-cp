@@ -270,6 +270,16 @@ boolean PubSubClientQos1::connect(const char *id, const char *user, const char *
                     lastInActivity = millis();
                     pingOutstanding = false;
                     _state = MQTT_CONNECTED;
+                    // A TCP/MQTT reconnect may have lost broker state for the
+                    // original publish. Re-send it immediately with DUP while
+                    // preserving the message ID; retry a failed transport via
+                    // the manager's reconnect path.
+                    if (pendingQos1.active && !writePendingQos1(true)) {
+                        pendingQos1.retryCount = 0;
+                        _state = MQTT_CONNECTION_LOST;
+                        _client->stop();
+                        return false;
+                    }
                     return true;
                 } else {
                     _state = buffer[3];
@@ -416,6 +426,17 @@ boolean PubSubClientQos1::loop() {
                             callback(topic,payload,len-llen-3-tl);
                         }
                     }
+                } else if (type == MQTTPUBACK) {
+                    if (len == static_cast<uint16_t>(llen + 3)) {
+                        const uint16_t ackId =
+                            (static_cast<uint16_t>(this->buffer[llen + 1]) << 8) |
+                            this->buffer[llen + 2];
+                        if (pendingQos1.active && ackId == pendingQos1.messageId) {
+                            pendingQos1.active = false;
+                            pendingQos1.packetLength = 0;
+                            pendingQos1.retryCount = 0;
+                        }
+                    }
                 } else if (type == MQTTPINGREQ) {
                     this->buffer[0] = MQTTPINGRESP;
                     this->buffer[1] = 0;
@@ -428,6 +449,7 @@ boolean PubSubClientQos1::loop() {
                 return false;
             }
         }
+        servicePendingQos1(t);
         return true;
     }
     return false;
@@ -471,34 +493,82 @@ boolean PubSubClientQos1::publish(const char* topic, const uint8_t* payload, uns
     return false;
 }
 
-boolean PubSubClientQos1::publishQos1(const char* topic, const uint8_t* payload,
-                                       unsigned int plength, boolean retained) {
-    if (!connected() || topic == NULL ||
-        this->bufferSize < MQTT_MAX_HEADER_SIZE + 2 + strnlen(topic, this->bufferSize) + 2 + plength) {
-        return false;
-    }
+PublishQos1Result PubSubClientQos1::publishQos1(const char* topic, const uint8_t* payload,
+                                                 unsigned int plength, boolean retained) {
+    if (!connected()) return PublishQos1Result::NOT_CONNECTED;
+    if (topic == NULL || (payload == NULL && plength > 0)) return PublishQos1Result::INVALID_ARGUMENT;
+    if (pendingQos1.active) return PublishQos1Result::BUSY;
 
-    uint16_t length = MQTT_MAX_HEADER_SIZE;
-    length = writeString(topic, this->buffer, length);
-    const uint16_t messageId = ++nextMsgId == 0 ? ++nextMsgId : nextMsgId;
-    this->buffer[length++] = messageId >> 8;
-    this->buffer[length++] = messageId & 0xFF;
-    for (unsigned int i = 0; i < plength; ++i) {
-        this->buffer[length++] = payload[i];
-    }
+    const size_t topicLength = strnlen(topic, this->bufferSize);
+    if (topicLength == 0 || topicLength == this->bufferSize) return PublishQos1Result::INVALID_ARGUMENT;
+    const uint32_t remainingLength = 2U + topicLength + 2U + plength;
+    if (remainingLength > 268435455UL) return PublishQos1Result::INVALID_ARGUMENT;
 
+    uint8_t encodedLength[4];
+    uint8_t encodedLengthBytes = 0;
+    uint32_t remaining = remainingLength;
+    do {
+        uint8_t byte = remaining & 127U;
+        remaining /= 128U;
+        if (remaining > 0) byte |= 0x80U;
+        encodedLength[encodedLengthBytes++] = byte;
+    } while (remaining > 0 && encodedLengthBytes < sizeof(encodedLength));
+
+    const uint32_t packetLength = 1U + encodedLengthBytes + remainingLength;
+    if (packetLength > MQTT_QOS1_PENDING_PACKET_MAX ||
+        packetLength > this->bufferSize) return PublishQos1Result::INVALID_ARGUMENT;
+
+    uint16_t pos = 0;
     uint8_t header = MQTTPUBLISH | MQTTQOS1;
-    if (retained) {
-        header |= 1;
-    }
-    if (!write(header, this->buffer, length - MQTT_MAX_HEADER_SIZE)) {
-        return false;
-    }
+    if (retained) header |= 1U;
+    pendingQos1.packet[pos++] = header;
+    for (uint8_t i = 0; i < encodedLengthBytes; ++i) pendingQos1.packet[pos++] = encodedLength[i];
+    pendingQos1.packet[pos++] = static_cast<uint8_t>(topicLength >> 8);
+    pendingQos1.packet[pos++] = static_cast<uint8_t>(topicLength & 0xFF);
+    memcpy(pendingQos1.packet + pos, topic, topicLength);
+    pos += topicLength;
+    pendingQos1.messageId = ++nextMsgId;
+    if (pendingQos1.messageId == 0) pendingQos1.messageId = ++nextMsgId;
+    pendingQos1.packet[pos++] = static_cast<uint8_t>(pendingQos1.messageId >> 8);
+    pendingQos1.packet[pos++] = static_cast<uint8_t>(pendingQos1.messageId & 0xFF);
+    if (plength > 0) memcpy(pendingQos1.packet + pos, payload, plength);
+    pos += plength;
+    pendingQos1.packetLength = pos;
+    pendingQos1.retryCount = 0;
+    pendingQos1.active = true;
 
-    // PUBACK is consumed by loop() on the normal MQTT worker cadence. Never
-    // wait here: a silent broker must not stall telemetry or the Core-0 queue.
-    (void)messageId;
+    if (!writePendingQos1(false)) {
+        pendingQos1.active = false;
+        pendingQos1.packetLength = 0;
+        return PublishQos1Result::TRANSPORT_ERROR;
+    }
+    return PublishQos1Result::QUEUED;
+}
+
+bool PubSubClientQos1::writePendingQos1(bool duplicate) {
+    if (!pendingQos1.active || !_client || !connected()) return false;
+    if (duplicate) pendingQos1.packet[0] |= 0x08U; // MQTT DUP flag.
+    const size_t written = _client->write(pendingQos1.packet, pendingQos1.packetLength);
+    if (written != pendingQos1.packetLength) return false;
+    pendingQos1.lastAttemptAt = millis();
+    lastOutActivity = pendingQos1.lastAttemptAt;
     return true;
+}
+
+void PubSubClientQos1::servicePendingQos1(unsigned long now) {
+    constexpr unsigned long RETRY_BASE_MS = 2000UL;
+    constexpr uint8_t MAX_RETRIES = 3;
+    if (!pendingQos1.active || !connected()) return;
+
+    const unsigned long retryDelay = RETRY_BASE_MS << pendingQos1.retryCount;
+    if (now - pendingQos1.lastAttemptAt < retryDelay) return;
+    if (pendingQos1.retryCount >= MAX_RETRIES) {
+        _state = MQTT_CONNECTION_TIMEOUT;
+        _client->stop(); // Manager reconnects; retained packet is retried after reconnect.
+        return;
+    }
+    writePendingQos1(true);
+    ++pendingQos1.retryCount;
 }
 
 boolean PubSubClientQos1::publish_P(const char* topic, const char* payload, boolean retained) {

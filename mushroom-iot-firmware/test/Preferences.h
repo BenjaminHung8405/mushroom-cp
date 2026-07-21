@@ -9,6 +9,7 @@ class Preferences {
 public:
     static std::map<std::string, std::map<std::string, std::string>> _global_storage;
     static bool mock_fail_put_bytes;
+    static size_t mock_fail_put_bytes_after;
     static size_t mock_put_bytes_count;
     std::string _current_namespace;
     bool _read_only;
@@ -80,7 +81,9 @@ public:
     }
 
     size_t putBytes(const char* key, const void* value, size_t len) {
-        if (!_opened || _read_only || mock_fail_put_bytes) return 0;
+        if (!_opened || _read_only || mock_fail_put_bytes ||
+            (mock_fail_put_bytes_after > 0 &&
+             mock_put_bytes_count >= mock_fail_put_bytes_after)) return 0;
         ++mock_put_bytes_count;
         _global_storage[_current_namespace][key] = std::string(static_cast<const char*>(value), len);
         return len;

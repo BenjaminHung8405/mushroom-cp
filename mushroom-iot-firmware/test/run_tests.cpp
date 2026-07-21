@@ -32,6 +32,7 @@
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
 bool Preferences::mock_fail_put_bytes = false;
+size_t Preferences::mock_fail_put_bytes_after = 0;
 size_t Preferences::mock_put_bytes_count = 0;
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
@@ -528,14 +529,16 @@ int main() {
         assert(found_tuning_desired == true);
     }
 
-    // 12.4e Task D2: the callback must only classify the exact desired-topic
-    // suffix, bound its byte copy to 512 bytes, and defer processing by queue.
+    // 12.4e Task D2: the callback only accepts the exact provisioned topic,
+    // bounds its byte copy to 512 bytes, and defers processing by queue.
     Serial.println("[TEST] Testing Task D2 - Deferred bounded tuning dispatch...");
     {
         QueueHandle_t previous_queue = mqtt::g_network_worker_queue;
         void (*previous_hook)(QueueHandle_t, const void*) = mock_queue_send_hook;
         mqtt::g_network_worker_queue = xQueueCreate(1, sizeof(mqtt::NetworkMessage));
         mock_queue_send_hook = nullptr;
+        assert(mqtt::MessageDispatcher::setExpectedTuningDesiredTopic(
+            "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired"));
 
         char desired_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired";
         uint8_t desired_payload[] = {'{', '\0', '}'};
@@ -547,9 +550,18 @@ int main() {
         assert(message.payload_length == sizeof(desired_payload));
         assert(std::memcmp(message.payload, desired_payload, sizeof(desired_payload)) == 0);
 
-        char non_matching_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired/extra";
-        mqtt::MessageDispatcher::dispatch(non_matching_topic, desired_payload, sizeof(desired_payload));
-        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
+        const char* rejected_topics[] = {
+            "other_tenant/esp32/mushroom_s3_unittest/down/tuning/desired",
+            "test_tenant/esp32/another_device/down/tuning/desired",
+            "test_tenant/esp32/mushroom_s3_unittest/down/extra/tuning/desired",
+            "test_tenant/esp32/mushroom_s3_unittest/up/tuning/desired",
+            "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired/extra",
+        };
+        for (const char* rejected_topic : rejected_topics) {
+            mqtt::MessageDispatcher::dispatch(const_cast<char*>(rejected_topic), desired_payload,
+                                              sizeof(desired_payload));
+            assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
+        }
 
         uint8_t oversized_payload[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
         mqtt::MessageDispatcher::dispatch(desired_topic, oversized_payload, sizeof(oversized_payload));
@@ -664,9 +676,9 @@ int main() {
         assert(reported["persisted"] == false);
         assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
 
-        // A dispatch failure is a rejected transaction: the compensating NVS
-        // write must retain the previous effective config across rehydration,
-        // and the worker must never report ACCEPTED.
+        // Fault injection: stage succeeds, handoff fails, then all subsequent
+        // persistence writes fail. The rejected candidate must remain PENDING
+        // and therefore be impossible to hydrate after a simulated reboot.
         const DynamicTuningParams previous = tuning.getActiveParams();
         mqtt::NetworkMessage queue_unavailable{};
         queue_unavailable.type = mqtt::CommandType::TUNING_DESIRED;
@@ -679,9 +691,12 @@ int main() {
         std::memcpy(queue_unavailable.payload, queue_unavailable_payload,
                     queue_unavailable.payload_length);
 
+        const size_t writes_before_failure = Preferences::mock_put_bytes_count;
+        Preferences::mock_fail_put_bytes_after = writes_before_failure + 1;
         mock_fail_queue_overwrite = true;
         mqtt_manager.processNetworkMessage(queue_unavailable);
         mock_fail_queue_overwrite = false;
+        Preferences::mock_fail_put_bytes_after = 0;
 
         assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
         assert(std::strcmp(reported["status"], "REJECTED") == 0);

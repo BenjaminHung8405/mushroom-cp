@@ -75,6 +75,15 @@
 
 // Maximum size of fixed header and variable length size header
 #define MQTT_MAX_HEADER_SIZE 5
+#define MQTT_QOS1_PENDING_PACKET_MAX 2048
+
+enum class PublishQos1Result : uint8_t {
+   QUEUED,
+   BUSY,
+   NOT_CONNECTED,
+   INVALID_ARGUMENT,
+   TRANSPORT_ERROR,
+};
 
 #if defined(ESP8266) || defined(ESP32)
 #include <functional>
@@ -112,6 +121,16 @@ private:
    uint16_t port;
    Stream* stream;
    int _state;
+   struct PendingQos1Publish {
+       bool active;
+       uint16_t messageId;
+       uint16_t packetLength;
+       unsigned long lastAttemptAt;
+       uint8_t retryCount;
+       uint8_t packet[MQTT_QOS1_PENDING_PACKET_MAX];
+   } pendingQos1{};
+   bool writePendingQos1(bool duplicate);
+   void servicePendingQos1(unsigned long now);
 public:
    PubSubClientQos1();
    PubSubClientQos1(Client& client);
@@ -152,9 +171,14 @@ public:
    boolean publish(const char* topic, const char* payload, boolean retained);
    boolean publish(const char* topic, const uint8_t * payload, unsigned int plength);
    boolean publish(const char* topic, const uint8_t * payload, unsigned int plength, boolean retained);
-   /** Queue a QoS 1 PUBLISH; loop() processes PUBACK without blocking callers. */
-   boolean publishQos1(const char* topic, const uint8_t* payload,
-                       unsigned int plength, boolean retained);
+   /**
+    * Queue one QoS 1 PUBLISH for asynchronous broker acknowledgement.
+    * QUEUED means only that the transport accepted the initial packet; call
+    * loop() continuously so PUBACK matching and bounded DUP retransmission run.
+    */
+   PublishQos1Result publishQos1(const char* topic, const uint8_t* payload,
+                                 unsigned int plength, boolean retained);
+   bool hasPendingQos1Publish() const { return pendingQos1.active; }
    boolean publish_P(const char* topic, const char* payload, boolean retained);
    boolean publish_P(const char* topic, const uint8_t * payload, unsigned int plength, boolean retained);
    // Start to publish a message.

@@ -1,3 +1,28 @@
+## [2026-07-21T18:04:25+0700] - Task A1–A5, C4–C5, C7, D2–D4: Khắc phục phản hồi QA bảo mật/reliability
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `.env.example`
+  - `docker-compose.yml`
+  - `mushroom-backend/src/main.ts`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.h`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.h`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/test/Preferences.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Đã loại bỏ bootstrap secret thật/duplicate khỏi `.env.example`, chuyển password runtime ở Compose sang biến bắt buộc và thêm chặn startup production khi secret thiếu hoặc là placeholder/default không an toàn. Secret từng lộ phải được rotate/revoke tại broker/deployment.
+  - QoS 1 outbound giờ lưu một pending packet cùng message ID, parse PUBACK đúng ID, bỏ qua ACK sai ID, retransmit `DUP=1` với backoff/giới hạn retry và resend sau reconnect. API trả trạng thái `QUEUED` thay vì ngụ ý broker đã ACK.
+  - Dispatcher chỉ accept exact desired topic được `MqttManager` dựng từ tenant + provisioned device ID; giữ giới hạn 512 bytes trước copy/JSON. Regression bổ sung tenant/device/path/suffix giả và exact retained desired topic.
+  - NVS protocol đổi thành stage `PENDING` → queue handoff → `READY`; queue fail không rollback persistence nên candidate bị reject không bao giờ hydrate sau reboot, kể cả fault injection cho persistence sau stage.
+  - Đã chạy: host firmware suite (`g++ ...` → `--- All Unit Tests Passed Successfully! ---`), `platformio run -e otg` (SUCCESS), backend `npm test -- --runInBand --silent` (**162/162 PASS**), `npm run build` (PASS), `bash -n scripts/provision-influx.sh`, `docker compose config`, `git diff --check`.
+
 ## [2026-07-21T17:45:06+0700] - Task A1, A2, A5, B2, B3, C2–C5, C7, D4: Khắc phục phản hồi QA vòng 2
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

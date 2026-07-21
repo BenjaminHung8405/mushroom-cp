@@ -10,7 +10,7 @@ services:
       - .env
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mushroom_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mushroom_secure_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-mushroom_iot_db}
     volumes:
       - ${DATA_PATH:-./data}/mushroom_postgres_data:/var/lib/postgresql/data
@@ -94,14 +94,14 @@ services:
     environment:
       - NODE_ENV=development
       - CI=true
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:-mushroom_secure_password}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
       - MQTT_HOST=mushroom-mqtt
       - MQTT_PORT=1883
       - MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
-      - MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - MQTT_PASSWORD=${MQTT_BACKEND_PASS:?MQTT_BACKEND_PASS is required}
       - OFFLINE_SYNC_MQTT_URL=mqtt://mushroom-mqtt:1883
       - OFFLINE_SYNC_MQTT_USERNAME=${MQTT_BACKEND_USER:-nestjs_backend}
-      - OFFLINE_SYNC_MQTT_PASSWORD=${MQTT_BACKEND_PASS:-changeme_backend_pass}
+      - OFFLINE_SYNC_MQTT_PASSWORD=${MQTT_BACKEND_PASS:?MQTT_BACKEND_PASS is required}
       - OFFLINE_SYNC_MQTT_CLIENT_ID=${OFFLINE_SYNC_MQTT_CLIENT_ID:-mushroom_offline_sync}
       - INFLUXDB_URL=http://mushroom-influxdb:8086
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}

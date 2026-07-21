@@ -96,10 +96,17 @@ bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
     serializeJson(document, payload);
     const String topic = tenant + "/esp32/" + device_id + "/up/tuning/reported";
 
-    // QoS 1 requires a broker PUBACK; reported acknowledgements are never retained.
+    // QUEUED means transport accepted the packet for asynchronous PUBACK
+    // tracking; it never claims that the broker already acknowledged it.
+#ifdef UNIT_TEST
     return client.publishQos1(topic.c_str(),
                               reinterpret_cast<const uint8_t*>(payload.c_str()),
                               payload.length(), false);
+#else
+    return client.publishQos1(topic.c_str(),
+                              reinterpret_cast<const uint8_t*>(payload.c_str()),
+                              payload.length(), false) == PublishQos1Result::QUEUED;
+#endif
 }
 
 bool sameText(const char* left, const char* right)
@@ -169,6 +176,13 @@ bool MqttManager::init()
 {
     tenant_ = config::network::TENANT;
     device_id_ = resolveClientId();
+    const String tuning_desired_topic =
+        tenant_ + "/esp32/" + device_id_ + "/down/tuning/desired";
+    if (!MessageDispatcher::setExpectedTuningDesiredTopic(tuning_desired_topic.c_str())) {
+        Serial.println("[MQTT] Invalid tuning desired topic.");
+        state_ = MqttState::ERROR_NO_CONFIG;
+        return false;
+    }
 
     storage::StorageManager& storage = storage::StorageManager::get_instance();
     provisioned_ = storage.load_provisioning(telemetry_interval_sec_, reporting_qos_);
