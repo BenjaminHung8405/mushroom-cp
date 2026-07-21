@@ -70,6 +70,12 @@ export class MqttAuthService {
     const topic = request.topic ?? '';
     const access = Number(request.acc);
     const bootstrapUser = process.env.MQTT_BOOTSTRAP_USER ?? 'provision_node';
+    const backendUser = process.env.MQTT_BACKEND_USER ?? '';
+
+    // Backend superuser is allowed to do anything
+    if (username === backendUser) {
+      return true;
+    }
 
     if (username === bootstrapUser) {
       if (!this.isMac(clientId)) return false;
@@ -84,7 +90,43 @@ export class MqttAuthService {
       );
     }
 
+    // Deny wildcards in username, clientid, or topic for non-superusers to prevent tenant/device boundary escape
+    if (
+      username.includes('+') ||
+      username.includes('#') ||
+      clientId.includes('+') ||
+      clientId.includes('#') ||
+      topic.includes('+') ||
+      topic.includes('#')
+    ) {
+      return false;
+    }
+
     if (!username || username !== clientId || ![1, 2, 3, 4].includes(access)) return false;
+
+    // Check for tuning topics first (deny-by-default and least privilege)
+    const desiredMatch = topic.match(new RegExp(`^([^/]+)/esp32/([^/]+)/down/tuning/desired$`));
+    const reportedMatch = topic.match(new RegExp(`^([^/]+)/esp32/([^/]+)/up/tuning/reported$`));
+
+    if (desiredMatch) {
+      const [_, topicTenant, topicDeviceId] = desiredMatch;
+      // Must match tenant and device's own username
+      if (topicTenant !== this.tenant || topicDeviceId !== username) {
+        return false;
+      }
+      // Device can only read/subscribe (1 = read, 4 = subscribe)
+      return access === 1 || access === 4;
+    }
+
+    if (reportedMatch) {
+      const [_, topicTenant, topicDeviceId] = reportedMatch;
+      // Must match tenant and device's own username
+      if (topicTenant !== this.tenant || topicDeviceId !== username) {
+        return false;
+      }
+      // Device can only publish (2 = write)
+      return access === 2;
+    }
 
     // Phase 3 offline binary transport remains per-device, even though it uses
     // the legacy devices/{id}/sync_burst topic shape.
