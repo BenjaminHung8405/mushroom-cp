@@ -1669,7 +1669,21 @@ int main() {
     assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
     assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
-    // 19.8 Cleanup queues
+    // 19.8 E1: Core 1 adopts the latest POD tuning snapshot at the tick
+    // boundary without blocking; its depth-1 handoff queue is drained.
+    xQueueReset(g_tuning_config_queue);
+    DynamicTuningParams pendingTuning{};
+    pendingTuning.revision = 909U;
+    pendingTuning.lamp_gain_scale = 1.15f;
+    pendingTuning.mist_gain_scale = 0.85f;
+    pendingTuning.mist_on_threshold = 0.30f;
+    pendingTuning.mist_off_threshold = 0.18f;
+    assert(xQueueOverwrite(g_tuning_config_queue, &pendingTuning) == pdTRUE);
+    assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 1U);
+    taskCore1Control(nullptr);
+    assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 0U);
+
+    // 19.9 Cleanup queues
     vQueueDelete(test_baseline_q);
     vQueueDelete(test_override_q);
     vQueueDelete(test_tel_queue);

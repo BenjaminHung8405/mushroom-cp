@@ -2,6 +2,19 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:38:24+07:00] - Task E1: Core 1 nhận cấu hình tuning tại ranh giới control tick
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - Khởi tạo `s_activeTuning` cục bộ thuộc sở hữu riêng của Core 1 với defaults an toàn v1: gain lamp/mist `1.0`, ngưỡng mist ON/OFF `0.25/0.15` và revision `0`.
+  - Ở đầu mỗi control tick 50 ms, Core 1 thực hiện đúng một lần `xQueueReceive(g_tuning_config_queue, ..., 0)` để nhận POD snapshot mới nhất. Không có mutex/global mutable state dùng chung; Core 1 không thực hiện MQTT hoặc NVS trong đường nhận cấu hình.
+  - Thêm regression test đưa một `DynamicTuningParams` vào depth-1 queue, chạy một tick Core 1 và xác minh queue đã được drain. Biên dịch và chạy toàn bộ host suite bằng `g++ -std=c++17 -DUNIT_TEST ...`; kết quả `--- All Unit Tests Passed Successfully! ---`. `git diff --check` sạch. Có một warning đã tồn tại, không liên quan tại `run_tests.cpp:309` về so sánh string literal. PlatformIO CLI không có trong môi trường nên chưa chạy build firmware `pio run`.
+
 ## [2026-07-21T16:31:03+07:00] - Task D4: Xây reported payload và publish trạng thái tuning
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

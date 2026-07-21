@@ -664,12 +664,24 @@ static void runControlPipelineStep(
     FuzzyController::CO2RuleState& co2State,
     AdaptiveTuner::IntegralState& tunerState,
     relay_control::RelayStatePod& relayState,
+    DynamicTuningParams& s_activeTuning,
     ControlSetpointCommand& baselineCmd,
     ControlSetpointCommand& overrideCmd,
     manual::ManualLatchArray& manualLatch,
     unsigned long& lastSensorMs,
     unsigned long& lastControlMs)
 {
+    // Core 1 exclusively owns this local copy. Core 0 publishes validated POD
+    // snapshots; adoption is non-blocking and happens only at a tick boundary.
+    if (g_tuning_config_queue != nullptr)
+    {
+        DynamicTuningParams pendingTuning;
+        if (xQueueReceive(g_tuning_config_queue, &pendingTuning, 0) == pdTRUE)
+        {
+            s_activeTuning = pendingTuning;
+        }
+    }
+
     // S4-C1: Adopt profile update only at beginning of a control tick
     if (g_profile_update_queue != nullptr)
     {
@@ -1016,6 +1028,11 @@ void taskCore1Control(void* /*pvParameters*/)
     FuzzyController::CO2RuleState co2State = FuzzyController::makeInitialCO2State();
     AdaptiveTuner::IntegralState tunerState = AdaptiveTuner::makeInitialState();
     relay_control::RelayStatePod relayState = {false, false, false, false};
+    DynamicTuningParams s_activeTuning{};
+    s_activeTuning.lamp_gain_scale = 1.0f;
+    s_activeTuning.mist_gain_scale = 1.0f;
+    s_activeTuning.mist_on_threshold = 0.25f;
+    s_activeTuning.mist_off_threshold = 0.15f;
     ControlSetpointCommand baselineCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     ControlSetpointCommand overrideCmd = {NAN, NAN, NAN, false, {0, 0, 0}};
     manual::ManualLatchArray manualLatch{};
@@ -1039,6 +1056,7 @@ void taskCore1Control(void* /*pvParameters*/)
             co2State,
             tunerState,
             relayState,
+            s_activeTuning,
             baselineCmd,
             overrideCmd,
             manualLatch,

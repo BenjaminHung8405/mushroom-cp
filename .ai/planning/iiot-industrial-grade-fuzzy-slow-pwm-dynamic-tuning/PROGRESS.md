@@ -64,7 +64,7 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| E1 | Drain `g_tuning_config_queue` ở đầu control tick vào local `s_activeTuning` có defaults an toàn. | `[ ] Pending` | Áp dụng **single-writer ownership**: Core 1 chỉ sở hữu local active copy; adoption chỉ tại tick boundary 50 ms. `xQueueReceive(..., 0)` không block; Core 1 không gọi MQTT/NVS. |
+| E1 | Drain `g_tuning_config_queue` ở đầu control tick vào local `s_activeTuning` có defaults an toàn. | `[ ] QA Review` | Áp dụng **single-writer ownership**: Core 1 chỉ sở hữu local active copy; adoption chỉ tại tick boundary 50 ms. `xQueueReceive(..., 0)` không block; Core 1 không gọi MQTT/NVS. |
 | E2 | Nhân demand `HLamp`/`Mist` với gain scale sau fuzzy/adaptive gain và clamp `[0,1]`. | `[ ] Pending` | Thứ tự pipeline bất biến: fuzzy → tuning scale → arbitration/direct relay → manual latch → protector → blackout/final GPIO. Không tune HWat, setpoint, bio-bound, blackout, manual override hay `SystemProtector`. |
 | E3 | Khai báo helper `resolveBinaryDemand(demand, state, on, off)`. | `[ ] Pending` | Dùng **pure function pattern** (không GPIO/side effect) để unit-test table-driven. Precondition `off < on`; không thay đổi public behavior của lamp/fan. |
 | E4 | Implement helper hysteresis ON/OFF/hold. | `[ ] Pending` | Giữ logic deterministic: OFF→ON khi `>= on`, ON→OFF khi `< off`, còn lại giữ state. Test biên threshold, NaN defense và state transition. |
