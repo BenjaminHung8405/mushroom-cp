@@ -1,104 +1,119 @@
-# Kế hoạch Kiến trúc: IIoT Industrial-Grade Fuzzy & Slow PWM Dynamic Tuning (v2.1 Final)
+# Kế hoạch kiến trúc: IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning (v2.2)
+
+> **Đồng bộ source ngày 2026-07-21.** Tên thư mục được giữ để không làm hỏng liên kết cũ, nhưng firmware hiện tại **không còn TPC/Slow PWM**. `relay_control::applyDirectOutputs()` biến demand fuzzy thành relay ON/OFF trực tiếp, có hysteresis `0.25 / 0.15`; Core 1 tick mỗi 50 ms và đọc cảm biến mỗi 5 giây. Vì vậy v2.2 không được triển khai tham số `lamp_pwm_cycle_s` hoặc `lamp_min_on_s`.
 
 ## 1. Mục tiêu và phạm vi
 
-Chuyển hệ thống từ giám sát time-series sang **tinh chỉnh điều khiển có dữ liệu hỗ trợ**, nhưng vẫn giữ người vận hành là chủ thể quyết định. Hệ thống phải:
+Xây dựng luồng **khuyến nghị → operator phê duyệt → desired/reported sync** để tinh chỉnh có kiểm soát các tham số fuzzy/direct-relay của từng ESP32-S3. Backend và UI chỉ là control plane; Core 1 luôn là authority cuối cùng của safety và GPIO.
 
-- Tính KPI điều khiển từ telemetry và sự kiện actuator theo cửa sổ thời gian.
-- Sinh khuyến nghị thay đổi gain fuzzy, deadband phun sương và thông số TPC/Slow PWM cho đèn A250.
-- Chỉ phát cấu hình xuống Edge sau hành động phê duyệt rõ ràng trên UI.
-- Đồng bộ cấu hình theo mô hình **Desired / Reported State**, chịu được thiết bị hoặc WAN offline.
-- Bảo vệ Flash, loại trừ race condition giữa hai Core và bảo đảm lệnh/ACK có tính idempotent.
-- Không cho bất kỳ cấu hình động nào vượt qua các interlock an toàn phần cứng hoặc sinh học đang chạy tại Core 1.
+Hệ thống phải:
 
-### Không thuộc phạm vi phiên bản v2.1
+- Tính KPI từ telemetry có setpoint và trạng thái relay do Edge xác nhận.
+- Sinh advisory deterministic, có version ruleset, không tự áp dụng.
+- Persist desired/reported state và audit trong PostgreSQL; hỗ trợ thiết bị/WAN offline bằng MQTT QoS 1 + retained desired.
+- Chống flash wear, duplicate command/ACK và race Core 0/Core 1.
+- Giữ nguyên các interlock hiện hữu: blackout Mist 11:00–13:30 hoặc khi thời gian không usable, bio-bounds, max-ON 3 phút, cooldown 30 giây, lamp over-temperature và mist over-humidity.
 
-- Tự động áp dụng khuyến nghị không cần phê duyệt của con người.
-- Thay đổi loại SSR, cơ chế TPC hiện hữu hoặc điều khiển GPIO trực tiếp từ tầng MQTT.
-- Nâng trần safety bounds theo mùa. Outdoor context và seasonal heuristics là backlog Phase 2, chỉ được kích hoạt sau khi có dữ liệu thực địa và đánh giá rủi ro riêng.
+### Ngoài phạm vi
 
----
-
-## 2. Các quyết định kiến trúc bắt buộc
-
-| Hạng mục | Quyết định v2.1 |
-| --- | --- |
-| Analytics | InfluxDB Tasks pre-aggregate theo giờ vào bucket analytics; API không quét raw telemetry 24 giờ theo từng request. |
-| Quyền quyết định | Recommender chỉ tạo advisory; UI cần operator phê duyệt trước khi tạo desired config. |
-| Đồng bộ thiết bị | MQTT QoS 1, desired retained message, reported ACK và Device Shadow trong PostgreSQL. |
-| Lệnh cũ / ACK lặp | `command_id` UUID, xử lý idempotent, clear retained desired chỉ khi ACK khớp lệnh đang pending. |
-| Flash NVS | Validate + semantic diff-check; chỉ persist khi cấu hình thực sự đổi. Cấu hình phải được lưu kèm revision/CRC để khôi phục an toàn khi mất điện giữa lúc ghi. |
-| IPC đa lõi | Core 0 là chủ sở hữu MQTT/NVS. Core 1 chỉ nhận POD config qua FreeRTOS Queue depth 1 và thay cấu hình ở đầu control tick. |
-| Điều khiển SSR | Giữ TPC/Slow PWM bằng `digitalWrite`, không dùng high-frequency PWM. TPC 50 ms tick, fuzzy/adaptive update 5 s như baseline hiện hữu. |
-| Giờ hệ thống | Blackout dùng trạng thái thời gian do NTP hiện có cung cấp. Khi thời gian chưa hợp lệ hoặc mất tin cậy, interlock phải fail-safe theo quy tắc Core 1 hiện hữu. |
+- TPC, PWM tần số cao, chu kỳ ON/OFF tối thiểu cho đèn, hoặc thay đổi SSR/phần cứng.
+- Tuning blackout, bio threshold (`ThTOP`, `ThBOT`, `HmTOP`, `HmBOT`), pin mapping, manual override hay `SystemProtector`.
+- Auto-apply, seasonal/outdoor heuristics và thay đổi crop profile/setpoint trong cùng command tuning.
 
 ---
 
-## 3. Kiến trúc tổng thể
+## 2. Hiện trạng cần tôn trọng
+
+| Thành phần | Hiện trạng source | Hướng tích hợp v2.2 |
+| --- | --- | --- |
+| Firmware control | `core/core1_tasks.cpp`: tick 50 ms; fuzzy/adaptive gain chạy mỗi tick; sensor sample mỗi 5 s. | Dynamic tuning được Core 1 nhận ở đầu tick, áp dụng trước fuzzy/arbitration. Không thêm task điều khiển song song. |
+| Relay | `core/actuator_controller.cpp`: direct ON/OFF với hysteresis chung `FUZZY_ON_THRESHOLD=0.25`, `FUZZY_OFF_THRESHOLD=0.15`; active-LOW. | Không gọi GPIO từ MQTT/Core 0 và không mô tả đây là PWM. Nếu cần tuning hysteresis, tách threshold riêng cho Mist thay vì làm thay đổi tất cả relay ngoài ý muốn. |
+| Fuzzy/adaptive | `FuzzyController::arbitrateOutputs()` dùng `AdaptiveTuner::GainsPod` (`HLamp`, `HWat`, `Mist`), hard clamp [0,1]. HWat không lắp đặt và luôn OFF. | Chỉ tune scale cho HLamp/Mist; tuyệt đối không thêm HWat vào UI/recommendation. |
+| Safety | `SystemProtector` và `hardwareProtectionOverride()` ở Core 1. Time confidence `Uncertain` khiến Mist bị blackout. | Tuning luôn đi trước protector; protector và final GPIO boundary luôn thắng. |
+| MQTT | Tenant hiện tại: `{tenant}/esp32/{deviceId}/...`; firmware dùng `PubSubClient`, callback được copy sang `g_network_worker_queue` depth 16. | Không dùng `devices/{deviceId}/...`. Bổ sung topic dedicated vào dispatcher, subscription và ACL HTTP hiện hữu. |
+| Config sync sẵn có | Baseline/crop profile đang đi qua `{tenant}/esp32/{id}/down/command`, NVS + queue depth 1 + command ACK; backend có in-memory `configSync`. | Reuse pattern Core 0 persist → Core 1 queue, nhưng dynamic tuning cần Device Shadow **durable** riêng; không thay thế config-sync baseline/profile. |
+| Data | PostgreSQL lưu live telemetry + setpoint/context. Influx `mushroom_iot` hiện chỉ được `OfflineSyncService` ghi cho offline burst và thiếu full setpoint/actuator history. | Chưa đủ dữ liệu để suy luận KPI 24h đáng tin cậy. Phải hoàn chỉnh ingestion trước khi tạo Influx Task/recommender. |
+| UI | Next.js có selected-device context, same-origin proxy `/api/backend/*`, SSE telemetry/config-sync và `RealTelemetryProvider`. | Thêm panel vào dashboard, reuse selected device + proxy/SSE; không tạo base URL hoặc EventSource độc lập. |
+
+---
+
+## 3. Kiến trúc đích
 
 ```text
-Raw telemetry / actuator events
-             |
+Edge telemetry (live + offline replay, setpoint + final relay states)
+                         |
+                         v
+          InfluxDB mushroom_iot raw controller history
+                         |
+                         v
+       Influx Task hourly -> mushroom_analytics / kpi_metrics_1h
+                         |
+                         v
+NestJS ControlAnalyticsService -> TuningRecommenderEngine (advisory)
+             |                                 |
+             v                                 v
+ PostgreSQL device_tuning_configurations + tuning_audit_logs
+             ^                                 |
+             |                    Next.js TuningAdvisoryPanel (approve)
+             |                                 |
+             +------ MQTT desired, QoS 1, retained ------+
+                                                           v
+ESP32 Core 0: parse/validate -> durable tuning NVS -> queue depth 1
+                                                           v
+ESP32 Core 1 tick: adopt tuning -> fuzzy/arbitration -> protector -> direct relay GPIO
+                                                           |
+             +----- MQTT reported, QoS 1 -----------------+
              v
-InfluxDB scheduled Tasks (hourly aggregates)
+NestJS transaction: validate ACK -> durable state -> SSE -> UI
              |
-             v
-NestJS ControlAnalyticsService --> TuningRecommenderEngine
-             |                              |
-             |                              v
-             |                    Recommendation + KPI snapshot
-             v                              |
-PostgreSQL audit / Device Shadow <--- Next.js Tuning Advisory Panel
-             |                         (review, approve, apply)
-             v
-MQTT desired (QoS 1, retain=true)
-             |
-             v
-ESP32-S3 Core 0: authenticate -> parse -> validate -> NVS diff persist
-             |
-             +--> FreeRTOS Queue (depth 1, overwrite) --> Core 1 control loop
-             |                                                   |
-             v                                                   v
-MQTT reported (QoS 1)                              Fuzzy -> protection -> TPC -> SSR
-             |
-             v
-NestJS validates ACK -> state transition -> SSE -> UI
-             |
-             v
-Clear retained desired only when it is still the acknowledged command
+             +-- clear retained desired only if it is still newest pending command
 ```
 
-### Luồng trạng thái chuẩn
+### Luồng chuẩn
 
-1. Operator xem KPI và khuyến nghị, chỉnh sửa trong giới hạn được phép nếu cần, rồi bấm **Áp dụng**.
-2. Backend validate payload, tạo `command_id`, ghi desired snapshot với trạng thái `PENDING`, audit actor và publish desired retained với QoS 1.
-3. ESP32 nhận desired, kiểm tra schema, `device_id`, phiên bản schema, kiểu dữ liệu, bounds và các điều kiện liên tham số.
-4. Nếu hợp lệ, Core 0 persist khi có semantic diff, gửi POD config qua Queue cho Core 1 và publish reported `ACCEPTED`.
-5. Core 1 drain Queue ở đầu tick 50 ms; cấu hình mới trở thành active config cho các vòng fuzzy/TPC tiếp theo. Interlock vẫn có quyền ép output về trạng thái an toàn.
-6. Backend chỉ chuyển bản ghi sang `IN_SYNC` khi `command_id`, `device_id` và reported payload hợp lệ khớp desired. Sau đó phát SSE cho UI.
-7. Backend xóa retained desired **có điều kiện** để không xóa nhầm desired mới hơn vừa được publish bởi một operator khác.
+1. UI lấy KPI/recommendation cho `selectedDeviceId`; nếu coverage không đủ, chỉ hiển thị lý do và không cho apply recommendation.
+2. Operator xác nhận diff. Backend xác thực device, tạo `command_id` UUID, ghi row `PENDING` + audit trong transaction, rồi publish desired retained QoS 1.
+3. Core 0 nhận desired qua worker queue, kiểm tra schema, `device_id`, UUID, kiểu JSON, bounds và điều kiện liên trường.
+4. Khi hợp lệ, `TuningConfigManager` chỉ ghi NVS nếu semantic config đổi; sau persistence thành công mới `xQueueOverwrite()` config sang Core 1 và publish reported `ACCEPTED`.
+5. Core 1 nhận bản sao POD ở đầu control tick. Fuzzy/direct-relay tạo demand, sau đó manual latch, `SystemProtector`, blackout defense-in-depth và `writeRelays()` quyết định output cuối.
+6. Backend chỉ đổi thành `IN_SYNC` khi reported hợp lệ, thuộc đúng device và canonical config khớp desired. SSE phát sau commit.
+7. Backend clear retained payload bằng empty retained publish chỉ khi `command_id` vẫn là pending mới nhất của device; ACK cũ không được xóa desired mới.
 
 ---
 
-## 4. Data contract và cấu hình động
+## 4. Contract tuning và MQTT
 
-### 4.1 Tham số được phép tuning
+### 4.1 Tập tham số v1
 
-| Key | Mặc định | Hard bounds | Ý nghĩa |
+Các key dưới đây là **contract mới cần được firmware hiện thực**; chúng map vào control path hiện tại, không phải các key `ke_temp`, `ku_lamp`, `lamp_pwm_cycle_s` của bản plan cũ.
+
+| Key | Default | Hard bounds | Áp dụng ở Core 1 |
 | --- | ---: | ---: | --- |
-| `ke_temp` | 1.00 | 0.80–1.20 | Gain đầu vào sai số nhiệt độ. |
-| `ku_lamp` | 1.00 | 0.80–1.20 | Gain đầu ra demand đèn A250. |
-| `mist_deadband` | 3.0 %RH | 2.0–8.0 %RH | Vùng chết giảm chattering phun sương. |
-| `lamp_pwm_cycle_s` | 180 s | 120–300 s | Chu kỳ TPC/Slow PWM của đèn. |
-| `lamp_min_on_s` | 30 s | 20–60 s | Thời gian ON tối thiểu bảo vệ bóng. |
+| `lamp_gain_scale` | 1.00 | 0.80–1.20 | Nhân demand `HLamp` sau adaptive gain, trước clamp/protector. |
+| `mist_gain_scale` | 1.00 | 0.80–1.20 | Nhân demand `Mist` sau adaptive gain, trước clamp/protector. |
+| `mist_on_threshold` | 0.25 | 0.20–0.35 | Ngưỡng bật chỉ cho Mist direct relay. |
+| `mist_off_threshold` | 0.15 | 0.10–0.20 | Ngưỡng giữ/tắt chỉ cho Mist direct relay. |
 
-Các điều kiện liên tham số tối thiểu:
+Ràng buộc:
 
-- Mọi số thực phải hữu hạn (`isfinite`), không chấp nhận `NaN`, `Infinity`, chuỗi số hoặc kiểu JSON sai.
-- `lamp_min_on_s <= lamp_pwm_cycle_s`; firmware reject nếu sai thay vì âm thầm biến đổi ý nghĩa lệnh.
-- Cấu hình động chỉ thay đổi demand/controller tuning; không được thay đổi blackout schedule, safety thresholds, pin mapping, loại SSR hay quyền override của `SystemProtector`.
+- Mọi số phải là JSON number hữu hạn; reject `NaN`, `Infinity`, string number, null và missing key.
+- `mist_off_threshold < mist_on_threshold`; không silently clamp remote command.
+- `lamp_gain_scale`/`mist_gain_scale` chỉ điều chỉnh demand đã có. Kết quả vẫn clamp `[0,1]`; `SystemProtector` có thể ép relay OFF/ON.
+- Hysteresis lamp/fan hiện tại giữ hard-coded `0.25/0.15`; tách helper `resolveBinaryDemand(demand, state, on, off)` để Mist dùng threshold dynamic mà không thay đổi hành vi lamp/fan.
+- Một command chứa đầy đủ effective config (snapshot), không phải patch. Điều này đơn giản hóa retained message, recovery và canonical comparison.
 
-### 4.2 Desired payload
+### 4.2 MQTT topic theo namespace hiện tại
+
+| Direction | Topic | QoS / retain | Quyền |
+| --- | --- | --- | --- |
+| Desired | `{tenant}/esp32/{deviceId}/down/tuning/desired` | QoS 1, retain=true | Backend publish; device subscribe/read. |
+| Reported | `{tenant}/esp32/{deviceId}/up/tuning/reported` | QoS 1, retain=false | Device publish; backend subscribe/read. |
+
+`{tenant}` là `IOT_TENANT` (mặc định `mushroom`), không hard-code topic hay device ID mẫu.
+
+Mosquitto hiện dùng HTTP ACL (`MqttAuthService`) và backend user là superuser. Bổ sung test ACL để device chỉ có thể đọc/write dưới tenant/device tree của chính nó; backend mới được publish desired. Không dựa vào file `mosquitto.acl` vì runtime đang dùng `mosquitto-go-auth` HTTP backend.
+
+### 4.3 Payload
 
 ```json
 {
@@ -107,20 +122,13 @@ Các điều kiện liên tham số tối thiểu:
   "device_id": "mushroom_s3_206ef1a",
   "issued_at": "2026-07-21T09:00:00.000Z",
   "config": {
-    "ke_temp": 1.05,
-    "ku_lamp": 1.08,
-    "mist_deadband": 5.0,
-    "lamp_pwm_cycle_s": 240,
-    "lamp_min_on_s": 30
+    "lamp_gain_scale": 1.05,
+    "mist_gain_scale": 1.00,
+    "mist_on_threshold": 0.28,
+    "mist_off_threshold": 0.16
   }
 }
 ```
-
-- Topic desired: `devices/{deviceId}/config/desired`.
-- Chỉ backend được quyền publish topic này; ACL broker phải tách quyền publish desired và publish reported.
-- Retained desired chỉ là **lệnh pending mới nhất**, không phải nguồn lịch sử cấu hình. Lịch sử và nguồn chân lý audit là PostgreSQL.
-
-### 4.3 Reported payload
 
 ```json
 {
@@ -130,518 +138,216 @@ Các điều kiện liên tham số tối thiểu:
   "status": "ACCEPTED",
   "reason_code": null,
   "reported_config": {
-    "ke_temp": 1.05,
-    "ku_lamp": 1.08,
-    "mist_deadband": 5.0,
-    "lamp_pwm_cycle_s": 240,
-    "lamp_min_on_s": 30
+    "lamp_gain_scale": 1.05,
+    "mist_gain_scale": 1.00,
+    "mist_on_threshold": 0.28,
+    "mist_off_threshold": 0.16
   },
   "persisted": true,
   "reported_at": "2026-07-21T09:00:04.000Z"
 }
 ```
 
-- Topic reported: `devices/{deviceId}/config/reported`.
-- `status` hợp lệ: `ACCEPTED`, `REJECTED`, `DUPLICATE`.
-- `DUPLICATE` phải chứa cùng `command_id` và effective config; backend không tạo SSE thành công lặp lại.
-- Với `REJECTED`, firmware trả `reason_code` xác định, ví dụ `INVALID_SCHEMA`, `DEVICE_MISMATCH`, `OUT_OF_RANGE`, `CROSS_FIELD_INVALID` hoặc `NVS_WRITE_FAILED`.
+`status`: `ACCEPTED`, `REJECTED`, `DUPLICATE`. `REJECTED` dùng reason code ổn định: `INVALID_SCHEMA`, `DEVICE_MISMATCH`, `INVALID_UUID`, `OUT_OF_RANGE`, `CROSS_FIELD_INVALID`, `PERSISTENCE_FAILED`, `CONTROL_QUEUE_UNAVAILABLE`.
 
 ---
 
-## 5. Backend: Analytics, recommendation và audit
+## 5. Data, analytics và recommender
 
-### 5.1 InfluxDB Tasks
+### 5.1 Điều kiện tiên quyết: complete controller history
 
-Tạo các scheduled task chạy mỗi giờ, offset 5 phút để dữ liệu cuối giờ ổn định, ghi vào bucket `mushroom_analytics` với measurement `kpi_metrics_1h`.
+Không tạo KPI từ Influx hiện tại vì `OfflineSyncService` chỉ ghi offline records `temperature_c`, `humidity_percent`, `mist_state`, `lamp_state`, `boot_count`, `delta_time_s`; không có setpoint hiệu lực đầy đủ, fan/blackout hay live telemetry.
 
-Mỗi aggregate phải giữ đủ thành phần để tổng hợp chính xác qua nhiều giờ, không chỉ lưu giá trị trung bình:
+Trước analytics cần:
 
-- Nhiệt độ/độ ẩm: `sample_count`, `sum_squared_error`, `max`, `min`, thời lượng vượt ngưỡng.
-- Actuator: `switch_count`, `on_duration_s`, `on_session_count`, `on_duration_sum_s` theo `device_id` và actuator.
-- Metadata: `window_start`, `window_end`, `device_id`, phiên bản setpoint/profile nếu có.
+1. Tạo `ControlHistoryInfluxWriter` trong backend, subscribe `MqttService.telemetry$`, ghi mọi telemetry live vào bucket `INFLUXDB_BUCKET` (mặc định `mushroom_iot`) với `device_id`, data quality, measured temperature/humidity, Core-1-reported target/source/revision và final relay states.
+2. Mở rộng offline schema chỉ khi firmware có thể cung cấp target/revision đáng tin cậy. Nếu không thể backfill, gắn segment offline `data_quality=degraded` và không dùng nó cho RMSE/recommendation; vẫn có thể hiển thị timeline.
+3. Chỉ dùng target Core 1 report hoặc crop-profile revision resolvable tại timestamp. Không suy ra setpoint bằng giá trị hiện tại của batch.
+4. Cấu hình bucket analytics mới qua biến môi trường `INFLUXDB_ANALYTICS_BUCKET=mushroom_analytics`; không giả định bucket này đã tồn tại trong `docker-compose.yml`. Thêm provisioning/script vận hành tương ứng.
 
-RMSE rolling window được tính từ tổng `sum_squared_error / sample_count`, không lấy trung bình các RMSE theo giờ. Sai số phải được tính so với setpoint thực tế cùng thời điểm (profile/checkpoint hiệu lực), không hard-code một giá trị duy nhất cho mọi giai đoạn nuôi trồng.
+### 5.2 Influx Task và `ControlAnalyticsService`
 
-### 5.2 `ControlAnalyticsService`
+Task hourly (offset 5 phút) ghi `kpi_metrics_1h`. Mỗi row/tag theo `device_id`, `control_source`, `config_revision` khi có; lưu phần tử gộp được:
 
-Vị trí đề xuất: `mushroom-backend/src/analytics/services/control-analytics.service.ts`.
+- temperature/humidity: `sample_count`, `sum_squared_error`, `min`, `max`, duration threshold;
+- relay: `switch_count`, `on_duration_s`, `on_session_count`, `on_duration_sum_s` cho Mist/Lamp;
+- coverage: expected vs valid sample count và `data_quality`.
 
-Nhiệm vụ:
+`ControlAnalyticsService` đặt tại `mushroom-backend/src/analytics/services/`, query aggregate cho window 24h/crop batch. Escape Flux string như helper `escapeFluxString()` hiện có; không interpolate raw device ID. RMSE rolling = `sqrt(sum_squared_error / sample_count)`, không average RMSE theo giờ.
 
-- Query bucket aggregate cho cửa sổ 24 giờ hoặc một crop batch được xác định.
-- Trả `ControlKpiReport` có `windowStart`, `windowEnd`, số sample và cờ chất lượng dữ liệu.
-- Từ chối hoặc gắn `INSUFFICIENT_DATA` khi thiếu coverage, thiết bị offline quá lâu hoặc không có actuator events đáng tin cậy.
-- Không sử dụng chuỗi interpolation trực tiếp cho `deviceId` trong Flux; escape/bind đúng API để ngăn injection và lỗi truy vấn.
+KPI v1: `tempRmse`, `humidRmse`, `mistSwitchCountPerHour`, `lampDutyCyclePercent`, `lampAvgOnDurationSec`, `overshootDurationSec`, `undershootDurationSec`, `dataCoveragePercent`. Recommendation bị chặn khi thiếu coverage, target không xác minh, device offline kéo dài hoặc event relay không trusted.
 
-KPI ban đầu:
+### 5.3 Recommender deterministic
 
-| KPI | Diễn giải |
+`TuningRecommenderEngine` là pure service có `ruleset_version`, trả `INSUFFICIENT_DATA`/conflict rõ ràng. Rule phải chỉ đề xuất key firmware hỗ trợ:
+
+| Điều kiện đủ dữ liệu | Advisory v1 |
 | --- | --- |
-| `tempRmse` / `humidRmse` | Độ bám setpoint theo toàn bộ sample hợp lệ. |
-| `mistSwitchCountPerHour` | Tần suất state transition của Mist. |
-| `lampDutyCyclePercent` | Tổng thời gian ON / thời lượng cửa sổ. |
-| `lampAvgOnDurationSec` | Tổng thời lượng session ON / số session ON. |
-| `overshootDurationSec` | Thời lượng nhiệt vượt giới hạn profile. |
-| `undershootDurationSec` | Thời lượng ẩm thấp hơn giới hạn profile. |
-| `dataCoveragePercent` | Tỷ lệ dữ liệu hợp lệ; dùng để chặn recommendation thiếu căn cứ. |
+| `mistSwitchCountPerHour > 10` | Tăng `mist_on_threshold` một bước nhỏ và/hoặc giảm `mist_off_threshold`, luôn giữ hysteresis hợp lệ. |
+| `tempRmse > 1.5` + lamp duty thấp | Tăng `lamp_gain_scale` tối đa 0.05 mỗi recommendation, kẹp bound. |
+| `humidRmse > 5.0` và Mist không chattering | Tăng `mist_gain_scale` tối đa 0.05, kẹp bound. |
 
-### 5.3 `TuningRecommenderEngine`
+Không đề xuất cooldown, max ON, TPC/PWM, HWat hoặc parameter chưa có source-of-truth. Recommendation phải lưu KPI snapshot, current config, delta, reason, confidence và expected benefit; sau apply cần observation window trước suggestion kế tiếp.
 
-Engine là deterministic, pure service, versioned ruleset và phải lưu `ruleset_version` vào recommendation/audit record.
+---
 
-| Điều kiện (sau khi đủ data coverage) | Khuyến nghị ban đầu | Ràng buộc |
-| --- | --- | --- |
-| `mistSwitchCountPerHour > 10` | `mist_deadband`: 3.0 → 5.0; review cooldown hiện hữu | Chỉ đề xuất, không tự apply. |
-| `lampAvgOnDurationSec < 30` | `lamp_pwm_cycle_s`: 180 → 240; `lamp_min_on_s`: 30 | Không đề xuất khi dữ liệu lamp thiếu. |
-| `tempRmse > 1.5` và lamp duty < 30% | Tăng `ku_lamp` tối đa +8% | Kẹp trong hard bounds. |
-| `humidRmse > 5.0` và không chattering | Tăng gain ẩm tối đa +5% | Chỉ map vào parameter firmware được hỗ trợ. |
+## 6. Backend persistence, API và SSE
 
-Mỗi recommendation phải nêu rõ KPI snapshot, current config, delta đề xuất, lý do, expected benefit và mức tin cậy. Không gộp các recommendation mâu thuẫn; engine phải trả conflict để operator xem xét.
+### 6.1 PostgreSQL
 
-### 5.4 Persistence PostgreSQL
-
-Tạo migration và entity `device_configurations` tối thiểu:
+Thêm migration TypeORM sau `1720656000005-*`, entity/module riêng (`src/tuning/`). `device_id` dùng `VARCHAR(50)` và foreign key `devices(device_id)` đúng với schema hiện tại.
 
 ```sql
-CREATE TABLE device_configurations (
+CREATE TABLE device_tuning_configurations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  device_id VARCHAR(64) NOT NULL,
+  device_id VARCHAR(50) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
   command_id UUID NOT NULL UNIQUE,
   desired_config JSONB NOT NULL,
   reported_config JSONB,
   sync_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
   rejection_reason VARCHAR(64),
-  requested_by UUID,
-  recommendation_id UUID,
+  recommendation_snapshot JSONB,
+  requested_by VARCHAR(100),
   desired_published_at TIMESTAMPTZ,
   applied_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_device_configurations_device_created
-  ON device_configurations (device_id, created_at DESC);
+CREATE INDEX idx_tuning_config_device_created
+  ON device_tuning_configurations (device_id, created_at DESC);
 ```
 
-`tuning_history_logs` hoặc bảng audit tương đương phải ghi actor, source (`RECOMMENDATION`/`MANUAL`), KPI snapshot, before/after, reason và kết quả cuối cùng. Không được coi MQTT packet log là audit trail đủ tin cậy.
+Thêm `tuning_audit_logs` (actor/source/reason/ruleset/KPI/before/after/result/timestamp). Dùng UUID tạo bằng ứng dụng nếu deployment chưa provision `pgcrypto`; không giả định `gen_random_uuid()` có sẵn.
 
-### 5.5 ACK, idempotency và clear-on-ACK
+`MqttService` cần subscribe reported topic, parse bằng type guard và chuyển sang `TuningConfigurationService`. Không dùng `pendingConfig` Map hoặc `configSync$` in-memory hiện hữu làm source of truth; chúng chỉ phục vụ baseline/crop profile hiện tại.
 
-Backend xử lý reported theo transaction:
+ACK handling trong DB transaction: lock row theo `command_id`; validate device/status/config canonical; update một lần; phát `tuningSync$` sau commit. Clear retained desired có conditional latest-pending check trong cùng transaction boundary/logical serialization. ACK lạ/sai device chỉ security log, không clear retained topic.
 
-1. Xác thực topic device ID, schema và `command_id`.
-2. Lock/read record tương ứng; nếu không tồn tại, ghi security log và không clear retained message.
-3. Nếu record đã `IN_SYNC` hoặc `REJECTED`, ACK là duplicate: không update audit và không phát SSE lần nữa.
-4. Với `ACCEPTED`, kiểm tra reported config bằng desired config sau canonicalization số thực; cập nhật `IN_SYNC`, `reported_config`, `applied_at`.
-5. Clear retained desired bằng publish payload rỗng với `retain=true`, **chỉ khi** record vẫn là desired pending mới nhất của device. Nếu đã có command mới hơn, giữ retained payload mới hơn.
-6. Với `REJECTED`, cập nhật `REJECTED`, reason; không phát trạng thái "đã áp dụng".
+### 6.2 API/UI integration
 
----
-
-## 6. Firmware: xác thực, persistence, IPC và control path
-
-### 6.1 Kiểu dữ liệu runtime
-
-Định nghĩa ở vùng dùng chung, ví dụ `mushroom-iot-firmware/src/core/models.h` hoặc header tuning chuyên dụng. Không dùng `String`, JSON document hoặc handle NVS trong Queue.
-
-```cpp
-struct DynamicTuningParams {
-  char commandId[37];  // UUIDv4: 36 ký tự + '\0'
-  float keTemp;
-  float kuLamp;
-  float mistDeadband;
-  uint16_t lampPwmCycleSec;
-  uint16_t lampMinOnSec;
-};
-```
-
-Không ép `#pragma pack(1)` cho struct runtime nếu không cần giao tiếp binary; Queue truyền nội bộ cùng firmware nên layout tự nhiên tránh unaligned access. JSON chỉ là wire format, phải được parse có kiểm tra trước khi tạo struct POD.
-
-### 6.2 `TuningConfigManager` (Core 0 ownership)
-
-Vị trí đề xuất: `mushroom-iot-firmware/src/core/tuning_config_manager.{h,cpp}`.
-
-Trách nhiệm:
-
-1. Hydrate effective config an toàn từ NVS trong `setup()` trước khi start control/network tasks.
-2. Validate đầy đủ payload và clamp chỉ như hàng rào cuối cùng. Giá trị ngoài bounds từ remote command phải bị `REJECTED`, không nên silently clamp rồi ACK là thành công vì UI sẽ bị lệch với ý định operator.
-3. So sánh semantic config với RAM bằng epsilon rõ ràng cho float (ví dụ `0.001f`) và exact compare cho integer/string.
-4. Nếu `command_id` trùng command đã xử lý: không ghi NVS, không enqueue lại; publish `DUPLICATE` để backend có thể kết thúc retry an toàn.
-5. Nếu chỉ command khác nhưng effective parameters giống nhau: cập nhật durable command identity để idempotency sau reboot, nhưng không ghi lặp dữ liệu parameter không cần thiết.
-6. Persist envelope gồm version, revision, config, `command_id` và CRC. Dùng hai slot/record versioned hoặc cơ chế commit an toàn tương đương; boot chỉ chọn record CRC hợp lệ mới nhất, fallback defaults khi cả hai không hợp lệ.
-7. Chỉ sau khi persistence thành công mới queue config và publish `ACCEPTED`.
-
-NVS lỗi, parse lỗi hoặc Queue chưa khởi tạo phải trả `REJECTED`; không cập nhật RAM một phần và không claim success.
-
-### 6.3 FreeRTOS Queue Core 0 → Core 1
-
-```cpp
-QueueHandle_t gTuningConfigQueue;
-
-// setup(): tạo trước khi các task chạy
-gTuningConfigQueue = xQueueCreate(1, sizeof(DynamicTuningParams));
-
-// Core 0 sau validate + persist thành công
-xQueueOverwrite(gTuningConfigQueue, &effectiveConfig);
-
-// Core 1: ở đầu mỗi tick 50 ms
-DynamicTuningParams incoming;
-if (xQueueReceive(gTuningConfigQueue, &incoming, 0) == pdTRUE) {
-  activeTuningConfig = incoming;
-}
-```
-
-- Depth 1 là chủ ý: Core 1 chỉ cần effective config mới nhất, không cần replay mọi intermediate config.
-- `xQueueOverwrite` chỉ hợp lệ với queue depth 1; check return value và log fault nếu thất bại.
-- Core 1 giữ bản sao cục bộ `activeTuningConfig`, không đọc NVS và không dùng mutex cho config runtime.
-- Chỉ Core 0 gọi MQTT callback, parse JSON, persistence và publish ACK.
-
-### 6.4 Bất biến bảo vệ tại Core 1
-
-Thứ tự control path không đổi:
-
-```text
-sensor state / setpoint
-  -> fuzzy calculation (5 s)
-  -> arbitration + dynamic tuning
-  -> SystemProtector / hardwareProtectionOverride
-  -> TPC scheduler (50 ms)
-  -> digitalWrite SSR
-```
-
-Các bất biến:
-
-- Blackout 11:00–13:30 ép Mist OFF tuyệt đối; tuning không có quyền bypass.
-- Khi thời gian không hợp lệ, xử lý fail-safe theo bảo vệ Core 1 hiện hữu, bao gồm ép các output được bảo vệ về OFF.
-- Đèn A250 luôn tuân thủ thời gian ON/OFF tối thiểu; change cycle không được làm cắt ngắn một pha đang chạy theo cách tạo inrush hoặc sốc nhiệt.
-- Tất cả output cuối cùng vẫn clamp `[0.0, 1.0]`; Core 1/TPC là nơi duy nhất quyết định GPIO SSR bằng `digitalWrite`.
-- Core 0 không được gọi GPIO hoặc đụng vào control state Core 1 trực tiếp.
-
----
-
-## 7. Frontend: Human-in-the-Loop và quan sát trạng thái
-
-Tích hợp `TuningAdvisoryPanel` vào dashboard hiện có.
-
-### Trải nghiệm bắt buộc
-
-- Chọn device và cửa sổ phân tích; hiển thị coverage cùng KPI.
-- Diff view: current vs proposed, unit, hard bounds, lý do và expected benefit.
-- Cảnh báo rõ khi KPI thiếu dữ liệu, recommendation conflict hoặc thiết bị offline.
-- Nút **Áp dụng** yêu cầu xác nhận, gửi `POST` có idempotency key; không có nút auto-apply.
-- Badge trạng thái: `Đang chờ thiết bị`, `Đã áp dụng`, `Bị từ chối`, `Hết hạn/không phản hồi`.
-- SSE chỉ cập nhật UI sau state transition backend; client reconnect phải refetch authoritative state thay vì tin local optimistic state mãi mãi.
-
-### API đề xuất
+Thêm `TuningModule`, import vào `AppModule`; không nhồi endpoint mới vào `DeviceController` vốn đang phục vụ manual/setpoint/profile.
 
 | Method | Endpoint | Mục đích |
 | --- | --- | --- |
-| `GET` | `/devices/:deviceId/analytics/tuning-recommendations` | KPI và advisory theo window. |
-| `POST` | `/devices/:deviceId/tuning-configurations` | Operator phê duyệt và tạo desired config. |
-| `GET` | `/devices/:deviceId/tuning-configurations/latest` | Desired/reported state mới nhất. |
-| `GET` | `/devices/:deviceId/tuning-history` | Audit log theo phân quyền. |
+| `GET` | `/devices/:id/analytics/tuning-recommendations` | KPI + advisory theo window. |
+| `POST` | `/devices/:id/tuning-configurations` | Confirm config snapshot, idempotency key, tạo desired. |
+| `GET` | `/devices/:id/tuning-configurations/latest` | State durable hiện tại. |
+| `GET` | `/devices/:id/tuning-history` | Audit theo device. |
+| `SSE` | `/devices/:id/tuning-configurations/stream` | Transition durable của tuning. |
 
-Backend phải kiểm tra authorization của operator trên device/house trước mọi read/write tuning endpoint.
+Tầng auth hiện tại chưa thể hiện authorization operator/house đầy đủ. Trước khi endpoint approve được public, bổ sung authentication + authorization device/house và actor identity; nếu chưa có, giới hạn endpoints ở môi trường internal/staging, không giả danh `requested_by` từ client.
 
----
-
-## 8. Kế hoạch triển khai: 14 ngày / 2 sprint
-
-### Sprint 1 — Hạ tầng, persistence và closed-loop MQTT (Ngày 1–7)
-
-| Ngày | Công việc | Kết quả |
-| --- | --- | --- |
-| 1–2 | Influx Tasks, schema analytics, service query aggregate | KPI API có coverage và unit tests tính toán. |
-| 1–2 | Migration Device Shadow + audit entity | Desired/reported state query được, có index. |
-| 3–4 | Firmware types, validator, NVS envelope + diff-check | Reboot recovery và write minimization được test. |
-| 4–5 | Queue IPC, apply ở Core 1 tick boundary | Không shared mutable struct/mutex trên control path. |
-| 5–7 | MQTT desired/reported, ACL, retry, idempotency, conditional clear | Offline reconnect và ACK duplicate không làm lệch state. |
-
-### Sprint 2 — Advisory UI, fault injection và nghiệm thu E2E (Ngày 8–14)
-
-| Ngày | Công việc | Kết quả |
-| --- | --- | --- |
-| 8–9 | Recommender ruleset versioned và API | Recommendation có traceable KPI/reason. |
-| 8–10 | Panel, confirmation, SSE state | Operator nhìn đúng pending/in-sync/rejected. |
-| 10–12 | Fault injection | Kịch bản mạng, broker, reboot, duplicate ACK và NVS được xác minh. |
-| 13 | Dry-run dữ liệu 24 giờ / staging | KPI và recommendation được review thực địa. |
-| 14 | Documentation, rollback drill, release gate | Release checklist và vận hành sẵn sàng. |
+UI thêm `TuningAdvisoryPanel` vào `app/page.tsx`, reuse `useSelectedDevice`, `RealTelemetryProvider`, `/api/backend/[...path]` và pattern refetch sau SSE reconnect. Hiển thị coverage, diff/bounds, pending/in-sync/rejected/timeout; confirm trước POST; không optimistic success hoặc auto-apply.
 
 ---
 
-## 9. Tiêu chí nghiệm thu và test matrix
+## 7. Firmware implementation
 
-### Backend / data
+### 7.1 Component và ownership
 
-- [ ] Aggregate có đúng `sample_count` và `sum_squared_error`; rolling RMSE không sai do averaging-of-averages.
-- [ ] Recommendation không sinh khi coverage dưới ngưỡng đã cấu hình.
-- [ ] Mỗi action apply có actor, config before/after, KPI snapshot và ruleset version trong audit.
-- [ ] Reported `command_id` không tồn tại, sai device hoặc sai config bị reject/log, không làm đổi state.
+| Vị trí | Thay đổi |
+| --- | --- |
+| `core/models.h` | Thêm POD `DynamicTuningParams` với `command_id[37]`, revision, bốn field config; không dùng `String`/JSON/NVS handle trong queue. |
+| `core/tuning_config_manager.{h,cpp}` | Core-0-owned validate, hydrate defaults/NVS, semantic diff, durable duplicate identity, two-slot CRC envelope. |
+| `core/system_manager.{h,cpp}` | Khai báo/tạo `g_tuning_config_queue = xQueueCreate(1, sizeof(DynamicTuningParams))` trước task start. |
+| `network/mqtt_manager.*`, `protocols/mqtt_callbacks.*` | Subscribe/dispatch desired topic, bounded JSON parse, publish reported topic. Giữ callback nhẹ: chỉ copy queue rồi worker parse. |
+| `core/core1_tasks.cpp` | Drain tuning queue đầu `runControlPipelineStep`; giữ local active copy. Apply scale/hysteresis trong control path, trước protector. |
+| `core/actuator_controller.*` | Refactor binary resolver để Mist nhận threshold dynamic; lamp/fan behavior mặc định không đổi. |
+| `core/storage.*` | Chỉ thêm API nếu shared NVS helpers thực sự hữu ích; không trộn tuning envelope vào baseline/crop-profile key hiện có. |
 
-### MQTT / Device Shadow
+### 7.2 Persistence/idempotency
 
-- [ ] Thiết bị offline lúc publish nhận desired retained mới nhất khi reconnect.
-- [ ] ACK QoS 1 bị giao lại nhiều lần chỉ tạo một state transition và một SSE success.
-- [ ] ACK cũ không xóa retained desired mới hơn.
-- [ ] Payload rỗng retained chỉ được publish sau ACK thành công và đúng command pending.
+`TuningConfigManager` phải:
 
-### Firmware / safety
+1. Hydrate record CRC hợp lệ mới nhất trước khi tasks chạy, fallback defaults khi cả hai slot invalid, rồi enqueue initial effective config sau queue creation.
+2. Reject trước mọi mutation nếu schema/device/UUID/type/bounds/cross-field invalid.
+3. So sánh float epsilon `0.001f`, integer/string exact. Command ID trùng đã persist → không ghi/enqueue lại, reported `DUPLICATE` kèm effective config.
+4. Command mới nhưng parameter bằng nhau → persist command identity/revision an toàn để survive reboot; không ghi lại payload config không cần thiết nếu thiết kế envelope cho phép.
+5. Chỉ mutate RAM active candidate, `xQueueOverwrite()` và `ACCEPTED` sau durable persistence thành công. Nếu queue unavailable/write lỗi: `REJECTED`, không claim success.
 
-- [ ] JSON sai kiểu, UUID sai, `NaN`, out-of-range và cross-field invalid đều bị reject không thay RAM/NVS/Queue.
-- [ ] Cùng command hai lần không ghi flash và không apply lại; sau reboot vẫn nhận diện duplicate theo durable command identity.
-- [ ] Config không đổi không tăng số lần write NVS.
-- [ ] Mất điện giữa lúc persist khôi phục record CRC hợp lệ gần nhất hoặc defaults an toàn.
-- [ ] Stress publish config liên tục không tạo race, crash, heap growth hoặc Core 1 block.
-- [ ] Core 1 không truy cập NVS/MQTT; config chỉ đổi ở queue drain boundary.
-- [ ] Blackout, invalid time và min ON/OFF đèn vẫn thắng mọi dynamic tuning config.
+Không dùng `#pragma pack(1)` cho runtime POD. Two-slot record cần version, generation/revision, `DynamicTuningParams` và CRC; boot chọn generation hợp lệ cao nhất.
 
-### Rollback vận hành
-
-- [ ] UI có thể gửi factory-safe tuning profile đã được phê duyệt.
-- [ ] Firmware có API/physical recovery để reset dynamic tuning về defaults an toàn khi NVS corrupt.
-- [ ] Rollback được ghi audit như một command bình thường và phải nhận reported ACK.
-
----
-
-## 10. Rủi ro còn lại và nguyên tắc vận hành
-
-1. **KPI không đồng nghĩa nhân quả.** Điều kiện môi trường, cửa mở, nguồn nước và thao tác vận hành có thể ảnh hưởng KPI; recommendation phải là advisory.
-2. **Tuning theo từng thiết bị.** Không copy delta giữa các tủ nếu chưa so sánh phần cứng, tải và profile.
-3. **Giới hạn thay đổi.** Mỗi command chỉ nên thay số parameter tối thiểu cần thiết; sau apply cần observation window trước khuyến nghị tiếp theo.
-4. **Quan sát trước mở rộng.** Thu thập đủ log theo crop batch trước khi đưa outdoor context hoặc seasonal bound vào production.
-5. **Safety luôn ở Edge.** Backend, broker, UI hoặc network hỏng không được làm mất interlock tại Core 1.
-
-Bản kế hoạch triển khai hệ thống **Đánh giá Hiệu năng & Tinh chỉnh Tham số Điều khiển (Semi-Automated Dynamic Tuning Protocol)** cho tủ điện điều khiển môi trường trại nấm. Hệ thống tuân thủ nghiêm ngặt mô hình **Human-in-the-Loop** (người vận hành phê duyệt) và **Ranh giới Bảo vệ Cứng (Bounded Safety Guardrails)** trực tiếp tại Edge.
-
----
-
-## 📊 Tổng hợp Cải tiến Kiến trúc (v1.0 vs v2.1)
-
-| Hạng mục | Bản v1.0 (Naive Web App) | Bản v2.1 (Industrial IIoT Final) |
-| --- | --- | --- |
-| **Database Performance** | Query trực tiếp raw data 24h on-the-fly khi có request API. | **InfluxDB Tasks** pre-aggregate 1h/lần sang bucket `kpi_metrics_1h` ($\text{Response} < 10\text{ms}$). |
-| **MQTT State Sync** | Fire-and-Forget (phát lệnh xong coi như xong). | **Device Shadow Pattern** (Desired/Reported) + **QoS 1** + **Retain** + **ACK**. |
-| **Ghost Message Risk** | Nguy cơ lặp lệnh cũ khi ESP32 cúp điện khởi động lại. | **Clear Retain Protocol:** Backend phát payload rỗng `""` sau khi nhận ACK. |
-| **NVS Flash Lifespan** | Ghi đè Flash lặp lại mỗi khi nhận config. | **NVS Diff-Check:** Chỉ tốn chu kỳ ghi Flash khi giá trị RAM thay đổi. |
-| **Command Tracing** | Thiếu mã định danh lệnh ở tầng Firmware. | **`command_id` Tracking:** Nhét `command_id` trực tiếp vào C++ Struct để map ACK. |
-| **Inter-Core IPC** | Mutex/Shared Struct (dễ gây Race Condition hoặc block Core 1). | **FreeRTOS Queue** (`xQueueOverwrite` / `xQueueReceive`): Lock-free & Atomic. |
-| **Timeline Triển khai** | 7 ngày (Lý thuyết). | **14 ngày / 2 Sprints** (Bao gồm Fault Injection & Network Simulation). |
-
----
-
-## 🏛️ I. Tổng quan Luồng Bất đồng bộ (Closed-Loop Sync Flow)
+### 7.3 Bất biến Core 1
 
 ```text
-[UI Next.js] ───(1) Apply Config───► [NestJS Backend] ───(2) DB: DESIRED (PENDING)
-                                            │
-                                            ▼ (3) MQTT QoS 1 + Retain = true
-                                    [MQTT Topic: .../config/desired]
-                                            │
-                                            ▼
-                                    [ESP32 Core 0: Parse & Guard Check]
-                                            │
-                                            ▼ (4) Pass Safety Bounds -> Write NVS Diff
-                                    [ESP32 Core 0 ──(FreeRTOS Queue)──► Core 1 Engine]
-                                            │
-                                            ▼ (5) MQTT QoS 1 (Publish ACK kèm command_id)
-                                    [MQTT Topic: .../config/reported]
-                                            │
-                                            ├──────────────────────────────────────────┐
-                                            ▼ (6a) Clear Ghost Retained Message        ▼ (6b) Update DB
-[UI: Đã áp dụng] ◄──(7) SSE Event ─── [NestJS Backend] ──(Publish "" Retain)──► [MQTT Broker]   (Status: IN_SYNC)
-
+drain dynamic tuning queue (tick boundary)
+  -> sensor/setpoint + adaptive/fuzzy demand
+  -> tuning scale + Mist-only hysteresis
+  -> manual latch
+  -> direct relay resolution
+  -> SystemProtector
+  -> final blackout override + direct resolution
+  -> digitalWrite(active-LOW SSR)
 ```
+
+- Core 1 không gọi MQTT/NVS cho tuning và Core 0 không gọi GPIO/control-state Core 1 trực tiếp.
+- Blackout và time confidence luôn thắng Mist tuning.
+- Protector vẫn thực thi bio-bound, max ON/cooldown và có thể override scaled demand.
+- Cấu hình chỉ đổi tại queue-drain boundary; queue depth 1 + `xQueueOverwrite` là chủ ý vì chỉ effective config mới nhất quan trọng.
 
 ---
 
-## 🏢 II. Tầng Backend & InfluxDB Pre-Aggregation
+## 8. Kế hoạch 2 sprint
 
-### 1. InfluxDB Scheduled Task (`task_aggregate_kpi_1h.flux`)
+### Sprint 1 — Contract, telemetry completeness và Edge path
 
-Chạy định kỳ 1 giờ/lần để tính toán độ lệch chuẩn (StdDev/RMSE) và tần suất giật rơ-le (Chattering Counter), lưu kết quả vào bucket `mushroom_analytics`.
-
-```flux
-option task = {
-  name: "aggregate_kpi_metrics_hourly",
-  every: 1h,
-  offset: 5m
-}
-
-// 1. Pre-calculate Temp/Humid RMSE & Standard Deviation
-from(bucket: "mushroom_telemetry")
-  |> range(start: -1h)
-  |> filter(fn: (r) => r._measurement == "environment_telemetry")
-  |> filter(fn: (r) => r._field == "temperature" or r._field == "humidity")
-  |> stddev()
-  |> set(key: "_measurement", value: "kpi_metrics_1h")
-  |> to(bucket: "mushroom_analytics", org: "mushroom_org")
-
-// 2. Pre-calculate Relay Switching Frequency (Chattering Counter)
-from(bucket: "mushroom_telemetry")
-  |> range(start: -1h)
-  |> filter(fn: (r) => r._measurement == "actuator_events")
-  |> filter(fn: (r) => r._field == "state")
-  |> stateChanges(controls: ["_value"])
-  |> count()
-  |> set(key: "_measurement", value: "kpi_metrics_1h")
-  |> set(key: "_field", value: "switch_count_1h")
-  |> to(bucket: "mushroom_analytics", org: "mushroom_org")
-
-```
-
-### 2. Optimization Heuristics (TuningRecommenderEngine)
-
-| KPI Condition | Technical Root Cause | Recommendation Delta |
+| Ngày | Công việc | Done khi |
 | --- | --- | --- |
-| `mistSwitchCountPerHour > 10` | Fuzzy quá nhạy / Nhiễu quanh điểm cài đặt | Tăng `MIST_DEADBAND` từ 3% lên 5%; Tăng `MIST_COOLDOWN` từ 30s lên 45s. |
-| `lampAvgOnDurationSec < 30s` | Chu kỳ Slow PWM quá ngắn, bóng A250 bị sốc nhiệt | Tăng `LAMP_SLOW_PWM_CYCLE` từ 180s lên 240s; Đặt `LAMP_MIN_ON = 30s`. |
-| `tempRmse > 1.5°C` & `Duty < 30%` | Gain sưởi quá yếu | Tăng Gain đầu ra `K_u_lamp` thêm +8%. |
-| `humidRmse > 5.0%` (không chattering) | Phản ứng phun sương chậm | Tăng Gain đầu vào `K_e_humid` thêm +5%. |
+| 1 | Chốt contract/topic/ACL và test fixtures. | Không còn key/TPC topic legacy trong contract. |
+| 1–3 | Live controller-history writer + analytics bucket provisioning. | Live records có target/source/revision/final relay; degraded offline được đánh dấu. |
+| 2–4 | Firmware POD, NVS two-slot, queue, desired/reported. | Boot recovery, rejection, duplicate và no-write diff test pass. |
+| 4–5 | Mist-specific hysteresis + gain scale Core 1. | Default behavior regression pass; protector/blackout vẫn thắng. |
+| 5–7 | DB migration/entity/shadow service + MQTT reported handling. | PENDING → IN_SYNC/REJECTED durable, conditional retain-clear test pass. |
+
+### Sprint 2 — Analytics, advisory, UI và E2E
+
+| Ngày | Công việc | Done khi |
+| --- | --- | --- |
+| 8–9 | Influx Task, `ControlAnalyticsService`, deterministic recommender. | Coverage gate/RMSE aggregation/ruleset tests pass. |
+| 9–10 | Authz/actor audit và REST/SSE tuning module. | Endpoint không cho cross-device/anonymous apply. |
+| 10–11 | `TuningAdvisoryPanel`, proxy clients, reconnect refetch. | UI không optimistic success và trạng thái durable đúng. |
+| 12–13 | Fault injection: offline, retain, ACK duplicate, reboot, corrupt NVS. | Không state drift/unsafe GPIO/flash write thừa. |
+| 14 | Staging 24h dry run, rollback drill, release review. | KPI/recommendation được operator review, checklist ký duyệt. |
 
 ---
 
-## 🔄 III. Device Shadow Protocol & Triệt tiêu Ghost Message
+## 9. Acceptance criteria
 
-### 1. Schema Database PostgreSQL (`device_configurations`)
+### Data/backend
 
-```sql
-CREATE TABLE device_configurations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id VARCHAR(64) NOT NULL,
-    command_id VARCHAR(64) NOT NULL UNIQUE,
-    desired_config JSONB NOT NULL,
-    reported_config JSONB DEFAULT NULL,
-    sync_status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING | IN_SYNC | REJECTED
-    applied_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_device_config_sync ON device_configurations(device_id, sync_status);
+- [ ] Không sinh recommendation từ telemetry thiếu target hoặc `data_quality=degraded` nếu coverage trusted không đủ.
+- [ ] Hourly aggregate có `sample_count` + `sum_squared_error`; rolling RMSE không average-of-averages.
+- [ ] Audit lưu actor, before/after, KPI snapshot, ruleset version, source và outcome.
+- [ ] Reported unknown/wrong-device/wrong-config không đổi shadow hay clear retained message.
 
-```
+### MQTT/shadow
 
-### 2. Quy trình Xóa "Ghost" Retained Message
+- [ ] Offline device nhận đúng desired retained mới nhất tại reconnect.
+- [ ] QoS-1 reported lặp chỉ tạo một DB state transition/SSE success.
+- [ ] ACK cũ không clear desired mới hơn.
+- [ ] Device ACL không đọc/publish topic của device khác; backend publish desired được.
 
-1. **Gửi lệnh:** Backend phát JSON xuống `devices/{deviceId}/config/desired` với `QoS = 1` và `Retain = true`.
-2. **Xử lý ACK & Idempotency:** NestJS nhận tin nhắn từ `devices/{deviceId}/config/reported`. Check nếu `command_id` trùng và trạng thái DB đã là `IN_SYNC` thì bỏ qua (chống lặp).
-3. **Xóa Retain Message:** Ngay khi xác nhận lệnh thành công, NestJS publish một **Empty Payload (`""`)** với `Retain = true` vào topic `devices/{deviceId}/config/desired`. Việc này làm sạch broker, ngăn ESP32 nhận lại lệnh cũ nếu bị boot lại sau vài ngày.
+### Firmware/safety
 
----
+- [ ] Invalid JSON/type/UUID/bounds/cross-field bị `REJECTED` và không đổi RAM/NVS/queue.
+- [ ] Duplicate sau reboot nhận diện bằng durable command identity, không reapply/write flash.
+- [ ] Config parameter không đổi không tăng flash write counter.
+- [ ] Cắt điện giữa hai slot NVS khôi phục record CRC hợp lệ gần nhất hoặc defaults an toàn.
+- [ ] Burst desired liên tục không block Core 1, không heap growth/crash và chỉ effective config cuối được active.
+- [ ] Hysteresis tuning Mist không làm đổi lamp/fan default thresholds.
+- [ ] Blackout, uncertain time, bio-bound, max-ON/cooldown thắng mọi tuning config.
 
-## ⚡ IV. Hardening Firmware (ESP32-S3)
+### Rollback
 
-### 1. `DynamicTuningParams` Struct & NVS Diff-Check (`tuning_config_manager.cpp`)
-
-```cpp
-#include <Preferences.h>
-#include <math.h>
-#include <Arduino.h>
-
-struct DynamicTuningParams {
-    char command_id[36] = "";     // Bắt buộc phải lưu UUID/Command ID từ Backend
-    float ke_temp = 1.0f;          // Range: 0.8 -> 1.2
-    float ku_lamp = 1.0f;          // Range: 0.8 -> 1.2
-    float mist_deadband = 3.0f;    // Range: 2.0 -> 8.0 (%)
-    uint16_t lamp_pwm_cycle_s = 180;// Range: 120 -> 300 (s)
-    uint16_t lamp_min_on_s = 30;   // Range: 20 -> 60 (s)
-};
-
-class TuningConfigManager {
-private:
-    Preferences prefs_;
-    DynamicTuningParams current_ram_cfg_;
-
-    bool is_float_different(float a, float b, float epsilon = 0.001f) {
-        return fabs(a - b) > epsilon;
-    }
-
-public:
-    bool applyAndPersistIfDiff(const DynamicTuningParams& incoming) {
-        // 1. HARD BOUNDS: Ranh giới an toàn tuyệt đối
-        DynamicTuningParams valid = incoming;
-        strncpy(valid.command_id, incoming.command_id, sizeof(valid.command_id) - 1);
-        valid.ke_temp = constrain(incoming.ke_temp, 0.8f, 1.2f);
-        valid.ku_lamp = constrain(incoming.ku_lamp, 0.8f, 1.2f);
-        valid.mist_deadband = constrain(incoming.mist_deadband, 2.0f, 8.0f);
-        valid.lamp_pwm_cycle_s = constrain(incoming.lamp_pwm_cycle_s, 120U, 300U);
-        valid.lamp_min_on_s = constrain(incoming.lamp_min_on_s, 20U, 60U);
-
-        // 2. NVS DIFF-CHECK: Kiểm tra xem thông số thực sự có thay đổi?
-        bool need_nvs_write = false;
-        if (is_float_different(valid.ke_temp, current_ram_cfg_.ke_temp)) need_nvs_write = true;
-        if (is_float_different(valid.ku_lamp, current_ram_cfg_.ku_lamp)) need_nvs_write = true;
-        if (is_float_different(valid.mist_deadband, current_ram_cfg_.mist_deadband)) need_nvs_write = true;
-        if (valid.lamp_pwm_cycle_s != current_ram_cfg_.lamp_pwm_cycle_s) need_nvs_write = true;
-        if (valid.lamp_min_on_s != current_ram_cfg_.lamp_min_on_s) need_nvs_write = true;
-
-        current_ram_cfg_ = valid;
-
-        // 3. CHỈ GHI FLASH NẾU CÓ THAY ĐỔI THỰC SỰ
-        if (need_nvs_write) {
-            prefs_.begin("fuzzy_cfg", false);
-            prefs_.putString("cmd_id", valid.command_id);
-            prefs_.putFloat("ke_temp", valid.ke_temp);
-            prefs_.putFloat("ku_lamp", valid.ku_lamp);
-            prefs_.putFloat("deadband", valid.mist_deadband);
-            prefs_.putUShort("pwm_cycle", valid.lamp_pwm_cycle_s);
-            prefs_.putUShort("min_on", valid.lamp_min_on_s);
-            prefs_.end();
-            Serial.println("[NVS] New config persisted to Flash.");
-        } else {
-            Serial.println("[NVS] Config identical to RAM. Flash write skipped.");
-        }
-        return true;
-    }
-
-    const DynamicTuningParams& getRamConfig() const { return current_ram_cfg_; }
-};
-
-```
-
-### 2. Lock-Free Inter-Core IPC (`intercore_config.cpp`)
-
-```cpp
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-
-QueueHandle_t g_tuning_config_queue = NULL;
-
-void init_intercore_config_queue() {
-    // Queue độ sâu = 1, chứa vừa đủ 1 struct config
-    g_tuning_config_queue = xQueueCreate(1, sizeof(DynamicTuningParams));
-}
-
-// --- CORE 0: Network & MQTT Handler ---
-void on_mqtt_config_received(const DynamicTuningParams& incoming_cfg) {
-    g_config_manager.applyAndPersistIfDiff(incoming_cfg);
-    
-    // Gửi atomic POD struct sang Core 1 (Ghi đè non-blocking)
-    DynamicTuningParams active_cfg = g_config_manager.getRamConfig();
-    xQueueOverwrite(g_tuning_config_queue, &active_cfg);
-}
-
-// --- CORE 1: Time-Critical Control Loop (10Hz Tick) ---
-void taskCore1Control(void* pvParameters) {
-    DynamicTuningParams active_control_cfg = g_config_manager.getRamConfig();
-
-    while (true) {
-        DynamicTuningParams incoming_queue_cfg;
-        // Kiểm tra xem Core 0 có đẩy config mới sang không
-        if (xQueueReceive(g_tuning_config_queue, &incoming_queue_cfg, 0) == pdTRUE) {
-            active_control_cfg = incoming_queue_cfg;
-            Serial.printf("[CORE 1] Updated active params for CMD: %s\n", active_control_cfg.command_id);
-        }
-
-        // Thực thi Fuzzy Logic & Slow PWM dựa trên active_control_cfg...
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-
-```
+- [ ] UI có factory-safe snapshot được approve; rollback đi qua cùng audit/shadow/ACK flow.
+- [ ] Có recovery path reset tuning NVS defaults khi record corrupt; không xóa crop profile, Wi-Fi hoặc provisioning credentials.
+- [ ] Rollback drill được thực hiện trên staging trước release.
 
 ---
 
-## 📌 V. Product Backlog Expansion (Outdoor Context - Phase 2)
+## 10. Rủi ro và nguyên tắc vận hành
 
-* **Cảm biến Thời tiết Ngoại cảnh (Outdoor Weather Context):** Tích hợp dữ liệu nhiệt/ẩm ngoài trời từ OpenWeather API hoặc trạm đo thời tiết tại trại.
-* **Adaptive Seasonal Heuristics:** Động điều chỉnh trần hệ số $K_u$. Mùa lạnh Nam Bộ ($T_{\text{outdoor}} < 22^\circ\text{C}$ vào ban đêm), tự động nâng trần tối đa của $K_u$ từ `1.20` lên `1.35` để bù lại quán tính lạnh bên ngoài.
-
----
+1. KPI là correlation, không phải causation; recommendation luôn advisory.
+2. Không copy tuning giữa tủ khi chưa so sánh hardware/load/profile.
+3. Một command chỉ thay delta tối thiểu; bắt buộc observation window trước recommendation tiếp theo.
+4. Không phát hành analytics trước khi complete controller history đã được xác minh; offline partial history không được biến thành RMSE giả.
+5. Edge safety là hàng rào cuối: backend, broker, UI hoặc network hỏng không được làm energize relay trái interlock.
