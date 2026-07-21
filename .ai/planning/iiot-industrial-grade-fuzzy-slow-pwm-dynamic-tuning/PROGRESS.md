@@ -35,8 +35,8 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| B1 | Định nghĩa interface `LiveTelemetryPoint` gồm device, timestamp, quality, đo lường, Core-1 target/source/revision và final relay states. | `[ ] Pending` | Dùng **typed domain model** trong TypeScript strict; field nullable phải biểu thị rõ dữ liệu thiếu. Không suy diễn setpoint từ crop profile hiện tại; target chỉ hợp lệ nếu Edge báo cáo tại thời điểm telemetry. |
-| B2 | Cài `ControlHistoryInfluxWriter`: subscribe `telemetry$`, map/enrich telemetry, ghi measurement `controller_history`, và xử lý lỗi ghi. | `[ ] Pending` | Áp dụng **Observer pattern** với `takeUntil(destroy$)` để tránh subscription leak. Writer bất đồng bộ, lỗi chỉ log có `device_id` và skip—không làm ngắt MQTT pipeline, không retry vô hạn. Gắn `data_quality=good/missing_target/degraded`; chỉ final relay states do Core 1 xác nhận. |
+| B1 | Định nghĩa interface `LiveTelemetryPoint` gồm device, timestamp, quality, đo lường, Core-1 target/source/revision và final relay states. | `[ ] QA Review` | Dùng **typed domain model** trong TypeScript strict; field nullable phải biểu thị rõ dữ liệu thiếu. Không suy diễn setpoint từ crop profile hiện tại; target chỉ hợp lệ nếu Edge báo cáo tại thời điểm telemetry. |
+| B2 | Cài `ControlHistoryInfluxWriter`: subscribe `telemetry$`, map/enrich telemetry, ghi measurement `controller_history`, và xử lý lỗi ghi. | `[ ] In Progress` | Áp dụng **Observer pattern** với `takeUntil(destroy$)` để tránh subscription leak. Writer bất đồng bộ, lỗi chỉ log có `device_id` và skip—không làm ngắt MQTT pipeline, không retry vô hạn. Gắn `data_quality=good/missing_target/degraded`; chỉ final relay states do Core 1 xác nhận. |
 | B3 | Đăng ký writer vào `InfluxModule` và import `MqttModule` cần thiết. | `[ ] Pending` | Duy trì Dependency Injection của NestJS; không tự khởi tạo service/new client. Kiểm tra vòng lặp dependency, lifecycle shutdown và module test; export service chỉ khi thật sự có consumer. |
 
 ## Track C — Firmware: POD, NVS Two-Slot, Queue (Ngày 2–4)

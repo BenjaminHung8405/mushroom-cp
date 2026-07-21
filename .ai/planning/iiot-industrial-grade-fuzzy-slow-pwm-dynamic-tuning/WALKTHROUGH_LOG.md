@@ -2,6 +2,22 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T10:50:00+07:00] - Task B1: Định nghĩa interface LiveTelemetryPoint cho luồng InfluxDB
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Tạo mới: [live-telemetry-point.interface.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/interfaces/live-telemetry-point.interface.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Định nghĩa interface `LiveTelemetryPoint` làm mô hình dữ liệu miền (domain model) cho dữ liệu telemetry thời gian thực phong phú, chuẩn bị ghi vào InfluxDB.
+  - **Giải pháp:**
+    - Tạo thư mục và file mới `src/influx/interfaces/live-telemetry-point.interface.ts`.
+    - Thiết lập interface `LiveTelemetryPoint` trong chế độ TypeScript strict, định nghĩa tường minh tất cả các trường dữ liệu gồm: thông tin thiết bị (`deviceId`), nhãn thời gian (`timestamp`), chất lượng dữ liệu (`dataQuality`: `'good' | 'degraded' | 'missing_target'`), các giá trị đo lường môi trường (`temperatureC`, `humidityPercent`), các mục tiêu điều khiển từ Core 1 (`tempTarget`, `humidTarget`, `controlSource`, `configRevision`) cùng trạng thái vật lý thực tế của các relay chấp hành (`mistState`, `lampState`, `fanState`).
+    - Khai báo rõ ràng các trường nullable có khả năng thiếu dữ liệu bằng cách sử dụng kiểu `number | null` hoặc `string | null` để tránh suy diễn setpoint tùy tiện và đảm bảo độ chính xác dữ liệu (chỉ ghi nhận target/source nếu Edge thực sự báo cáo).
+  - **Tự kiểm tra:**
+    - Chạy build dự án backend NestJS thông qua `npm run build` thành công, xác minh cú pháp TypeScript hoàn toàn hợp lệ.
+    - Thực thi toàn bộ test suite của backend qua `npm run test` và ghi nhận kết quả 150/150 test case đều PASS.
+
 ## [2026-07-21T10:44:00+07:00] - Task A5: Cấu hình INFLUXDB_ANALYTICS_BUCKET và tạo script provision analytics bucket idempotent
 
 - **Trạng thái:** `[ ] QA Review`
