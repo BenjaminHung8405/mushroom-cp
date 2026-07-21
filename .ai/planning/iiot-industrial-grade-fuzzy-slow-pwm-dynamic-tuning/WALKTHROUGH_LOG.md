@@ -1,3 +1,18 @@
+## [2026-07-21T19:34:47+07:00] - Task C4, D4: Khắc phục QA Review lần 2 (duplicate identity và revision)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Nhánh parameter không đổi nhưng `command_id` mới nay ghi bền identity/revision theo two-slot envelope và không dispatch lại Core 1. Sau reboot, retained command cùng UUID được trả `DUPLICATE_UUID` mà không phát sinh queue/NVS write mới; reported vẫn là `DUPLICATE` kèm effective config.
+  - Validation `revision` tách signed/unsigned, từ chối negative, overflow, fractional, boolean và string bằng `INVALID_SCHEMA`; command UUID mới có revision không tăng bị `REJECTED/STALE_REVISION` trước mọi mutation.
+  - Bổ sung regression cho identity B sau reboot/no queue/no write và toàn bộ các dạng revision sai. Đã chạy host firmware suite (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `git diff --check` (sạch).
+
 ## [2026-07-21T18:56:37+07:00] - Task C1–C7, D1–D4: Khắc phục QA Review lần 2 (NVS/Queue transaction)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

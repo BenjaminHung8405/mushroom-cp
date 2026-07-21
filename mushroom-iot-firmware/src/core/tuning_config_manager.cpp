@@ -172,9 +172,11 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
     if (validation == TuningReason::OK && _isExactDuplicate(incoming_params.command_id)) {
         reason = TuningReason::DUPLICATE_UUID;
         result = TuningResult::DUPLICATE;
+    } else if (validation == TuningReason::OK && _isStaleRevision(incoming_params)) {
+        reason = TuningReason::STALE_REVISION;
+        result = TuningResult::REJECTED;
     } else if (validation == TuningReason::OK && !_isSemanticDiff(incoming_params)) {
-        reason = TuningReason::NO_CHANGE;
-        result = TuningResult::DUPLICATE;
+        result = persistIdentityOnly(incoming_params, reason);
     } else if (validation == TuningReason::OK) {
         result = persistThenDispatch(incoming_params, reason);
     }
@@ -242,9 +244,14 @@ TuningReason TuningConfigManager::validateCommandEnvelope(const JsonVariant& doc
     if (command.isNull() || !command.is<const char*>()) return TuningReason::INVALID_UUID;
     command_id = command.as<const char*>();
     if (!_validateCommandIdFormat(command_id)) return TuningReason::INVALID_UUID;
-    JsonVariant value = doc["revision"];
-    if (value.isNull() || value.is<const char*>() || (!value.is<int>() && !value.is<unsigned int>()))
-        return TuningReason::INVALID_SCHEMA;
+    const JsonVariant value = doc["revision"];
+    if (value.is<int32_t>()) {
+        const int32_t signed_revision = value.as<int32_t>();
+        if (signed_revision < 0) return TuningReason::INVALID_SCHEMA;
+        revision = static_cast<uint32_t>(signed_revision);
+        return TuningReason::OK;
+    }
+    if (!value.is<uint32_t>()) return TuningReason::INVALID_SCHEMA;
     revision = value.as<uint32_t>();
     return TuningReason::OK;
 }
@@ -288,6 +295,20 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
     // the durable candidate and retries it; boot also hydrates READY_DISPATCH.
     reason = TuningReason::QUEUE_FULL_ERROR;
     return TuningResult::PENDING;
+}
+
+TuningResult TuningConfigManager::persistIdentityOnly(const DynamicTuningParams& incoming,
+                                                       TuningReason& reason) {
+    // The four effective parameters are unchanged, but the latest command
+    // UUID/revision must survive a reboot so retained MQTT redelivery is
+    // identified as an exact duplicate. This deliberately bypasses Core 1.
+    if (!writeRecord(incoming, TUNING_NVS_PENDING_COMMIT) || !saveToNvs(incoming)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
+        return TuningResult::REJECTED;
+    }
+    _active_params = incoming;
+    reason = TuningReason::NO_CHANGE;
+    return TuningResult::DUPLICATE;
 }
 
 uint32_t TuningConfigManager::calculateCRC32(const uint8_t *data, size_t length) {
@@ -424,6 +445,10 @@ bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
 bool TuningConfigManager::_isExactDuplicate(const char* command_id) {
     if (command_id == nullptr) return false;
     return std::strcmp(_active_params.command_id, command_id) == 0;
+}
+
+bool TuningConfigManager::_isStaleRevision(const DynamicTuningParams& incoming) {
+    return incoming.revision <= _active_params.revision;
 }
 
 bool TuningConfigManager::_isSemanticDiff(const DynamicTuningParams& incoming) {

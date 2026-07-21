@@ -31,9 +31,10 @@ enum class TuningReason : uint8_t {
     OUT_OF_BOUNDS = 4,
     CROSS_FIELD_VIOLATION = 5,
     DUPLICATE_UUID = 6,
-    NO_CHANGE = 7,             ///< Semantic diff check (no-write)
+    NO_CHANGE = 7,             ///< Parameters unchanged; command identity was durably recorded.
     NVS_WRITE_ERROR = 8,
-    QUEUE_FULL_ERROR = 9
+    QUEUE_FULL_ERROR = 9,
+    STALE_REVISION = 10
 };
 
 class TuningConfigManager {
@@ -104,6 +105,7 @@ private:
                                          uint32_t& revision);
     TuningReason parseConfig(const JsonVariant& config, DynamicTuningParams& out_params);
     TuningResult persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason);
+    TuningResult persistIdentityOnly(const DynamicTuningParams& incoming, TuningReason& reason);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
     bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);
@@ -116,6 +118,7 @@ private:
     bool _validateCrossField(float mist_on, float mist_off);
     bool _validateNoNanInfinity(const JsonVariant& v);
     bool _isExactDuplicate(const char* command_id);
+    bool _isStaleRevision(const DynamicTuningParams& incoming);
     bool _isSemanticDiff(const DynamicTuningParams& incoming);
 };
 
