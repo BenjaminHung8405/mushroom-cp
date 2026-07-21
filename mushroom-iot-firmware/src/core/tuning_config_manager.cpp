@@ -83,38 +83,41 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         return TuningResult::DUPLICATE;
     }
     
-    // Check for semantic diff
-    bool diff = _isSemanticDiff(incoming_params);
-    
-    if (diff) {
-        // Persist to NVS (double-buffer slot will be handled in C5)
-        if (!saveToNvs(incoming_params)) {
-            reason = TuningReason::NVS_WRITE_ERROR;
-            unlock();
-            return TuningResult::REJECTED;
-        }
-        _active_params = incoming_params;
-    } else {
-        // Config params are the same, only update command identity to survive reboot
-        std::strncpy(_active_params.command_id, incoming_params.command_id, sizeof(_active_params.command_id) - 1);
-        _active_params.command_id[sizeof(_active_params.command_id) - 1] = '\0';
-        _active_params.revision = incoming_params.revision;
-        
-        if (!saveToNvs(_active_params)) {
-            reason = TuningReason::NVS_WRITE_ERROR;
-            unlock();
-            return TuningResult::REJECTED;
-        }
+    // Build the candidate entirely on the stack. _active_params is committed
+    // only after both durable persistence and the Core 1 handoff succeed.
+    const DynamicTuningParams previous_params = _active_params;
+    DynamicTuningParams candidate_params = incoming_params;
+    if (!_isSemanticDiff(incoming_params)) {
+        // Preserve the effective values for semantic no-change commands while
+        // persisting the new command identity/revision for duplicate handling.
+        candidate_params = previous_params;
+        std::strncpy(candidate_params.command_id, incoming_params.command_id,
+                     sizeof(candidate_params.command_id) - 1);
+        candidate_params.command_id[sizeof(candidate_params.command_id) - 1] = '\0';
+        candidate_params.revision = incoming_params.revision;
     }
-    
-    // Posting to queue (depth 1, xQueueOverwrite)
+
+    if (!saveToNvs(candidate_params)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
+        unlock();
+        return TuningResult::REJECTED;
+    }
+
+    // A queue failure must not leave a durable configuration that Core 1 did
+    // not adopt. Restore the previously effective record before rejecting.
     if (g_tuning_config_queue == nullptr ||
-        xQueueOverwrite(g_tuning_config_queue, &_active_params) != pdTRUE) {
+        xQueueOverwrite(g_tuning_config_queue, &candidate_params) != pdTRUE) {
+        if (!saveToNvs(previous_params)) {
+            reason = TuningReason::NVS_WRITE_ERROR;
+            unlock();
+            return TuningResult::REJECTED;
+        }
         reason = TuningReason::QUEUE_FULL_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }
-    
+
+    _active_params = candidate_params;
     reason = TuningReason::OK;
     unlock();
     return TuningResult::ACCEPTED;

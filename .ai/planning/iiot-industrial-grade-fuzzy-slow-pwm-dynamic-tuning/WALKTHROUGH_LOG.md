@@ -2,6 +2,21 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T17:11:37+0700] - Task E1–E6: Khắc phục tính nhất quán persistence/dispatch theo QA
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - Sửa đổi: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Nguyên nhân gốc: `processCommand()` commit `_active_params` và NVS trước khi kiểm tra handoff `xQueueOverwrite()`. Vì vậy lỗi queue tạo trạng thái `REJECTED` nhưng RAM/NVS đã chứa candidate mà Core 1 chưa được nhận.
+  - Đã chuyển candidate thành value object trên stack; chỉ commit `_active_params` sau khi persistence và handoff queue đều thành công. Nếu queue unavailable/fail, manager ghi bù record effective trước đó vào NVS rồi trả `REJECTED/QUEUE_FULL_ERROR`, được MQTT map ổn định thành `CONTROL_QUEUE_UNAVAILABLE` và không có ACK `ACCEPTED`.
+  - Bổ sung failure injection cho `xQueueOverwrite()` trong host mock và regression qua MQTT worker: xác minh ACK là `REJECTED/CONTROL_QUEUE_UNAVAILABLE`, active RAM không đổi, reset/hydrate NVS vẫn trả config cũ. Đồng thời sửa assertion broker từ so sánh địa chỉ string literal sang `std::strcmp`, loại warning compiler đã được QA nêu.
+  - Đã chạy host suite với `g++ -std=c++17 -DUNIT_TEST ...`: PASS (`--- All Unit Tests Passed Successfully! ---`) và build diagnostics không có warning. Đã chạy `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg`: SUCCESS. `git diff --check` sạch.
+
 ## [2026-07-21T17:01:52+0700] - Task E2: Khắc phục dynamic Mist hysteresis theo QA
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

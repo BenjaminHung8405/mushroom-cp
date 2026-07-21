@@ -356,6 +356,7 @@ inline QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemS
 }
 
 extern void (*mock_queue_send_hook)(QueueHandle_t, const void*);
+extern bool mock_fail_queue_overwrite;
 
 inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, TickType_t /*xTicksToWait*/) {
     MockQueue* q = static_cast<MockQueue*>(xQueue);
@@ -372,7 +373,7 @@ inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, Ti
 
 inline BaseType_t xQueueOverwrite(QueueHandle_t xQueue, const void* pvItemToQueue) {
     MockQueue* q = static_cast<MockQueue*>(xQueue);
-    if (q == nullptr) return pdFALSE;
+    if (q == nullptr || mock_fail_queue_overwrite) return pdFALSE;
     while (!q->items.empty()) {
         q->items.pop();
     }

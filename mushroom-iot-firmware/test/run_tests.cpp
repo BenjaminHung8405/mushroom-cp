@@ -67,6 +67,7 @@ void initQueues();
 void initSemaphores();
 
 void (*mock_queue_send_hook)(QueueHandle_t, const void*) = nullptr;
+bool mock_fail_queue_overwrite = false;
 
 int main() {
     mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
@@ -306,7 +307,7 @@ int main() {
     Serial.println("[TEST] Task F1 - Snapshots Unit Tests Passed!");
 
     // 11b. Verify compiled MQTT default host port and init diagnostics settings
-    assert(config::network::DEFAULT_MQTT_BROKER == "mushroomapp.mitelai.com");
+    assert(std::strcmp(config::network::DEFAULT_MQTT_BROKER, "mushroomapp.mitelai.com") == 0);
     assert(config::network::DEFAULT_MQTT_PORT == 1883);
     config::network::MQTT_BROKER_VAL = config::network::DEFAULT_MQTT_BROKER;
     config::network::MQTT_PORT_VAL = config::network::DEFAULT_MQTT_PORT;
@@ -658,6 +659,48 @@ int main() {
         assert(std::strcmp(reported["reason_code"], "DEVICE_MISMATCH") == 0);
         assert(reported["persisted"] == false);
         assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
+
+        // A dispatch failure is a rejected transaction: the compensating NVS
+        // write must retain the previous effective config across rehydration,
+        // and the worker must never report ACCEPTED.
+        const DynamicTuningParams previous = tuning.getActiveParams();
+        mqtt::NetworkMessage queue_unavailable{};
+        queue_unavailable.type = mqtt::CommandType::TUNING_DESIRED;
+        const char queue_unavailable_payload[] =
+            "{\"schema_version\":1,\"device_id\":\"mushroom_s3_unittest\","
+            "\"command_id\":\"d6666666-1234-1234-1234-123456789012\",\"revision\":80,"
+            "\"config\":{\"lamp_gain_scale\":1.15,\"mist_gain_scale\":0.85,"
+            "\"mist_on_threshold\":0.30,\"mist_off_threshold\":0.16}}";
+        queue_unavailable.payload_length = sizeof(queue_unavailable_payload) - 1;
+        std::memcpy(queue_unavailable.payload, queue_unavailable_payload,
+                    queue_unavailable.payload_length);
+
+        mock_fail_queue_overwrite = true;
+        mqtt_manager.processNetworkMessage(queue_unavailable);
+        mock_fail_queue_overwrite = false;
+
+        assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
+        assert(std::strcmp(reported["status"], "REJECTED") == 0);
+        assert(std::strcmp(reported["reason_code"], "CONTROL_QUEUE_UNAVAILABLE") == 0);
+        assert(reported["persisted"] == false);
+
+        DynamicTuningParams active_after_failure = tuning.getActiveParams();
+        assert(active_after_failure.revision == previous.revision);
+        assert(std::strcmp(active_after_failure.command_id, previous.command_id) == 0);
+        assert(std::abs(active_after_failure.lamp_gain_scale - previous.lamp_gain_scale) < 1e-6f);
+        assert(std::abs(active_after_failure.mist_gain_scale - previous.mist_gain_scale) < 1e-6f);
+        assert(std::abs(active_after_failure.mist_on_threshold - previous.mist_on_threshold) < 1e-6f);
+        assert(std::abs(active_after_failure.mist_off_threshold - previous.mist_off_threshold) < 1e-6f);
+
+        tuning.resetForTest();
+        assert(tuning.init() == true);
+        DynamicTuningParams rehydrated = tuning.getActiveParams();
+        assert(rehydrated.revision == previous.revision);
+        assert(std::strcmp(rehydrated.command_id, previous.command_id) == 0);
+        assert(std::abs(rehydrated.lamp_gain_scale - previous.lamp_gain_scale) < 1e-6f);
+        assert(std::abs(rehydrated.mist_gain_scale - previous.mist_gain_scale) < 1e-6f);
+        assert(std::abs(rehydrated.mist_on_threshold - previous.mist_on_threshold) < 1e-6f);
+        assert(std::abs(rehydrated.mist_off_threshold - previous.mist_off_threshold) < 1e-6f);
     }
 
     // Ensure client is currently CONNECTED. Backoff value is internal detail

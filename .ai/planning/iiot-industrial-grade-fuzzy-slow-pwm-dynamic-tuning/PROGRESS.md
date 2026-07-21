@@ -66,10 +66,10 @@
 |---|---|---|---|
 | E1 | Drain `g_tuning_config_queue` ở đầu control tick vào local `s_activeTuning` có defaults an toàn. | `[ ] QA Review` | Áp dụng **single-writer ownership**: Core 1 chỉ sở hữu local active copy; adoption chỉ tại tick boundary 50 ms. `xQueueReceive(..., 0)` không block; Core 1 không gọi MQTT/NVS. |
 | E2 | Nhân demand `HLamp`/`Mist` với gain scale sau fuzzy/adaptive gain và clamp `[0,1]`. | `[ ] QA Review` | Thứ tự pipeline bất biến: fuzzy → tuning scale → arbitration/direct relay → manual latch → protector → blackout/final GPIO. Không tune HWat, setpoint, bio-bound, blackout, manual override hay `SystemProtector`. |
-| E3 | Khai báo helper `resolveBinaryDemand(demand, state, on, off)`. | `[ ] Pending` | Dùng **pure function pattern** (không GPIO/side effect) để unit-test table-driven. Precondition `off < on`; không thay đổi public behavior của lamp/fan. |
-| E4 | Implement helper hysteresis ON/OFF/hold. | `[ ] Pending` | Giữ logic deterministic: OFF→ON khi `>= on`, ON→OFF khi `< off`, còn lại giữ state. Test biên threshold, NaN defense và state transition. |
-| E5 | Refactor `applyDirectOutputs()` sử dụng helper: Mist dùng threshold động; lamp/fan giữ `0.25/0.15`. | `[ ] Pending` | **Safety regression gate**: không reference `mist_*_threshold` tại branch lamp/fan. Không mô tả/triển khai PWM; direct relay active-LOW giữ nguyên. Bảo toàn final interlock, max-ON/cooldown và blackout. |
-| E6 | Truyền `s_activeTuning` vào actuator controller trước relay resolution. | `[ ] Pending` | Ưu tiên parameter injection `const DynamicTuningParams&` hơn mutable global/setter để giảm hidden state. Thay đổi signature tối thiểu, cập nhật tất cả callers và regression test. |
+| E3 | Khai báo helper `resolveBinaryDemand(demand, state, on, off)`. | `[ ] QA Review` | Dùng **pure function pattern** (không GPIO/side effect) để unit-test table-driven. Precondition `off < on`; không thay đổi public behavior của lamp/fan. |
+| E4 | Implement helper hysteresis ON/OFF/hold. | `[ ] QA Review` | Giữ logic deterministic: OFF→ON khi `>= on`, ON→OFF khi `< off`, còn lại giữ state. Test biên threshold, NaN defense và state transition. |
+| E5 | Refactor `applyDirectOutputs()` sử dụng helper: Mist dùng threshold động; lamp/fan giữ `0.25/0.15`. | `[ ] QA Review` | **Safety regression gate**: không reference `mist_*_threshold` tại branch lamp/fan. Không mô tả/triển khai PWM; direct relay active-LOW giữ nguyên. Bảo toàn final interlock, max-ON/cooldown và blackout. |
+| E6 | Truyền `s_activeTuning` vào actuator controller trước relay resolution. | `[ ] QA Review` | Ưu tiên parameter injection `const DynamicTuningParams&` hơn mutable global/setter để giảm hidden state. Thay đổi signature tối thiểu, cập nhật tất cả callers và regression test. |
 
 ## Track F — Backend: DB Migration, Entity, Shadow Service (Ngày 5–7)
 
