@@ -593,8 +593,9 @@ PublishQos1Result PubSubClientQos1::publishQos1(const char* topic, const uint8_t
     pendingQos1.active = true;
 
     if (!writePendingQos1(false)) {
-        pendingQos1.active = false;
-        pendingQos1.packetLength = 0;
+        // Keep the packet active/pending for retry on reconnect, do not clear
+        _state = MQTT_CONNECTION_LOST;
+        _client->stop();
         return PublishQos1Result::TRANSPORT_ERROR;
     }
     return PublishQos1Result::QUEUED;
@@ -679,15 +680,19 @@ bool PubSubClientQos1::dequeueAndSendNextQos1() {
         pendingQos1.packet[pos + 1] = static_cast<uint8_t>(pendingQos1.messageId & 0xFF);
     }
 
-    if (!writePendingQos1(false)) {
-        pendingQos1.active = false;
-        pendingQos1.packetLength = 0;
+    const bool write_ok = writePendingQos1(false);
+
+    // Advance FIFO head because the packet has been promoted to the active slot
+    outboundQueueHead_ = (outboundQueueHead_ + 1) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
+    --outboundQueueCount_;
+
+    if (!write_ok) {
+        // Keep the packet active/pending for retry on reconnect, do not clear
+        _state = MQTT_CONNECTION_LOST;
+        _client->stop();
         return false;
     }
 
-    // Advance FIFO head.
-    outboundQueueHead_ = (outboundQueueHead_ + 1) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
-    --outboundQueueCount_;
     return true;
 }
 

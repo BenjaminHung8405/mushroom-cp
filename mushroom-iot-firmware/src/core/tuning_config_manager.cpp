@@ -441,8 +441,26 @@ bool TuningConfigManager::saveDurableReceipt(const char* command_id) {
     Preferences prefs;
     if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
     const size_t written = prefs.putBytes(TUNING_RECEIPT_KEY, &rec, sizeof(rec));
+    if (written != sizeof(rec)) {
+        prefs.end();
+        return false;
+    }
+
+    // Readback verification to prevent fail-open on silent corruption
+    TuningReceiptRecord read_rec{};
+    const size_t read_bytes = prefs.getBytes(TUNING_RECEIPT_KEY, &read_rec, sizeof(read_rec));
     prefs.end();
-    return written == sizeof(rec);
+
+    if (read_bytes != sizeof(rec)) return false;
+    if (read_rec.version != TUNING_NVS_VERSION) return false;
+    if (std::strcmp(read_rec.command_id, command_id) != 0) return false;
+
+    const uint32_t expected_crc = calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&read_rec),
+        offsetof(TuningReceiptRecord, crc32));
+    if (read_rec.crc32 != expected_crc) return false;
+
+    return true;
 }
 
 void TuningConfigManager::loadDurableReceipt() {

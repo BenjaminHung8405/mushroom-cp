@@ -196,7 +196,8 @@ public:
     */
    PublishQos1Result publishQos1(const char* topic, const uint8_t* payload,
                                  unsigned int plength, boolean retained);
-   bool hasPendingQos1Publish() const { return pendingQos1.active; }
+    bool hasPendingQos1Publish() const { return pendingQos1.active; }
+    uint16_t getPendingMessageId() const { return pendingQos1.messageId; }
    boolean publish_P(const char* topic, const char* payload, boolean retained);
    boolean publish_P(const char* topic, const uint8_t * payload, unsigned int plength, boolean retained);
    // Start to publish a message.

@@ -1,3 +1,24 @@
+## [2026-07-21T22:18:00+07:00] - Task C5, D4: Sửa lỗi QA Rejection (Durable Receipt & QoS 1 Reported ACK Loss)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2 sau Rejection)
+- **Task ID:** C5, D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.h`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+- **Giải trình ngắn gọn:**
+  - **C5 (Durable Receipt Fail-closed):** Sửa đổi `saveDurableReceipt()` để thực hiện readback verification ngay sau khi ghi NVS, kiểm tra khớp version, UUID và CRC32 trước khi xác nhận lưu thành công. Bổ sung test case `K2` để test corrupt readback qua cơ chế mock fault injection và xác nhận command bị trả về `REJECTED/NVS_WRITE_ERROR` và RAM cache không bị cập nhật sai.
+  - **D4 (QoS 1 Reported ACK Loss):** Sửa đổi `publishQos1` và `dequeueAndSendNextQos1` để bảo toàn packet pending trong active slot khi initial write hoặc dequeue write bị lỗi transport, đồng thời teardown connection để trigger reconnect và resend với cờ `DUP=1`. Cập nhật `dequeueAndSendNextQos1` để advance FIFO ngay khi promote lên active slot tránh double-dequeue. Thêm các unit test cases (5, 6, 7) kiểm tra robust retry và check PUBACK sai message ID.
+  - **Host Firmware build command:** Sửa lệnh build host test để link đầy đủ thư viện `lib/PubSubClientQos1/src/PubSubClientQos1.cpp` nhằm thực sự chạy các kiểm thử hồi quy QoS-1 MQTT.
+- **Kết quả kiểm thử:**
+  - Biên dịch và chạy host test với `PubSubClientQos1.cpp` → **100% PASS** (`--- All Unit Tests Passed Successfully! ---`)
+  - NestJS backend unit tests → **168/168 tests passed**
+  - `git diff --check` → **sạch**
+
+---
+
 ## [2026-07-21T22:04:00+07:00] - Task C5, D4: Khắc phục phản hồi QA (Lần 2)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
@@ -311,6 +332,14 @@
   - Đã chạy: `pnpm test --runInBand` (**162/162 PASS**), `pnpm build` (PASS), host firmware build/test từ source vào `/tmp/mushroom-firmware-tests` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `bash -n scripts/provision-influx.sh`, kiểm tra reject bucket/retention invalid, và `git diff --check` (sạch).
 
 # WALKTHROUGH LOG — IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning
+
+## [2026-07-21T22:10:00+07:00] - Security/Architecture QA Review: REJECTED
+
+- **Kết quả:** Từ chối duyệt. Đã trả các task **C5** và **D4** về trạng thái `[ ] In Progress` trong `PROGRESS.md`. Các task còn lại vẫn ở `[ ] QA Review`; không được chuyển `[x] Done`.
+- **Lỗi chặn phát hành:**
+  1. **HIGH — durable receipt không được readback/CRC verify:** `mushroom-iot-firmware/src/core/tuning_config_manager.cpp:430-446` chỉ kiểm tra `putBytes()` trả đủ số byte. Không có readback để xác nhận version, UUID và CRC của `TuningReceiptRecord`. Nếu NVS write bị corruption/truncation sau khi API trả thành công, code vẫn cập nhật `_last_no_change_command_id`/`_durable_receipt_command_id` tại dòng 358-365 và trả `DUPLICATE/NO_CHANGE`; sau reboot receipt mất/không hợp lệ, retained desired bị xử lý lại. Điều này vi phạm C5 và invariant durable command identity. **Sửa:** thêm helper verify receipt đọc lại, fail-closed khi version/UUID/CRC không khớp; không mutate cache RAM nếu verify thất bại. Thêm regression fault injection: `putBytes()` trả đủ nhưng record readback bị sửa/corrupt, assert `REJECTED/NVS_WRITE_ERROR`, không cache UUID, và redelivery sau reboot không bị nhận nhầm duplicate.
+  2. **HIGH — QoS-1 reported ACK vẫn mất khi lần gửi đầu tiên bị lỗi transport:** `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp:595-599` xóa `pendingQos1.active` và `packetLength` ngay khi `writePendingQos1(false)` thất bại. Vì packet chưa từng đi vào FIFO, nó không thể được resend sau reconnect; `MqttManager::processNetworkMessage()` chỉ log failure tại `mushroom-iot-firmware/src/network/mqtt_manager.cpp:1257-1260`. Backend shadow do đó có thể treo `PENDING`. Test hiện có tại `test/run_tests.cpp:1059-1094` chỉ cover dequeue từ FIFO thất bại, không cover first-send failure. **Sửa:** giữ active packet (hoặc atomically chuyển vào FIFO) cho đến khi broker PUBACK; khi write lỗi phải buộc reconnect/retry và resend với `DUP=1`. Thêm test first-send write failure → reconnect → PUBACK đúng ID, đồng thời assert ACK sai ID không xóa pending packet.
+- **Xác minh QA:** Backend `npm test -- --runInBand --silent` pass (**24 suites, 168 tests**) và `npm run build` pass; `git diff --check` sạch. Lệnh host firmware được ghi trong walkthrough không link được với lệnh glob hiện tại vì bỏ qua `lib/PubSubClientQos1/src/PubSubClientQos1.cpp` (undefined symbols); đây không thay thế các regression bắt buộc ở trên.
 
 ## [2026-07-21T20:55:00+0700] - Security/Architecture QA Review: REJECTED
 

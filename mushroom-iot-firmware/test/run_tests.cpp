@@ -1056,7 +1056,7 @@ int main() {
         // Now queue and active slot should be completely empty!
         assert(qos1_client.hasPendingQos1Publish() == false);
 
-        // 5. Test transport write failure during dequeue: packet must remain in FIFO and be sent on reconnect
+        // 5. Test transport write failure during dequeue: packet must remain in active slot / FIFO and be sent on reconnect
         {
             WiFiClient::mock_fail_write = false;
             uint8_t p_first[] = "first";
@@ -1070,13 +1070,18 @@ int main() {
 
             assert(qos1_client.publishQos1("topic", p_queued, sizeof(p_queued), false) == PublishQos1Result::QUEUED);
 
+            // Get message ID of p_first
+            uint16_t first_msg_id = qos1_client.getPendingMessageId();
+
             WiFiClient::mock_fail_write = true;
 
-            wifi_client.mock_input = {0x40, 0x02, 0x00, 0x07};
+            // PUBACK for p_first to trigger promoting p_queued
+            wifi_client.mock_input = {0x40, 0x02, static_cast<uint8_t>(first_msg_id >> 8), static_cast<uint8_t>(first_msg_id & 0xFF)};
             wifi_client.mock_input_pos = 0;
             qos1_client.loop();
 
-            assert(qos1_client.hasPendingQos1Publish() == false);
+            // Under correct QoS 1 semantics, since write of dequeue fails, active slot is NOT cleared!
+            assert(qos1_client.hasPendingQos1Publish() == true);
 
             WiFiClient::mock_fail_write = false;
 
@@ -1087,9 +1092,73 @@ int main() {
 
             assert(qos1_client.hasPendingQos1Publish() == true);
 
-            wifi_client.mock_input = {0x40, 0x02, 0x00, 0x02};
+            uint16_t queued_msg_id = qos1_client.getPendingMessageId();
+            wifi_client.mock_input = {0x40, 0x02, static_cast<uint8_t>(queued_msg_id >> 8), static_cast<uint8_t>(queued_msg_id & 0xFF)};
             wifi_client.mock_input_pos = 0;
             qos1_client.loop();
+            assert(qos1_client.hasPendingQos1Publish() == false);
+        }
+
+        // 6. Test first-send failure -> reconnect -> DUP=1 resend
+        {
+            WiFiClient::mock_fail_write = true;
+            uint8_t p_data[] = "first_send_fail";
+
+            wifi_client.mock_input.clear();
+            wifi_client.mock_input_pos = 0;
+
+            PublishQos1Result res = qos1_client.publishQos1("topic", p_data, sizeof(p_data), false);
+            assert(res == PublishQos1Result::TRANSPORT_ERROR);
+            // Packet must remain pending!
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            WiFiClient::mock_fail_write = false;
+
+            // Reconnect
+            qos1_client.disconnect();
+            wifi_client.mock_input = {0x20, 0x02, 0x00, 0x00};
+            wifi_client.mock_input_pos = 0;
+            assert(qos1_client.connect("test_client") == true);
+
+            // Still pending after reconnect
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            uint16_t msg_id = qos1_client.getPendingMessageId();
+            // Send correct PUBACK to clear it
+            wifi_client.mock_input = {0x40, 0x02, static_cast<uint8_t>(msg_id >> 8), static_cast<uint8_t>(msg_id & 0xFF)};
+            wifi_client.mock_input_pos = 0;
+            qos1_client.loop();
+            assert(qos1_client.hasPendingQos1Publish() == false);
+        }
+
+        // 7. Test out-of-order/wrong message ID PUBACK does not clear pending packet
+        {
+            WiFiClient::mock_fail_write = false;
+            uint8_t p_data[] = "wrong_ack_test";
+
+            wifi_client.mock_input.clear();
+            wifi_client.mock_input_pos = 0;
+
+            assert(qos1_client.publishQos1("topic", p_data, sizeof(p_data), false) == PublishQos1Result::QUEUED);
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            uint16_t correct_msg_id = qos1_client.getPendingMessageId();
+            uint16_t wrong_msg_id = correct_msg_id + 99; // totally wrong
+
+            // Feed wrong PUBACK
+            wifi_client.mock_input = {0x40, 0x02, static_cast<uint8_t>(wrong_msg_id >> 8), static_cast<uint8_t>(wrong_msg_id & 0xFF)};
+            wifi_client.mock_input_pos = 0;
+            qos1_client.loop();
+
+            // Should still be active!
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            // Now feed correct PUBACK
+            wifi_client.mock_input = {0x40, 0x02, static_cast<uint8_t>(correct_msg_id >> 8), static_cast<uint8_t>(correct_msg_id & 0xFF)};
+            wifi_client.mock_input_pos = 0;
+            qos1_client.loop();
+
+            // Should be cleared now
             assert(qos1_client.hasPendingQos1Publish() == false);
         }
     }
@@ -1917,12 +1986,88 @@ int main() {
             assert(reason == storage::TuningReason::NVS_WRITE_ERROR);
         }
 
+        // Case K2: saveDurableReceipt fails due to corrupt readback (C5 regression)
+        {
+            Serial.println("--- Case K2: saveDurableReceipt corrupt readback ---");
+            storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+            tuner.resetForTest();
+
+            // Set up a hook on putBytes to corrupt the stored receipt in global storage
+            // immediately after putBytes writes it.
+            Preferences::mock_put_bytes_hook = [](const char* key, const void* value, size_t len) {
+                if (std::strcmp(key, "tune_rcpt") == 0) {
+                    auto& storage = Preferences::_global_storage[config::network::NVS_NAMESPACE];
+                    auto it = storage.find(key);
+                    if (it != storage.end()) {
+                        std::string& stored = it->second;
+                        struct DummyReceipt {
+                            uint32_t version;
+                            char command_id[37];
+                            uint8_t padding[3];
+                            uint32_t crc32;
+                        };
+                        if (stored.size() >= sizeof(DummyReceipt)) {
+                            DummyReceipt* rec =
+                                reinterpret_cast<DummyReceipt*>(&stored[0]);
+                            rec->crc32 ^= 0xFFFFFFFF; // Corrupt the CRC32
+                        }
+                    }
+                }
+            };
+
+            // First, process a valid accepted command to establish it as active
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "c5555555-1234-1234-1234-123456789012";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 1;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 1.0f;
+            config["mist_on_threshold"] = 0.25f;
+            config["mist_off_threshold"] = 0.15f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            Serial.printf("[DEBUG] Case K2 result: %d, reason: %d\n", (int)result, (int)reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+
+            // Now send a semantically identical command with a DIFFERENT command_id.
+            // This should trigger recordNoChangeReceipt() which calls saveDurableReceipt().
+            StaticJsonDocument<512> doc2;
+            doc2["schema_version"] = 1;
+            doc2["command_id"] = "c5555555-1234-1234-1234-123456789013";
+            doc2["device_id"] = "mushroom_s3_unittest";
+            doc2["revision"] = 2; // different revision but same config values -> semantic identical/no-change
+            JsonObject config2 = doc2.createNestedObject("config");
+            config2["lamp_gain_scale"] = 1.1f;
+            config2["mist_gain_scale"] = 1.0f;
+            config2["mist_on_threshold"] = 0.25f;
+            config2["mist_off_threshold"] = 0.15f;
+
+            // This should try to save receipt, fail due to our corrupt hook, and return REJECTED
+            storage::TuningReason reason2 = storage::TuningReason::OK;
+            storage::TuningResult result2 = tuner.processCommand(doc2.as<JsonVariant>(), reason2);
+
+            Preferences::mock_put_bytes_hook = nullptr;
+
+            assert(result2 == storage::TuningResult::REJECTED);
+            assert(reason2 == storage::TuningReason::NVS_WRITE_ERROR);
+
+            // With hook removed, it should succeed this time (it will call saveDurableReceipt which succeeds, so it returns DUPLICATE/NO_CHANGE)
+            storage::TuningReason reason3 = storage::TuningReason::OK;
+            storage::TuningResult result3 = tuner.processCommand(doc2.as<JsonVariant>(), reason3);
+            assert(result3 == storage::TuningResult::DUPLICATE);
+            assert(reason3 == storage::TuningReason::NO_CHANGE);
+        }
+
         // Cleanup
         {
             Preferences prefs;
             assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
             prefs.remove("tune_s0");
             prefs.remove("tune_s1");
+            prefs.remove("tune_rcpt");
             prefs.end();
         }
         tuner.resetForTest();
