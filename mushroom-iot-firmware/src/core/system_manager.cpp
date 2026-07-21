@@ -4,6 +4,7 @@
 #include "core/serial_mutex.h"
 #include "core/trajectory.h"
 #include "protocols/mqtt_callbacks.h"
+#include "core/tuning_config_manager.h"
 
 #include <Arduino.h>
 #include <time.h>
@@ -189,6 +190,14 @@ void initSemaphores()
 
 void createCoreTasks()
 {
+    if (g_tuning_config_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: g_tuning_config_queue is null before task start! Halting.");
+        #ifndef UNIT_TEST
+        abort();
+        #endif
+    }
+
 #ifndef UNIT_TEST
     // Create and pin Task Core 0 Communication to Core 0
     {
@@ -394,6 +403,23 @@ void hydrateSetpointsFromNVS()
             xQueueOverwrite(xActuatorOverrideQueue, &actCmd);
         }
         Serial.println("[MAIN] No active actuator overrides in NVS. Sent inactive override command.");
+    }
+
+    // 4. Hydrate dynamic tuning parameters
+    storage::TuningConfigManager &tuner = storage::TuningConfigManager::getInstance();
+    tuner.init();
+
+    DynamicTuningParams tuningParams = tuner.getActiveParams();
+    if (g_tuning_config_queue != nullptr)
+    {
+        xQueueOverwrite(g_tuning_config_queue, &tuningParams);
+        Serial.printf("[MAIN] Hydrated dynamic tuning parameters: rev=%u, L_gain=%.2f, M_gain=%.2f\n",
+                      static_cast<unsigned>(tuningParams.revision),
+                      tuningParams.lamp_gain_scale, tuningParams.mist_gain_scale);
+    }
+    else
+    {
+        Serial.println("[MAIN] ERROR: g_tuning_config_queue is null during hydration!");
     }
 }
 

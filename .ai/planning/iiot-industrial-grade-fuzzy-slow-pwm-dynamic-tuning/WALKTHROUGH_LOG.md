@@ -2,6 +2,23 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:27:00+07:00] - Task C7: Tạo queue trước task start, hydrate NVS và enqueue effective config khởi tạo
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [system_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/system_manager.cpp)
+  - Sửa đổi: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Tạo queue trước khi khởi chạy các task, thực hiện nạp dữ liệu (hydration) từ NVS và ghi cấu hình khởi tạo (defaults hoặc dữ liệu đã lưu) vào hàng đợi cấu hình tinh chỉnh động (`g_tuning_config_queue`) trước khi bắt đầu thực thi Core 1.
+  - **Giải pháp:**
+    - Cấu hình kiểm tra fail-fast trong `createCoreTasks()`: Nếu `g_tuning_config_queue` bị null trước khi khởi chạy các task của Core 0 và Core 1, hệ thống sẽ log thông báo lỗi FATAL và gọi `abort()` để dừng lập tức tiến trình (hoặc bỏ qua trong chế độ unit test để không gây sập chương trình kiểm thử).
+    - Cập nhật hàm `hydrateSetpointsFromNVS()` trong `system_manager.cpp`: Nạp `storage::TuningConfigManager::getInstance().init()` và thực hiện `xQueueOverwrite(g_tuning_config_queue, &tuningParams)` để chuyển giao thông số cấu hình khởi động sang Core 1 mà không thực hiện GPIO/MQTT/NVS trên Core 1.
+    - Cập nhật `TuningConfigManager::processCommand()` trong `tuning_config_manager.cpp`: Đẩy cấu hình mới nhất qua `xQueueOverwrite` vào `g_tuning_config_queue` khi nhận được gói cấu hình tinh chỉnh động mới đã được NVS persist thành công (hoặc khi cập nhật thành công command identity mới mà không có thay đổi semantic). Trả về lý do `QUEUE_FULL_ERROR` trong trường hợp queue null bất thường.
+    - Phát triển bộ test suite Task C7 toàn diện trong [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) để xác minh: sự hiện diện của queue, cơ chế nạp cấu hình từ NVS thông qua `hydrateSetpointsFromNVS()`, kiểm tra logic fail-fast không bị sập khi queue hợp lệ, và xác minh `processCommand()` cập nhật chính xác nội dung queue.
+  - **Tự kiểm tra:**
+    - Biên dịch thành công và tất cả các test case đều đã pass 100% trên môi trường giả lập macOS thông qua lệnh `./run_tests_mac`.
+
 ## [2026-07-21T11:22:00+07:00] - Task C5: Hiện thực đọc/ghi NVS two-slot, verify CRC/readback, wear-level slot và fallback defaults
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

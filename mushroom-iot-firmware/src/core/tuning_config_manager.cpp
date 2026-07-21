@@ -3,6 +3,7 @@
 #include "Arduino.h"
 #include "config.h"
 #include <Preferences.h>
+#include "core/system_manager.h"
 
 #ifndef UNIT_TEST
 #include <freertos/FreeRTOS.h>
@@ -106,7 +107,14 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         }
     }
     
-    // Posting to queue (depth 1, xQueueOverwrite) will be handled in C6/C7
+    // Posting to queue (depth 1, xQueueOverwrite)
+    if (g_tuning_config_queue != nullptr) {
+        xQueueOverwrite(g_tuning_config_queue, &_active_params);
+    } else {
+        reason = TuningReason::QUEUE_FULL_ERROR;
+        unlock();
+        return TuningResult::REJECTED;
+    }
     
     reason = TuningReason::OK;
     unlock();

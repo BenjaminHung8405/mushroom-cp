@@ -49,7 +49,7 @@
 | C4 | Implement validation schema, provisioned device ID, UUID, finite JSON number, bounds, cross-field, duplicate và semantic diff. | `[ ] QA Review` | **Validate-before-mutate** tuyệt đối: reject input bất kỳ trước khi đổi RAM/NVS/queue. Không silent clamp remote command; UUID kiểm tra char-by-char bounded, không dùng regex cấp phát. Dùng epsilon `0.001f` cho float, string exact. |
 | C5 | Implement đọc/ghi NVS two-slot: verify CRC/readback, chọn generation mới nhất, wear-level slot và fallback defaults. | `[ ] QA Review` | **Crash consistency**: chỉ thay active state sau persistence thành công; boot chọn record CRC hợp lệ generation cao nhất, cả hai lỗi thì safe defaults và warning. Không `nvs_flash_erase`; test power-loss/corrupt record. |
 | C6 | Khai báo `g_tuning_config_queue` depth 1 cho `DynamicTuningParams`. | `[ ] In Progress` | Queue là ranh giới ownership Core 0 → Core 1; chỉ truyền POD by value. Không dùng mutex chia sẻ control state; không đổi queue của baseline/config sync hiện hữu. |
-| C7 | Tạo queue trước task start, hydrate NVS và enqueue effective config khởi tạo. | `[ ] Pending` | Fail-fast nếu queue null trước task start. Thứ tự bắt buộc: tạo queue → hydrate → enqueue; không GPIO/MQTT/NVS trong Core 1. Queue update chỉ dùng `xQueueOverwrite`, non-blocking. |
+| C7 | Tạo queue trước task start, hydrate NVS và enqueue effective config khởi tạo. | `[ ] QA Review` | Fail-fast nếu queue null trước task start. Thứ tự bắt buộc: tạo queue → hydrate → enqueue; không GPIO/MQTT/NVS trong Core 1. Queue update chỉ dùng `xQueueOverwrite`, non-blocking. |
 
 ## Track D — Firmware: MQTT Subscribe/Dispatch (Ngày 2–3)
 

@@ -1174,6 +1174,100 @@ int main() {
         tuner.resetForTest();
     }
 
+    // Task C7 - TuningConfigManager Queue Hydration and Fail-Fast Tests
+    Serial.println("[TEST] Starting Task C7 - TuningConfigManager Queue Hydration & Fail-Fast Unit Tests...");
+    {
+        storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+
+        // 1. Verify queue is created (initQueues() called in setup)
+        assert(g_tuning_config_queue != nullptr);
+
+        // 2. Clear any leftovers in the queue first
+        DynamicTuningParams dummy;
+        while (xQueueReceive(g_tuning_config_queue, &dummy, 0) == pdTRUE) {}
+
+        // 3. Write a valid config using processCommand to guarantee correct CRC32 and generation format in NVS
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "c7-uuid-hydration-test-123456789012";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 42;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.35f;
+            config["mist_gain_scale"] = 0.75f;
+            config["mist_on_threshold"] = 0.22f;
+            config["mist_off_threshold"] = 0.12f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+        }
+
+        // Now we reset the tuner and the queue, then call hydrateSetpointsFromNVS() to test C7 hydration
+        tuner.resetForTest();
+        
+        while (xQueueReceive(g_tuning_config_queue, &dummy, 0) == pdTRUE) {}
+
+        // Hydrate from NVS
+        hydrateSetpointsFromNVS();
+
+        // Verify active params inside tuner match NVS record
+        DynamicTuningParams active = tuner.getActiveParams();
+        assert(active.revision == 42);
+        assert(std::strcmp(active.command_id, "c7-uuid-hydration-test-123456789012") == 0);
+        assert(std::abs(active.lamp_gain_scale - 1.35f) < 0.0001f);
+        assert(std::abs(active.mist_gain_scale - 0.75f) < 0.0001f);
+
+        // Verify that the queue contains exactly this hydrated config
+        DynamicTuningParams queued;
+        assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE);
+        assert(queued.revision == 42);
+        assert(std::strcmp(queued.command_id, "c7-uuid-hydration-test-123456789012") == 0);
+        assert(std::abs(queued.lamp_gain_scale - 1.35f) < 0.0001f);
+        assert(std::abs(queued.mist_gain_scale - 0.75f) < 0.0001f);
+        assert(std::abs(queued.mist_on_threshold - 0.22f) < 0.0001f);
+        assert(std::abs(queued.mist_off_threshold - 0.12f) < 0.0001f);
+
+        // 4. Test fail-fast check function (createCoreTasks is expected to NOT crash because queue is not null)
+        createCoreTasks(); // Should pass without halting
+
+        // 5. Verify that processCommand writes updated config to queue
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "c7-uuid-process-command-queue-check";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 43;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.4f;
+            config["mist_gain_scale"] = 0.8f;
+            config["mist_on_threshold"] = 0.23f;
+            config["mist_off_threshold"] = 0.13f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+
+            assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE);
+            assert(queued.revision == 43);
+            assert(std::strcmp(queued.command_id, "c7-uuid-process-command-queue-check") == 0);
+            assert(std::abs(queued.lamp_gain_scale - 1.4f) < 0.0001f);
+        }
+
+        // Clean up
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+        }
+        tuner.resetForTest();
+        // re-run hydration to restore default clean state
+        hydrateSetpointsFromNVS();
+    }
+
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
 
