@@ -1,3 +1,33 @@
+## [2026-07-21T18:39:04+07:00] - Task A1–A5, B1–B3, C1–C7, D1–D4, E1–E6: Khắc phục QA Review lần 2
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts`
+  - `mushroom-backend/src/mqtt-auth/acl.tuning.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Đổi transaction thành `PENDING → xQueueOverwrite → COMMITTED`; boot chỉ hydrate `COMMITTED`. Nếu queue handoff lỗi, candidate chỉ còn record `PENDING` không thể hydrate. Nếu finalization lỗi sau handoff, Core 1 được overwrite trở lại effective config cũ trước khi trả `REJECTED`. Bổ sung fault-injection queue-fail, reboot/hydrate và assert candidate không tới Core 1.
+  - Khôi phục deny-by-default cho MQTT ACL: quyền superuser chỉ có khi cả `MQTT_BACKEND_USER` lẫn username đều non-empty và bằng nhau; thêm regression cho anonymous request khi biến môi trường không cấu hình.
+  - Phân rã `processCommand`, `validateAndParse`, `writeRecord` thành các helper validation, staging/dispatch/finalization, đọc-slot/chọn-slot và readback verification; cả ba hàm bị QA nêu đều dưới 50 dòng.
+  - Đã chạy: firmware host suite (`g++ -std=c++17 -DUNIT_TEST ...` → `--- All Unit Tests Passed Successfully! ---`), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), backend `npm test -- --runInBand --silent` (**168/168 PASS**), `npm run build` (PASS), `git diff --check` (sạch).
+
+## [2026-07-21T18:30:00+07:00] - Security/Architecture QA Review: REJECTED
+
+- **Kết quả:** Từ chối duyệt. Các task A1–A5, B1–B3, C1–C7, D1–D4 và E1–E6 đã được trả về trạng thái `[ ] In Progress` trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **CRITICAL — command bị `REJECTED` vẫn có thể trở thành cấu hình bền vững và được áp dụng sau reboot.** Trong `mushroom-iot-firmware/src/core/tuning_config_manager.cpp:127-140`, firmware commit record `COMMITTED` trước khi `xQueueOverwrite()`. Nếu queue fail, hàm trả `REJECTED/QUEUE_FULL_ERROR`, nhưng `loadFromNvs()` tại dòng `257-279` sẽ hydrate record `COMMITTED` đó ở lần khởi động tiếp theo và `hydrateSetpointsFromNVS()` sẽ enqueue nó cho Core 1 (`system_manager.cpp:408-415`). Điều này vi phạm trực tiếp yêu cầu D4/C5: không được áp dụng command bị reject và chỉ báo `ACCEPTED` khi persistence **và** handoff queue thành công.
+  2. **HIGH — ACL không còn deny-by-default khi cấu hình backend user rỗng.** `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts:74-79` coi `username === backendUser` là superuser. Khi `MQTT_BACKEND_USER` chưa cấu hình, cả hai đều là chuỗi rỗng nên một ACL request không có username được cho phép toàn bộ topic. Phải yêu cầu `backendUser` non-empty và xác thực `username` non-empty trước nhánh superuser; thêm regression cho missing-env/anonymous request.
+  3. **MEDIUM — vi phạm giới hạn maintainability đã yêu cầu.** `TuningConfigManager::processCommand` (dòng 89-147, 58 dòng), `validateAndParse` (168-227, 59 dòng) và `writeRecord` (289-371, 82 dòng) đều vượt 50 dòng. Cần tách riêng validation, staging/finalization và slot selection/readback thành các helper nhỏ, testable, không lặp logic CRC.
+- **Chỉ thị sửa bắt buộc:**
+  1. Thiết kế lại transaction NVS/queue để không tồn tại trạng thái mà command đã `REJECTED` có record hydrateable. Có thể reserve record `PENDING`, handoff queue rồi finalize; nếu finalization lỗi phải khôi phục Core 1 về effective config cũ trước khi trả reject, và xử lý lỗi khôi phục theo fail-safe rõ ràng. Hoặc bổ sung cơ chế commit marker chỉ được hydrate khi handoff thành công. Thêm test fault-injection cho **queue fail sau durable stage**, reboot/hydrate, và xác minh candidate không bao giờ đến Core 1/relay.
+  2. Sửa điều kiện superuser thành chỉ cấp quyền khi `backendUser` và `username` đều non-empty, bằng nhau; mọi anonymous/missing-env request phải `false`. Bổ sung unit test ACL tương ứng.
+  3. Phân rã ba hàm quá 50 dòng nêu trên; giữ semantic/CRC/readback hiện hữu và bổ sung test cho helper mới.
+- **Xác minh QA:** Backend `npm test -- --runInBand --silent` đạt **167/167**; `npm run build` pass. Firmware host suite được build lại từ source theo lệnh `g++ -std=c++17 -DUNIT_TEST -Isrc -Iinclude -Itest -I.pio/libdeps/otg/ArduinoJson/src test/run_tests.cpp $(find src -type f -name '*.cpp') -o /tmp/mushroom_run_tests_audit` và pass. Kết quả test không loại trừ các lỗi state-transition/ACL boundary nêu trên.
+
 ## [2026-07-21T18:23:10+0700] - Task A1–A5, B1–B3, C1–C7, D1–D4, E1–E6: Khắc phục lỗi chặn QA
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

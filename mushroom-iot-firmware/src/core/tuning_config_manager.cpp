@@ -16,7 +16,12 @@ constexpr uint32_t TUNING_NVS_VERSION = 2;
 constexpr uint8_t TUNING_NVS_PENDING_COMMIT = 1;
 constexpr uint8_t TUNING_NVS_COMMITTED = 2;
 
-bool isValidRecord(const TuningNvsRecord& record)
+struct NvsSlots {
+    TuningNvsRecord records[2];
+    bool valid[2];
+};
+
+uint32_t calculateRecordCrc(const TuningNvsRecord& record)
 {
     uint32_t crc = 0xFFFFFFFF;
     const uint8_t* data = reinterpret_cast<const uint8_t*>(&record);
@@ -26,10 +31,78 @@ bool isValidRecord(const TuningNvsRecord& record)
             crc = (crc & 1U) ? (crc >> 1U) ^ 0xEDB88320U : crc >> 1U;
         }
     }
+    return ~crc;
+}
+
+bool isValidRecord(const TuningNvsRecord& record)
+{
     return record.version == TUNING_NVS_VERSION &&
            (record.commit_state == TUNING_NVS_PENDING_COMMIT ||
             record.commit_state == TUNING_NVS_COMMITTED) &&
-           ~crc == record.crc32;
+           calculateRecordCrc(record) == record.crc32;
+}
+
+void readNvsSlots(Preferences& prefs, NvsSlots& slots)
+{
+    std::memset(&slots, 0, sizeof(slots));
+    const char* const keys[] = {"tune_s0", "tune_s1"};
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+        const size_t bytes = prefs.getBytes(keys[slot], &slots.records[slot], sizeof(TuningNvsRecord));
+        slots.valid[slot] = bytes == sizeof(TuningNvsRecord) && isValidRecord(slots.records[slot]);
+    }
+}
+
+int newestCommittedSlot(const NvsSlots& slots)
+{
+    const bool committed0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_COMMITTED;
+    const bool committed1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_COMMITTED;
+    if (committed0 && committed1)
+        return slots.records[0].generation >= slots.records[1].generation ? 0 : 1;
+    return committed0 ? 0 : committed1 ? 1 : -1;
+}
+
+int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, uint8_t commit_state)
+{
+    if (commit_state == TUNING_NVS_COMMITTED) {
+        const bool pending0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_PENDING_COMMIT &&
+                              std::memcmp(&slots.records[0].params, &params, sizeof(params)) == 0;
+        const bool pending1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_PENDING_COMMIT &&
+                              std::memcmp(&slots.records[1].params, &params, sizeof(params)) == 0;
+        if (pending0 && (!pending1 || slots.records[0].generation >= slots.records[1].generation)) return 0;
+        return pending1 ? 1 : -1;
+    }
+    if (!slots.valid[0]) return 0;
+    if (!slots.valid[1]) return 1;
+    return slots.records[0].generation <= slots.records[1].generation ? 0 : 1;
+}
+
+uint32_t generationForWrite(const NvsSlots& slots, int slot, uint8_t commit_state)
+{
+    if (commit_state == TUNING_NVS_COMMITTED) return slots.records[slot].generation;
+    const uint32_t gen0 = slots.valid[0] ? slots.records[0].generation : 0;
+    const uint32_t gen1 = slots.valid[1] ? slots.records[1].generation : 0;
+    return (gen0 > gen1 ? gen0 : gen1) + 1;
+}
+
+TuningNvsRecord makeRecord(const DynamicTuningParams& params, uint8_t commit_state, uint32_t generation)
+{
+    TuningNvsRecord record{};
+    record.version = TUNING_NVS_VERSION;
+    record.commit_state = commit_state;
+    record.generation = generation;
+    record.params = params;
+    record.crc32 = calculateRecordCrc(record);
+    return record;
+}
+
+bool verifyReadback(Preferences& prefs, const char* key, const TuningNvsRecord& expected)
+{
+    TuningNvsRecord readback{};
+    if (prefs.getBytes(key, &readback, sizeof(readback)) != sizeof(readback)) return false;
+    return isValidRecord(readback) &&
+           readback.crc32 == expected.crc32 &&
+           readback.generation == expected.generation &&
+           readback.commit_state == expected.commit_state;
 }
 } // namespace
 
@@ -88,62 +161,21 @@ bool TuningConfigManager::init() {
 
 TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningReason& reason) {
     lock();
-    
     DynamicTuningParams incoming_params;
-    TuningReason val_reason = validateAndParse(doc, incoming_params);
-    if (val_reason != TuningReason::OK) {
-        reason = val_reason;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-    
-    // Check for duplicate UUID
-    if (_isExactDuplicate(incoming_params.command_id)) {
+    const TuningReason validation = validateAndParse(doc, incoming_params);
+    TuningResult result = TuningResult::REJECTED;
+    reason = validation;
+    if (validation == TuningReason::OK && _isExactDuplicate(incoming_params.command_id)) {
         reason = TuningReason::DUPLICATE_UUID;
-        unlock();
-        return TuningResult::DUPLICATE;
-    }
-    
-    // A semantic retry is intentionally not persisted: command identity and
-    // revision are transport metadata, not a change to the effective control
-    // configuration. This protects NVS from retained-message/retry wear.
-    if (!_isSemanticDiff(incoming_params)) {
+        result = TuningResult::DUPLICATE;
+    } else if (validation == TuningReason::OK && !_isSemanticDiff(incoming_params)) {
         reason = TuningReason::NO_CHANGE;
-        unlock();
-        return TuningResult::DUPLICATE;
+        result = TuningResult::DUPLICATE;
+    } else if (validation == TuningReason::OK) {
+        result = stageDispatchAndCommit(incoming_params, reason);
     }
-
-    // Stage a record which boot deliberately ignores. The old READY record
-    // remains the only hydrateable value until the durable commit succeeds.
-    if (!writeRecord(incoming_params, TUNING_NVS_PENDING_COMMIT)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-
-    // A command is never visible to Core 1 until its NVS record is durable.
-    // If this final commit fails, the candidate remains PENDING and Core 1
-    // cannot receive it through the handoff queue.
-    if (!saveToNvs(incoming_params)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-
-    // The candidate is now durable. Queue failure is reported so the retained
-    // desired command can be replayed after reconnect; it cannot cause a
-    // rejected command to affect relay control.
-    if (g_tuning_config_queue == nullptr ||
-        xQueueOverwrite(g_tuning_config_queue, &incoming_params) != pdTRUE) {
-        reason = TuningReason::QUEUE_FULL_ERROR;
-        unlock();
-        return TuningResult::REJECTED;
-    }
-
-    _active_params = incoming_params;
-    reason = TuningReason::OK;
     unlock();
-    return TuningResult::ACCEPTED;
+    return result;
 }
 
 DynamicTuningParams TuningConfigManager::getActiveParams() {
@@ -169,61 +201,70 @@ TuningReason TuningConfigManager::validateAndParse(const JsonVariant& doc, Dynam
     if (doc.isNull() || !doc.is<JsonObject>()) {
         return TuningReason::INVALID_SCHEMA;
     }
-    
-    // 1. Schema version
-    if (!_validateSchemaVersion(doc)) {
-        return TuningReason::INVALID_SCHEMA;
-    }
-    
-    // 2. Device ID
-    if (!_validateDeviceId(doc)) {
-        return TuningReason::INVALID_DEVICE_ID;
-    }
-    
-    // 3. Command ID (UUID)
-    JsonVariant cmd_id_var = doc["command_id"];
-    if (cmd_id_var.isNull() || !cmd_id_var.is<const char*>()) {
-        return TuningReason::INVALID_UUID;
-    }
-    const char* cmd_id_str = cmd_id_var.as<const char*>();
-    if (!_validateCommandIdFormat(cmd_id_str)) {
-        return TuningReason::INVALID_UUID;
-    }
-    
-    // 4. Revision
-    JsonVariant rev_var = doc["revision"];
-    if (rev_var.isNull() || rev_var.is<const char*>() || (!rev_var.is<int>() && !rev_var.is<unsigned int>())) {
-        return TuningReason::INVALID_SCHEMA;
-    }
-    uint32_t revision = rev_var.as<uint32_t>();
-    
-    // 5. Config Bounds
+    const char* command_id = nullptr;
+    uint32_t revision = 0;
+    const TuningReason envelope = validateCommandEnvelope(doc, command_id, revision);
+    if (envelope != TuningReason::OK) return envelope;
     JsonVariant config = doc["config"];
-    if (config.isNull() || !config.is<JsonObject>()) {
-        return TuningReason::INVALID_SCHEMA;
-    }
-    if (!_validateConfigBounds(config)) {
-        return TuningReason::OUT_OF_BOUNDS;
-    }
-    
-    // 6. Cross field
-    float mist_on = config["mist_on_threshold"].as<float>();
-    float mist_off = config["mist_off_threshold"].as<float>();
-    if (!_validateCrossField(mist_on, mist_off)) {
-        return TuningReason::CROSS_FIELD_VIOLATION;
-    }
-    
-    // Populate parsed parameters
-    std::memset(&out_params, 0, sizeof(out_params));
-    std::strncpy(out_params.command_id, cmd_id_str, sizeof(out_params.command_id) - 1);
+    const TuningReason parsed = parseConfig(config, out_params);
+    if (parsed != TuningReason::OK) return parsed;
+    std::strncpy(out_params.command_id, command_id, sizeof(out_params.command_id) - 1);
     out_params.command_id[sizeof(out_params.command_id) - 1] = '\0';
     out_params.revision = revision;
+    return TuningReason::OK;
+}
+
+TuningReason TuningConfigManager::validateCommandEnvelope(const JsonVariant& doc, const char*& command_id,
+                                                           uint32_t& revision) {
+    if (!_validateSchemaVersion(doc)) return TuningReason::INVALID_SCHEMA;
+    if (!_validateDeviceId(doc)) return TuningReason::INVALID_DEVICE_ID;
+    JsonVariant command = doc["command_id"];
+    if (command.isNull() || !command.is<const char*>()) return TuningReason::INVALID_UUID;
+    command_id = command.as<const char*>();
+    if (!_validateCommandIdFormat(command_id)) return TuningReason::INVALID_UUID;
+    JsonVariant value = doc["revision"];
+    if (value.isNull() || value.is<const char*>() || (!value.is<int>() && !value.is<unsigned int>()))
+        return TuningReason::INVALID_SCHEMA;
+    revision = value.as<uint32_t>();
+    return TuningReason::OK;
+}
+
+TuningReason TuningConfigManager::parseConfig(const JsonVariant& config, DynamicTuningParams& out_params) {
+    if (config.isNull() || !config.is<JsonObject>()) return TuningReason::INVALID_SCHEMA;
+    if (!_validateConfigBounds(config)) return TuningReason::OUT_OF_BOUNDS;
+    const float mist_on = config["mist_on_threshold"].as<float>();
+    const float mist_off = config["mist_off_threshold"].as<float>();
+    if (!_validateCrossField(mist_on, mist_off)) return TuningReason::CROSS_FIELD_VIOLATION;
+    std::memset(&out_params, 0, sizeof(out_params));
     out_params.lamp_gain_scale = config["lamp_gain_scale"].as<float>();
     out_params.mist_gain_scale = config["mist_gain_scale"].as<float>();
     out_params.mist_on_threshold = mist_on;
     out_params.mist_off_threshold = mist_off;
-    
     return TuningReason::OK;
+}
+
+TuningResult TuningConfigManager::stageDispatchAndCommit(const DynamicTuningParams& incoming, TuningReason& reason) {
+    if (!writeRecord(incoming, TUNING_NVS_PENDING_COMMIT)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
+        return TuningResult::REJECTED;
+    }
+    // PENDING is deliberately non-hydrateable. Queue failure therefore cannot
+    // make a rejected candidate durable across a reboot.
+    if (g_tuning_config_queue == nullptr || xQueueOverwrite(g_tuning_config_queue, &incoming) != pdTRUE) {
+        reason = TuningReason::QUEUE_FULL_ERROR;
+        return TuningResult::REJECTED;
+    }
+    // A failed finalization must return REJECTED. The command was handed off,
+    // so immediately restore Core 1's prior effective value before returning.
+    if (!saveToNvs(incoming)) {
+        const bool restored = g_tuning_config_queue != nullptr &&
+                              xQueueOverwrite(g_tuning_config_queue, &_active_params) == pdTRUE;
+        reason = restored ? TuningReason::NVS_WRITE_ERROR : TuningReason::QUEUE_FULL_ERROR;
+        return TuningResult::REJECTED;
+    }
+    _active_params = incoming;
+    reason = TuningReason::OK;
+    return TuningResult::ACCEPTED;
 }
 
 uint32_t TuningConfigManager::calculateCRC32(const uint8_t *data, size_t length) {
@@ -247,39 +288,13 @@ bool TuningConfigManager::loadFromNvs(DynamicTuningParams& out_params) {
         return false;
     }
 
-    TuningNvsRecord rec0;
-    std::memset(&rec0, 0, sizeof(TuningNvsRecord));
-    TuningNvsRecord rec1;
-    std::memset(&rec1, 0, sizeof(TuningNvsRecord));
-    bool valid0 = false;
-    bool valid1 = false;
-
-    size_t read0 = prefs.getBytes("tune_s0", &rec0, sizeof(TuningNvsRecord));
-    valid0 = read0 == sizeof(TuningNvsRecord) && isValidRecord(rec0) &&
-             rec0.commit_state == TUNING_NVS_COMMITTED;
-
-    size_t read1 = prefs.getBytes("tune_s1", &rec1, sizeof(TuningNvsRecord));
-    valid1 = read1 == sizeof(TuningNvsRecord) && isValidRecord(rec1) &&
-             rec1.commit_state == TUNING_NVS_COMMITTED;
-
+    NvsSlots slots{};
+    readNvsSlots(prefs, slots);
     prefs.end();
-
-    if (valid0 && valid1) {
-        if (rec0.generation >= rec1.generation) {
-            out_params = rec0.params;
-        } else {
-            out_params = rec1.params;
-        }
-        return true;
-    } else if (valid0) {
-        out_params = rec0.params;
-        return true;
-    } else if (valid1) {
-        out_params = rec1.params;
-        return true;
-    }
-
-    return false;
+    const int slot = newestCommittedSlot(slots);
+    if (slot < 0) return false;
+    out_params = slots.records[slot].params;
+    return true;
 }
 
 bool TuningConfigManager::saveToNvs(const DynamicTuningParams& params) {
@@ -292,82 +307,24 @@ bool TuningConfigManager::writeRecord(const DynamicTuningParams& params, uint8_t
         return false;
     }
 
-    TuningNvsRecord rec0;
-    std::memset(&rec0, 0, sizeof(TuningNvsRecord));
-    TuningNvsRecord rec1;
-    std::memset(&rec1, 0, sizeof(TuningNvsRecord));
-    bool valid0 = false;
-    bool valid1 = false;
-    uint32_t gen0 = 0;
-    uint32_t gen1 = 0;
-
-    size_t read0 = prefs.getBytes("tune_s0", &rec0, sizeof(TuningNvsRecord));
-    if (read0 == sizeof(TuningNvsRecord) && isValidRecord(rec0)) {
-        valid0 = true;
-        gen0 = rec0.generation;
+    NvsSlots slots{};
+    readNvsSlots(prefs, slots);
+    const int next_slot = selectWriteSlot(slots, params, commit_state);
+    if (next_slot < 0) {
+        prefs.end();
+        return false;
     }
-
-    size_t read1 = prefs.getBytes("tune_s1", &rec1, sizeof(TuningNvsRecord));
-    if (read1 == sizeof(TuningNvsRecord) && isValidRecord(rec1)) {
-        valid1 = true;
-        gen1 = rec1.generation;
-    }
-
-    uint8_t next_slot = 0;
-    if (commit_state == TUNING_NVS_COMMITTED) {
-        // Finalize the newest pending generation in place. A torn final write
-        // remains invalid/pending and boot selects the prior committed slot.
-        if (valid0 && rec0.commit_state == TUNING_NVS_PENDING_COMMIT &&
-            (!valid1 || rec0.generation >= rec1.generation)) {
-            next_slot = 0;
-        } else if (valid1 && rec1.commit_state == TUNING_NVS_PENDING_COMMIT) {
-            next_slot = 1;
-        } else {
-            prefs.end();
-            return false;
-        }
-    } else if (!valid0) {
-        next_slot = 0;
-    } else if (!valid1) {
-        next_slot = 1;
-    } else {
-        next_slot = (gen0 <= gen1) ? 0 : 1;
-    }
-
-    uint32_t next_gen = 1;
-    if (commit_state == TUNING_NVS_COMMITTED) {
-        next_gen = next_slot == 0 ? rec0.generation : rec1.generation;
-    } else if (valid0 || valid1) {
-        next_gen = (gen0 > gen1 ? gen0 : gen1) + 1;
-    }
-
-    TuningNvsRecord new_rec;
-    std::memset(&new_rec, 0, sizeof(TuningNvsRecord));
-    new_rec.version = TUNING_NVS_VERSION;
-    new_rec.commit_state = commit_state;
-    new_rec.generation = next_gen;
-    new_rec.params = params;
-    new_rec.crc32 = calculateCRC32(reinterpret_cast<const uint8_t*>(&new_rec), offsetof(TuningNvsRecord, crc32));
-
-    const char* key = (next_slot == 0) ? "tune_s0" : "tune_s1";
+    const TuningNvsRecord new_rec = makeRecord(
+        params, commit_state, generationForWrite(slots, next_slot, commit_state));
+    const char* key = next_slot == 0 ? "tune_s0" : "tune_s1";
     size_t written = prefs.putBytes(key, &new_rec, sizeof(TuningNvsRecord));
     if (written != sizeof(TuningNvsRecord)) {
         prefs.end();
         return false;
     }
-
-    // Readback verification
-    TuningNvsRecord readback;
-    std::memset(&readback, 0, sizeof(TuningNvsRecord));
-    size_t read_bytes = prefs.getBytes(key, &readback, sizeof(TuningNvsRecord));
+    const bool verified = verifyReadback(prefs, key, new_rec);
     prefs.end();
-
-    if (read_bytes != sizeof(TuningNvsRecord)) return false;
-
-    uint32_t calc_crc = calculateCRC32(reinterpret_cast<const uint8_t*>(&readback), offsetof(TuningNvsRecord, crc32));
-    if (calc_crc != readback.crc32 || readback.crc32 != new_rec.crc32 || readback.generation != new_rec.generation) return false;
-
-    return true;
+    return verified;
 }
 
 bool TuningConfigManager::_validateSchemaVersion(const JsonVariant& doc) {

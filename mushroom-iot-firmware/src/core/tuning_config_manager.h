@@ -53,7 +53,8 @@ public:
     /**
      * @brief Process a desired tuning JSON command.
      * Validates schema, device ID, bounds, UUID, and does semantic diff.
-     * If valid, stages then durably commits NVS before posting to the queue.
+     * If valid, stages NVS, hands off to Core 1, then finalizes the durable
+     * commit marker. Pending records are never adopted during boot.
      * @param doc The parsed JSON object/variant.
      * @param reason Out parameter to receive the detail reason.
      * @return TuningResult ACCEPTED, REJECTED, or DUPLICATE.
@@ -88,6 +89,10 @@ private:
 
     // Helper functions for validation & NVS (implemented in C4 & C5)
     TuningReason validateAndParse(const JsonVariant& doc, DynamicTuningParams& out_params);
+    TuningReason validateCommandEnvelope(const JsonVariant& doc, const char*& command_id,
+                                         uint32_t& revision);
+    TuningReason parseConfig(const JsonVariant& config, DynamicTuningParams& out_params);
+    TuningResult stageDispatchAndCommit(const DynamicTuningParams& incoming, TuningReason& reason);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
     bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);

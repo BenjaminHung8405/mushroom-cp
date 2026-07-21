@@ -47,7 +47,7 @@ export class MqttAuthService {
 
     // The backend consumes every tenant topic and publishes provisioning replies.
     // It uses a fixed client ID, so it must not be subject to device ID matching.
-    if (username === backendUser) {
+    if (backendUser && username && username === backendUser) {
       return this.sameSecret(password, process.env.MQTT_BACKEND_PASS);
     }
 
@@ -74,7 +74,7 @@ export class MqttAuthService {
     const backendUser = process.env.MQTT_BACKEND_USER ?? '';
 
     // Backend superuser is allowed to do anything
-    if (username === backendUser) {
+    if (backendUser && username && username === backendUser) {
       return true;
     }
 

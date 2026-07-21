@@ -719,7 +719,11 @@ int main() {
         assert(std::abs(active_after_failure.mist_on_threshold - previous.mist_on_threshold) < 1e-6f);
         assert(std::abs(active_after_failure.mist_off_threshold - previous.mist_off_threshold) < 1e-6f);
         DynamicTuningParams core1_candidate{};
-        assert(xQueueReceive(g_tuning_config_queue, &core1_candidate, 0) == pdFALSE);
+        // The candidate was handed off before finalization, then the failed
+        // finalization overwrote it with the prior effective configuration.
+        assert(xQueueReceive(g_tuning_config_queue, &core1_candidate, 0) == pdTRUE);
+        assert(core1_candidate.revision == previous.revision);
+        assert(std::strcmp(core1_candidate.command_id, previous.command_id) == 0);
 
         tuning.resetForTest();
         assert(tuning.init() == true);
@@ -1384,6 +1388,45 @@ int main() {
 
             // Clean up failure mock state
             Preferences::mock_fail_put_bytes = false;
+        }
+
+        // A queue-rejected command may leave a durable PENDING stage, but boot
+        // must ignore it completely: it must never reach Core 1/relay.
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+            tuner.resetForTest();
+            assert(tuner.init() == true);
+            xQueueReset(g_tuning_config_queue);
+
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215266";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 5;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.15f;
+            config["mist_gain_scale"] = 0.85f;
+            config["mist_on_threshold"] = 0.30f;
+            config["mist_off_threshold"] = 0.16f;
+
+            mock_fail_queue_overwrite = true;
+            storage::TuningReason reason = storage::TuningReason::OK;
+            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::QUEUE_FULL_ERROR);
+            mock_fail_queue_overwrite = false;
+
+            DynamicTuningParams candidate{};
+            assert(xQueueReceive(g_tuning_config_queue, &candidate, 0) == pdFALSE);
+            tuner.resetForTest(); // Simulate reboot before Core 1 can receive it.
+            assert(tuner.init() == true);
+            const DynamicTuningParams hydrated = tuner.getActiveParams();
+            assert(hydrated.revision == 0);
+            assert(std::strcmp(hydrated.command_id, "") == 0);
+            assert(std::abs(hydrated.lamp_gain_scale - 1.0f) < 0.0001f);
         }
 
         // Cleanup

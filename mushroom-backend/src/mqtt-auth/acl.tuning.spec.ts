@@ -52,6 +52,21 @@ describe('MQTT ACL Tuning Security Regression Tests', () => {
         }),
       ).toBe(true);
     });
+
+    it('denies anonymous ACL requests when the backend user is not configured', () => {
+      delete process.env.MQTT_BACKEND_USER;
+
+      expect(service.authorize({
+        topic: 'mushroom/esp32/device1/down/tuning/desired',
+        acc: 2,
+      })).toBe(false);
+      expect(service.authorize({
+        username: '',
+        clientid: '',
+        topic: 'mushroom/esp32/device1/up/tuning/reported',
+        acc: 1,
+      })).toBe(false);
+    });
   });
 
   describe('Device access', () => {
