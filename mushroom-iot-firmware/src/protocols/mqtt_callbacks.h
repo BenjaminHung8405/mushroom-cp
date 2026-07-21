@@ -34,6 +34,12 @@ extern QueueHandle_t g_network_worker_queue;
 
 class MessageDispatcher {
 public:
+    /**
+     * @brief Create RTOS resources (EventGroup) at startup.
+     * Must be called once at firmware startup, at the same tier as queue/task creation.
+     * Returns false if resource allocation fails (fail-fast).
+     */
+    static bool init();
     /** Configure the sole desired topic accepted by the callback. */
     static bool setExpectedTuningDesiredTopic(const char* topic);
     /** Non-blocking classification/copy from the PubSubClient callback. */

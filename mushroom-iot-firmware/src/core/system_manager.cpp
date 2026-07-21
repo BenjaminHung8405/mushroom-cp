@@ -161,6 +161,18 @@ void initQueues()
         Serial.printf("[MAIN] g_network_worker_queue created (depth=16, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(mqtt::NetworkMessage)));
     }
+
+    // Create MQTT callback EventGroup for tuning overflow signals.
+    // Must be created at this startup tier so the callback and Core-0 loop
+    // share a valid handle without any lazy allocation in a setter.
+    if (!mqtt::MessageDispatcher::init())
+    {
+        Serial.println("[MAIN] FATAL: Failed to create tuning callback EventGroup!");
+    }
+    else
+    {
+        Serial.println("[MAIN] MessageDispatcher RTOS resources initialised.");
+    }
 }
 
 void initSemaphores()

@@ -1040,6 +1040,8 @@ int main() {
             assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
             prefs.remove("tune_s0");
             prefs.remove("tune_s1");
+            // Also remove the durable no-change receipt so Case 8 starts clean.
+            prefs.remove("tune_rcpt");
             prefs.end();
         }
         
@@ -1200,8 +1202,9 @@ int main() {
         }
 
         // Case 8: A new UUID/revision with unchanged parameters must not
-        // rewrite NVS or re-dispatch Core 1. Its bounded receipt only covers
-        // immediate QoS 1 redelivery within this firmware session.
+        // rewrite the config envelope or re-dispatch Core 1, but MUST persist
+        // command identity durably (PLAN.md:264, sprint_1.md:74) so that
+        // post-reboot redelivery returns DUPLICATE_UUID.
         {
             DynamicTuningParams queued{};
             while (xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE) {}
@@ -1215,13 +1218,14 @@ int main() {
             config["mist_gain_scale"] = 0.9f; // same as Case 1
             config["mist_on_threshold"] = 0.28f; // same as Case 1
             config["mist_off_threshold"] = 0.18f; // same as Case 1
-            
+
             const size_t nvs_write_count_before = Preferences::mock_put_bytes_count;
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
             assert(reason == storage::TuningReason::NO_CHANGE);
-            assert(Preferences::mock_put_bytes_count == nvs_write_count_before);
+            // saveDurableReceipt() writes one tune_rcpt entry; config slots unchanged.
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 1);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             
             DynamicTuningParams active = tuner.getActiveParams();
@@ -1236,9 +1240,10 @@ int main() {
             assert(Preferences::mock_put_bytes_count == writes_before_session_redelivery);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
 
-            // The session receipt is cleared by reboot. The same retained
-            // command is re-evaluated as a no-change command without an NVS
-            // rewrite or Core 1 handoff.
+            // After reboot, init() loads the durable receipt from NVS.
+            // Post-reboot redelivery of command B must return DUPLICATE_UUID
+            // (not NO_CHANGE) — no NVS write, no Core-1 handoff.
+            // This satisfies PLAN.md:332 and sprint_1.md:74.
             tuner.resetForTest();
             assert(tuner.init() == true);
             const DynamicTuningParams rebooted = tuner.getActiveParams();
@@ -1251,8 +1256,9 @@ int main() {
             assert(std::abs(rebooted.mist_off_threshold - 0.18f) < 0.0001f);
 
             const size_t writes_before_redelivery = Preferences::mock_put_bytes_count;
+            // DUPLICATE_UUID from durable receipt — key correctness assertion.
             assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
-            assert(reason == storage::TuningReason::NO_CHANGE);
+            assert(reason == storage::TuningReason::DUPLICATE_UUID);
             assert(Preferences::mock_put_bytes_count == writes_before_redelivery);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             const DynamicTuningParams after_redelivery = tuner.getActiveParams();

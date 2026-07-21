@@ -1,3 +1,57 @@
+## [2026-07-21T20:45:00+07:00] - Task C4, D2, D4: Khắc phục phản hồi QA (Lần 3)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 3)
+- **Task ID:** C4, D2, D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.h`
+  - `mushroom-iot-firmware/src/core/system_manager.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+- **Kết quả kiểm thử:**
+  - `run_tests_mac` → **PASS** (tất cả assertions bao gồm Case 8 durable idempotency mới)
+  - `platformio run -e otg` → **SUCCESS** (RAM: 18.0%, Flash: 39.9%)
+  - `git diff --check` → **sạch**
+
+### Giải trình sửa lỗi theo feedback QA
+
+#### Issue 1 (Critical) — Semantic no-change không còn durable idempotency qua reboot
+
+**Nguyên nhân gốc rễ:** Khi command có UUID mới nhưng config không đổi, code chỉ lưu UUID vào RAM qua `_last_no_change_command_id`. Hàm `init()` xóa receipt này khi reboot. Vì vậy sau reboot, retained desired cùng `command_id` không được nhận diện là `DUPLICATE_UUID`.
+
+**Giải pháp:**
+1. Thêm struct `TuningReceiptRecord` (CRC-protected, versioned) với NVS key `tune_rcpt` — tách biệt với hai config slot, không ảnh hưởng đến effective config envelope.
+2. `recordNoChangeReceipt()` giờ gọi `saveDurableReceipt()` để persist UUID vào NVS **một lần** (flash wear: 1 write per genuinely novel no-change command; không rewrite config slots).
+3. `init()` gọi `loadDurableReceipt()` để load UUID từ NVS vào `_durable_receipt_command_id`.
+4. `_isExactDuplicate()` kiểm tra `_durable_receipt_command_id` — đây là fix cốt lõi: sau reboot, UUID từ durable receipt được nhận diện là `DUPLICATE_UUID`.
+5. `resetForTest()` và test isolation block đều clear `_durable_receipt_command_id` / `tune_rcpt` key.
+6. Tests Case 8 cập nhật: NVS write count từ `+0` → `+1` (saveDurableReceipt), post-reboot reason từ `NO_CHANGE` → `DUPLICATE_UUID`.
+
+**Đảm bảo bất biến:**
+- Config envelope không bị rewrite khi no-change.
+- Effective config không rollback khi replay command cũ.
+- Core 1 không được enqueue khi no-change/duplicate.
+
+#### Issue 2 (High) — Overflow MQTT phát ACK không gắn được `command_id`
+
+**Nguyên nhân gốc rễ:** Khi `g_network_worker_queue` đầy, callback set EventGroup bit. Tại Core 0, code phát `publishTuningReported(..., TuningReason::QUEUE_FULL_ERROR, "")` — ACK `REJECTED` với `command_id` rỗng, vi phạm contract (sprint_1.md:438).
+
+**Giải pháp:** Xóa lệnh `publishTuningReported` với empty `command_id` trong trường hợp overflow. Thay vào đó chỉ disconnect/reconnect để broker redeliver retained desired message. Worker sẽ parse đúng UUID và phát ACK có đầy đủ `command_id`. Log message đã được cập nhật để phản ánh hành vi mới.
+
+#### Issue 3 (Medium) — Callback allocation EventGroup có thể tạo resource leak/lifecycle không rõ ràng
+
+**Nguyên nhân gốc rễ:** `setExpectedTuningDesiredTopic()` tạo `EventGroupHandle_t` lazily — không có ownership/lifecycle rõ ràng.
+
+**Giải pháp:**
+1. Thêm `MessageDispatcher::init()` static method tạo EventGroup tại startup, cùng tier với `initQueues()`.
+2. `setExpectedTuningDesiredTopic()` không còn tạo RTOS resource — trả `false` nếu `init()` chưa được gọi (fail-fast programming error signal).
+3. `initQueues()` trong `system_manager.cpp` gọi `MessageDispatcher::init()` sau khi tạo `g_network_worker_queue` — lifecycle rõ ràng, ownership tập trung.
+4. Header `mqtt_callbacks.h` export `init()` với docstring đầy đủ.
+
+---
+
 ## [2026-07-21T20:10:12+07:00] - Task C4, C5, D2, D4: Khắc phục phản hồi QA (Lần 2)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

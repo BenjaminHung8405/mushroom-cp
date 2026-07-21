@@ -37,15 +37,31 @@ bool MessageDispatcher::setExpectedTuningDesiredTopic(const char* topic)
     const size_t length = strnlen(topic, MAX_TUNING_DESIRED_TOPIC_BYTES);
     if (length == 0 || length >= MAX_TUNING_DESIRED_TOPIC_BYTES) return false;
 
+    // EventGroup must have been created by init() at startup.
+    // setExpectedTuningDesiredTopic() is a pure configuration setter and must
+    // not create RTOS resources; that belongs to the startup ownership tier.
     if (tuning_callback_events == nullptr) {
-        tuning_callback_events = xEventGroupCreate();
-        if (tuning_callback_events == nullptr) return false;
+        // init() was not called — this is a programming error.
+        return false;
     }
 
     memcpy(expected_tuning_desired_topic, topic, length);
     expected_tuning_desired_topic[length] = '\0';
     expected_tuning_desired_topic_length = length;
     return true;
+}
+
+bool MessageDispatcher::init()
+{
+    // Create the EventGroup used by the callback/Core-0 overflow signal at the
+    // same startup tier where queues and tasks are created. This gives clear
+    // ownership, predictable lifecycle, and fail-fast feedback on OOM at boot.
+    if (tuning_callback_events != nullptr) {
+        // Already initialised (e.g. in tests that call init() twice).
+        return true;
+    }
+    tuning_callback_events = xEventGroupCreate();
+    return tuning_callback_events != nullptr;
 }
 
 void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int length)

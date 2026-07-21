@@ -19,6 +19,19 @@ constexpr uint8_t TUNING_NVS_PENDING_COMMIT = 1;
 // rejected candidate to the relay loop.
 constexpr uint8_t TUNING_NVS_READY_DISPATCH = 2;
 
+/// Key for the bounded command-identity receipt (no-change commands only).
+constexpr const char* TUNING_RECEIPT_KEY = "tune_rcpt";
+
+/// CRC-protected envelope for a single command_id receipt. Stored as raw bytes
+/// under TUNING_RECEIPT_KEY. Version guard prevents loading stale/corrupted
+/// receipts written by older firmware.
+struct TuningReceiptRecord {
+    uint32_t version;    ///< Must equal TUNING_NVS_VERSION
+    char command_id[37]; ///< UUID string, null-terminated
+    uint8_t padding[3];  ///< Alignment
+    uint32_t crc32;      ///< CRC32 of all fields except crc32 itself
+} __attribute__((aligned(4)));
+
 struct NvsSlots {
     TuningNvsRecord records[2];
     bool valid[2];
@@ -159,7 +172,11 @@ void TuningConfigManager::unlock() {
 bool TuningConfigManager::init() {
     lock();
     _has_pending_dispatch = false;
+    // RAM fast-path cleared on every boot; durable receipt is loaded from NVS below.
     std::memset(_last_no_change_command_id, 0, sizeof(_last_no_change_command_id));
+    std::memset(_durable_receipt_command_id, 0, sizeof(_durable_receipt_command_id));
+    // Load durable receipt first so post-reboot DUPLICATE_UUID works immediately.
+    loadDurableReceipt();
     DynamicTuningParams loaded;
     if (loadFromNvs(loaded)) {
         _active_params = loaded;
@@ -226,6 +243,7 @@ void TuningConfigManager::resetForTest() {
     _active_params.mist_off_threshold = 0.15f;
     std::memset(&_pending_params, 0, sizeof(_pending_params));
     std::memset(_last_no_change_command_id, 0, sizeof(_last_no_change_command_id));
+    std::memset(_durable_receipt_command_id, 0, sizeof(_durable_receipt_command_id));
     _has_pending_dispatch = false;
     _initialized = false;
     unlock();
@@ -313,12 +331,25 @@ TuningResult TuningConfigManager::recordNoChangeReceipt(const DynamicTuningParam
                                                          TuningReason& reason) {
     // A semantically identical command must not rewrite the effective-config
     // envelope: doing so would consume a two-slot NVS generation and wear
-    // flash without changing Core 1 state. Keep one bounded session receipt
-    // so immediate QoS 1 redelivery remains idempotent; after reboot the
-    // retained command is safely evaluated as another no-change command.
+    // flash without changing Core 1 state.
+    //
+    // However, per PLAN.md:264 and sprint_1.md:74, command identity (UUID)
+    // MUST be persisted durably so that post-reboot redelivery of the same
+    // retained desired message is correctly identified as DUPLICATE_UUID
+    // and does not trigger an NVS config write or Core 1 handoff.
+    //
+    // Wear impact: one putBytes write per genuinely novel no-change command.
+    // Same-session QoS-1 redelivery is short-circuited by _last_no_change_command_id.
+    saveDurableReceipt(incoming.command_id);
+    // Warm the session-only fast path to avoid an extra NVS read for immediate redelivery.
     std::strncpy(_last_no_change_command_id, incoming.command_id,
                  sizeof(_last_no_change_command_id) - 1);
     _last_no_change_command_id[sizeof(_last_no_change_command_id) - 1] = '\0';
+    // Also update the durable receipt cache so _isExactDuplicate is consistent
+    // without requiring a full NVS re-read within the same boot session.
+    std::strncpy(_durable_receipt_command_id, incoming.command_id,
+                 sizeof(_durable_receipt_command_id) - 1);
+    _durable_receipt_command_id[sizeof(_durable_receipt_command_id) - 1] = '\0';
     reason = TuningReason::NO_CHANGE;
     return TuningResult::DUPLICATE;
 }
@@ -381,6 +412,43 @@ bool TuningConfigManager::writeRecord(const DynamicTuningParams& params, uint8_t
     const bool verified = verifyReadback(prefs, key, new_rec);
     prefs.end();
     return verified;
+}
+
+bool TuningConfigManager::saveDurableReceipt(const char* command_id) {
+    if (command_id == nullptr || command_id[0] == '\0') return false;
+    TuningReceiptRecord rec{};
+    rec.version = TUNING_NVS_VERSION;
+    std::strncpy(rec.command_id, command_id, sizeof(rec.command_id) - 1);
+    rec.command_id[sizeof(rec.command_id) - 1] = '\0';
+    // Compute CRC over all fields except the crc32 tail.
+    rec.crc32 = calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&rec),
+        offsetof(TuningReceiptRecord, crc32));
+
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+    const size_t written = prefs.putBytes(TUNING_RECEIPT_KEY, &rec, sizeof(rec));
+    prefs.end();
+    return written == sizeof(rec);
+}
+
+void TuningConfigManager::loadDurableReceipt() {
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return;
+    TuningReceiptRecord rec{};
+    const size_t bytes = prefs.getBytes(TUNING_RECEIPT_KEY, &rec, sizeof(rec));
+    prefs.end();
+    if (bytes != sizeof(rec)) return;
+    if (rec.version != TUNING_NVS_VERSION) return;
+    const uint32_t expected_crc = calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&rec),
+        offsetof(TuningReceiptRecord, crc32));
+    if (rec.crc32 != expected_crc) return;
+    // Validate UUID format: must be exactly 36 printable chars.
+    if (std::strlen(rec.command_id) != 36) return;
+    std::strncpy(_durable_receipt_command_id, rec.command_id,
+                 sizeof(_durable_receipt_command_id) - 1);
+    _durable_receipt_command_id[sizeof(_durable_receipt_command_id) - 1] = '\0';
 }
 
 bool TuningConfigManager::_validateSchemaVersion(const JsonVariant& doc) {
@@ -456,9 +524,18 @@ bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
 
 bool TuningConfigManager::_isExactDuplicate(const char* command_id) {
     if (command_id == nullptr) return false;
+    // 1. Active effective config (survives reboot via NVS hydration in init()).
     if (std::strcmp(_active_params.command_id, command_id) == 0) return true;
+    // 2. Durable no-change receipt (loaded from NVS in init(), updated by
+    //    recordNoChangeReceipt in the same session). This is the key fix:
+    //    enables DUPLICATE_UUID detection for no-change commands after reboot.
+    if (_durable_receipt_command_id[0] != '\0' &&
+        std::strcmp(_durable_receipt_command_id, command_id) == 0) return true;
+    // 3. Session-only fast path (cleared on reboot, only for same-session
+    //    same-tick QoS-1 redelivery before saveDurableReceipt completes).
     if (std::strcmp(_last_no_change_command_id, command_id) == 0) return true;
 
+    // 4. Scan NVS config slots for any durable READY_DISPATCH record.
     Preferences prefs;
     if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
     NvsSlots slots{};

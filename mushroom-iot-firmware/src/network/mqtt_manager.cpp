@@ -275,12 +275,16 @@ void MqttManager::loop()
         state_ = MqttState::DISCONNECTED;
     }
     if (MessageDispatcher::consumeTuningQueueOverflow()) {
-        Serial.println("[MQTT] Tuning command REJECTED/CONTROL_QUEUE_UNAVAILABLE.");
-        publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                              storage::TuningResult::REJECTED,
-                              storage::TuningReason::QUEUE_FULL_ERROR, "");
-        // Reconnect so a retained desired command is redelivered instead of
-        // silently losing the broker-delivered update.
+        // The MQTT callback could not enqueue the received desired command because
+        // the network worker queue was full. The callback has no access to the
+        // parsed command_id, so publishing a terminal REJECTED ACK here would
+        // violate the reported-payload contract (sprint_1.md:438 mandates a
+        // valid command_id in every ACK).
+        //
+        // Instead, disconnect and let the broker redeliver the retained desired
+        // message on reconnect. The worker will then parse the UUID properly
+        // and emit a correctly-attributed REJECTED or ACCEPTED ACK.
+        Serial.println("[MQTT] Worker queue overflow — reconnecting to trigger broker redeliver.");
         if (client_.connected()) {
             client_.disconnect();
         }

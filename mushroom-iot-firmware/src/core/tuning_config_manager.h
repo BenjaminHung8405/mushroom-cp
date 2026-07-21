@@ -31,7 +31,7 @@ enum class TuningReason : uint8_t {
     OUT_OF_BOUNDS = 4,
     CROSS_FIELD_VIOLATION = 5,
     DUPLICATE_UUID = 6,
-    NO_CHANGE = 7,             ///< Parameters unchanged; idempotency is retained only for this session, with no NVS write or Core 1 dispatch.
+    NO_CHANGE = 7,             ///< Parameters unchanged; command identity is persisted durably (survive reboot) but config envelope is not rewritten.
     NVS_WRITE_ERROR = 8,
     QUEUE_FULL_ERROR = 9
 };
@@ -88,7 +88,10 @@ private:
 
     DynamicTuningParams _active_params;
     DynamicTuningParams _pending_params;
+    /// RAM-only fast path for same-session QoS-1 redelivery of a no-change command.
     char _last_no_change_command_id[37]{};
+    /// Durable receipt loaded from NVS on boot; enables post-reboot DUPLICATE_UUID detection.
+    char _durable_receipt_command_id[37]{};
     bool _initialized = false;
     bool _has_pending_dispatch = false;
 
@@ -109,6 +112,10 @@ private:
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
     bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);
+    /// Persist command_id-only receipt to NVS (no config envelope mutation).
+    bool saveDurableReceipt(const char* command_id);
+    /// Load persisted no-change receipt from NVS into _durable_receipt_command_id.
+    void loadDurableReceipt();
     static uint32_t calculateCRC32(const uint8_t *data, size_t length);
 
     bool _validateSchemaVersion(const JsonVariant& doc);
