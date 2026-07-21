@@ -58,7 +58,7 @@
 | D1 | Subscribe desired topic QoS 1 khi MQTT kết nối lại. | `[ ] QA Review` | Build topic từ tenant và provisioned device ID, không literal. Retained desired phải được xử lý như command bình thường sau reconnect; không tác động GPIO từ MQTT path. |
 | D2 | Nhận diện desired topic và dispatch payload vào `g_network_worker_queue`; reject/log payload quá 512 bytes. | `[ ] QA Review` | MQTT callback phải **constant-time/lightweight**: chỉ compare topic và copy bytes, tuyệt đối không `deserializeJson`, NVS hay GPIO. Bounded buffer, kiểm tra length trước copy để tránh overflow/heap growth. |
 | D3 | Parse desired trong worker bằng `StaticJsonDocument<512>` và gọi `TuningConfigManager::processCommand`. | `[ ] QA Review` | Parse bounded trên stack; mọi `DeserializationError` phải sinh `REJECTED/INVALID_SCHEMA`, không crash. Worker là sole execution context của JSON validation/persistence. |
-| D4 | Xây reported payload theo contract và publish lên reported topic QoS 1, retain=false. | `[ ] Pending` | Chỉ publish `ACCEPTED` khi NVS **và** `xQueueOverwrite` thành công. `DUPLICATE` kèm effective config; `REJECTED` dùng reason code ổn định; không log/echo payload nhạy cảm không cần thiết. Xác minh API PubSubClient thực sự cấu hình QoS 1. |
+| D4 | Xây reported payload theo contract và publish lên reported topic QoS 1, retain=false. | `[ ] QA Review` | Chỉ publish `ACCEPTED` khi NVS **và** `xQueueOverwrite` thành công. `DUPLICATE` kèm effective config; `REJECTED` dùng reason code ổn định; không log/echo payload nhạy cảm không cần thiết. Xác minh API PubSubClient thực sự cấu hình QoS 1. |
 
 ## Track E — Firmware: Core 1 Apply Tuning (Ngày 4–5)
 

@@ -108,9 +108,8 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
     }
     
     // Posting to queue (depth 1, xQueueOverwrite)
-    if (g_tuning_config_queue != nullptr) {
-        xQueueOverwrite(g_tuning_config_queue, &_active_params);
-    } else {
+    if (g_tuning_config_queue == nullptr ||
+        xQueueOverwrite(g_tuning_config_queue, &_active_params) != pdTRUE) {
         reason = TuningReason::QUEUE_FULL_ERROR;
         unlock();
         return TuningResult::REJECTED;

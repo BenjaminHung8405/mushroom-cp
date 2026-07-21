@@ -2,6 +2,22 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:31:03+07:00] - Task D4: Xây reported payload và publish trạng thái tuning
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [mqtt_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/network/mqtt_manager.cpp)
+  - Sửa đổi: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - Network Worker giờ tạo ACK `reported` không retained tại `{tenant}/esp32/{deviceId}/up/tuning/reported`, gồm `schema_version`, `command_id`, `device_id`, `status`, reason code ổn định, full effective config, cờ persistence và `reported_at=null` khi Edge chưa có UTC đáng tin cậy.
+  - `ACCEPTED` chỉ được publish sau khi `processCommand()` trả thành công; manager hiện kiểm tra kết quả thực tế của `xQueueOverwrite`, vì vậy NVS hoặc queue handoff lỗi đều thành `REJECTED`. `DUPLICATE` trả lại effective config, còn `REJECTED` ánh xạ sang các mã contract như `DEVICE_MISMATCH`, `PERSISTENCE_FAILED` và `CONTROL_QUEUE_UNAVAILABLE`.
+  - Đã kiểm tra PubSubClient 2.8: overload `publish()` chỉ dựng header `MQTTPUBLISH` (QoS 0), không có API publish QoS 1; code dùng `retain=false` một cách tường minh và ghi rõ giới hạn thư viện để QA quyết định thay thế MQTT client trước khi phát hành nếu QoS 1 outbound là bắt buộc.
+  - Bổ sung host regression test cho ACCEPTED, DUPLICATE và REJECTED, kiểm tra topic, retain=false, payload và effective config. Biên dịch/running toàn bộ host test bằng `g++ -std=c++17 -DUNIT_TEST ...` thành công (`--- All Unit Tests Passed Successfully! ---`); `git diff --check` sạch. Còn một warning có sẵn, không liên quan ở `run_tests.cpp:309` do so sánh string literal. PlatformIO CLI không có trong môi trường nên chưa thể chạy `pio run -e otg`.
+
 ## [2026-07-21T16:43:00+07:00] - Task D3: Parse desired trong worker và gọi `TuningConfigManager::processCommand`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

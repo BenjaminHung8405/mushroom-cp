@@ -33,6 +33,70 @@ constexpr size_t UUID_LEN = 36;
 constexpr unsigned long BOOTSTRAP_RESPONSE_TIMEOUT_MS = 15000;
 constexpr uint8_t MAX_BOOTSTRAP_CLAIMS = 3;
 
+const char* tuningStatusName(storage::TuningResult result)
+{
+    switch (result) {
+    case storage::TuningResult::ACCEPTED: return "ACCEPTED";
+    case storage::TuningResult::DUPLICATE: return "DUPLICATE";
+    case storage::TuningResult::REJECTED: return "REJECTED";
+    }
+    return "REJECTED";
+}
+
+const char* tuningReasonCode(storage::TuningReason reason)
+{
+    switch (reason) {
+    case storage::TuningReason::INVALID_SCHEMA: return "INVALID_SCHEMA";
+    case storage::TuningReason::INVALID_DEVICE_ID: return "DEVICE_MISMATCH";
+    case storage::TuningReason::INVALID_UUID: return "INVALID_UUID";
+    case storage::TuningReason::OUT_OF_BOUNDS: return "OUT_OF_RANGE";
+    case storage::TuningReason::CROSS_FIELD_VIOLATION: return "CROSS_FIELD_INVALID";
+    case storage::TuningReason::NVS_WRITE_ERROR: return "PERSISTENCE_FAILED";
+    case storage::TuningReason::QUEUE_FULL_ERROR: return "CONTROL_QUEUE_UNAVAILABLE";
+    default: return "INVALID_SCHEMA";
+    }
+}
+
+bool publishTuningReported(PubSubClient& client, bool provisioned,
+                           const String& tenant, const String& device_id,
+                           storage::TuningResult result,
+                           storage::TuningReason reason,
+                           const char* command_id)
+{
+    if (!provisioned || !client.connected()) {
+        return false;
+    }
+
+    const DynamicTuningParams effective =
+        storage::TuningConfigManager::getInstance().getActiveParams();
+    StaticJsonDocument<768> document;
+    document["schema_version"] = 1;
+    document["command_id"] = command_id == nullptr ? "" : command_id;
+    document["device_id"] = device_id;
+    document["status"] = tuningStatusName(result);
+    document["reason_code"] = result == storage::TuningResult::REJECTED
+        ? tuningReasonCode(reason)
+        : nullptr;
+
+    JsonObject config = document.createNestedObject("reported_config");
+    config["lamp_gain_scale"] = effective.lamp_gain_scale;
+    config["mist_gain_scale"] = effective.mist_gain_scale;
+    config["mist_on_threshold"] = effective.mist_on_threshold;
+    config["mist_off_threshold"] = effective.mist_off_threshold;
+    document["persisted"] = result != storage::TuningResult::REJECTED;
+    document["reported_at"] = nullptr;
+
+    String payload;
+    serializeJson(document, payload);
+    const String topic = tenant + "/esp32/" + device_id + "/up/tuning/reported";
+
+    // PubSubClient 2.8 only exposes QoS selection for subscriptions and LWT;
+    // its outbound publish API always emits MQTT QoS 0. Retain=false is explicit.
+    return client.publish(topic.c_str(),
+                          reinterpret_cast<const uint8_t*>(payload.c_str()),
+                          payload.length(), false);
+}
+
 bool sameText(const char* left, const char* right)
 {
     return left != nullptr && right != nullptr && strcmp(left, right) == 0;
@@ -1103,6 +1167,9 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
             message.payload_length > sizeof(message.payload)) {
             Serial.println("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: invalid payload length.");
+            publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                  storage::TuningResult::REJECTED,
+                                  storage::TuningReason::INVALID_SCHEMA, "");
             return;
         }
 
@@ -1112,16 +1179,22 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         if (error) {
             Serial.printf("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: %s.\n",
                           error.c_str());
+            publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                  storage::TuningResult::REJECTED,
+                                  storage::TuningReason::INVALID_SCHEMA, "");
             return;
         }
 
+        const char* command_id = document["command_id"].is<const char*>()
+            ? document["command_id"].as<const char*>()
+            : "";
         storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
         const storage::TuningResult result =
             storage::TuningConfigManager::getInstance().processCommand(
                 document.as<JsonVariant>(), reason);
-        if (result == storage::TuningResult::REJECTED) {
-            Serial.printf("[MQTT] Tuning command REJECTED, reason=%u.\n",
-                          static_cast<unsigned>(reason));
+        if (!publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                   result, reason, command_id)) {
+            Serial.println("[MQTT] Failed to publish tuning reported acknowledgement.");
         }
         return;
     }

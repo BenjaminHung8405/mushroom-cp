@@ -237,6 +237,9 @@ public:
     static bool mock_connect_result;
     static bool mock_publish_result;
     static std::vector<std::string> mock_subscribed_topics;
+    static std::string mock_last_published_topic;
+    static std::string mock_last_published_payload;
+    static bool mock_last_published_retained;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
 
@@ -264,8 +267,19 @@ public:
 
     bool loop() { return true; }
 
-    bool publish(const char* topic, const char* payload) { return mock_publish_result; }
-    bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return mock_publish_result; }
+    bool publish(const char* topic, const char* payload) {
+        mock_last_published_topic = topic ? topic : "";
+        mock_last_published_payload = payload ? payload : "";
+        mock_last_published_retained = false;
+        return mock_publish_result;
+    }
+    bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) {
+        mock_last_published_topic = topic ? topic : "";
+        mock_last_published_payload.assign(
+            reinterpret_cast<const char*>(payload), payload == nullptr ? 0 : plength);
+        mock_last_published_retained = retained;
+        return mock_publish_result;
+    }
 
     bool subscribe(const char* topic) { if (topic) mock_subscribed_topics.push_back(topic); return true; }
     bool subscribe(const char* topic, uint8_t qos) { if (topic) mock_subscribed_topics.push_back(topic); return true; }
@@ -419,4 +433,3 @@ inline UBaseType_t uxTaskGetStackHighWaterMark(void* /*xTask*/) {
 inline int digitalPinToInterrupt(uint8_t pin) { return pin; }
 inline void attachInterrupt(int /*interrupt*/, void (*/*callback*/)(), int /*mode*/) {}
 inline void detachInterrupt(int /*interrupt*/) {}
-

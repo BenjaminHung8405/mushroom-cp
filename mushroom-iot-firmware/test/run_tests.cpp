@@ -50,6 +50,9 @@ bool PubSubClient::mock_connect_result = true;
 bool PubSubClient::mock_publish_result = true;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 std::vector<std::string> PubSubClient::mock_subscribed_topics;
+std::string PubSubClient::mock_last_published_topic = "";
+std::string PubSubClient::mock_last_published_payload = "";
+bool PubSubClient::mock_last_published_retained = false;
 EventBits_t mock_event_group_bits = 0;
 
 std::map<uint8_t, uint8_t> mock_pin_modes;
@@ -594,6 +597,67 @@ int main() {
         assert(std::strcmp(active.command_id, "d3333333-1234-1234-1234-123456789012") == 0);
         assert(xQueueReceive(g_tuning_config_queue, &active, 0) == pdTRUE);
         assert(active.revision == 77);
+    }
+
+    // 12.4g Task D4: every worker result emits a non-retained reported
+    // snapshot. ACCEPTED is emitted only after persistence and queue handoff;
+    // duplicates carry the effective configuration, while rejections expose
+    // only stable reason codes.
+    Serial.println("[TEST] Testing Task D4 - Tuning reported acknowledgement...");
+    {
+        storage::TuningConfigManager& tuning = storage::TuningConfigManager::getInstance();
+        tuning.resetForTest();
+        xQueueReset(g_tuning_config_queue);
+        PubSubClient::mock_publish_result = true;
+        PubSubClient::mock_last_published_topic.clear();
+        PubSubClient::mock_last_published_payload.clear();
+        PubSubClient::mock_last_published_retained = true;
+
+        mqtt::NetworkMessage accepted{};
+        accepted.type = mqtt::CommandType::TUNING_DESIRED;
+        const char accepted_payload[] =
+            "{\"schema_version\":1,\"device_id\":\"mushroom_s3_unittest\","
+            "\"command_id\":\"d4444444-1234-1234-1234-123456789012\",\"revision\":78,"
+            "\"config\":{\"lamp_gain_scale\":1.1,\"mist_gain_scale\":0.9,"
+            "\"mist_on_threshold\":0.28,\"mist_off_threshold\":0.18}}";
+        accepted.payload_length = sizeof(accepted_payload) - 1;
+        std::memcpy(accepted.payload, accepted_payload, accepted.payload_length);
+        mqtt_manager.processNetworkMessage(accepted);
+
+        assert(PubSubClient::mock_last_published_topic ==
+               "test_tenant/esp32/mushroom_s3_unittest/up/tuning/reported");
+        assert(PubSubClient::mock_last_published_retained == false);
+        StaticJsonDocument<768> reported;
+        assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
+        assert(std::strcmp(reported["command_id"], "d4444444-1234-1234-1234-123456789012") == 0);
+        assert(std::strcmp(reported["device_id"], "mushroom_s3_unittest") == 0);
+        assert(std::strcmp(reported["status"], "ACCEPTED") == 0);
+        assert(reported["reason_code"].isNull());
+        assert(reported["persisted"] == true);
+        assert(std::abs(reported["reported_config"]["mist_on_threshold"].as<float>() - 0.28f) < 1e-6f);
+
+        mqtt_manager.processNetworkMessage(accepted);
+        assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
+        assert(std::strcmp(reported["status"], "DUPLICATE") == 0);
+        assert(reported["reason_code"].isNull());
+        assert(reported["persisted"] == true);
+        assert(std::abs(reported["reported_config"]["lamp_gain_scale"].as<float>() - 1.1f) < 1e-6f);
+
+        mqtt::NetworkMessage rejected{};
+        rejected.type = mqtt::CommandType::TUNING_DESIRED;
+        const char rejected_payload[] =
+            "{\"schema_version\":1,\"device_id\":\"wrong-device\","
+            "\"command_id\":\"d5555555-1234-1234-1234-123456789012\",\"revision\":79,"
+            "\"config\":{\"lamp_gain_scale\":1.0,\"mist_gain_scale\":1.0,"
+            "\"mist_on_threshold\":0.25,\"mist_off_threshold\":0.15}}";
+        rejected.payload_length = sizeof(rejected_payload) - 1;
+        std::memcpy(rejected.payload, rejected_payload, rejected.payload_length);
+        mqtt_manager.processNetworkMessage(rejected);
+        assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
+        assert(std::strcmp(reported["status"], "REJECTED") == 0);
+        assert(std::strcmp(reported["reason_code"], "DEVICE_MISMATCH") == 0);
+        assert(reported["persisted"] == false);
+        assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
     }
 
     // Ensure client is currently CONNECTED. Backoff value is internal detail
