@@ -2,6 +2,46 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T10:44:00+07:00] - Task A5: Cấu hình INFLUXDB_ANALYTICS_BUCKET và tạo script provision analytics bucket idempotent
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Tạo mới: [provision-influx.sh](file:///Users/benjaminhung8405/Code/mushroom-cp/scripts/provision-influx.sh)
+  - Sửa đổi: [.env](file:///Users/benjaminhung8405/Code/mushroom-cp/.env)
+  - Sửa đổi: [.env.example](file:///Users/benjaminhung8405/Code/mushroom-cp/.env.example)
+  - Sửa đổi: [docker-compose.yml](file:///Users/benjaminhung8405/Code/mushroom-cp/docker-compose.yml)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Cấu hình biến môi trường `INFLUXDB_ANALYTICS_BUCKET` và xây dựng kịch bản khởi tạo (provisioning) bucket tự động, bảo đảm tính idempotent và cấu hình được thời gian lưu trữ (retention policy).
+  - **Giải pháp:**
+    - Định nghĩa biến `INFLUXDB_ANALYTICS_BUCKET` trong `.env`, `.env.example` và chuyển tiếp nó vào môi trường chạy của `mushroom-backend` trong `docker-compose.yml`.
+    - Tạo script `scripts/provision-influx.sh` độc lập sử dụng API HTTP v2 của InfluxDB:
+      - Tự động nạp cấu hình từ `.env` mà không ghi đè lên các biến đã được gán sẵn qua môi trường thực thi (sử dụng kiểm tra bằng `printenv`).
+      - Truy vấn InfluxDB để kiểm tra sự tồn tại của bucket. Xử lý chính xác mã trạng thái 404 (chưa tồn tại) và 200 (đã tồn tại).
+      - Nếu chưa tồn tại, lấy Org ID từ Org name cấu hình và gọi API POST `/api/v2/buckets` để tạo bucket với số ngày retention (`INFLUXDB_ANALYTICS_RETENTION_DAYS`, mặc định là 0 tức vô hạn).
+      - Bổ sung tài liệu Hướng dẫn vận hành & Phục hồi sự cố chi tiết trực tiếp trong phần đầu của script.
+  - **Tự kiểm tra:**
+    - Chạy thử trực tiếp script trên máy chủ trỏ tới InfluxDB container:
+      - Lần đầu tiên chạy: Tạo thành công bucket `mushroom_analytics`.
+      - Lần chạy tiếp theo: Phát hiện bucket đã tồn tại và tự động bỏ qua an toàn (idempotent).
+      - Đã thử nghiệm tạo bucket test với retention policy 7 ngày thành công và dọn dẹp sau khi kiểm thử.
+    - Đảm bảo toàn bộ 150/150 test case của backend NestJS đều vượt qua (`npm test` PASS).
+
+## [2026-07-21T10:28:10+07:00] - Task A4: Rà soát và loại bỏ các key legacy ra khỏi hệ thống
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Rà soát toàn bộ dự án để loại bỏ hoặc đánh dấu deprecate các key legacy (`lamp_pwm_cycle_s`, `lamp_min_on_s`, `ke_temp`, `ku_lamp`) trong backend và firmware interfaces.
+  - **Giải pháp:**
+    - Sử dụng các công cụ tìm kiếm (`grep_search` và lệnh `grep` terminal) rà soát toàn bộ codebase (cả NestJS backend và ESP32 firmware).
+    - Xác nhận các key legacy trên hoàn toàn không xuất hiện ở bất cứ file code nguồn nào trong dự án hiện tại (chúng chỉ nằm trong các file markdown mô tả kế hoạch).
+    - Duy trì triết lý gọn nhẹ, không đưa TPC/PWM hay các key legacy này trở lại contract, và đảm bảo không tạo ra API mồ côi.
+  - **Tự kiểm tra:**
+    - Chạy thành công toàn bộ suite test của backend bằng lệnh `pnpm test` (150/150 tests pass).
+    - Xác minh hệ thống hoạt động ổn định và các interface sạch sẽ, không có nợ kỹ thuật liên quan đến TPC/PWM cũ.
+
 ## [2026-07-21T10:26:30+07:00] - Task A3: Viết fixture acl.tuning.spec.ts kiểm thử MQTT ACL cho Tuning
 
 - **Trạng thái:** `[ ] QA Review`
