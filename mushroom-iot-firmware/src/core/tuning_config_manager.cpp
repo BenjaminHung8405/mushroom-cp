@@ -14,7 +14,10 @@ namespace storage {
 namespace {
 constexpr uint32_t TUNING_NVS_VERSION = 2;
 constexpr uint8_t TUNING_NVS_PENDING_COMMIT = 1;
-constexpr uint8_t TUNING_NVS_COMMITTED = 2;
+// READY_DISPATCH is fully durable and boot-hydrateable. It is written before
+// the Core 0 -> Core 1 handoff so a failed NVS finalization can never expose a
+// rejected candidate to the relay loop.
+constexpr uint8_t TUNING_NVS_READY_DISPATCH = 2;
 
 struct NvsSlots {
     TuningNvsRecord records[2];
@@ -38,7 +41,7 @@ bool isValidRecord(const TuningNvsRecord& record)
 {
     return record.version == TUNING_NVS_VERSION &&
            (record.commit_state == TUNING_NVS_PENDING_COMMIT ||
-            record.commit_state == TUNING_NVS_COMMITTED) &&
+            record.commit_state == TUNING_NVS_READY_DISPATCH) &&
            calculateRecordCrc(record) == record.crc32;
 }
 
@@ -54,8 +57,8 @@ void readNvsSlots(Preferences& prefs, NvsSlots& slots)
 
 int newestCommittedSlot(const NvsSlots& slots)
 {
-    const bool committed0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_COMMITTED;
-    const bool committed1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_COMMITTED;
+    const bool committed0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_READY_DISPATCH;
+    const bool committed1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_READY_DISPATCH;
     if (committed0 && committed1)
         return slots.records[0].generation >= slots.records[1].generation ? 0 : 1;
     return committed0 ? 0 : committed1 ? 1 : -1;
@@ -63,7 +66,7 @@ int newestCommittedSlot(const NvsSlots& slots)
 
 int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, uint8_t commit_state)
 {
-    if (commit_state == TUNING_NVS_COMMITTED) {
+    if (commit_state == TUNING_NVS_READY_DISPATCH) {
         const bool pending0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_PENDING_COMMIT &&
                               std::memcmp(&slots.records[0].params, &params, sizeof(params)) == 0;
         const bool pending1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_PENDING_COMMIT &&
@@ -78,7 +81,7 @@ int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, ui
 
 uint32_t generationForWrite(const NvsSlots& slots, int slot, uint8_t commit_state)
 {
-    if (commit_state == TUNING_NVS_COMMITTED) return slots.records[slot].generation;
+    if (commit_state == TUNING_NVS_READY_DISPATCH) return slots.records[slot].generation;
     const uint32_t gen0 = slots.valid[0] ? slots.records[0].generation : 0;
     const uint32_t gen1 = slots.valid[1] ? slots.records[1].generation : 0;
     return (gen0 > gen1 ? gen0 : gen1) + 1;
@@ -142,6 +145,7 @@ void TuningConfigManager::unlock() {
 
 bool TuningConfigManager::init() {
     lock();
+    _has_pending_dispatch = false;
     DynamicTuningParams loaded;
     if (loadFromNvs(loaded)) {
         _active_params = loaded;
@@ -172,7 +176,7 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         reason = TuningReason::NO_CHANGE;
         result = TuningResult::DUPLICATE;
     } else if (validation == TuningReason::OK) {
-        result = stageDispatchAndCommit(incoming_params, reason);
+        result = persistThenDispatch(incoming_params, reason);
     }
     unlock();
     return result;
@@ -185,6 +189,20 @@ DynamicTuningParams TuningConfigManager::getActiveParams() {
     return copy;
 }
 
+bool TuningConfigManager::retryPendingDispatch(DynamicTuningParams& dispatched_params) {
+    lock();
+    if (!_has_pending_dispatch || g_tuning_config_queue == nullptr ||
+        xQueueOverwrite(g_tuning_config_queue, &_pending_params) != pdTRUE) {
+        unlock();
+        return false;
+    }
+    _active_params = _pending_params;
+    _has_pending_dispatch = false;
+    dispatched_params = _active_params;
+    unlock();
+    return true;
+}
+
 void TuningConfigManager::resetForTest() {
     lock();
     std::memset(&_active_params, 0, sizeof(_active_params));
@@ -193,6 +211,8 @@ void TuningConfigManager::resetForTest() {
     _active_params.mist_gain_scale = 1.0f;
     _active_params.mist_on_threshold = 0.25f;
     _active_params.mist_off_threshold = 0.15f;
+    std::memset(&_pending_params, 0, sizeof(_pending_params));
+    _has_pending_dispatch = false;
     _initialized = false;
     unlock();
 }
@@ -243,28 +263,31 @@ TuningReason TuningConfigManager::parseConfig(const JsonVariant& config, Dynamic
     return TuningReason::OK;
 }
 
-TuningResult TuningConfigManager::stageDispatchAndCommit(const DynamicTuningParams& incoming, TuningReason& reason) {
+TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason) {
     if (!writeRecord(incoming, TUNING_NVS_PENDING_COMMIT)) {
         reason = TuningReason::NVS_WRITE_ERROR;
         return TuningResult::REJECTED;
     }
-    // PENDING is deliberately non-hydrateable. Queue failure therefore cannot
-    // make a rejected candidate durable across a reboot.
-    if (g_tuning_config_queue == nullptr || xQueueOverwrite(g_tuning_config_queue, &incoming) != pdTRUE) {
-        reason = TuningReason::QUEUE_FULL_ERROR;
-        return TuningResult::REJECTED;
-    }
-    // A failed finalization must return REJECTED. The command was handed off,
-    // so immediately restore Core 1's prior effective value before returning.
+    // Do not publish to Core 1 until the final durable record has been
+    // read-back verified. This is the transaction barrier that prevents a
+    // rejected command from influencing even one relay-control tick.
     if (!saveToNvs(incoming)) {
-        const bool restored = g_tuning_config_queue != nullptr &&
-                              xQueueOverwrite(g_tuning_config_queue, &_active_params) == pdTRUE;
-        reason = restored ? TuningReason::NVS_WRITE_ERROR : TuningReason::QUEUE_FULL_ERROR;
+        reason = TuningReason::NVS_WRITE_ERROR;
         return TuningResult::REJECTED;
     }
-    _active_params = incoming;
-    reason = TuningReason::OK;
-    return TuningResult::ACCEPTED;
+    _pending_params = incoming;
+    _has_pending_dispatch = true;
+    if (g_tuning_config_queue != nullptr &&
+        xQueueOverwrite(g_tuning_config_queue, &_pending_params) == pdTRUE) {
+        _active_params = _pending_params;
+        _has_pending_dispatch = false;
+        reason = TuningReason::OK;
+        return TuningResult::ACCEPTED;
+    }
+    // Persistence succeeded, so this command is not rejected. Core 0 retains
+    // the durable candidate and retries it; boot also hydrates READY_DISPATCH.
+    reason = TuningReason::QUEUE_FULL_ERROR;
+    return TuningResult::PENDING;
 }
 
 uint32_t TuningConfigManager::calculateCRC32(const uint8_t *data, size_t length) {
@@ -298,7 +321,7 @@ bool TuningConfigManager::loadFromNvs(DynamicTuningParams& out_params) {
 }
 
 bool TuningConfigManager::saveToNvs(const DynamicTuningParams& params) {
-    return writeRecord(params, TUNING_NVS_COMMITTED);
+    return writeRecord(params, TUNING_NVS_READY_DISPATCH);
 }
 
 bool TuningConfigManager::writeRecord(const DynamicTuningParams& params, uint8_t commit_state) {

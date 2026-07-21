@@ -16,7 +16,8 @@ namespace storage {
 enum class TuningResult : uint8_t {
     ACCEPTED = 0,
     REJECTED = 1,
-    DUPLICATE = 2
+    DUPLICATE = 2,
+    PENDING = 3
 };
 
 /**
@@ -53,11 +54,12 @@ public:
     /**
      * @brief Process a desired tuning JSON command.
      * Validates schema, device ID, bounds, UUID, and does semantic diff.
-     * If valid, stages NVS, hands off to Core 1, then finalizes the durable
-     * commit marker. Pending records are never adopted during boot.
+     * If valid, stages and durably finalizes NVS before handing off to Core 1.
+     * A durable command whose handoff is temporarily unavailable returns
+     * PENDING and is retried by Core 0; rejected commands are never queued.
      * @param doc The parsed JSON object/variant.
      * @param reason Out parameter to receive the detail reason.
-     * @return TuningResult ACCEPTED, REJECTED, or DUPLICATE.
+     * @return TuningResult ACCEPTED, REJECTED, DUPLICATE, or PENDING.
      */
     TuningResult processCommand(const JsonVariant& doc, TuningReason& reason);
 
@@ -69,6 +71,13 @@ public:
     DynamicTuningParams getActiveParams();
 
     /**
+     * @brief Retry a durable tuning handoff that previously returned PENDING.
+     * @param dispatched_params Receives the newly adopted params on success.
+     * @return true only when Core 1 has received the durable params.
+     */
+    bool retryPendingDispatch(DynamicTuningParams& dispatched_params);
+
+    /**
      * @brief Reset manager state (mainly for unit tests isolation).
      */
     void resetForTest();
@@ -78,7 +87,9 @@ private:
     ~TuningConfigManager() = default;
 
     DynamicTuningParams _active_params;
+    DynamicTuningParams _pending_params;
     bool _initialized = false;
+    bool _has_pending_dispatch = false;
 
 #ifndef UNIT_TEST
     void* _mutex = nullptr;
@@ -92,7 +103,7 @@ private:
     TuningReason validateCommandEnvelope(const JsonVariant& doc, const char*& command_id,
                                          uint32_t& revision);
     TuningReason parseConfig(const JsonVariant& config, DynamicTuningParams& out_params);
-    TuningResult stageDispatchAndCommit(const DynamicTuningParams& incoming, TuningReason& reason);
+    TuningResult persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
     bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);

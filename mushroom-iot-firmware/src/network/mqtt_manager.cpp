@@ -38,6 +38,7 @@ const char* tuningStatusName(storage::TuningResult result)
     switch (result) {
     case storage::TuningResult::ACCEPTED: return "ACCEPTED";
     case storage::TuningResult::DUPLICATE: return "DUPLICATE";
+    case storage::TuningResult::PENDING: return "PENDING";
     case storage::TuningResult::REJECTED: return "REJECTED";
     }
     return "REJECTED";
@@ -287,6 +288,14 @@ void MqttManager::loop()
         return;
     }
     maintainLoop();
+    if (client_.connected() && provisioned_) {
+        DynamicTuningParams dispatched{};
+        if (storage::TuningConfigManager::getInstance().retryPendingDispatch(dispatched)) {
+            publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                  storage::TuningResult::ACCEPTED,
+                                  storage::TuningReason::OK, dispatched.command_id);
+        }
+    }
 }
 
 void MqttManager::maintainLoop()
@@ -1224,6 +1233,12 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         const storage::TuningResult result =
             storage::TuningConfigManager::getInstance().processCommand(
                 document.as<JsonVariant>(), reason);
+        // A durable command with a temporarily unavailable handoff remains
+        // pending locally. Do not emit a terminal acknowledgement until the
+        // retry path has actually overwritten the Core-1 queue.
+        if (result == storage::TuningResult::PENDING) {
+            return;
+        }
         if (!publishTuningReported(client_, provisioned_, tenant_, device_id_,
                                    result, reason, command_id)) {
             Serial.println("[MQTT] Failed to publish tuning reported acknowledgement.");

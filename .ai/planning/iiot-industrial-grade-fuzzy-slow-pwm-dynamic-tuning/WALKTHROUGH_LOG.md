@@ -1,3 +1,20 @@
+## [2026-07-21T18:56:37+07:00] - Task C1–C7, D1–D4: Khắc phục QA Review lần 2 (NVS/Queue transaction)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Nguyên nhân gốc: `xQueueOverwrite()` candidate chạy trước durable NVS finalization; Core 1 có thể dequeue/adopt candidate trước khi command bị resolve `REJECTED` khi finalization lỗi.
+  - Transaction nay là `PENDING record → durable READY_DISPATCH record + CRC/readback → xQueueOverwrite`. Do đó command `REJECTED/NVS_WRITE_ERROR` không bao giờ đi vào queue/Core 1. Nếu handoff tạm thời lỗi sau durable commit, command ở trạng thái nội bộ `PENDING`, được Core 0 retry có kiểm soát, và terminal `ACCEPTED` chỉ publish sau retry handoff thành công.
+  - Bổ sung fault-injection interleaving hook mô phỏng Core 1 dequeue ngay tại queue overwrite cùng lỗi NVS finalization; regression chứng minh candidate bị reject không thể được adopt dù một tick.
+  - Đã chạy: firmware host suite (`g++ -std=c++17 -DUNIT_TEST ...` → `--- All Unit Tests Passed Successfully! ---`), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `git diff --check` (sạch).
+
 ## [2026-07-21T18:39:04+07:00] - Task A1–A5, B1–B3, C1–C7, D1–D4, E1–E6: Khắc phục QA Review lần 2
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

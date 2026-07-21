@@ -365,6 +365,7 @@ inline QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemS
 }
 
 extern void (*mock_queue_send_hook)(QueueHandle_t, const void*);
+extern void (*mock_queue_overwrite_hook)(QueueHandle_t, const void*);
 extern bool mock_fail_queue_overwrite;
 extern bool mock_fail_queue_send;
 
@@ -390,6 +391,9 @@ inline BaseType_t xQueueOverwrite(QueueHandle_t xQueue, const void* pvItemToQueu
     std::vector<uint8_t> buf(q->item_size);
     std::memcpy(buf.data(), pvItemToQueue, q->item_size);
     q->items.push(std::move(buf));
+    if (mock_queue_overwrite_hook != nullptr) {
+        mock_queue_overwrite_hook(xQueue, pvItemToQueue);
+    }
     return pdTRUE;
 }
 

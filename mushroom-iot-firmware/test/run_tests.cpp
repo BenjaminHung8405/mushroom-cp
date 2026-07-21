@@ -70,8 +70,11 @@ void initQueues();
 void initSemaphores();
 
 void (*mock_queue_send_hook)(QueueHandle_t, const void*) = nullptr;
+void (*mock_queue_overwrite_hook)(QueueHandle_t, const void*) = nullptr;
 bool mock_fail_queue_overwrite = false;
 bool mock_fail_queue_send = false;
+bool mock_core1_adopted_tuning_candidate = false;
+bool mock_drain_tuning_overwrite = false;
 
 int main() {
     mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
@@ -686,10 +689,26 @@ int main() {
         assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
 
         // Fault injection: final NVS commit fails after the PENDING stage.
-        // Core 1 must never receive or apply this rejected candidate.
+        // Simulate Core 1 draining any queue overwrite immediately. The
+        // rejected candidate must never reach this hook, even for one tick.
         const DynamicTuningParams previous = tuning.getActiveParams();
         DynamicTuningParams discarded{};
         while (xQueueReceive(g_tuning_config_queue, &discarded, 0) == pdTRUE) {}
+        mock_core1_adopted_tuning_candidate = false;
+        void (*previous_overwrite_hook)(QueueHandle_t, const void*) = mock_queue_overwrite_hook;
+        mock_drain_tuning_overwrite = true;
+        mock_queue_overwrite_hook = [](QueueHandle_t queue, const void* item) {
+            if (queue == g_tuning_config_queue) {
+                const DynamicTuningParams* params = static_cast<const DynamicTuningParams*>(item);
+                if (params->revision == 80) {
+                    mock_core1_adopted_tuning_candidate = true;
+                }
+                if (mock_drain_tuning_overwrite) {
+                    DynamicTuningParams drained{};
+                    xQueueReceive(queue, &drained, 0);
+                }
+            }
+        };
         mqtt::NetworkMessage queue_unavailable{};
         queue_unavailable.type = mqtt::CommandType::TUNING_DESIRED;
         const char queue_unavailable_payload[] =
@@ -705,6 +724,8 @@ int main() {
         Preferences::mock_fail_put_bytes_after = writes_before_failure + 1;
         mqtt_manager.processNetworkMessage(queue_unavailable);
         Preferences::mock_fail_put_bytes_after = 0;
+        mock_queue_overwrite_hook = previous_overwrite_hook;
+        mock_drain_tuning_overwrite = false;
 
         assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
         assert(std::strcmp(reported["status"], "REJECTED") == 0);
@@ -718,12 +739,9 @@ int main() {
         assert(std::abs(active_after_failure.mist_gain_scale - previous.mist_gain_scale) < 1e-6f);
         assert(std::abs(active_after_failure.mist_on_threshold - previous.mist_on_threshold) < 1e-6f);
         assert(std::abs(active_after_failure.mist_off_threshold - previous.mist_off_threshold) < 1e-6f);
+        assert(mock_core1_adopted_tuning_candidate == false);
         DynamicTuningParams core1_candidate{};
-        // The candidate was handed off before finalization, then the failed
-        // finalization overwrote it with the prior effective configuration.
-        assert(xQueueReceive(g_tuning_config_queue, &core1_candidate, 0) == pdTRUE);
-        assert(core1_candidate.revision == previous.revision);
-        assert(std::strcmp(core1_candidate.command_id, previous.command_id) == 0);
+        assert(xQueueReceive(g_tuning_config_queue, &core1_candidate, 0) == pdFALSE);
 
         tuning.resetForTest();
         assert(tuning.init() == true);
@@ -1390,8 +1408,8 @@ int main() {
             Preferences::mock_fail_put_bytes = false;
         }
 
-        // A queue-rejected command may leave a durable PENDING stage, but boot
-        // must ignore it completely: it must never reach Core 1/relay.
+        // Once NVS is durable, a transient queue failure is PENDING rather
+        // than REJECTED. Boot may safely recover this durable command.
         {
             Preferences prefs;
             assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
@@ -1415,7 +1433,7 @@ int main() {
 
             mock_fail_queue_overwrite = true;
             storage::TuningReason reason = storage::TuningReason::OK;
-            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::REJECTED);
+            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::PENDING);
             assert(reason == storage::TuningReason::QUEUE_FULL_ERROR);
             mock_fail_queue_overwrite = false;
 
@@ -1424,9 +1442,9 @@ int main() {
             tuner.resetForTest(); // Simulate reboot before Core 1 can receive it.
             assert(tuner.init() == true);
             const DynamicTuningParams hydrated = tuner.getActiveParams();
-            assert(hydrated.revision == 0);
-            assert(std::strcmp(hydrated.command_id, "") == 0);
-            assert(std::abs(hydrated.lamp_gain_scale - 1.0f) < 0.0001f);
+            assert(hydrated.revision == 5);
+            assert(std::strcmp(hydrated.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            assert(std::abs(hydrated.lamp_gain_scale - 1.15f) < 0.0001f);
         }
 
         // Cleanup
