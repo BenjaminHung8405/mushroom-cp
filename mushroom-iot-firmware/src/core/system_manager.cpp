@@ -139,6 +139,17 @@ void initQueues()
                       static_cast<unsigned>(sizeof(PersistedCropProfile)));
     }
 
+    g_tuning_config_queue = xQueueCreate(1, sizeof(DynamicTuningParams));
+    if (g_tuning_config_queue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create g_tuning_config_queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] g_tuning_config_queue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(DynamicTuningParams)));
+    }
+
     mqtt::g_network_worker_queue = xQueueCreate(16, sizeof(mqtt::NetworkMessage));
     if (mqtt::g_network_worker_queue == nullptr)
     {

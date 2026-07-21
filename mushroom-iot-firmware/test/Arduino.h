@@ -61,6 +61,13 @@ public:
     bool endsWith(const String& suffix) const {
         return endsWith(suffix.c_str());
     }
+    bool equals(const char* other) const {
+        if (!other) return _str.empty();
+        return _str == other;
+    }
+    bool equals(const String& other) const {
+        return _str == other._str;
+    }
     void clear() { _str.clear(); }
 
     bool operator==(const char* other) const { return _str == other; }

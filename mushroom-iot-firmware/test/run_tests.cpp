@@ -740,6 +740,7 @@ int main() {
     assert(sizeof(TuningNvsRecord) == 72);
     assert(alignof(DynamicTuningParams) == 4);
     assert(alignof(TuningNvsRecord) == 4);
+    assert(g_tuning_config_queue != nullptr);
 
     // TuningConfigManager API and Singleton Checks (Task C3 & C4)
     Serial.println("[TEST] Starting Task C3/C4 - TuningConfigManager Singleton, Validation and Public API Unit Tests...");
@@ -764,7 +765,7 @@ int main() {
 
         // Case 1: Valid payload
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
             doc["device_id"] = "mushroom_s3_unittest";
@@ -777,6 +778,9 @@ int main() {
             
             storage::TuningReason reason = storage::TuningReason::OUT_OF_BOUNDS;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            if (result != storage::TuningResult::ACCEPTED) {
+                std::printf("[DEBUG] processCommand failed: result = %d, reason = %d\n", (int)result, (int)reason);
+            }
             assert(result == storage::TuningResult::ACCEPTED);
             assert(reason == storage::TuningReason::OK);
             
@@ -791,7 +795,7 @@ int main() {
 
         // Case 2: Invalid schema version
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 2; // invalid version
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
             doc["device_id"] = "mushroom_s3_unittest";
@@ -810,7 +814,7 @@ int main() {
 
         // Case 3: Invalid device ID
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
             doc["device_id"] = "wrong_device_id";
@@ -829,7 +833,7 @@ int main() {
 
         // Case 4: Invalid UUID format
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-invalid-uuid-format"; // invalid uuid
             doc["device_id"] = "mushroom_s3_unittest";
@@ -848,7 +852,7 @@ int main() {
 
         // Case 5: Out of bounds (too high)
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
             doc["device_id"] = "mushroom_s3_unittest";
@@ -867,7 +871,7 @@ int main() {
 
         // Case 6: Cross-field violation (mist_off >= mist_on)
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
             doc["device_id"] = "mushroom_s3_unittest";
@@ -875,8 +879,8 @@ int main() {
             JsonObject config = doc.createNestedObject("config");
             config["lamp_gain_scale"] = 1.1f;
             config["mist_gain_scale"] = 0.9f;
-            config["mist_on_threshold"] = 0.25f;
-            config["mist_off_threshold"] = 0.25f; // must be < mist_on
+            config["mist_on_threshold"] = 0.20f;
+            config["mist_off_threshold"] = 0.20f; // must be < mist_on
             
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
@@ -886,7 +890,7 @@ int main() {
 
         // Case 7: Duplicate UUID command_id
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264"; // same UUID as Case 1
             doc["device_id"] = "mushroom_s3_unittest";
@@ -905,7 +909,7 @@ int main() {
 
         // Case 8: Semantic diff = false (parameters same as Case 1, new UUID)
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215266"; // new UUID
             doc["device_id"] = "mushroom_s3_unittest";
@@ -930,7 +934,7 @@ int main() {
 
         // Case 9: NaN value rejection
         {
-            StaticJsonDocument<256> doc;
+            StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215267";
             doc["device_id"] = "mushroom_s3_unittest";
@@ -963,6 +967,212 @@ int main() {
         assert(static_cast<uint8_t>(storage::TuningReason::QUEUE_FULL_ERROR) == 9);
     }
 
+    // Task C5 - TuningConfigManager NVS Two-Slot Persistence & Crash Consistency Tests
+    Serial.println("[TEST] Starting Task C5 - TuningConfigManager NVS Two-Slot Persistence & Crash Consistency Unit Tests...");
+    {
+        storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+
+        // 1. Reset storage and verify init loaded default state
+        tuner.resetForTest();
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+        }
+
+        // Init on empty NVS should succeed (returns true) and set defaults
+        assert(tuner.init() == true);
+        DynamicTuningParams params = tuner.getActiveParams();
+        assert(params.revision == 0);
+        assert(std::strcmp(params.command_id, "") == 0);
+        assert(std::abs(params.lamp_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(params.mist_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(params.mist_on_threshold - 0.25f) < 0.0001f);
+        assert(std::abs(params.mist_off_threshold - 0.15f) < 0.0001f);
+
+        // 2. Send command 1 -> should write to Slot 0
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215261";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 1;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+
+            // Verify slot 0 is written, slot 1 is empty
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, true) == true);
+            TuningNvsRecord r0, r1;
+            size_t read0 = prefs.getBytes("tune_s0", &r0, sizeof(TuningNvsRecord));
+            size_t read1 = prefs.getBytes("tune_s1", &r1, sizeof(TuningNvsRecord));
+            prefs.end();
+
+            assert(read0 == sizeof(TuningNvsRecord));
+            assert(read1 == 0);
+            assert(r0.generation == 1);
+            assert(r0.version == 1);
+            assert(std::strcmp(r0.params.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215261") == 0);
+        }
+
+        // 3. Send command 2 -> should write to Slot 1 (wear leveling / select empty slot)
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215262";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.2f;
+            config["mist_gain_scale"] = 0.8f;
+            config["mist_on_threshold"] = 0.30f;
+            config["mist_off_threshold"] = 0.20f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+
+            // Verify both slots written
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, true) == true);
+            TuningNvsRecord r0, r1;
+            size_t read0 = prefs.getBytes("tune_s0", &r0, sizeof(TuningNvsRecord));
+            size_t read1 = prefs.getBytes("tune_s1", &r1, sizeof(TuningNvsRecord));
+            prefs.end();
+
+            assert(read0 == sizeof(TuningNvsRecord));
+            assert(read1 == sizeof(TuningNvsRecord));
+            assert(r0.generation == 1);
+            assert(r1.generation == 2);
+            assert(std::strcmp(r1.params.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215262") == 0);
+        }
+
+        // 4. Send command 3 -> should overwrite Slot 0 (since gen0=1 <= gen1=2)
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215263";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 3;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.0f;
+            config["mist_gain_scale"] = 1.1f;
+            config["mist_on_threshold"] = 0.26f;
+            config["mist_off_threshold"] = 0.16f;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+
+            // Verify slot 0 has generation 3, slot 1 has generation 2
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, true) == true);
+            TuningNvsRecord r0, r1;
+            assert(prefs.getBytes("tune_s0", &r0, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+            assert(prefs.getBytes("tune_s1", &r1, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+            prefs.end();
+
+            assert(r0.generation == 3);
+            assert(r1.generation == 2);
+            assert(std::strcmp(r0.params.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215263") == 0);
+        }
+
+        // 5. Test boot hydration: reset tuner, init, should load generation 3
+        {
+            tuner.resetForTest();
+            assert(tuner.init() == true);
+            DynamicTuningParams active = tuner.getActiveParams();
+            assert(active.revision == 3);
+            assert(std::strcmp(active.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215263") == 0);
+            assert(std::abs(active.lamp_gain_scale - 1.0f) < 0.0001f);
+        }
+
+        // 6. Test single-slot corruption recovery (corrupt Slot 0 CRC32, should fall back to Slot 1 / gen 2)
+        {
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                TuningNvsRecord r0;
+                assert(prefs.getBytes("tune_s0", &r0, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+                r0.crc32 = 0xDEADBEEF; // corrupt
+                assert(prefs.putBytes("tune_s0", &r0, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+                prefs.end();
+            }
+
+            tuner.resetForTest();
+            assert(tuner.init() == true);
+            DynamicTuningParams active = tuner.getActiveParams();
+            // Should recover from Slot 1 (gen 2)
+            assert(active.revision == 2);
+            assert(std::strcmp(active.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215262") == 0);
+            assert(std::abs(active.lamp_gain_scale - 1.2f) < 0.0001f);
+        }
+
+        // 7. Test both-slot corruption recovery (corrupt Slot 1 too, should fall back to safe defaults)
+        {
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                TuningNvsRecord r1;
+                assert(prefs.getBytes("tune_s1", &r1, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+                r1.crc32 = 0xDEADBEEF; // corrupt
+                assert(prefs.putBytes("tune_s1", &r1, sizeof(TuningNvsRecord)) == sizeof(TuningNvsRecord));
+                prefs.end();
+            }
+
+            tuner.resetForTest();
+            assert(tuner.init() == true);
+            DynamicTuningParams active = tuner.getActiveParams();
+            // Should fallback to safe defaults
+            assert(active.revision == 0);
+            assert(std::strcmp(active.command_id, "") == 0);
+            assert(std::abs(active.lamp_gain_scale - 1.0f) < 0.0001f);
+        }
+
+        // 8. Test NVS write failure propagation
+        {
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215265";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 4;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+
+            // Trigger write failure
+            Preferences::mock_fail_put_bytes = true;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::NVS_WRITE_ERROR);
+
+            // Clean up failure mock state
+            Preferences::mock_fail_put_bytes = false;
+        }
+
+        // Cleanup
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+        }
+        tuner.resetForTest();
+    }
 
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");

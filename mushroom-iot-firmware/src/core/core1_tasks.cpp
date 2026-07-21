@@ -43,6 +43,7 @@ QueueHandle_t g_mqtt_override_queue = nullptr; // deprecated compatibility only
 QueueHandle_t g_manual_ack_queue = nullptr;
 QueueHandle_t g_operating_mode_ack_queue = nullptr;
 QueueHandle_t g_profile_update_queue = nullptr;
+QueueHandle_t g_tuning_config_queue = nullptr;
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 bool enqueueControlEvent(const ControlEvent& event)

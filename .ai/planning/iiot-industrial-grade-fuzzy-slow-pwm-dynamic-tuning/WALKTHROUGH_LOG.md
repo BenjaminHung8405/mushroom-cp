@@ -2,6 +2,29 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:22:00+07:00] - Task C5: Hiện thực đọc/ghi NVS two-slot, verify CRC/readback, wear-level slot và fallback defaults
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [tuning_config_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.h)
+  - Sửa đổi: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Thực hiện đọc/ghi thông số dynamic tuning theo cơ chế double-buffered (two-slot) NVS dưới namespace `"mushroom_cfg"` sử dụng các key `"tune_s0"` và `"tune_s1"`. Bảo đảm tính toàn vẹn và chống lỗi flash (crash consistency, wear leveling, corrupt recovery).
+  - **Giải pháp:**
+    - Hiện thực helper `calculateCRC32` bằng giải thuật CRC32 chuẩn không bảng.
+    - Hiện thực `loadFromNvs` đọc cả hai slot, xác minh layout version (phải là 1) và khớp CRC32. Chọn slot hợp lệ có generation lớn nhất. Nếu cả hai slot lỗi hoặc trống, khôi phục từ safe defaults.
+    - Hiện thực `saveToNvs` để thực hiện ghi thông số mới. Hàm kiểm tra trạng thái hai slot hiện tại để tính toán generation tiếp theo (`max(gen0, gen1) + 1`) và lựa chọn ghi vào slot có generation thấp hơn hoặc bị hỏng (wear leveling).
+    - Thực hiện readback verification ngay sau khi ghi và so sánh CRC32 / generation. Hoạt động ghi chỉ thành công nếu readback khớp hoàn toàn.
+    - Cập nhật active RAM state (`_active_params`) chỉ sau khi ghi NVS thành công để bảo toàn crash consistency.
+    - Sửa đổi mock `String` trong [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h) để hỗ trợ phương thức `equals()`.
+    - Tăng dung lượng `StaticJsonDocument` từ 256 lên 512 bytes trong các test case của [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) để phòng ngừa lỗi cấp phát bộ nhớ JSON trên nền tảng 64-bit.
+    - Điều chỉnh dữ liệu test Case 6 từ `mist_on=0.25f, mist_off=0.25f` thành `0.20f, 0.20f` để không vi phạm bounds độc lập của `mist_off_threshold` `[0.10f, 0.20f]` và kích hoạt đúng lỗi cross-field mong muốn.
+  - **Tự kiểm tra:**
+    - Biên dịch và chạy toàn bộ unit test thành công 100%: `--- All Unit Tests Passed Successfully! ---` trên macOS.
+
 ## [2026-07-21T11:13:30+07:00] - Task C4: Triển khai validation schema, provisioned device ID, UUID, bounds, cross-field, duplicate và semantic diff
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
