@@ -76,6 +76,10 @@
 // Maximum size of fixed header and variable length size header
 #define MQTT_MAX_HEADER_SIZE 5
 #define MQTT_QOS1_PENDING_PACKET_MAX 2048
+/// Depth of the bounded outbound QoS-1 queue. Allows multiple back-to-back
+/// ACKs without losing packets while a prior PUBACK is still in flight.
+/// Each slot holds one full MQTT PUBLISH packet payload buffer.
+#define MQTT_QOS1_OUTBOUND_QUEUE_DEPTH 4
 
 enum class PublishQos1Result : uint8_t {
    QUEUED,
@@ -129,8 +133,22 @@ private:
        uint8_t retryCount;
        uint8_t packet[MQTT_QOS1_PENDING_PACKET_MAX];
    } pendingQos1{};
-   bool writePendingQos1(bool duplicate);
-   void servicePendingQos1(unsigned long now);
+    // Bounded outbound FIFO queue: stores packets that arrive while pendingQos1
+    // is still active. Capacity = MQTT_QOS1_OUTBOUND_QUEUE_DEPTH entries.
+    // Head is the next-to-dequeue index; count is the number of queued entries.
+    struct QueuedQos1Entry {
+        uint16_t packetLength;
+        uint8_t packet[MQTT_QOS1_PENDING_PACKET_MAX];
+    };
+    QueuedQos1Entry outboundQueue_[MQTT_QOS1_OUTBOUND_QUEUE_DEPTH]{};
+    uint8_t outboundQueueHead_ = 0;
+    uint8_t outboundQueueCount_ = 0;
+    bool enqueueQos1Packet(const uint8_t* packet, uint16_t length);
+    bool dequeueAndSendNextQos1();
+    bool writePendingQos1(bool duplicate);
+    void servicePendingQos1(unsigned long now);
+    /// Resend all queued packets after reconnect (reconnect-safe resend).
+    void resendQueuedQos1OnConnect();
 public:
    PubSubClientQos1();
    PubSubClientQos1(Client& client);

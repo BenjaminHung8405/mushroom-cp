@@ -98,15 +98,26 @@ bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
     const String topic = tenant + "/esp32/" + device_id + "/up/tuning/reported";
 
     // QUEUED means transport accepted the packet for asynchronous PUBACK
-    // tracking; it never claims that the broker already acknowledged it.
+    // tracking (either immediate-slot or FIFO-buffered); it never claims the
+    // broker already acknowledged it.
 #ifdef UNIT_TEST
     return client.publishQos1(topic.c_str(),
                               reinterpret_cast<const uint8_t*>(payload.c_str()),
                               payload.length(), false);
 #else
-    return client.publishQos1(topic.c_str(),
-                              reinterpret_cast<const uint8_t*>(payload.c_str()),
-                              payload.length(), false) == PublishQos1Result::QUEUED;
+    const PublishQos1Result r = client.publishQos1(
+        topic.c_str(),
+        reinterpret_cast<const uint8_t*>(payload.c_str()),
+        payload.length(), false);
+    if (r == PublishQos1Result::BUSY) {
+        // All MQTT_QOS1_OUTBOUND_QUEUE_DEPTH slots are full — this ACK is lost.
+        // The backend shadow will see no reported ACK for this command; the
+        // device should reconnect and broker will redeliver any retained desired.
+        Serial.println("[MQTT] WARNING: outbound QoS-1 queue full; ACK dropped. "
+                       "Consider increasing MQTT_QOS1_OUTBOUND_QUEUE_DEPTH.");
+        return false;
+    }
+    return r == PublishQos1Result::QUEUED;
 #endif
 }
 

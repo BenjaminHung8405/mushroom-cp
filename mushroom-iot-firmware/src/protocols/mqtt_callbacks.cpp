@@ -11,7 +11,7 @@ namespace mqtt {
 namespace {
 
 constexpr size_t MAX_TUNING_DESIRED_TOPIC_BYTES = 160;
-constexpr EventBits_t TUNING_QUEUE_OVERFLOW_EVENT = BIT0;
+constexpr EventBits_t TUNING_QUEUE_OVERFLOW_EVENT = (1 << 0);
 char expected_tuning_desired_topic[MAX_TUNING_DESIRED_TOPIC_BYTES]{};
 size_t expected_tuning_desired_topic_length = 0;
 EventGroupHandle_t tuning_callback_events = nullptr;

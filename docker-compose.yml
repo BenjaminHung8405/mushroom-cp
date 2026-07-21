@@ -106,7 +106,7 @@ services:
       - INFLUXDB_URL=http://mushroom-influxdb:8086
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
       - INFLUXDB_ORG=${INFLUXDB_ORG:-mushroom}
-      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-mushroom_iot}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:?INFLUXDB_BUCKET is required}
       - INFLUXDB_ANALYTICS_BUCKET=${INFLUXDB_ANALYTICS_BUCKET:?INFLUXDB_ANALYTICS_BUCKET is required}
     depends_on:
       mushroom-db:

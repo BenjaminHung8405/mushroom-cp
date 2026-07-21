@@ -280,6 +280,8 @@ boolean PubSubClientQos1::connect(const char *id, const char *user, const char *
                         _client->stop();
                         return false;
                     }
+                    // Resend next queued entry if active slot was empty.
+                    resendQueuedQos1OnConnect();
                     return true;
                 } else {
                     _state = buffer[3];
@@ -435,6 +437,8 @@ boolean PubSubClientQos1::loop() {
                             pendingQos1.active = false;
                             pendingQos1.packetLength = 0;
                             pendingQos1.retryCount = 0;
+                            // Drain the next queued QoS-1 publish if any.
+                            dequeueAndSendNextQos1();
                         }
                     }
                 } else if (type == MQTTPINGREQ) {
@@ -497,7 +501,56 @@ PublishQos1Result PubSubClientQos1::publishQos1(const char* topic, const uint8_t
                                                  unsigned int plength, boolean retained) {
     if (!connected()) return PublishQos1Result::NOT_CONNECTED;
     if (topic == NULL || (payload == NULL && plength > 0)) return PublishQos1Result::INVALID_ARGUMENT;
-    if (pendingQos1.active) return PublishQos1Result::BUSY;
+    if (pendingQos1.active) {
+        // Active slot is still waiting for PUBACK. Buffer this publish in the
+        // outbound FIFO so it is sent as soon as the active slot is cleared.
+        // Build the on-wire packet now (without transmitting) and store it.
+        const size_t topicLen = strnlen(topic, this->bufferSize);
+        if (topicLen == 0 || topicLen == this->bufferSize) return PublishQos1Result::INVALID_ARGUMENT;
+        const uint32_t remainingLength = 2U + topicLen + 2U + plength;
+        if (remainingLength > 268435455UL) return PublishQos1Result::INVALID_ARGUMENT;
+
+        uint8_t tmpEncodedLen[4];
+        uint8_t tmpEncodedBytes = 0;
+        uint32_t tmpRemaining = remainingLength;
+        do {
+            uint8_t byte = tmpRemaining & 127U;
+            tmpRemaining /= 128U;
+            if (tmpRemaining > 0) byte |= 0x80U;
+            tmpEncodedLen[tmpEncodedBytes++] = byte;
+        } while (tmpRemaining > 0 && tmpEncodedBytes < sizeof(tmpEncodedLen));
+
+        const uint32_t packetLength = 1U + tmpEncodedBytes + remainingLength;
+        if (packetLength > MQTT_QOS1_PENDING_PACKET_MAX || packetLength > this->bufferSize) {
+            return PublishQos1Result::INVALID_ARGUMENT;
+        }
+
+        // Build packet in a temporary buffer using a placeholder message ID (0x00 0x00).
+        // The real message ID will be assigned when the entry is dequeued.
+        uint8_t tmpPacket[MQTT_QOS1_PENDING_PACKET_MAX];
+        uint16_t pos = 0;
+        uint8_t header = MQTTPUBLISH | MQTTQOS1;
+        if (retained) header |= 1U;
+        tmpPacket[pos++] = header;
+        for (uint8_t i = 0; i < tmpEncodedBytes; ++i) tmpPacket[pos++] = tmpEncodedLen[i];
+        tmpPacket[pos++] = static_cast<uint8_t>(topicLen >> 8);
+        tmpPacket[pos++] = static_cast<uint8_t>(topicLen & 0xFF);
+        memcpy(tmpPacket + pos, topic, topicLen);
+        pos += topicLen;
+        // Placeholder message ID; patched in dequeueAndSendNextQos1.
+        tmpPacket[pos++] = 0x00;
+        tmpPacket[pos++] = 0x00;
+        if (plength > 0) memcpy(tmpPacket + pos, payload, plength);
+        pos += plength;
+
+        if (!enqueueQos1Packet(tmpPacket, pos)) {
+            // Queue is full — all slots occupied. This is a bounded drop: the caller
+            // (MqttManager) should log and handle accordingly.
+            return PublishQos1Result::BUSY;
+        }
+        // Successfully buffered; caller treats this as QUEUED.
+        return PublishQos1Result::QUEUED;
+    }
 
     const size_t topicLength = strnlen(topic, this->bufferSize);
     if (topicLength == 0 || topicLength == this->bufferSize) return PublishQos1Result::INVALID_ARGUMENT;
@@ -569,6 +622,83 @@ void PubSubClientQos1::servicePendingQos1(unsigned long now) {
     }
     writePendingQos1(true);
     ++pendingQos1.retryCount;
+}
+
+// ---------------------------------------------------------------------------
+// Bounded outbound FIFO queue helpers
+// ---------------------------------------------------------------------------
+
+bool PubSubClientQos1::enqueueQos1Packet(const uint8_t* packet, uint16_t length) {
+    if (outboundQueueCount_ >= MQTT_QOS1_OUTBOUND_QUEUE_DEPTH) return false; // queue full
+    if (length == 0 || length > MQTT_QOS1_PENDING_PACKET_MAX) return false;
+    const uint8_t tail = (outboundQueueHead_ + outboundQueueCount_) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
+    memcpy(outboundQueue_[tail].packet, packet, length);
+    outboundQueue_[tail].packetLength = length;
+    ++outboundQueueCount_;
+    return true;
+}
+
+/// Promote the front entry into the active slot and transmit it.
+/// Called after a PUBACK clears the active slot, or after reconnect.
+bool PubSubClientQos1::dequeueAndSendNextQos1() {
+    if (outboundQueueCount_ == 0) return false;
+    if (pendingQos1.active) return false; // active slot must be clear first
+    if (!connected()) return false;
+
+    const QueuedQos1Entry& entry = outboundQueue_[outboundQueueHead_];
+    // Update message ID inside the buffered packet before re-transmitting so
+    // that each send uses a fresh ID — avoids broker duplicate-detection issues.
+    // The packet layout is: [header(1)] [remaining-length(1-4)] [topic-len(2)]
+    // [topic] [messageId(2)] [payload]. We need to find the message ID offset.
+    // We stored the packet exactly as built by publishQos1, so we can update
+    // the stored message ID and patch it into the packet.
+    pendingQos1.messageId = ++nextMsgId;
+    if (pendingQos1.messageId == 0) pendingQos1.messageId = ++nextMsgId;
+
+    memcpy(pendingQos1.packet, entry.packet, entry.packetLength);
+    pendingQos1.packetLength = entry.packetLength;
+    pendingQos1.retryCount = 0;
+    pendingQos1.active = true;
+
+    // Advance FIFO head.
+    outboundQueueHead_ = (outboundQueueHead_ + 1) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
+    --outboundQueueCount_;
+
+    // Patch fresh message ID into the on-wire packet.
+    // Scan past remaining-length bytes to find the variable header offset.
+    uint16_t pos = 1; // skip fixed header byte
+    while (pos < pendingQos1.packetLength && (pendingQos1.packet[pos] & 0x80)) ++pos;
+    ++pos; // skip final remaining-length byte
+    // Skip topic-length (2 bytes) + topic.
+    if (pos + 1 < pendingQos1.packetLength) {
+        uint16_t topicLen = (static_cast<uint16_t>(pendingQos1.packet[pos]) << 8)
+                          | pendingQos1.packet[pos + 1];
+        pos += 2 + topicLen;
+    }
+    // pos now points to message ID.
+    if (pos + 1 < pendingQos1.packetLength) {
+        pendingQos1.packet[pos]     = static_cast<uint8_t>(pendingQos1.messageId >> 8);
+        pendingQos1.packet[pos + 1] = static_cast<uint8_t>(pendingQos1.messageId & 0xFF);
+    }
+
+    if (!writePendingQos1(false)) {
+        pendingQos1.active = false;
+        pendingQos1.packetLength = 0;
+        return false;
+    }
+    return true;
+}
+
+void PubSubClientQos1::resendQueuedQos1OnConnect() {
+    // On reconnect, the active slot is re-sent by connect() with DUP. Any
+    // additionally queued entries also need a fresh send to prevent them being
+    // silently dropped. Drain them one by one; the loop will call itself on
+    // each subsequent PUBACK via the normal PUBACK handler path.
+    // This only sends the first queued entry; the rest are sent after their
+    // respective PUBACKs so as not to flood the broker.
+    if (!pendingQos1.active) {
+        dequeueAndSendNextQos1();
+    }
 }
 
 boolean PubSubClientQos1::publish_P(const char* topic, const char* payload, boolean retained) {

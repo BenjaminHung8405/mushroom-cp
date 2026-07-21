@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cstdint>
 #include <map>
+#include <vector>
 
 #define INPUT 0x01
 #define OUTPUT 0x02
@@ -16,6 +17,8 @@
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
 #endif
+
+typedef bool boolean;
 
 extern std::map<uint8_t, uint8_t> mock_pin_modes;
 extern std::map<uint8_t, uint8_t> mock_pin_values;
@@ -140,6 +143,9 @@ inline unsigned long millis() {
     return static_cast<unsigned long>(duration.count()) + mock_millis_offset;
 }
 
+inline void yield() {}
+#define pgm_read_byte_near(addr) (*(addr))
+
 enum wl_status_t {
     WL_NO_SHIELD        = 255,
     WL_IDLE_STATUS      = 0,
@@ -161,6 +167,7 @@ enum wifi_mode_t {
 class IPAddress {
 public:
     IPAddress() {}
+    IPAddress(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {}
     String toString() const { return "192.168.1.100"; }
 };
 
@@ -219,11 +226,54 @@ public:
     bool softAPdisconnect(bool val) { return true; }
 };
 
+class Print {
+public:
+    virtual size_t write(uint8_t) = 0;
+    virtual size_t write(const uint8_t *buffer, size_t size) = 0;
+};
+
+class Stream {
+public:
+    virtual int available() { return 0; }
+    virtual int read() { return -1; }
+    virtual size_t write(uint8_t) { return 0; }
+    virtual size_t write(const uint8_t *buffer, size_t size) { return 0; }
+    virtual void flush() {}
+};
+
+class Client : public Stream {
+public:
+    virtual int connect(IPAddress ip, uint16_t port) { return 0; }
+    virtual int connect(const char *host, uint16_t port) { return 0; }
+    virtual void stop() {}
+    virtual uint8_t connected() { return 0; }
+    virtual operator bool() { return false; }
+    virtual void flush() override {}
+};
+
 extern WiFiClass WiFi;
 
-class WiFiClient {
+class WiFiClient : public Client {
 public:
+    std::vector<uint8_t> mock_input;
+    size_t mock_input_pos = 0;
+
     WiFiClient() {}
+    int available() override { return mock_input.size() - mock_input_pos; }
+    int read() override {
+        if (mock_input_pos < mock_input.size()) {
+            return mock_input[mock_input_pos++];
+        }
+        return -1;
+    }
+    size_t write(uint8_t) override { return 0; }
+    size_t write(const uint8_t *buffer, size_t size) override { return size; }
+    int connect(IPAddress ip, uint16_t port) override { return 1; }
+    int connect(const char *host, uint16_t port) override { return 1; }
+    void stop() override {}
+    uint8_t connected() override { return 1; }
+    operator bool() override { return true; }
+    void flush() override {}
 };
 
 class PubSubClient {
@@ -321,24 +371,41 @@ struct portMUX_TYPE {};
 #define portENTER_CRITICAL_ISR(mux) do { (void)(mux); } while (0)
 #define portEXIT_CRITICAL_ISR(mux) do { (void)(mux); } while (0)
 
+struct MockEventGroup {
+    EventBits_t bits = 0;
+};
+
+extern EventGroupHandle_t xWifiEventGroup;
 extern EventBits_t mock_event_group_bits;
 
 inline EventGroupHandle_t xEventGroupCreate() {
-    return (EventGroupHandle_t)1;
+    return new MockEventGroup();
 }
 
 inline EventBits_t xEventGroupSetBits(EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet) {
-    mock_event_group_bits |= uxBitsToSet;
-    return mock_event_group_bits;
+    if (xEventGroup == nullptr) return 0;
+    MockEventGroup* eg = static_cast<MockEventGroup*>(xEventGroup);
+    eg->bits |= uxBitsToSet;
+    if (xWifiEventGroup == nullptr || xEventGroup == xWifiEventGroup) {
+        mock_event_group_bits = eg->bits;
+    }
+    return eg->bits;
 }
 
 inline EventBits_t xEventGroupClearBits(EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToClear) {
-    mock_event_group_bits &= ~uxBitsToClear;
-    return mock_event_group_bits;
+    if (xEventGroup == nullptr) return 0;
+    MockEventGroup* eg = static_cast<MockEventGroup*>(xEventGroup);
+    eg->bits &= ~uxBitsToClear;
+    if (xWifiEventGroup == nullptr || xEventGroup == xWifiEventGroup) {
+        mock_event_group_bits = eg->bits;
+    }
+    return eg->bits;
 }
 
 inline EventBits_t xEventGroupGetBits(EventGroupHandle_t xEventGroup) {
-    return mock_event_group_bits;
+    if (xEventGroup == nullptr) return 0;
+    MockEventGroup* eg = static_cast<MockEventGroup*>(xEventGroup);
+    return eg->bits;
 }
 
 inline EventBits_t xEventGroupWaitBits(EventGroupHandle_t xEventGroup,
@@ -346,9 +413,14 @@ inline EventBits_t xEventGroupWaitBits(EventGroupHandle_t xEventGroup,
                                        const BaseType_t xClearOnExit,
                                        const BaseType_t /*xWaitForAllBits*/,
                                        TickType_t /*xTicksToWait*/) {
-    const EventBits_t observed_bits = mock_event_group_bits;
+    if (xEventGroup == nullptr) return 0;
+    MockEventGroup* eg = static_cast<MockEventGroup*>(xEventGroup);
+    const EventBits_t observed_bits = eg->bits;
     if (xClearOnExit != 0 && (observed_bits & uxBitsToWaitFor) != 0) {
-        mock_event_group_bits &= ~uxBitsToWaitFor;
+        eg->bits &= ~uxBitsToWaitFor;
+    }
+    if (xWifiEventGroup == nullptr || xEventGroup == xWifiEventGroup) {
+        mock_event_group_bits = eg->bits;
     }
     return observed_bits;
 }
