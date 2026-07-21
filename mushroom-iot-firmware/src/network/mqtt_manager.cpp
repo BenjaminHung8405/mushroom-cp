@@ -292,8 +292,11 @@ void MqttManager::subscribePerLifecycle()
     }
     const String command = tenant_ + "/esp32/" + device_id_ + "/down/command";
     const String sync_ack = tenant_ + "/esp32/" + device_id_ + "/down/sync-burst/ack";
+    const String tuning_desired = tenant_ + "/esp32/" + device_id_ + "/down/tuning/desired";
+    
     client_.subscribe(command.c_str(), MQTT_QOS);
     client_.subscribe(sync_ack.c_str(), MQTT_QOS);
+    client_.subscribe(tuning_desired.c_str(), MQTT_QOS);
 }
 
 void MqttManager::onCallbackStatic(char* topic, uint8_t* payload, unsigned int length)

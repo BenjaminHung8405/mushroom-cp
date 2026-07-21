@@ -236,6 +236,7 @@ public:
     static uint16_t mock_server_port;
     static bool mock_connect_result;
     static bool mock_publish_result;
+    static std::vector<std::string> mock_subscribed_topics;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
 
@@ -266,8 +267,8 @@ public:
     bool publish(const char* topic, const char* payload) { return mock_publish_result; }
     bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) { return mock_publish_result; }
 
-    bool subscribe(const char* topic) { return true; }
-    bool subscribe(const char* topic, uint8_t qos) { return true; }
+    bool subscribe(const char* topic) { if (topic) mock_subscribed_topics.push_back(topic); return true; }
+    bool subscribe(const char* topic, uint8_t qos) { if (topic) mock_subscribed_topics.push_back(topic); return true; }
     bool unsubscribe(const char* topic) { return true; }
 
     bool connected() { return mock_connected; }

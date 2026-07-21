@@ -2,6 +2,24 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:11:00+07:00] - Task D1: Subscribe desired topic QoS 1 khi MQTT kết nối lại
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [mqtt_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/network/mqtt_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [Arduino.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/Arduino.h)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Thực hiện đăng ký (subscribe) topic desired chứa cấu hình tinh chỉnh mờ động (`{tenant}/esp32/{deviceId}/down/tuning/desired`) với mức QoS 1 khi kết nối hoặc tái kết nối MQTT thành công. Topic được xây dựng động từ Tenant ID (`tenant_`) và Device ID đã cấu hình (`device_id_`), không sử dụng hard-coded literals. Đảm bảo luồng xử lý gói tin/lệnh tinh chỉnh không tác động trực tiếp lên GPIO hoặc NVS từ luồng MQTT callback để bảo toàn tính độc lập của Core 1.
+  - **Giải pháp:**
+    - Sửa đổi `subscribePerLifecycle()` trong `mqtt_manager.cpp`: Khi thiết bị đã được kích hoạt (provisioned), tiến hành dựng topic `tuning_desired = tenant_ + "/esp32/" + device_id_ + "/down/tuning/desired"` và gọi `client_.subscribe(tuning_desired.c_str(), MQTT_QOS)` (với `MQTT_QOS` là 1).
+    - Cập nhật mock `PubSubClient` trong `test/Arduino.h` để lưu lại lịch sử các topic đã đăng ký thông qua một vector tĩnh `mock_subscribed_topics`.
+    - Bổ sung kịch bản kiểm thử Task D1 trong [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp): Sau khi thiết bị kết nối thành công, kiểm tra xem topic `test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired` có nằm trong danh sách đăng ký của client hay không.
+    - Sửa đổi các giá trị cấu hình không hợp lệ trong test suite Task C7 (từ `1.35f` và `0.75f` chuyển sang `1.15f` và `0.85f`) cùng định dạng UUID test để vượt qua bước kiểm duyệt Schema/Bounds nghiêm ngặt của Task C4.
+  - **Tự kiểm tra:**
+    - Biên dịch sạch sẽ host unit tests và thực thi thành công 100% assertions (`--- All Unit Tests Passed Successfully! ---`) trên macOS thông qua `./run_tests_mac`.
+
 ## [2026-07-21T11:27:00+07:00] - Task C7: Tạo queue trước task start, hydrate NVS và enqueue effective config khởi tạo
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

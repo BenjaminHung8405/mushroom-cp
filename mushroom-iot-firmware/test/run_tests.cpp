@@ -49,6 +49,7 @@ uint16_t PubSubClient::mock_server_port = 0;
 bool PubSubClient::mock_connect_result = true;
 bool PubSubClient::mock_publish_result = true;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
+std::vector<std::string> PubSubClient::mock_subscribed_topics;
 EventBits_t mock_event_group_bits = 0;
 
 std::map<uint8_t, uint8_t> mock_pin_modes;
@@ -508,6 +509,18 @@ int main() {
     mqtt_manager.loop();  // reconnect succeeds
     assert(mqtt_manager.getState() == mqtt::MqttState::CONNECTED);
     assert(mqtt_manager.isConnected() == true);
+
+    // 12.4d Test Task D1 - Subscribe to tuning desired topic QoS 1 on reconnect/connect
+    Serial.println("[TEST] Testing Task D1 - Subscribe desired topic QoS 1...");
+    {
+        bool found_tuning_desired = false;
+        for (const auto& topic : PubSubClient::mock_subscribed_topics) {
+            if (topic == "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired") {
+                found_tuning_desired = true;
+            }
+        }
+        assert(found_tuning_desired == true);
+    }
 
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
@@ -1190,12 +1203,12 @@ int main() {
         {
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
-            doc["command_id"] = "c7-uuid-hydration-test-123456789012";
+            doc["command_id"] = "c7777777-1234-1234-1234-123456789012";
             doc["device_id"] = "mushroom_s3_unittest";
             doc["revision"] = 42;
             JsonObject config = doc.createNestedObject("config");
-            config["lamp_gain_scale"] = 1.35f;
-            config["mist_gain_scale"] = 0.75f;
+            config["lamp_gain_scale"] = 1.15f;
+            config["mist_gain_scale"] = 0.85f;
             config["mist_on_threshold"] = 0.22f;
             config["mist_off_threshold"] = 0.12f;
 
@@ -1210,22 +1223,23 @@ int main() {
         while (xQueueReceive(g_tuning_config_queue, &dummy, 0) == pdTRUE) {}
 
         // Hydrate from NVS
+        // (Wait, wait, hydrateSetpointsFromNVS will run)
         hydrateSetpointsFromNVS();
 
         // Verify active params inside tuner match NVS record
         DynamicTuningParams active = tuner.getActiveParams();
         assert(active.revision == 42);
-        assert(std::strcmp(active.command_id, "c7-uuid-hydration-test-123456789012") == 0);
-        assert(std::abs(active.lamp_gain_scale - 1.35f) < 0.0001f);
-        assert(std::abs(active.mist_gain_scale - 0.75f) < 0.0001f);
+        assert(std::strcmp(active.command_id, "c7777777-1234-1234-1234-123456789012") == 0);
+        assert(std::abs(active.lamp_gain_scale - 1.15f) < 0.0001f);
+        assert(std::abs(active.mist_gain_scale - 0.85f) < 0.0001f);
 
         // Verify that the queue contains exactly this hydrated config
         DynamicTuningParams queued;
         assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE);
         assert(queued.revision == 42);
-        assert(std::strcmp(queued.command_id, "c7-uuid-hydration-test-123456789012") == 0);
-        assert(std::abs(queued.lamp_gain_scale - 1.35f) < 0.0001f);
-        assert(std::abs(queued.mist_gain_scale - 0.75f) < 0.0001f);
+        assert(std::strcmp(queued.command_id, "c7777777-1234-1234-1234-123456789012") == 0);
+        assert(std::abs(queued.lamp_gain_scale - 1.15f) < 0.0001f);
+        assert(std::abs(queued.mist_gain_scale - 0.85f) < 0.0001f);
         assert(std::abs(queued.mist_on_threshold - 0.22f) < 0.0001f);
         assert(std::abs(queued.mist_off_threshold - 0.12f) < 0.0001f);
 
@@ -1236,11 +1250,11 @@ int main() {
         {
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
-            doc["command_id"] = "c7-uuid-process-command-queue-check";
+            doc["command_id"] = "c7777777-1234-1234-1234-123456789013";
             doc["device_id"] = "mushroom_s3_unittest";
             doc["revision"] = 43;
             JsonObject config = doc.createNestedObject("config");
-            config["lamp_gain_scale"] = 1.4f;
+            config["lamp_gain_scale"] = 1.16f;
             config["mist_gain_scale"] = 0.8f;
             config["mist_on_threshold"] = 0.23f;
             config["mist_off_threshold"] = 0.13f;
@@ -1251,8 +1265,8 @@ int main() {
 
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE);
             assert(queued.revision == 43);
-            assert(std::strcmp(queued.command_id, "c7-uuid-process-command-queue-check") == 0);
-            assert(std::abs(queued.lamp_gain_scale - 1.4f) < 0.0001f);
+            assert(std::strcmp(queued.command_id, "c7777777-1234-1234-1234-123456789013") == 0);
+            assert(std::abs(queued.lamp_gain_scale - 1.16f) < 0.0001f);
         }
 
         // Clean up
