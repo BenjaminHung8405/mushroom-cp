@@ -14,15 +14,19 @@ typedef void* QueueHandle_t;
 
 namespace mqtt {
 
+constexpr size_t MAX_TUNING_DESIRED_PAYLOAD_BYTES = 512;
+
 enum class CommandType : uint8_t {
     BOOTSTRAP_RESPONSE,
     DEVICE_COMMAND,
     SYNC_BURST_ACK,
+    TUNING_DESIRED,
     UNKNOWN
 };
 
 struct NetworkMessage {
     CommandType type;
+    uint16_t payload_length;
     char payload[768];
 };
 

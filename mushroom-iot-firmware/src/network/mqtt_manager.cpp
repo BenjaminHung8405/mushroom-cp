@@ -329,6 +329,10 @@ void MqttManager::onMessage(char* topic, uint8_t* payload, unsigned int length)
     }
     JsonObject root = doc.as<JsonObject>();
     const String topic_text(topic);
+    if (topic_text.endsWith("/down/tuning/desired")) {
+        // Will be implemented in Task D3
+        return;
+    }
     if (topic_text == tenant_ + "/provision/response/" + bootstrap_mac_) {
         if (!provisioned_) {
             applyBootstrapResponse(root);
@@ -1099,12 +1103,14 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         topic = tenant_ + "/esp32/" + device_id_ + "/down/command";
     } else if (message.type == CommandType::SYNC_BURST_ACK) {
         topic = tenant_ + "/esp32/" + device_id_ + "/down/sync-burst/ack";
+    } else if (message.type == CommandType::TUNING_DESIRED) {
+        topic = tenant_ + "/esp32/" + device_id_ + "/down/tuning/desired";
     } else {
         return;
     }
     onMessage(const_cast<char*>(topic.c_str()),
               reinterpret_cast<uint8_t*>(const_cast<char*>(message.payload)),
-              strlen(message.payload));
+              message.payload_length);
 }
 
 bool MqttManager::isConnected() { return client_.connected(); }

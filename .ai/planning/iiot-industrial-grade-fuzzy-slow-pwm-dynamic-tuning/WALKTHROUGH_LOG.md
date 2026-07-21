@@ -2,6 +2,22 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T16:18:00+07:00] - Task D2: Nhận diện desired topic và dispatch payload vào `g_network_worker_queue`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [mqtt_callbacks.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/protocols/mqtt_callbacks.h)
+  - Sửa đổi: [mqtt_callbacks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp)
+  - Sửa đổi: [mqtt_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/network/mqtt_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - MQTT callback chỉ thực hiện so sánh suffix topic `/down/tuning/desired`, kiểm tra kích thước trước copy và sao chép byte vào `NetworkMessage`; không deserialize JSON, truy cập NVS hoặc GPIO.
+  - Thêm giới hạn dùng chung `MAX_TUNING_DESIRED_PAYLOAD_BYTES = 512`; payload vượt giới hạn được log và không được enqueue. So sánh suffix chính xác tránh nhận nhầm topic có phần nối tiếp như `/desired/extra`.
+  - `NetworkMessage` lưu `payload_length`, giúp luồng worker bảo toàn payload nhị phân hợp lệ chứa byte NUL thay vì dùng `strlen`; đây vẫn là luồng deferred duy nhất để bước D3 parse JSON.
+  - Bổ sung regression test cho dispatch hợp lệ, payload chứa NUL, topic không khớp và payload 513 byte. Biên dịch và chạy toàn bộ host unit test bằng `g++ -std=c++17 -DUNIT_TEST ...` thành công, kết thúc với `--- All Unit Tests Passed Successfully! ---`. `git diff --check` cũng không báo lỗi whitespace. Lệnh firmware `pio run -e otg` không thể chạy vì PlatformIO CLI không được cài trong môi trường hiện tại (`pio: command not found`).
+
 ## [2026-07-21T16:11:00+07:00] - Task D1: Subscribe desired topic QoS 1 khi MQTT kết nối lại
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

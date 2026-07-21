@@ -522,6 +522,37 @@ int main() {
         assert(found_tuning_desired == true);
     }
 
+    // 12.4e Task D2: the callback must only classify the exact desired-topic
+    // suffix, bound its byte copy to 512 bytes, and defer processing by queue.
+    Serial.println("[TEST] Testing Task D2 - Deferred bounded tuning dispatch...");
+    {
+        QueueHandle_t previous_queue = mqtt::g_network_worker_queue;
+        void (*previous_hook)(QueueHandle_t, const void*) = mock_queue_send_hook;
+        mqtt::g_network_worker_queue = xQueueCreate(1, sizeof(mqtt::NetworkMessage));
+        mock_queue_send_hook = nullptr;
+
+        char desired_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired";
+        uint8_t desired_payload[] = {'{', '\0', '}'};
+        mqtt::MessageDispatcher::dispatch(desired_topic, desired_payload, sizeof(desired_payload));
+
+        mqtt::NetworkMessage message{};
+        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdTRUE);
+        assert(message.type == mqtt::CommandType::TUNING_DESIRED);
+        assert(message.payload_length == sizeof(desired_payload));
+        assert(std::memcmp(message.payload, desired_payload, sizeof(desired_payload)) == 0);
+
+        char non_matching_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/tuning/desired/extra";
+        mqtt::MessageDispatcher::dispatch(non_matching_topic, desired_payload, sizeof(desired_payload));
+        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
+
+        uint8_t oversized_payload[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
+        mqtt::MessageDispatcher::dispatch(desired_topic, oversized_payload, sizeof(oversized_payload));
+        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
+
+        mqtt::g_network_worker_queue = previous_queue;
+        mock_queue_send_hook = previous_hook;
+    }
+
     // 12.4c Test Exponential Backoff and WiFi Safeguard (Task D3)
     Serial.println("[TEST] Testing Task D3 - Exponential Backoff and WiFi Safeguard...");
 
