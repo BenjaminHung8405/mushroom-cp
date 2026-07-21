@@ -1149,8 +1149,8 @@ int main() {
             assert(reason == storage::TuningReason::DUPLICATE_UUID);
         }
 
-        // Case 8: A new UUID/revision with unchanged parameters must durably
-        // advance command identity, but must not re-dispatch Core 1.
+        // Case 8: A new UUID/revision with unchanged parameters must not
+        // write NVS, mutate the effective configuration, or re-dispatch Core 1.
         {
             DynamicTuningParams queued{};
             while (xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE) {}
@@ -1170,29 +1170,23 @@ int main() {
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
             assert(reason == storage::TuningReason::NO_CHANGE);
-            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 2);
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             
             DynamicTuningParams active = tuner.getActiveParams();
-            assert(active.revision == 2);
-            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            assert(active.revision == 1);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
 
-            // A reboot must retain B's identity. Re-delivering retained B is
-            // an exact UUID duplicate with no queue handoff or additional NVS write.
+            // Reboot retains the last effective configuration, not the
+            // no-change command identity, to protect flash wear.
             tuner.resetForTest();
             assert(tuner.init() == true);
             const DynamicTuningParams rebooted = tuner.getActiveParams();
-            assert(rebooted.revision == 2);
+            assert(rebooted.revision == 1);
             assert(std::strcmp(rebooted.command_id,
-                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
-            const size_t duplicate_write_count_before = Preferences::mock_put_bytes_count;
-            result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-            assert(result == storage::TuningResult::DUPLICATE);
-            assert(reason == storage::TuningReason::DUPLICATE_UUID);
-            assert(Preferences::mock_put_bytes_count == duplicate_write_count_before);
-            assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
+                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
         }
 
         // Case 9: Invalid revision representations are rejected before RAM,
@@ -1252,7 +1246,9 @@ int main() {
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
         }
 
-        // Case 10: A new command ID may not regress the durable revision.
+        // Case 10: A new command ID with a lower revision is still accepted
+        // when the semantic configuration changes; revision is metadata, not
+        // a command-ordering rejection condition in contract v1.
         {
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
@@ -1265,11 +1261,12 @@ int main() {
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
 
-            const size_t writes_before = Preferences::mock_put_bytes_count;
             storage::TuningReason reason = storage::TuningReason::OK;
-            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::REJECTED);
-            assert(reason == storage::TuningReason::STALE_REVISION);
-            assert(Preferences::mock_put_bytes_count == writes_before);
+            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::ACCEPTED);
+            assert(reason == storage::TuningReason::OK);
+            const DynamicTuningParams active = tuner.getActiveParams();
+            assert(active.revision == 2);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215273") == 0);
         }
 
         // Case 11: NaN value rejection
@@ -1305,7 +1302,6 @@ int main() {
         assert(static_cast<uint8_t>(storage::TuningReason::NO_CHANGE) == 7);
         assert(static_cast<uint8_t>(storage::TuningReason::NVS_WRITE_ERROR) == 8);
         assert(static_cast<uint8_t>(storage::TuningReason::QUEUE_FULL_ERROR) == 9);
-        assert(static_cast<uint8_t>(storage::TuningReason::STALE_REVISION) == 10);
     }
 
     // Task C5 - TuningConfigManager NVS Two-Slot Persistence & Crash Consistency Tests

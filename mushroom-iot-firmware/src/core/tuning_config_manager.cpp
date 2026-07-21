@@ -172,9 +172,6 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
     if (validation == TuningReason::OK && _isExactDuplicate(incoming_params.command_id)) {
         reason = TuningReason::DUPLICATE_UUID;
         result = TuningResult::DUPLICATE;
-    } else if (validation == TuningReason::OK && _isStaleRevision(incoming_params)) {
-        reason = TuningReason::STALE_REVISION;
-        result = TuningResult::REJECTED;
     } else if (validation == TuningReason::OK && !_isSemanticDiff(incoming_params)) {
         result = persistIdentityOnly(incoming_params, reason);
     } else if (validation == TuningReason::OK) {
@@ -299,14 +296,10 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
 
 TuningResult TuningConfigManager::persistIdentityOnly(const DynamicTuningParams& incoming,
                                                        TuningReason& reason) {
-    // The four effective parameters are unchanged, but the latest command
-    // UUID/revision must survive a reboot so retained MQTT redelivery is
-    // identified as an exact duplicate. This deliberately bypasses Core 1.
-    if (!writeRecord(incoming, TUNING_NVS_PENDING_COMMIT) || !saveToNvs(incoming)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
-        return TuningResult::REJECTED;
-    }
-    _active_params = incoming;
+    // A semantically identical command must not consume flash endurance or
+    // alter the effective configuration. Its UUID/revision are intentionally
+    // not persisted, so exact duplicate detection is limited to this boot.
+    (void)incoming;
     reason = TuningReason::NO_CHANGE;
     return TuningResult::DUPLICATE;
 }
@@ -445,10 +438,6 @@ bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
 bool TuningConfigManager::_isExactDuplicate(const char* command_id) {
     if (command_id == nullptr) return false;
     return std::strcmp(_active_params.command_id, command_id) == 0;
-}
-
-bool TuningConfigManager::_isStaleRevision(const DynamicTuningParams& incoming) {
-    return incoming.revision <= _active_params.revision;
 }
 
 bool TuningConfigManager::_isSemanticDiff(const DynamicTuningParams& incoming) {

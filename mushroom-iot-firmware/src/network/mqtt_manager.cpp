@@ -54,7 +54,6 @@ const char* tuningReasonCode(storage::TuningReason reason)
     case storage::TuningReason::CROSS_FIELD_VIOLATION: return "CROSS_FIELD_INVALID";
     case storage::TuningReason::NVS_WRITE_ERROR: return "PERSISTENCE_FAILED";
     case storage::TuningReason::QUEUE_FULL_ERROR: return "CONTROL_QUEUE_UNAVAILABLE";
-    case storage::TuningReason::STALE_REVISION: return "STALE_REVISION";
     default: return "INVALID_SCHEMA";
     }
 }

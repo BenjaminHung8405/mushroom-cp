@@ -31,10 +31,9 @@ enum class TuningReason : uint8_t {
     OUT_OF_BOUNDS = 4,
     CROSS_FIELD_VIOLATION = 5,
     DUPLICATE_UUID = 6,
-    NO_CHANGE = 7,             ///< Parameters unchanged; command identity was durably recorded.
+    NO_CHANGE = 7,             ///< Parameters unchanged; no persistence or Core 1 dispatch.
     NVS_WRITE_ERROR = 8,
-    QUEUE_FULL_ERROR = 9,
-    STALE_REVISION = 10
+    QUEUE_FULL_ERROR = 9
 };
 
 class TuningConfigManager {
@@ -118,7 +117,6 @@ private:
     bool _validateCrossField(float mist_on, float mist_off);
     bool _validateNoNanInfinity(const JsonVariant& v);
     bool _isExactDuplicate(const char* command_id);
-    bool _isStaleRevision(const DynamicTuningParams& incoming);
     bool _isSemanticDiff(const DynamicTuningParams& incoming);
 };
 

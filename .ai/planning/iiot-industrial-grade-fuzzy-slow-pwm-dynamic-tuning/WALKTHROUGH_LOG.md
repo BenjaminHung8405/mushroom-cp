@@ -1,3 +1,19 @@
+## [2026-07-21T19:43:41+07:00] - Task C4, D4: Khắc phục QA Review (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Loại bỏ `STALE_REVISION` và điều kiện từ chối revision không tăng: theo contract v1, `revision` chỉ là metadata monotonic, không phải điều kiện ordering để từ chối command UUID mới.
+  - Nhánh semantic no-change nay trả `DUPLICATE/NO_CHANGE` mà không ghi NVS, không thay active effective configuration và không enqueue Core 1; identity của command no-change không được persist qua reboot để bảo vệ flash wear.
+  - Loại bỏ mapping `STALE_REVISION`; reported tiếp tục chỉ phát `reason_code` ổn định cho `REJECTED`, đúng schema contract. Regression đã đổi để bảo vệ no-write semantic diff và chấp nhận revision thấp hơn khi cấu hình thực sự đổi.
+  - Đã chạy `mushroom-iot-firmware/run_tests_mac` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `git diff --check` (sạch).
+
 ## [2026-07-21T19:34:47+07:00] - Task C4, D4: Khắc phục QA Review lần 2 (duplicate identity và revision)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
