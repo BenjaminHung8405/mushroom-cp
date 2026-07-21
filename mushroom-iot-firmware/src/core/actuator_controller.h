@@ -36,6 +36,7 @@ namespace actuators
 #include <stdint.h>
 
 #include "core/fuzzy_controller.h"
+#include "core/models.h"
 
 namespace relay_control {
 
@@ -62,6 +63,18 @@ void hardwareProtectionOverride(
     const RtcTimePod &rtcTime);
 
 /**
+ * Resolves a normalized demand to a binary state using hysteresis.
+ *
+ * Invalid demand/threshold input, or an invalid hysteresis band, fails safe
+ * to OFF. This helper has no GPIO or other side effects.
+ */
+bool resolveBinaryDemand(
+    float demand,
+    bool currentState,
+    float onThreshold,
+    float offThreshold);
+
+/**
  * Converts fuzzy/manual demands to stable binary relay states.
  *
  * No PWM, pulse, or time-proportional control is used. A small hysteresis
@@ -70,6 +83,7 @@ void hardwareProtectionOverride(
  */
 void applyDirectOutputs(
     const FuzzyController::ArbitratedOutputsPod &outputs,
+    const DynamicTuningParams &activeTuning,
     RelayStatePod &state);
 
 /**

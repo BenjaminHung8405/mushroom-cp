@@ -2219,6 +2219,10 @@ int main() {
         using relay_control::RelayStatePod;
         using relay_control::RtcTimePod;
 
+        DynamicTuningParams defaultTuning{};
+        defaultTuning.mist_on_threshold = 0.25f;
+        defaultTuning.mist_off_threshold = 0.15f;
+
         // The biosafety blackout cannot be bypassed by fuzzy/manual demand.
         time_conf::setTimeConfidence(TimeConfidence::Trusted);
         ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
@@ -2237,26 +2241,98 @@ int main() {
         relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
 
+        // Table-driven pure hysteresis contract, including both threshold
+        // boundaries, hold band, and fail-safe invalid inputs.
+        struct HysteresisCase {
+            float demand;
+            bool currentState;
+            float onThreshold;
+            float offThreshold;
+            bool expectedState;
+        };
+        const HysteresisCase hysteresisCases[] = {
+            {0.25f, false, 0.25f, 0.15f, true},   // OFF -> ON at ON boundary
+            {0.249f, false, 0.25f, 0.15f, false}, // OFF below ON boundary
+            {0.15f, true, 0.25f, 0.15f, true},    // ON holds at OFF boundary
+            {0.149f, true, 0.25f, 0.15f, false},  // ON -> OFF below OFF boundary
+            {0.20f, false, 0.25f, 0.15f, false},  // hold band preserves OFF
+            {0.20f, true, 0.25f, 0.15f, true},    // hold band preserves ON
+            {NAN, true, 0.25f, 0.15f, false},
+            {INFINITY, true, 0.25f, 0.15f, false},
+            {0.30f, true, NAN, 0.15f, false},
+            {0.30f, true, INFINITY, 0.15f, false},
+            {0.30f, true, 0.25f, INFINITY, false},
+            {0.30f, true, 0.15f, 0.15f, false},
+            {0.30f, true, 0.15f, 0.20f, false},
+        };
+        for (const HysteresisCase& testCase : hysteresisCases) {
+            assert(relay_control::resolveBinaryDemand(
+                testCase.demand,
+                testCase.currentState,
+                testCase.onThreshold,
+                testCase.offThreshold) == testCase.expectedState);
+        }
+
+        // Mist consumes its injected dynamic thresholds. Lamp/fan remain on
+        // their fixed 0.25/0.15 band regardless of these Mist values.
+        DynamicTuningParams mistTuning = defaultTuning;
+        mistTuning.mist_on_threshold = 0.35f;
+        mistTuning.mist_off_threshold = 0.20f;
+        RelayStatePod channelState = {false, false, false, false};
+        RelayStatePod baselineChannelState = {false, false, false, false};
+        const ArbitratedOutputsPod thresholdDemand = {0.30f, 0.0f, 0.30f, 0.30f};
+        relay_control::applyDirectOutputs(thresholdDemand, mistTuning, channelState);
+        relay_control::applyDirectOutputs(thresholdDemand, defaultTuning, baselineChannelState);
+        assert(channelState.lamp_active == true);
+        assert(channelState.mist_active == false);
+        assert(channelState.fan_active == true);
+        assert(channelState.lamp_active == baselineChannelState.lamp_active);
+        assert(channelState.fan_active == baselineChannelState.fan_active);
+        assert(baselineChannelState.mist_active == true);
+
+        const ArbitratedOutputsPod mistOnBoundaryDemand = {0.30f, 0.0f, 0.35f, 0.30f};
+        relay_control::applyDirectOutputs(mistOnBoundaryDemand, mistTuning, channelState);
+        assert(channelState.mist_active == true);
+
+        channelState.mist_active = true;
+        const ArbitratedOutputsPod mistHoldDemand = {0.20f, 0.0f, 0.20f, 0.20f};
+        relay_control::applyDirectOutputs(mistHoldDemand, mistTuning, channelState);
+        assert(channelState.lamp_active == true);
+        assert(channelState.mist_active == true);
+        assert(channelState.fan_active == true);
+
+        const ArbitratedOutputsPod mistOffDemand = {0.10f, 0.0f, 0.19f, 0.10f};
+        relay_control::applyDirectOutputs(mistOffDemand, mistTuning, channelState);
+        assert(channelState.lamp_active == false);
+        assert(channelState.mist_active == false);
+        assert(channelState.fan_active == false);
+
+        DynamicTuningParams invalidMistTuning = mistTuning;
+        invalidMistTuning.mist_off_threshold = invalidMistTuning.mist_on_threshold;
+        channelState.mist_active = true;
+        relay_control::applyDirectOutputs(mistOnBoundaryDemand, invalidMistTuning, channelState);
+        assert(channelState.mist_active == false);
+
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.
         RelayStatePod state = {false, false, false, false};
         const ArbitratedOutputsPod onDemand = {0.60f, 0.0f, 0.0f, 0.0f};
-        relay_control::applyDirectOutputs(onDemand, state);
+        relay_control::applyDirectOutputs(onDemand, defaultTuning, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == true);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
-        relay_control::applyDirectOutputs(onDemand, state);
+        relay_control::applyDirectOutputs(onDemand, defaultTuning, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == true);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
 
         const ArbitratedOutputsPod holdDemand = {0.20f, 0.0f, 0.0f, 0.0f};
-        relay_control::applyDirectOutputs(holdDemand, state);
+        relay_control::applyDirectOutputs(holdDemand, defaultTuning, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == true);
 
         const ArbitratedOutputsPod offDemand = {0.10f, 0.0f, 0.0f, 0.0f};
-        relay_control::applyDirectOutputs(offDemand, state);
+        relay_control::applyDirectOutputs(offDemand, defaultTuning, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == false);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);

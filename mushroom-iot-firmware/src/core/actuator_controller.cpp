@@ -175,14 +175,6 @@ bool isMiddayBlackout(const RtcTimePod& rtcTime) {
            minuteOfDay <= MIDDAY_BLACKOUT_END_MINUTE;
 }
 
-bool resolveBinaryDemand(float demand, bool currentlyActive) {
-    if (!std::isfinite(demand) || demand <= 0.0f) {
-        return false;
-    }
-    return currentlyActive ? demand > FUZZY_OFF_THRESHOLD
-                           : demand >= FUZZY_ON_THRESHOLD;
-}
-
 void writeRelayIfChanged(uint8_t pin, bool& state, bool active) {
     if (state != active) {
         // Relay drivers are active LOW.
@@ -205,15 +197,47 @@ void hardwareProtectionOverride(
     }
 }
 
+bool resolveBinaryDemand(
+    float demand,
+    bool currentState,
+    float onThreshold,
+    float offThreshold) {
+    if (!std::isfinite(demand) ||
+        !std::isfinite(onThreshold) ||
+        !std::isfinite(offThreshold) ||
+        offThreshold >= onThreshold) {
+        return false;
+    }
+
+    if (!currentState) {
+        return demand >= onThreshold;
+    }
+
+    return demand < offThreshold ? false : true;
+}
+
 void applyDirectOutputs(
     const FuzzyController::ArbitratedOutputsPod& outputs,
+    const DynamicTuningParams& activeTuning,
     RelayStatePod& state) {
-    state.lamp_active = resolveBinaryDemand(outputs.HLamp, state.lamp_active);
+    state.lamp_active = resolveBinaryDemand(
+        outputs.HLamp,
+        state.lamp_active,
+        FUZZY_ON_THRESHOLD,
+        FUZZY_OFF_THRESHOLD);
     // Water heater is not installed. Heat demand is routed to HLamp instead,
     // and relay_3 remains de-energized regardless of an old/manual command.
     state.hwat_active = false;
-    state.mist_active = resolveBinaryDemand(outputs.Mist, state.mist_active);
-    state.fan_active = resolveBinaryDemand(outputs.Exh, state.fan_active);
+    state.mist_active = resolveBinaryDemand(
+        outputs.Mist,
+        state.mist_active,
+        activeTuning.mist_on_threshold,
+        activeTuning.mist_off_threshold);
+    state.fan_active = resolveBinaryDemand(
+        outputs.Exh,
+        state.fan_active,
+        FUZZY_ON_THRESHOLD,
+        FUZZY_OFF_THRESHOLD);
 }
 
 void writeRelays(const RelayStatePod& state) {

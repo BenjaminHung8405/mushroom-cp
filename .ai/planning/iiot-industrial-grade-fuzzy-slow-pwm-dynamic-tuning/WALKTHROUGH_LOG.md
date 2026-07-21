@@ -2,6 +2,20 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T17:01:52+0700] - Task E2: Khắc phục dynamic Mist hysteresis theo QA
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - Sửa đổi: [actuator_controller.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/actuator_controller.h)
+  - Sửa đổi: [actuator_controller.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/actuator_controller.cpp)
+  - Sửa đổi: [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [WALKTHROUGH_LOG.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md)
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Nguyên nhân gốc: lần sửa E2 trước chỉ hoàn tất gain scale tại fuzzy arbiter, nhưng không thực hiện các phần bắt buộc liên quan relay resolution của Track E. `resolveBinaryDemand()` còn private/cố định ngưỡng và `s_activeTuning` không được parameter-inject vào actuator layer, nên hai Mist threshold đã persist không thể tác động relay.
+  - Đã công khai pure helper `resolveBinaryDemand(demand, state, on, off)` với kiểm tra finite, điều kiện `off < on` và fail-safe OFF. `applyDirectOutputs()` nay nhận `const DynamicTuningParams&`: chỉ Mist dùng `mist_on_threshold`/`mist_off_threshold`; Lamp/Fan giữ cố định `0.25/0.15`. Core 1 truyền local `s_activeTuning` sau hardware blackout và trước `SystemProtector`, bảo toàn thứ tự interlock.
+  - Bổ sung test table-driven cho biên ON/OFF, vùng hold, NaN/Infinity/band sai; regression chứng minh Mist dynamic threshold có hiệu lực còn Lamp/Fan bất biến. Blackout và `SystemProtector`/cooldown/max-ON regression hiện hữu vẫn được chạy qua full suite. Host suite PASS (`--- All Unit Tests Passed Successfully! ---`, còn 1 warning có sẵn tại `run_tests.cpp:309`); PlatformIO `otg` SUCCESS; `git diff --check` sạch.
+
 ## [2026-07-21T16:53:58+0700] - Task E2: Khắc phục thứ tự clamp của dynamic tuning theo QA
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

@@ -891,7 +891,7 @@ static void runControlPipelineStep(
     
     // Apply hardware protection override to outputs before mapping direct demands
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
-    relay_control::applyDirectOutputs(outputs, relayState);
+    relay_control::applyDirectOutputs(outputs, s_activeTuning, relayState);
 
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
     static protector::SystemProtector systemProtector;
