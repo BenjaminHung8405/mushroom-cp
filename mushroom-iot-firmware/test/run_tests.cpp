@@ -38,6 +38,7 @@ bool Preferences::mock_fail_put_bytes = false;
 size_t Preferences::mock_fail_put_bytes_after = 0;
 size_t Preferences::mock_put_bytes_count = 0;
 void (*Preferences::mock_put_bytes_hook)(const char* key, const void* value, size_t len) = nullptr;
+void (*Preferences::mock_end_hook)() = nullptr;
 
 uint32_t calculateTuningRecordCrcForTest(const TuningNvsRecord& record) {
     uint32_t crc = 0xFFFFFFFF;
@@ -51,28 +52,38 @@ uint32_t calculateTuningRecordCrcForTest(const TuningNvsRecord& record) {
     return ~crc;
 }
 
-bool mock_alter_pending_tuning_padding = false;
-
-void alterPendingTuningPaddingForTest(const char* key, const void*, size_t len) {
-    std::printf("[HOOK DEBUG] hook called: key=%s, len=%zu, mock_alter=%d\n", key, len, mock_alter_pending_tuning_padding);
-    if (!mock_alter_pending_tuning_padding || std::strcmp(key, "tune_s0") != 0 ||
-        len != sizeof(TuningNvsRecord)) {
-        std::printf("[HOOK DEBUG] hook returning early: sizeof(TuningNvsRecord)=%zu\n", sizeof(TuningNvsRecord));
-        return;
+void alterPendingTuningPaddingAfterWrite() {
+    auto& storage = Preferences::_global_storage[config::network::NVS_NAMESPACE];
+    auto it = storage.find("tune_s0");
+    if (it != storage.end() && it->second.size() == sizeof(TuningNvsRecord)) {
+        TuningNvsRecord record{};
+        std::memcpy(&record, it->second.data(), sizeof(record));
+        if (record.commit_state == 1) {
+            record.params.padding_uuid[0] = 0xA5;
+            record.params.padding_uuid[1] = 0x5A;
+            record.params.padding_uuid[2] = 0x7E;
+            record.crc32 = calculateTuningRecordCrcForTest(record);
+            it->second.assign(reinterpret_cast<const char*>(&record), sizeof(record));
+        }
     }
-    std::string& stored = Preferences::_global_storage[config::network::NVS_NAMESPACE][key];
-    TuningNvsRecord record{};
-    std::memcpy(&record, stored.data(), sizeof(record));
-    std::printf("[HOOK DEBUG] hook record commit_state=%d\n", record.commit_state);
-    if (record.commit_state != 1) return;
-    record.params.padding_uuid[0] = 0xA5;
-    record.params.padding_uuid[1] = 0x5A;
-    record.params.padding_uuid[2] = 0x7E;
-    record.crc32 = calculateTuningRecordCrcForTest(record);
-    std::printf("[HOOK DEBUG] hook modifying record: new_crc=%08X\n", record.crc32);
-    stored.assign(reinterpret_cast<const char*>(&record), sizeof(record));
-    mock_alter_pending_tuning_padding = false;
+    Preferences::mock_end_hook = nullptr;
 }
+
+void alterFieldAndRecalculateCrcHook(const char* key, const void*, size_t len) {
+    if (std::strcmp(key, "tune_s0") == 0 && len == sizeof(TuningNvsRecord)) {
+        auto& storage = Preferences::_global_storage[config::network::NVS_NAMESPACE];
+        auto it = storage.find(key);
+        if (it != storage.end() && it->second.size() == sizeof(TuningNvsRecord)) {
+            TuningNvsRecord record{};
+            std::memcpy(&record, it->second.data(), sizeof(record));
+            record.params.lamp_gain_scale += 0.5f;
+            record.crc32 = calculateTuningRecordCrcForTest(record);
+            it->second.assign(reinterpret_cast<const char*>(&record), sizeof(record));
+        }
+    }
+}
+
+bool WiFiClient::mock_fail_write = false;
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
 wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
@@ -972,15 +983,15 @@ int main() {
 
         // Setup server
         qos1_client.setServer("127.0.0.1", 1883);
-        
+
         // Mock connection state
         PubSubClient::mock_connect_result = true;
         PubSubClient::mock_connected = true;
-        
+
         // Feed CONNACK packet (0x20, 0x02, 0x00, 0x00) to allow connect() to read it and succeed
         wifi_client.mock_input = {0x20, 0x02, 0x00, 0x00};
         wifi_client.mock_input_pos = 0;
-        
+
         assert(qos1_client.connect("test_client") == true);
         assert(qos1_client.connected() == true);
 
@@ -989,61 +1000,98 @@ int main() {
         PublishQos1Result res1 = qos1_client.publishQos1("topic", payload, sizeof(payload), false);
         assert(res1 == PublishQos1Result::QUEUED);
         assert(qos1_client.hasPendingQos1Publish() == true);
-        
+
         // 2. Publish three more QoS 1 packets back-to-back.
         // They should be enqueued because active slot is busy.
         uint8_t payload2[] = "p2";
         uint8_t payload3[] = "p3";
         uint8_t payload4[] = "p4";
-        
+
         assert(qos1_client.publishQos1("topic", payload2, sizeof(payload2), false) == PublishQos1Result::QUEUED);
         assert(qos1_client.publishQos1("topic", payload3, sizeof(payload3), false) == PublishQos1Result::QUEUED);
         assert(qos1_client.publishQos1("topic", payload4, sizeof(payload4), false) == PublishQos1Result::QUEUED);
-        
+
         // At this point, active slot is occupied, and queue has 3. Total 4.
         // Let's add one more to fill the queue (queue depth is 4, so active + 4 = 5 total).
         uint8_t payload5[] = "p5";
         assert(qos1_client.publishQos1("topic", payload5, sizeof(payload5), false) == PublishQos1Result::QUEUED);
-        
+
         // 3. 6th publish should return BUSY (queue is full)
         uint8_t payload6[] = "p6";
         assert(qos1_client.publishQos1("topic", payload6, sizeof(payload6), false) == PublishQos1Result::BUSY);
-        
+
         // 4. Simulate receiving a PUBACK for the active publish.
         // The first message ID is 2.
         // A PUBACK packet: 0x40 (header), 0x02 (remaining length), 0x00, 0x02 (message ID 2).
         wifi_client.mock_input = {0x40, 0x02, 0x00, 0x02};
         wifi_client.mock_input_pos = 0;
-        
+
         // Run loop to process incoming packet
         qos1_client.loop();
-        
+
         // After loop, the active publish should be ACKed, and the NEXT one from queue (p2)
         // should be promoted to the active slot.
         // Let's verify active slot is still occupied.
         assert(qos1_client.hasPendingQos1Publish() == true);
-        
+
         // Let's feed PUBACK for msgId = 3.
         wifi_client.mock_input = {0x40, 0x02, 0x00, 0x03};
         wifi_client.mock_input_pos = 0;
         qos1_client.loop();
         assert(qos1_client.hasPendingQos1Publish() == true); // p3 is now active
-        
+
         // Feed PUBACK for msgId = 4, 5, 6
         wifi_client.mock_input = {0x40, 0x02, 0x00, 0x04};
         wifi_client.mock_input_pos = 0;
         qos1_client.loop();
-        
+
         wifi_client.mock_input = {0x40, 0x02, 0x00, 0x05};
         wifi_client.mock_input_pos = 0;
         qos1_client.loop();
-        
+
         wifi_client.mock_input = {0x40, 0x02, 0x00, 0x06};
         wifi_client.mock_input_pos = 0;
         qos1_client.loop();
-        
+
         // Now queue and active slot should be completely empty!
         assert(qos1_client.hasPendingQos1Publish() == false);
+
+        // 5. Test transport write failure during dequeue: packet must remain in FIFO and be sent on reconnect
+        {
+            WiFiClient::mock_fail_write = false;
+            uint8_t p_first[] = "first";
+            uint8_t p_queued[] = "queued";
+
+            wifi_client.mock_input.clear();
+            wifi_client.mock_input_pos = 0;
+
+            assert(qos1_client.publishQos1("topic", p_first, sizeof(p_first), false) == PublishQos1Result::QUEUED);
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            assert(qos1_client.publishQos1("topic", p_queued, sizeof(p_queued), false) == PublishQos1Result::QUEUED);
+
+            WiFiClient::mock_fail_write = true;
+
+            wifi_client.mock_input = {0x40, 0x02, 0x00, 0x07};
+            wifi_client.mock_input_pos = 0;
+            qos1_client.loop();
+
+            assert(qos1_client.hasPendingQos1Publish() == false);
+
+            WiFiClient::mock_fail_write = false;
+
+            qos1_client.disconnect();
+            wifi_client.mock_input = {0x20, 0x02, 0x00, 0x00};
+            wifi_client.mock_input_pos = 0;
+            assert(qos1_client.connect("test_client") == true);
+
+            assert(qos1_client.hasPendingQos1Publish() == true);
+
+            wifi_client.mock_input = {0x40, 0x02, 0x00, 0x02};
+            wifi_client.mock_input_pos = 0;
+            qos1_client.loop();
+            assert(qos1_client.hasPendingQos1Publish() == false);
+        }
     }
 
     // 13. Test Task D1 - Core 0 Communication Task
@@ -1117,7 +1165,7 @@ int main() {
     Serial.println("[TEST] Starting Task C3/C4 - TuningConfigManager Singleton, Validation and Public API Unit Tests...");
     {
         storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
-        
+
         // Ensure NVS has a known device ID
         storage::StorageManager& storage_inst = storage::StorageManager::get_instance();
         storage_inst.save_device_id("mushroom_s3_unittest");
@@ -1132,7 +1180,7 @@ int main() {
             prefs.remove("tune_rcpt");
             prefs.end();
         }
-        
+
         // Test initial values and reset
         tuner.resetForTest();
         DynamicTuningParams initial_params = tuner.getActiveParams();
@@ -1157,7 +1205,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OUT_OF_BOUNDS;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             if (result != storage::TuningResult::ACCEPTED) {
@@ -1165,7 +1213,7 @@ int main() {
             }
             assert(result == storage::TuningResult::ACCEPTED);
             assert(reason == storage::TuningReason::OK);
-            
+
             DynamicTuningParams active = tuner.getActiveParams();
             assert(active.revision == 1);
             assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
@@ -1187,7 +1235,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1206,7 +1254,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1225,7 +1273,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1244,7 +1292,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1263,7 +1311,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.20f;
             config["mist_off_threshold"] = 0.20f; // must be < mist_on
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1282,7 +1330,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
@@ -1315,7 +1363,7 @@ int main() {
             // saveDurableReceipt() writes one tune_rcpt entry; config slots unchanged.
             assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 1);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
-            
+
             DynamicTuningParams active = tuner.getActiveParams();
             assert(active.revision == 1);
             assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
@@ -1469,7 +1517,7 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::REJECTED);
@@ -1479,7 +1527,7 @@ int main() {
         {
             tuner.resetForTest();
             assert(tuner.init() == true);
-            
+
             // First, process a valid command to set baseline
             StaticJsonDocument<512> doc1;
             doc1["schema_version"] = 1;
@@ -1526,11 +1574,11 @@ int main() {
         // Case 13: UUID format validation in loadDurableReceipt
         {
             tuner.resetForTest();
-            
+
             // Manually write a corrupt/invalid receipt record into NVS
             Preferences prefs;
             assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
-            
+
             // Format of TuningReceiptRecord from tuning_config_manager.cpp:
             // version (4 bytes), command_id (37 bytes), padding (3 bytes), crc32 (4 bytes)
             struct DummyReceipt {
@@ -1539,7 +1587,7 @@ int main() {
                 uint8_t padding[3] = {0};
                 uint32_t crc32 = 0;
             } rec;
-            
+
             // Calculate CRC
             uint32_t crc = 0xFFFFFFFF;
             const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&rec);
@@ -1550,13 +1598,13 @@ int main() {
                 }
             }
             rec.crc32 = ~crc;
-            
+
             assert(prefs.putBytes("tune_rcpt", &rec, sizeof(rec)) == sizeof(rec));
             prefs.end();
 
             // Init should validate and reject the malformed UUID, not loading it
             assert(tuner.init() == true);
-            
+
             // Process command with that same malformed UUID, it should not be duplicate
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
@@ -1568,10 +1616,10 @@ int main() {
             config["mist_gain_scale"] = 0.9f;
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
-            
+
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-            
+
             // Should be rejected due to malformed UUID validation (not loaded as duplicate)
             assert(result == storage::TuningResult::REJECTED);
             assert(reason == storage::TuningReason::INVALID_UUID);
@@ -1581,7 +1629,7 @@ int main() {
         assert(static_cast<uint8_t>(storage::TuningResult::ACCEPTED) == 0);
         assert(static_cast<uint8_t>(storage::TuningResult::REJECTED) == 1);
         assert(static_cast<uint8_t>(storage::TuningResult::DUPLICATE) == 2);
-        
+
         assert(static_cast<uint8_t>(storage::TuningReason::OK) == 0);
         assert(static_cast<uint8_t>(storage::TuningReason::INVALID_SCHEMA) == 1);
         assert(static_cast<uint8_t>(storage::TuningReason::INVALID_DEVICE_ID) == 2);
@@ -1635,11 +1683,10 @@ int main() {
             // Simulate a valid staged record whose ABI padding differs from
             // the incoming object. READY finalization must still select the
             // PENDING slot by semantic fields, preserving generation 1.
-            Preferences::mock_put_bytes_hook = alterPendingTuningPaddingForTest;
-            mock_alter_pending_tuning_padding = true;
+            Preferences::mock_end_hook = alterPendingTuningPaddingAfterWrite;
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-            Preferences::mock_put_bytes_hook = nullptr;
+            Preferences::mock_end_hook = nullptr;
             assert(result == storage::TuningResult::ACCEPTED);
 
             // Verify slot 0 is written, slot 1 is empty
@@ -1836,6 +1883,40 @@ int main() {
             assert(std::abs(hydrated.lamp_gain_scale - 1.15f) < 0.0001f);
         }
 
+        // 10. Test that modifying a field in record (even with CRC recalculated) is rejected during readback verification
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+            tuner.resetForTest();
+            assert(tuner.init() == true);
+
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215268";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 6;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.2f;
+            config["mist_gain_scale"] = 0.8f;
+            config["mist_on_threshold"] = 0.29f;
+            config["mist_off_threshold"] = 0.19f;
+
+            // Set the hook to alter a field and recalculate CRC
+            Preferences::mock_put_bytes_hook = alterFieldAndRecalculateCrcHook;
+
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+
+            Preferences::mock_put_bytes_hook = nullptr;
+
+            // Since verifyReadback rejects mismatched CRCs, processCommand must fail and return REJECTED
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::NVS_WRITE_ERROR);
+        }
+
         // Cleanup
         {
             Preferences prefs;
@@ -1879,7 +1960,7 @@ int main() {
 
         // Now we reset the tuner and the queue, then call hydrateSetpointsFromNVS() to test C7 hydration
         tuner.resetForTest();
-        
+
         while (xQueueReceive(g_tuning_config_queue, &dummy, 0) == pdTRUE) {}
 
         // Hydrate from NVS

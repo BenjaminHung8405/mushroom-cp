@@ -501,10 +501,9 @@ PublishQos1Result PubSubClientQos1::publishQos1(const char* topic, const uint8_t
                                                  unsigned int plength, boolean retained) {
     if (!connected()) return PublishQos1Result::NOT_CONNECTED;
     if (topic == NULL || (payload == NULL && plength > 0)) return PublishQos1Result::INVALID_ARGUMENT;
-    if (pendingQos1.active) {
-        // Active slot is still waiting for PUBACK. Buffer this publish in the
-        // outbound FIFO so it is sent as soon as the active slot is cleared.
-        // Build the on-wire packet now (without transmitting) and store it.
+    if (pendingQos1.active || outboundQueueCount_ > 0) {
+        // Active slot is still waiting for PUBACK, or there are items in the FIFO.
+        // Buffer this publish in the outbound FIFO so it is sent in order.
         const size_t topicLen = strnlen(topic, this->bufferSize);
         if (topicLen == 0 || topicLen == this->bufferSize) return PublishQos1Result::INVALID_ARGUMENT;
         const uint32_t remainingLength = 2U + topicLen + 2U + plength;
@@ -547,6 +546,9 @@ PublishQos1Result PubSubClientQos1::publishQos1(const char* topic, const uint8_t
             // Queue is full — all slots occupied. This is a bounded drop: the caller
             // (MqttManager) should log and handle accordingly.
             return PublishQos1Result::BUSY;
+        }
+        if (!pendingQos1.active) {
+            dequeueAndSendNextQos1();
         }
         // Successfully buffered; caller treats this as QUEUED.
         return PublishQos1Result::QUEUED;
@@ -660,10 +662,6 @@ bool PubSubClientQos1::dequeueAndSendNextQos1() {
     pendingQos1.retryCount = 0;
     pendingQos1.active = true;
 
-    // Advance FIFO head.
-    outboundQueueHead_ = (outboundQueueHead_ + 1) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
-    --outboundQueueCount_;
-
     // Patch fresh message ID into the on-wire packet.
     // Scan past remaining-length bytes to find the variable header offset.
     uint16_t pos = 1; // skip fixed header byte
@@ -686,6 +684,10 @@ bool PubSubClientQos1::dequeueAndSendNextQos1() {
         pendingQos1.packetLength = 0;
         return false;
     }
+
+    // Advance FIFO head.
+    outboundQueueHead_ = (outboundQueueHead_ + 1) % MQTT_QOS1_OUTBOUND_QUEUE_DEPTH;
+    --outboundQueueCount_;
     return true;
 }
 

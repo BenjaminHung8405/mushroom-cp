@@ -1,3 +1,23 @@
+## [2026-07-21T22:04:00+07:00] - Task C5, D4: Khắc phục phản hồi QA (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** C5, D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/Preferences.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+- **Giải trình ngắn gọn:**
+  - **D4 (QoS-1 Reported ACK Loss):** Refactor `dequeueAndSendNextQos1` để chỉ dequeue sau khi writePendingQos1() gửi thành công. Cập nhật `publishQos1` để đẩy gói tin vào queue khi hàng đợi đang bận. Bổ sung test case giả lập transport write failure, chứng minh hàng đợi được bảo toàn và phát lại thành công sau khi reconnect.
+  - **C5 (CRC Readback Invariant):** Gỡ bỏ directive `#ifndef UNIT_TEST` khỏi `verifyReadback` để kiểm tra CRC readback khắt khe trong môi trường test. Cấu trúc lại mock NVS sử dụng `mock_end_hook` để chỉnh sửa padding sau khi commit thành công. Bổ sung unit test sửa đổi field (kèm tính lại CRC) và kiểm chứng nó bị reject fail-closed.
+  - **Chất lượng test source:** Xóa toàn bộ print debug `[HOOK DEBUG]`, dọn sạch trailing whitespaces.
+- **Kết quả kiểm thử:**
+  - `run_tests_mac` → **PASS** (tất cả 25 suites bao gồm test mới)
+  - `git diff --check` → **sạch**
+
+---
+
 ## [2026-07-21T21:46:00+07:00] - Task A1, A5, C2, C4, C5, D4: Khắc phục phản hồi QA (Lần 4)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 4)
@@ -751,3 +771,11 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   - **Tự kiểm tra:**
     - Đã viết bộ unit test chi tiết trong `mqtt-topics.const.spec.ts` bao phủ các trường hợp segment hợp lệ, segment chứa ký tự cấm, segment quá dài, và hoạt động của các hàm builder.
     - Chạy thử nghiệm toàn bộ test suite của backend bằng `pnpm test` và đạt tỷ lệ thành công 100% (130/130 tests pass).
+## [2026-07-21T21:47:47+07:00] - Security/Architecture QA Review: REJECTED
+
+- **Kết quả:** Từ chối duyệt. Đã trả **C5** và **D4** về trạng thái `[ ] In Progress` trong `PROGRESS.md`. Không task nào được chuyển sang `[x] Done`.
+- **Lỗi chặn phát hành:**
+  1. **Mất reported ACK khi write transport thất bại:** `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp:663-665` giảm head/count của FIFO **trước** khi gọi `writePendingQos1()` tại dòng 684. Nếu write thất bại, dòng 684-687 chỉ clear active slot; entry đã bị lấy khỏi FIFO và không còn cơ chế retry/reconnect. Điều này vẫn làm backend shadow treo `PENDING`, trái ràng buộc QoS 1/reconnect-safe của D4. **Chỉ thị:** chỉ dequeue sau khi write thành công, hoặc giữ entry đến khi nhận PUBACK; mọi lỗi write/disconnect phải bảo toàn packet để gửi lại với đúng semantics MQTT. Thêm regression cho short write/transport failure, reconnect và xác nhận FIFO không mất message.
+  2. **Invariant CRC readback bị tắt trong unit test:** `mushroom-iot-firmware/src/core/tuning_config_manager.cpp:131-136` bọc so sánh `readback.crc32 == expected.crc32` bằng `#ifndef UNIT_TEST`. Build test vì vậy không kiểm tra readback đúng byte-record đã persist, tạo false positive cho C5 và không phản ánh code production. **Chỉ thị:** bỏ conditional compilation này; sửa mock/test fixture để kiểm tra cùng invariant fail-closed ở cả test và firmware. Bổ sung test chỉnh sửa một field (kể cả khi CRC được tính lại) phải khiến verification thất bại.
+  3. **Regression test không sạch và còn debug instrumentation:** `mushroom-iot-firmware/test/run_tests.cpp:57-72` commit các dòng `[HOOK DEBUG]`; phần mới thêm còn trailing whitespace tại các dòng `975, 979, 983, 992-1044, 1482, 1529, 1533, 1542, 1553, 1559, 1571, 1574`. `git diff --check` hiện thất bại, trái với kết quả tự khai trong walkthrough. **Chỉ thị:** xóa debug output, chỉ giữ assertion cần thiết, loại toàn bộ trailing whitespace và chạy lại `git diff --check`.
+- **Xác minh QA:** Chạy lại `mushroom-iot-firmware/run_tests_mac` từ workspace hiện tại: **PASS**. Kết quả này không bao phủ short-write/reconnect làm mất FIFO entry, đồng thời bị làm yếu bởi nhánh `UNIT_TEST` nói trên.

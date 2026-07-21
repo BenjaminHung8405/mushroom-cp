@@ -129,9 +129,7 @@ bool verifyReadback(Preferences& prefs, const char* key, const TuningNvsRecord& 
     TuningNvsRecord readback{};
     if (prefs.getBytes(key, &readback, sizeof(readback)) != sizeof(readback)) return false;
     return isValidRecord(readback) &&
-#ifndef UNIT_TEST
            readback.crc32 == expected.crc32 &&
-#endif
            readback.generation == expected.generation &&
            readback.commit_state == expected.commit_state;
 }

@@ -12,6 +12,7 @@ public:
     static size_t mock_fail_put_bytes_after;
     static size_t mock_put_bytes_count;
     static void (*mock_put_bytes_hook)(const char* key, const void* value, size_t len);
+    static void (*mock_end_hook)();
     std::string _current_namespace;
     bool _read_only;
     bool _opened = false;
@@ -25,6 +26,9 @@ public:
 
     void end() {
         _opened = false;
+        if (mock_end_hook != nullptr) {
+            mock_end_hook();
+        }
     }
 
     size_t putString(const char* key, const String& value) {

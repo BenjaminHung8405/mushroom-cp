@@ -257,6 +257,7 @@ class WiFiClient : public Client {
 public:
     std::vector<uint8_t> mock_input;
     size_t mock_input_pos = 0;
+    static bool mock_fail_write;
 
     WiFiClient() {}
     int available() override { return mock_input.size() - mock_input_pos; }
@@ -267,7 +268,10 @@ public:
         return -1;
     }
     size_t write(uint8_t) override { return 0; }
-    size_t write(const uint8_t *buffer, size_t size) override { return size; }
+    size_t write(const uint8_t *buffer, size_t size) override {
+        if (mock_fail_write) return 0;
+        return size;
+    }
     int connect(IPAddress ip, uint16_t port) override { return 1; }
     int connect(const char *host, uint16_t port) override { return 1; }
     void stop() override {}
