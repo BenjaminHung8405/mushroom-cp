@@ -142,6 +142,8 @@ describe('ControlHistoryInfluxWriter', () => {
     expect(mockWriteApi.writePoint).toHaveBeenCalled();
     const pointArg = mockWriteApi.writePoint.mock.calls[0][0] as any;
     expect(pointArg.toString()).toContain('data_quality=degraded');
+    expect(pointArg.toString()).not.toContain('temperature_c=0');
+    expect(pointArg.toString()).not.toContain('temperature_c=');
   });
 
   it('should map to "missing_target" dataQuality if control targets are null/missing', async () => {
@@ -174,8 +176,7 @@ describe('ControlHistoryInfluxWriter', () => {
     expect(pointArg.toString()).toContain('data_quality=missing_target');
   });
 
-  it('should catch write errors and not break telemetry$ subscription', async () => {
-    mockWriteApi.flush.mockRejectedValueOnce(new Error('Influx temporary write error'));
+  it('should continue the MQTT pipeline when Influx receives a burst', async () => {
     writer.onModuleInit();
 
     const event1: TelemetryEvent = {
@@ -197,17 +198,13 @@ describe('ControlHistoryInfluxWriter', () => {
       timestamp: '2026-07-21T03:00:00Z',
     };
 
-    const event2: TelemetryEvent = { ...event1, deviceId: 'device-456' };
-
-    // Emit first event, which will throw error on flush
-    telemetrySubject.next(event1);
+    for (let index = 0; index < 100; index += 1) {
+      telemetrySubject.next({ ...event1, deviceId: `device-${index}` });
+    }
     await new Promise((resolve) => process.nextTick(resolve));
 
-    // Emit second event, should still be processed
-    telemetrySubject.next(event2);
-    await new Promise((resolve) => process.nextTick(resolve));
-
-    expect(mockWriteApi.writePoint).toHaveBeenCalledTimes(2);
+    expect(mockWriteApi.writePoint).toHaveBeenCalledTimes(100);
+    expect(mockWriteApi.flush).not.toHaveBeenCalled();
   });
 
   it('should clean up onModuleDestroy', async () => {

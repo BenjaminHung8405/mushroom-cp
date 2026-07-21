@@ -57,7 +57,13 @@ const char* tuningReasonCode(storage::TuningReason reason)
     }
 }
 
-bool publishTuningReported(PubSubClient& client, bool provisioned,
+#ifdef UNIT_TEST
+using TuningReportedMqttClient = PubSubClient;
+#else
+using TuningReportedMqttClient = PubSubClientQos1;
+#endif
+
+bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
                            const String& tenant, const String& device_id,
                            storage::TuningResult result,
                            storage::TuningReason reason,
@@ -90,11 +96,10 @@ bool publishTuningReported(PubSubClient& client, bool provisioned,
     serializeJson(document, payload);
     const String topic = tenant + "/esp32/" + device_id + "/up/tuning/reported";
 
-    // PubSubClient 2.8 only exposes QoS selection for subscriptions and LWT;
-    // its outbound publish API always emits MQTT QoS 0. Retain=false is explicit.
-    return client.publish(topic.c_str(),
-                          reinterpret_cast<const uint8_t*>(payload.c_str()),
-                          payload.length(), false);
+    // QoS 1 requires a broker PUBACK; reported acknowledgements are never retained.
+    return client.publishQos1(topic.c_str(),
+                              reinterpret_cast<const uint8_t*>(payload.c_str()),
+                              payload.length(), false);
 }
 
 bool sameText(const char* left, const char* right)

@@ -90,6 +90,7 @@ private:
     TuningReason validateAndParse(const JsonVariant& doc, DynamicTuningParams& out_params);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
+    bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);
     static uint32_t calculateCRC32(const uint8_t *data, size_t length);
 
     bool _validateSchemaVersion(const JsonVariant& doc);

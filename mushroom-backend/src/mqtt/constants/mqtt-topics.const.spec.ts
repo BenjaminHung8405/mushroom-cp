@@ -3,7 +3,6 @@ import {
   getTuningReportedTopic,
   getTuningReportedPattern,
   validateSegment,
-  TUNING_REPORTED_GLOBAL_PATTERN,
 } from './mqtt-topics.const';
 
 describe('MQTT Topics Constants', () => {
@@ -62,9 +61,7 @@ describe('MQTT Topics Constants', () => {
     });
   });
 
-  describe('TUNING_REPORTED_GLOBAL_PATTERN', () => {
-    it('should match the global pattern', () => {
-      expect(TUNING_REPORTED_GLOBAL_PATTERN).toBe('+/esp32/+/up/tuning/reported');
-    });
+  it('does not export a cross-tenant reported wildcard', () => {
+    expect(require('./mqtt-topics.const').TUNING_REPORTED_GLOBAL_PATTERN).toBeUndefined();
   });
 });

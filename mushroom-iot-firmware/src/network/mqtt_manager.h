@@ -5,7 +5,11 @@
 #include <WiFi.h>
 #endif
 #include <ArduinoJson.h>
+#ifdef UNIT_TEST
 #include <PubSubClient.h>
+#else
+#include <PubSubClientQos1.h>
+#endif
 #include "config.h"
 #include "core/time_confidence.h"
 #include "core/models.h"
@@ -160,7 +164,7 @@ private:
     // State
 #ifndef UNIT_TEST
     WiFiClient wifi_client_;
-    PubSubClient client_{wifi_client_};
+    PubSubClientQos1 client_{wifi_client_};
 #else
     WiFiClient wifi_client_;
     PubSubClient client_;

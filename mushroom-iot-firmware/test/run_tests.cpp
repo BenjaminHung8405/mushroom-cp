@@ -32,6 +32,7 @@
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
 bool Preferences::mock_fail_put_bytes = false;
+size_t Preferences::mock_put_bytes_count = 0;
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
 wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
@@ -53,6 +54,7 @@ std::vector<std::string> PubSubClient::mock_subscribed_topics;
 std::string PubSubClient::mock_last_published_topic = "";
 std::string PubSubClient::mock_last_published_payload = "";
 bool PubSubClient::mock_last_published_retained = false;
+uint8_t PubSubClient::mock_last_published_qos = 0;
 EventBits_t mock_event_group_bits = 0;
 
 std::map<uint8_t, uint8_t> mock_pin_modes;
@@ -613,6 +615,7 @@ int main() {
         PubSubClient::mock_last_published_topic.clear();
         PubSubClient::mock_last_published_payload.clear();
         PubSubClient::mock_last_published_retained = true;
+        PubSubClient::mock_last_published_qos = 0;
 
         mqtt::NetworkMessage accepted{};
         accepted.type = mqtt::CommandType::TUNING_DESIRED;
@@ -628,6 +631,7 @@ int main() {
         assert(PubSubClient::mock_last_published_topic ==
                "test_tenant/esp32/mushroom_s3_unittest/up/tuning/reported");
         assert(PubSubClient::mock_last_published_retained == false);
+        assert(PubSubClient::mock_last_published_qos == 1);
         StaticJsonDocument<768> reported;
         assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
         assert(std::strcmp(reported["command_id"], "d4444444-1234-1234-1234-123456789012") == 0);
@@ -928,7 +932,7 @@ int main() {
     assert(std::is_pod<DynamicTuningParams>::value == true);
     assert(std::is_pod<TuningNvsRecord>::value == true);
     assert(sizeof(DynamicTuningParams) == 60);
-    assert(sizeof(TuningNvsRecord) == 72);
+    assert(sizeof(TuningNvsRecord) == 76);
     assert(alignof(DynamicTuningParams) == 4);
     assert(alignof(TuningNvsRecord) == 4);
     assert(g_tuning_config_queue != nullptr);
@@ -1111,14 +1115,16 @@ int main() {
             config["mist_on_threshold"] = 0.28f; // same as Case 1
             config["mist_off_threshold"] = 0.18f; // same as Case 1
             
+            const size_t nvs_write_count_before = Preferences::mock_put_bytes_count;
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-            assert(result == storage::TuningResult::ACCEPTED);
-            assert(reason == storage::TuningReason::OK);
+            assert(result == storage::TuningResult::DUPLICATE);
+            assert(reason == storage::TuningReason::NO_CHANGE);
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before);
             
             DynamicTuningParams active = tuner.getActiveParams();
-            assert(active.revision == 2);
-            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            assert(active.revision == 1);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
         }
@@ -1211,7 +1217,8 @@ int main() {
             assert(read0 == sizeof(TuningNvsRecord));
             assert(read1 == 0);
             assert(r0.generation == 1);
-            assert(r0.version == 1);
+            assert(r0.version == 2);
+            assert(r0.commit_state == 2);
             assert(std::strcmp(r0.params.command_id, "b0d33b2e-9d2a-43a9-8de6-bf10d3215261") == 0);
         }
 

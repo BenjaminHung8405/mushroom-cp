@@ -208,13 +208,11 @@ static_assert(std::is_trivially_copyable<DynamicTuningParams>::value, "DynamicTu
  */
 struct TuningNvsRecord {
     uint32_t version;             ///< Schema version (e.g. 1)
+    uint8_t commit_state;         ///< PENDING records are never adopted during boot
+    uint8_t reserved[3];          ///< Reserved for natural alignment and future envelope fields
     uint32_t generation;          ///< Monotonic generation counter to track latest valid write
     DynamicTuningParams params;   ///< The nested tuning parameters
     uint32_t crc32;               ///< CRC32 of the envelope (computed over all fields except crc32 itself)
 } __attribute__((aligned(4)));
 
 static_assert(std::is_trivially_copyable<TuningNvsRecord>::value, "TuningNvsRecord must be trivially copyable");
-
-
-
-

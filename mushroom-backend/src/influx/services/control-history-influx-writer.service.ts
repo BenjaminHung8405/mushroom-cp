@@ -42,9 +42,7 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
         next: (event) => {
           try {
             const point = this.mapTelemetryToPoint(event);
-            this.writePoint(point).catch((err) => {
-              this.handleWriteError(err, point);
-            });
+            this.writePoint(point);
           } catch (err: any) {
             // Catch synchronous mapping error or promise rejection inside subscription
             this.logger.error(`Error processing telemetry for device ${event.deviceId}: ${err.message}`);
@@ -93,19 +91,19 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
       deviceId: raw.deviceId,
       timestamp,
       dataQuality,
-      temperatureC: raw.temp_air ?? 0,
-      humidityPercent: raw.humidity_air ?? 0,
+      temperatureC: raw.temp_air,
+      humidityPercent: raw.humidity_air,
       tempTarget: raw.control?.temperatureTarget ?? null,
       humidTarget: raw.control?.humidityTarget ?? null,
       controlSource: raw.control?.source ?? null,
       configRevision: raw.control?.configRevision ?? null,
-      mistState: raw.actuators?.mist_active ?? false,
-      lampState: raw.actuators?.lamp_stage_active ?? false,
-      fanState: raw.actuators?.fan_active ?? false,
+      mistState: raw.actuators?.mist_active ?? null,
+      lampState: raw.actuators?.lamp_stage_active ?? null,
+      fanState: raw.actuators?.fan_active ?? null,
     };
   }
 
-  private async writePoint(point: LiveTelemetryPoint): Promise<void> {
+  private writePoint(point: LiveTelemetryPoint): void {
     if (!this.writeApi) {
       throw new Error('InfluxDB WriteApi is not initialized');
     }
@@ -120,8 +118,12 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
 
     // Set fields
     influxPoint.timestamp(point.timestamp);
-    influxPoint.floatField('temperature_c', point.temperatureC);
-    influxPoint.floatField('humidity_percent', point.humidityPercent);
+    if (point.temperatureC !== null) {
+      influxPoint.floatField('temperature_c', point.temperatureC);
+    }
+    if (point.humidityPercent !== null) {
+      influxPoint.floatField('humidity_percent', point.humidityPercent);
+    }
 
     if (point.tempTarget !== null) {
       influxPoint.floatField('temp_target', point.tempTarget);
@@ -133,12 +135,17 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
       influxPoint.intField('config_revision', point.configRevision);
     }
 
-    influxPoint.booleanField('mist_state', point.mistState);
-    influxPoint.booleanField('lamp_state', point.lampState);
-    influxPoint.booleanField('fan_state', point.fanState);
+    if (point.mistState !== null) {
+      influxPoint.booleanField('mist_state', point.mistState);
+    }
+    if (point.lampState !== null) {
+      influxPoint.booleanField('lamp_state', point.lampState);
+    }
+    if (point.fanState !== null) {
+      influxPoint.booleanField('fan_state', point.fanState);
+    }
 
     this.writeApi.writePoint(influxPoint);
-    await this.writeApi.flush();
   }
 
   private handleWriteError(error: Error, point: LiveTelemetryPoint): void {

@@ -2,6 +2,36 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T17:25:18+0700] - Task A1, B1–B2, C4–C5, D4: Khắc phục phản hồi QA vòng 2
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-backend/src/influx/interfaces/live-telemetry-point.interface.ts`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.ts`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.spec.ts`
+  - `mushroom-backend/src/mqtt/constants/mqtt-topics.const.ts`
+  - `mushroom-backend/src/mqtt/constants/mqtt-topics.const.spec.ts`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.h`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/platformio.ini`
+  - `mushroom-iot-firmware/src/core/models.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/Preferences.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Thay outbound reported của firmware bằng transport cục bộ có `publishQos1()`: tạo PUBLISH QoS 1, chờ đúng broker `PUBACK`, và luôn `retain=false`; host regression kiểm tra đường ACK QoS 1.
+  - Semantic no-change giờ trả `DUPLICATE/NO_CHANGE`, không đổi effective config và không gọi ghi NVS; test đếm số lần `putBytes` để khóa regression flash wear.
+  - NVS tuning dùng envelope version 2 với trạng thái `PENDING_COMMIT`/`COMMITTED`; boot chỉ hydrate bản ghi committed có CRC hợp lệ. Đường lỗi queue để lại pending không thể được adopt sau reset.
+  - Influx writer chỉ `writePoint()` để Write API tự batch/lifecycle flush, không còn tạo promise/flush cho từng telemetry. Các trường sensor/relay nullable không còn bị ghi thành `0`/`false`; field thiếu bị bỏ khỏi line protocol và vẫn gắn `data_quality=degraded`.
+  - Xóa global wildcard xuyên tenant; chỉ còn `getTuningReportedPattern(tenant)` có validate segment. Đã dọn whitespace qua `git diff --check`.
+  - Đã chạy: backend `npm test -- --runInBand --silent` (157/157 pass), `npm run build` (pass), firmware host suite (pass), và `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS).
+
 ## [2026-07-21T17:11:37+0700] - Task E1–E6: Khắc phục tính nhất quán persistence/dispatch theo QA
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

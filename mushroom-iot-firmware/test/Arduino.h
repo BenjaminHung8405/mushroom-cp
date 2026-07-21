@@ -240,6 +240,7 @@ public:
     static std::string mock_last_published_topic;
     static std::string mock_last_published_payload;
     static bool mock_last_published_retained;
+    static uint8_t mock_last_published_qos;
     PubSubClient() {}
     PubSubClient(WiFiClient& client) {}
 
@@ -278,6 +279,14 @@ public:
         mock_last_published_payload.assign(
             reinterpret_cast<const char*>(payload), payload == nullptr ? 0 : plength);
         mock_last_published_retained = retained;
+        return mock_publish_result;
+    }
+    bool publishQos1(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) {
+        mock_last_published_topic = topic ? topic : "";
+        mock_last_published_payload.assign(
+            reinterpret_cast<const char*>(payload), payload == nullptr ? 0 : plength);
+        mock_last_published_retained = retained;
+        mock_last_published_qos = 1;
         return mock_publish_result;
     }
 

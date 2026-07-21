@@ -25,5 +25,3 @@ export function getTuningReportedPattern(tenant: string): string {
   validateSegment(tenant);
   return `${tenant}/esp32/+/up/tuning/reported`;
 }
-
-export const TUNING_REPORTED_GLOBAL_PATTERN = `+/esp32/+/up/tuning/reported`;
