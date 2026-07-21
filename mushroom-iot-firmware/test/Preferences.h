@@ -11,6 +11,7 @@ public:
     static bool mock_fail_put_bytes;
     static size_t mock_fail_put_bytes_after;
     static size_t mock_put_bytes_count;
+    static void (*mock_put_bytes_hook)(const char* key, const void* value, size_t len);
     std::string _current_namespace;
     bool _read_only;
     bool _opened = false;
@@ -86,6 +87,9 @@ public:
              mock_put_bytes_count >= mock_fail_put_bytes_after)) return 0;
         ++mock_put_bytes_count;
         _global_storage[_current_namespace][key] = std::string(static_cast<const char*>(value), len);
+        if (mock_put_bytes_hook != nullptr) {
+            mock_put_bytes_hook(key, value, len);
+        }
         return len;
     }
 

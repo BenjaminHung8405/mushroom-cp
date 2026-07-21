@@ -1,3 +1,24 @@
+## [2026-07-21T20:10:12+07:00] - Task C4, C5, D2, D4: Khắc phục phản hồi QA (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/Preferences.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.gitleaks.toml`
+  - `.github/workflows/secret-scan.yml`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Semantic no-change dùng receipt UUID giới hạn một session, không thay active config, không enqueue Core 1 và không ghi lại NVS effective-config; regression xác nhận `Preferences::mock_put_bytes_count` không tăng với sai khác trong epsilon `0.001f`.
+  - Thay so sánh raw `memcmp()` có rủi ro padding bằng so sánh tường minh UUID, revision và bốn trường float persisted; chọn slot/finalization không phụ thuộc padding ABI.
+  - Callback desired bỏ toàn bộ `Serial`/`millis`; chỉ copy bounded và `xQueueSend(..., 0)`. Tín hiệu queue overflow dùng FreeRTOS Event Group với `xEventGroupWaitBits(..., clearOnExit=true)` atomically; log/publish/reconnect vẫn ở `MqttManager::loop()` Core 0. Regression kiểm tra burst overflow không bị mất event.
+  - Đã xóa bootstrap secret lộ khỏi cấu hình IntelliSense local (file này hiện bị ignore, không tracked), thay bằng placeholder; quét tracked files/history không thấy secret đó và bổ sung cấu hình Gitleaks cùng workflow CI. Secret đã lộ phải được rotate/revoke ở broker/deployment.
+  - Đã chạy `mushroom-iot-firmware/run_tests_mac` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `git diff --check` (sạch).
+
 ## [2026-07-21T19:56:54+07:00] - Task C4, D4: Khắc phục phản hồi QA (Lần 2)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

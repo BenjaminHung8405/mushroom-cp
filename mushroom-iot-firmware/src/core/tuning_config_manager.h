@@ -31,7 +31,7 @@ enum class TuningReason : uint8_t {
     OUT_OF_BOUNDS = 4,
     CROSS_FIELD_VIOLATION = 5,
     DUPLICATE_UUID = 6,
-    NO_CHANGE = 7,             ///< Parameters unchanged; identity is persisted, with no Core 1 dispatch.
+    NO_CHANGE = 7,             ///< Parameters unchanged; idempotency is retained only for this session, with no NVS write or Core 1 dispatch.
     NVS_WRITE_ERROR = 8,
     QUEUE_FULL_ERROR = 9
 };
@@ -88,6 +88,7 @@ private:
 
     DynamicTuningParams _active_params;
     DynamicTuningParams _pending_params;
+    char _last_no_change_command_id[37]{};
     bool _initialized = false;
     bool _has_pending_dispatch = false;
 
@@ -104,7 +105,7 @@ private:
                                          uint32_t& revision);
     TuningReason parseConfig(const JsonVariant& config, DynamicTuningParams& out_params);
     TuningResult persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason);
-    TuningResult persistIdentityOnly(const DynamicTuningParams& incoming, TuningReason& reason);
+    TuningResult recordNoChangeReceipt(const DynamicTuningParams& incoming, TuningReason& reason);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
     bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);

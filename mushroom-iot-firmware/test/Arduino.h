@@ -341,6 +341,18 @@ inline EventBits_t xEventGroupGetBits(EventGroupHandle_t xEventGroup) {
     return mock_event_group_bits;
 }
 
+inline EventBits_t xEventGroupWaitBits(EventGroupHandle_t xEventGroup,
+                                       const EventBits_t uxBitsToWaitFor,
+                                       const BaseType_t xClearOnExit,
+                                       const BaseType_t /*xWaitForAllBits*/,
+                                       TickType_t /*xTicksToWait*/) {
+    const EventBits_t observed_bits = mock_event_group_bits;
+    if (xClearOnExit != 0 && (observed_bits & uxBitsToWaitFor) != 0) {
+        mock_event_group_bits &= ~uxBitsToWaitFor;
+    }
+    return observed_bits;
+}
+
 #define pdTRUE  1
 #define pdFALSE 0
 #define pdPASS  1

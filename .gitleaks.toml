@@ -1,0 +1,18 @@
+title = "mushroom-cp secret scanning policy"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "firmware-bootstrap-password"
+description = "Firmware bootstrap passwords must not be committed"
+regex = '''BOOTSTRAP_PASSWORD\s*[=:]\s*["]?[^"\s]{12,}'''
+secretGroup = 0
+entropy = 0
+
+[[rules]]
+id = "mqtt-bootstrap-secret"
+description = "MQTT bootstrap secrets must not be committed"
+regex = '''MQTT_BOOTSTRAP_SECRET\s*[=:]\s*["]?[^"\s]{12,}'''
+secretGroup = 0
+entropy = 0

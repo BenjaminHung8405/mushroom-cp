@@ -2,6 +2,7 @@
 #include <cstring>
 
 #ifndef UNIT_TEST
+#include <freertos/event_groups.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #endif
@@ -10,11 +11,10 @@ namespace mqtt {
 namespace {
 
 constexpr size_t MAX_TUNING_DESIRED_TOPIC_BYTES = 160;
+constexpr EventBits_t TUNING_QUEUE_OVERFLOW_EVENT = BIT0;
 char expected_tuning_desired_topic[MAX_TUNING_DESIRED_TOPIC_BYTES]{};
 size_t expected_tuning_desired_topic_length = 0;
-volatile bool tuning_queue_overflowed = false;
-unsigned long last_tuning_queue_overflow_log_ms = 0;
-bool has_logged_tuning_queue_overflow = false;
+EventGroupHandle_t tuning_callback_events = nullptr;
 
 bool isTuningDesiredTopic(const char* topic)
 {
@@ -37,6 +37,11 @@ bool MessageDispatcher::setExpectedTuningDesiredTopic(const char* topic)
     const size_t length = strnlen(topic, MAX_TUNING_DESIRED_TOPIC_BYTES);
     if (length == 0 || length >= MAX_TUNING_DESIRED_TOPIC_BYTES) return false;
 
+    if (tuning_callback_events == nullptr) {
+        tuning_callback_events = xEventGroupCreate();
+        if (tuning_callback_events == nullptr) return false;
+    }
+
     memcpy(expected_tuning_desired_topic, topic, length);
     expected_tuning_desired_topic[length] = '\0';
     expected_tuning_desired_topic_length = length;
@@ -58,9 +63,6 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
         msg.type = CommandType::SYNC_BURST_ACK;
     } else if (isTuningDesiredTopic(topic)) {
         if (length > MAX_TUNING_DESIRED_PAYLOAD_BYTES) {
-            Serial.printf("[MQTT] Rejected tuning command payload too large (%u bytes, max %u).\n",
-                          length,
-                          static_cast<unsigned>(MAX_TUNING_DESIRED_PAYLOAD_BYTES));
             return;
         }
         msg.type = CommandType::TUNING_DESIRED;
@@ -77,31 +79,26 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
     msg.payload[copy_len] = '\0';
     msg.payload_length = static_cast<uint16_t>(copy_len);
     if (xQueueSend(g_network_worker_queue, &msg, 0) != pdTRUE) {
-        // The callback remains bounded and does not parse/publish. Core 0
-        // emits the contract rejection and reconnects from its normal worker
-        // context so retained desired state can be redelivered.
+        // The callback only records the bounded failure. Core 0 performs all
+        // logging, reporting, and reconnect work outside this callback.
         if (msg.type == CommandType::TUNING_DESIRED) {
-            tuning_queue_overflowed = true;
-            const unsigned long now = millis();
-            if (!has_logged_tuning_queue_overflow ||
-                now - last_tuning_queue_overflow_log_ms >= 1000UL) {
-                Serial.println("[MQTT] Tuning desired queue full; deferred rejection requested.");
-                last_tuning_queue_overflow_log_ms = now;
-                has_logged_tuning_queue_overflow = true;
-            }
-        } else {
-            Serial.println("[MQTT] Network worker queue full; message dropped.");
+            xEventGroupSetBits(tuning_callback_events, TUNING_QUEUE_OVERFLOW_EVENT);
         }
     }
 }
 
 bool MessageDispatcher::consumeTuningQueueOverflow()
 {
-    if (!tuning_queue_overflowed) {
-        return false;
-    }
-    tuning_queue_overflowed = false;
-    return true;
+    if (tuning_callback_events == nullptr) return false;
+    // waitBits(clearOnExit=true) atomically observes and clears a pending
+    // event. A producer that signals after the clear leaves its bit set for
+    // the next Core-0 loop, so a concurrent overflow cannot be lost.
+    return (xEventGroupWaitBits(tuning_callback_events,
+                                TUNING_QUEUE_OVERFLOW_EVENT,
+                                pdTRUE,
+                                pdFALSE,
+                                0) &
+            TUNING_QUEUE_OVERFLOW_EVENT) != 0;
 }
 
 } // namespace mqtt

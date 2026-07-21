@@ -28,12 +28,45 @@
 #include <cassert>
 #include <type_traits>
 #include <cmath>
+#include <cstddef>
 
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
 bool Preferences::mock_fail_put_bytes = false;
 size_t Preferences::mock_fail_put_bytes_after = 0;
 size_t Preferences::mock_put_bytes_count = 0;
+void (*Preferences::mock_put_bytes_hook)(const char* key, const void* value, size_t len) = nullptr;
+
+uint32_t calculateTuningRecordCrcForTest(const TuningNvsRecord& record) {
+    uint32_t crc = 0xFFFFFFFF;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&record);
+    for (size_t i = 0; i < offsetof(TuningNvsRecord, crc32); ++i) {
+        crc ^= bytes[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc & 1U) ? (crc >> 1U) ^ 0xEDB88320U : crc >> 1U;
+        }
+    }
+    return ~crc;
+}
+
+bool mock_alter_pending_tuning_padding = false;
+
+void alterPendingTuningPaddingForTest(const char* key, const void*, size_t len) {
+    if (!mock_alter_pending_tuning_padding || std::strcmp(key, "tune_s0") != 0 ||
+        len != sizeof(TuningNvsRecord)) {
+        return;
+    }
+    std::string& stored = Preferences::_global_storage[config::network::NVS_NAMESPACE][key];
+    TuningNvsRecord record{};
+    std::memcpy(&record, stored.data(), sizeof(record));
+    if (record.commit_state != 1) return;
+    record.params.padding_uuid[0] = 0xA5;
+    record.params.padding_uuid[1] = 0x5A;
+    record.params.padding_uuid[2] = 0x7E;
+    record.crc32 = calculateTuningRecordCrcForTest(record);
+    stored.assign(reinterpret_cast<const char*>(&record), sizeof(record));
+    mock_alter_pending_tuning_padding = false;
+}
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
 wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
@@ -575,9 +608,17 @@ int main() {
         // callback defers its rejection to Core 0 and does not parse inline.
         mock_fail_queue_send = true;
         mqtt::MessageDispatcher::dispatch(desired_topic, desired_payload, sizeof(desired_payload));
+        mqtt::MessageDispatcher::dispatch(desired_topic, desired_payload, sizeof(desired_payload));
         mock_fail_queue_send = false;
         assert(mqtt::MessageDispatcher::consumeTuningQueueOverflow() == true);
         assert(mqtt::MessageDispatcher::consumeTuningQueueOverflow() == false);
+
+        // A new overflow after a consumer clear must remain pending for the
+        // next Core-0 loop rather than being lost by a check-then-clear race.
+        mock_fail_queue_send = true;
+        mqtt::MessageDispatcher::dispatch(desired_topic, desired_payload, sizeof(desired_payload));
+        mock_fail_queue_send = false;
+        assert(mqtt::MessageDispatcher::consumeTuningQueueOverflow() == true);
 
         mqtt::g_network_worker_queue = previous_queue;
         mock_queue_send_hook = previous_hook;
@@ -1158,9 +1199,9 @@ int main() {
             assert(reason == storage::TuningReason::DUPLICATE_UUID);
         }
 
-        // Case 8: A new UUID/revision with unchanged parameters persists a
-        // command-identity-only record but does not change effective values
-        // or re-dispatch Core 1. The receipt must survive a reboot.
+        // Case 8: A new UUID/revision with unchanged parameters must not
+        // rewrite NVS or re-dispatch Core 1. Its bounded receipt only covers
+        // immediate QoS 1 redelivery within this firmware session.
         {
             DynamicTuningParams queued{};
             while (xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE) {}
@@ -1180,23 +1221,30 @@ int main() {
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
             assert(reason == storage::TuningReason::NO_CHANGE);
-            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 1);
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             
             DynamicTuningParams active = tuner.getActiveParams();
-            assert(active.revision == 2);
-            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            assert(active.revision == 1);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
 
-            // Retained QoS 1 redelivery after a reboot is recognized from the
-            // persisted B receipt: no NVS write and no Core 1 handoff.
+            const size_t writes_before_session_redelivery = Preferences::mock_put_bytes_count;
+            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
+            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+            assert(Preferences::mock_put_bytes_count == writes_before_session_redelivery);
+            assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
+
+            // The session receipt is cleared by reboot. The same retained
+            // command is re-evaluated as a no-change command without an NVS
+            // rewrite or Core 1 handoff.
             tuner.resetForTest();
             assert(tuner.init() == true);
             const DynamicTuningParams rebooted = tuner.getActiveParams();
-            assert(rebooted.revision == 2);
+            assert(rebooted.revision == 1);
             assert(std::strcmp(rebooted.command_id,
-                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
             assert(std::abs(rebooted.lamp_gain_scale - 1.1f) < 0.0001f);
             assert(std::abs(rebooted.mist_gain_scale - 0.9f) < 0.0001f);
             assert(std::abs(rebooted.mist_on_threshold - 0.28f) < 0.0001f);
@@ -1204,7 +1252,7 @@ int main() {
 
             const size_t writes_before_redelivery = Preferences::mock_put_bytes_count;
             assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
-            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+            assert(reason == storage::TuningReason::NO_CHANGE);
             assert(Preferences::mock_put_bytes_count == writes_before_redelivery);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             const DynamicTuningParams after_redelivery = tuner.getActiveParams();
@@ -1215,9 +1263,8 @@ int main() {
             assert(std::abs(after_redelivery.mist_on_threshold - rebooted.mist_on_threshold) < 0.0001f);
             assert(std::abs(after_redelivery.mist_off_threshold - rebooted.mist_off_threshold) < 0.0001f);
 
-            // The previous retained command is also a durable receipt in the
-            // other NVS slot. Replaying it must not roll back the effective
-            // configuration or enqueue Core 1.
+            // The effective command remains a durable receipt. Replaying it
+            // must not roll back config or enqueue Core 1.
             StaticJsonDocument<512> old_retained;
             old_retained.set(doc);
             old_retained["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
@@ -1389,8 +1436,14 @@ int main() {
             config["mist_on_threshold"] = 0.28f;
             config["mist_off_threshold"] = 0.18f;
 
+            // Simulate a valid staged record whose ABI padding differs from
+            // the incoming object. READY finalization must still select the
+            // PENDING slot by semantic fields, preserving generation 1.
+            Preferences::mock_put_bytes_hook = alterPendingTuningPaddingForTest;
+            mock_alter_pending_tuning_padding = true;
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            Preferences::mock_put_bytes_hook = nullptr;
             assert(result == storage::TuningResult::ACCEPTED);
 
             // Verify slot 0 is written, slot 1 is empty

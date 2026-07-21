@@ -64,13 +64,23 @@ int newestCommittedSlot(const NvsSlots& slots)
     return committed0 ? 0 : committed1 ? 1 : -1;
 }
 
+bool samePersistedParams(const DynamicTuningParams& lhs, const DynamicTuningParams& rhs)
+{
+    return std::strcmp(lhs.command_id, rhs.command_id) == 0 &&
+           lhs.revision == rhs.revision &&
+           lhs.lamp_gain_scale == rhs.lamp_gain_scale &&
+           lhs.mist_gain_scale == rhs.mist_gain_scale &&
+           lhs.mist_on_threshold == rhs.mist_on_threshold &&
+           lhs.mist_off_threshold == rhs.mist_off_threshold;
+}
+
 int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, uint8_t commit_state)
 {
     if (commit_state == TUNING_NVS_READY_DISPATCH) {
         const bool pending0 = slots.valid[0] && slots.records[0].commit_state == TUNING_NVS_PENDING_COMMIT &&
-                              std::memcmp(&slots.records[0].params, &params, sizeof(params)) == 0;
+                              samePersistedParams(slots.records[0].params, params);
         const bool pending1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_PENDING_COMMIT &&
-                              std::memcmp(&slots.records[1].params, &params, sizeof(params)) == 0;
+                              samePersistedParams(slots.records[1].params, params);
         if (pending0 && (!pending1 || slots.records[0].generation >= slots.records[1].generation)) return 0;
         if (pending1) return 1;
     }
@@ -149,6 +159,7 @@ void TuningConfigManager::unlock() {
 bool TuningConfigManager::init() {
     lock();
     _has_pending_dispatch = false;
+    std::memset(_last_no_change_command_id, 0, sizeof(_last_no_change_command_id));
     DynamicTuningParams loaded;
     if (loadFromNvs(loaded)) {
         _active_params = loaded;
@@ -176,7 +187,7 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
         reason = TuningReason::DUPLICATE_UUID;
         result = TuningResult::DUPLICATE;
     } else if (validation == TuningReason::OK && !_isSemanticDiff(incoming_params)) {
-        result = persistIdentityOnly(incoming_params, reason);
+        result = recordNoChangeReceipt(incoming_params, reason);
     } else if (validation == TuningReason::OK) {
         result = persistThenDispatch(incoming_params, reason);
     }
@@ -214,6 +225,7 @@ void TuningConfigManager::resetForTest() {
     _active_params.mist_on_threshold = 0.25f;
     _active_params.mist_off_threshold = 0.15f;
     std::memset(&_pending_params, 0, sizeof(_pending_params));
+    std::memset(_last_no_change_command_id, 0, sizeof(_last_no_change_command_id));
     _has_pending_dispatch = false;
     _initialized = false;
     unlock();
@@ -297,21 +309,16 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
     return TuningResult::PENDING;
 }
 
-TuningResult TuningConfigManager::persistIdentityOnly(const DynamicTuningParams& incoming,
-                                                       TuningReason& reason) {
-    // Persist a new envelope generation for the command receipt while copying
-    // the already-effective parameters byte-for-byte. This makes retained QoS
-    // 1 redelivery idempotent across reboot without reapplying Core 1 config.
-    DynamicTuningParams identity_record = _active_params;
-    std::strncpy(identity_record.command_id, incoming.command_id,
-                 sizeof(identity_record.command_id) - 1);
-    identity_record.command_id[sizeof(identity_record.command_id) - 1] = '\0';
-    identity_record.revision = incoming.revision;
-    if (!saveToNvs(identity_record)) {
-        reason = TuningReason::NVS_WRITE_ERROR;
-        return TuningResult::REJECTED;
-    }
-    _active_params = identity_record;
+TuningResult TuningConfigManager::recordNoChangeReceipt(const DynamicTuningParams& incoming,
+                                                         TuningReason& reason) {
+    // A semantically identical command must not rewrite the effective-config
+    // envelope: doing so would consume a two-slot NVS generation and wear
+    // flash without changing Core 1 state. Keep one bounded session receipt
+    // so immediate QoS 1 redelivery remains idempotent; after reboot the
+    // retained command is safely evaluated as another no-change command.
+    std::strncpy(_last_no_change_command_id, incoming.command_id,
+                 sizeof(_last_no_change_command_id) - 1);
+    _last_no_change_command_id[sizeof(_last_no_change_command_id) - 1] = '\0';
     reason = TuningReason::NO_CHANGE;
     return TuningResult::DUPLICATE;
 }
@@ -450,6 +457,7 @@ bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
 bool TuningConfigManager::_isExactDuplicate(const char* command_id) {
     if (command_id == nullptr) return false;
     if (std::strcmp(_active_params.command_id, command_id) == 0) return true;
+    if (std::strcmp(_last_no_change_command_id, command_id) == 0) return true;
 
     Preferences prefs;
     if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
