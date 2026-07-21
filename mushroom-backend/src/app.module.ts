@@ -9,6 +9,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
 import { AuthModule } from './auth/auth.module';
 import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
 import { OfflineSyncModule } from './offline-sync/offline-sync.module';
+import { InfluxModule } from './influx/influx.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { OfflineSyncModule } from './offline-sync/offline-sync.module';
     AuthModule, // POST /auth/token for ESP32 bootstrap
     MqttAuthModule,
     OfflineSyncModule,
+    InfluxModule,
   ],
   controllers: [AppController],
   providers: [AppService],

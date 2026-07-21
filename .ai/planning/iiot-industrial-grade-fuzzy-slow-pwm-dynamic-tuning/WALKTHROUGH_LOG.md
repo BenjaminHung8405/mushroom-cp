@@ -2,6 +2,32 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T10:51:00+07:00] - Task B2: Triển khai ControlHistoryInfluxWriter Service
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Tạo mới: [control-history-influx-writer.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/services/control-history-influx-writer.service.ts)
+  - Tạo mới: [control-history-influx-writer.service.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/services/control-history-influx-writer.service.spec.ts)
+  - Tạo mới: [influx-db.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/services/influx-db.service.ts)
+  - Tạo mới: [config.service.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/services/config.service.ts)
+  - Tạo mới: [influx.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/influx.module.ts)
+  - Sửa đổi: [app.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/app.module.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Phát triển service `ControlHistoryInfluxWriter` lắng nghe luồng telemetry thời gian thực (`telemetry$`), chuẩn hóa và làm giàu dữ liệu, sau đó lưu trữ bất đồng bộ vào InfluxDB measurement `controller_history` mà không làm đứt gãy luồng xử lý MQTT chính khi gặp sự cố ghi dữ liệu.
+  - **Giải pháp:**
+    - Triển khai `ControlHistoryInfluxWriter` như một NestJS service đăng ký hook lifecycle `onModuleInit()` để subscribe `mqttService.telemetry$` sử dụng RxJS operator `takeUntil(destroy$)` nhằm triệt tiêu hoàn toàn rò rỉ bộ nhớ (memory leaks).
+    - Tạo các service hỗ trợ DI: `ConfigService` để bọc truy cập biến môi trường và `InfluxDbService` để khởi tạo kết nối InfluxDB v2 thông qua thư viện `@influxdata/influxdb-client`.
+    - Viết phương thức `mapTelemetryToPoint` để ánh xạ và đánh giá chất lượng dữ liệu (`dataQuality`):
+      - Đánh dấu `degraded` nếu thiếu các giá trị đo cảm biến chính (`temp_air`, `humidity_air`) hoặc thiếu trạng thái phản hồi từ các relay chấp hành (`mist_active`, `lamp_stage_active`, `fan_active`).
+      - Đánh dấu `missing_target` nếu các thông số sensor/actuator đầy đủ nhưng không chứa thông số đích (setpoint target) từ Core 1 (`temperatureTarget`, `humidityTarget`).
+      - Ngược lại đánh dấu `good`.
+    - Viết phương thức bất đồng bộ `writePoint` tạo đối tượng `Point` và lưu vào InfluxDB bucket cấu hình qua `INFLUXDB_BUCKET`.
+    - Bọc logic ghi trong cấu trúc try-catch/promise catch đảm bảo khi InfluxDB xảy ra lỗi (ví dụ: mất kết nối, lỗi timeout), writer sẽ log lại lỗi kèm `device_id` và bỏ qua (skip), bảo vệ an toàn cho MQTT pipeline không bị ngắt quãng hoặc rơi vào vòng lặp retry vô chậm.
+    - Viết toàn diện các bài thử nghiệm trong file spec để giả lập nhiều kịch bản chất lượng dữ liệu (`good`, `degraded`, `missing_target`) và khả năng chịu lỗi ghi.
+  - **Tự kiểm tra:**
+    - Chạy thử nghiệm thành công toàn bộ test suite của backend với kết quả `156/156` test case PASS (bao gồm 6 unit test mới viết để kiểm thử writer).
+
 ## [2026-07-21T10:50:00+07:00] - Task B1: Định nghĩa interface LiveTelemetryPoint cho luồng InfluxDB
 
 - **Trạng thái:** `[ ] QA Review`
