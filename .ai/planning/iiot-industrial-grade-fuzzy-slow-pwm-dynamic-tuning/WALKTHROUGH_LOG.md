@@ -1,3 +1,19 @@
+## [2026-07-21T19:56:54+07:00] - Task C4, D4: Khắc phục phản hồi QA (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Khôi phục contract identity-only persistence cho command semantic no-change: ghi một `READY_DISPATCH` generation mới chứa UUID/revision mới nhưng giữ nguyên bốn tham số effective; tuyệt đối không `xQueueOverwrite`/dispatch Core 1.
+  - Sửa chọn slot/generation để `READY_DISPATCH` chỉ tái sử dụng slot của record `PENDING` cùng candidate; identity-only receipt hợp lệ tạo generation mới theo two-slot wear-leveling.
+  - `_isExactDuplicate()` kiểm tra cả hai receipt `READY_DISPATCH`, nhờ đó retained command B redelivery sau reboot và replay retained command cũ đều trả `DUPLICATE/DUPLICATE_UUID`, không ghi NVS, không enqueue và không rollback effective config.
+  - Bổ sung regression cô lập NVS, identity B → reboot → B redelivery, cùng replay command cũ; kiểm tra write-count, queue và toàn bộ effective params.
+  - Đã chạy `g++ -std=c++17 -DUNIT_TEST ...` (PASS), `mushroom-iot-firmware/run_tests_mac` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `git diff --check` (sạch).
+
 ## [2026-07-21T19:43:41+07:00] - Task C4, D4: Khắc phục QA Review (Lần 2)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)

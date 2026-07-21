@@ -992,6 +992,15 @@ int main() {
         // Ensure NVS has a known device ID
         storage::StorageManager& storage_inst = storage::StorageManager::get_instance();
         storage_inst.save_device_id("mushroom_s3_unittest");
+
+        // Isolate command-id/idempotency assertions from preceding MQTT tests.
+        {
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_s0");
+            prefs.remove("tune_s1");
+            prefs.end();
+        }
         
         // Test initial values and reset
         tuner.resetForTest();
@@ -1149,8 +1158,9 @@ int main() {
             assert(reason == storage::TuningReason::DUPLICATE_UUID);
         }
 
-        // Case 8: A new UUID/revision with unchanged parameters must not
-        // write NVS, mutate the effective configuration, or re-dispatch Core 1.
+        // Case 8: A new UUID/revision with unchanged parameters persists a
+        // command-identity-only record but does not change effective values
+        // or re-dispatch Core 1. The receipt must survive a reboot.
         {
             DynamicTuningParams queued{};
             while (xQueueReceive(g_tuning_config_queue, &queued, 0) == pdTRUE) {}
@@ -1170,23 +1180,60 @@ int main() {
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
             assert(reason == storage::TuningReason::NO_CHANGE);
-            assert(Preferences::mock_put_bytes_count == nvs_write_count_before);
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 1);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             
             DynamicTuningParams active = tuner.getActiveParams();
-            assert(active.revision == 1);
-            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
+            assert(active.revision == 2);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
 
-            // Reboot retains the last effective configuration, not the
-            // no-change command identity, to protect flash wear.
+            // Retained QoS 1 redelivery after a reboot is recognized from the
+            // persisted B receipt: no NVS write and no Core 1 handoff.
             tuner.resetForTest();
             assert(tuner.init() == true);
             const DynamicTuningParams rebooted = tuner.getActiveParams();
-            assert(rebooted.revision == 1);
+            assert(rebooted.revision == 2);
             assert(std::strcmp(rebooted.command_id,
-                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
+                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            assert(std::abs(rebooted.lamp_gain_scale - 1.1f) < 0.0001f);
+            assert(std::abs(rebooted.mist_gain_scale - 0.9f) < 0.0001f);
+            assert(std::abs(rebooted.mist_on_threshold - 0.28f) < 0.0001f);
+            assert(std::abs(rebooted.mist_off_threshold - 0.18f) < 0.0001f);
+
+            const size_t writes_before_redelivery = Preferences::mock_put_bytes_count;
+            assert(tuner.processCommand(doc.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
+            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+            assert(Preferences::mock_put_bytes_count == writes_before_redelivery);
+            assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
+            const DynamicTuningParams after_redelivery = tuner.getActiveParams();
+            assert(after_redelivery.revision == rebooted.revision);
+            assert(std::strcmp(after_redelivery.command_id, rebooted.command_id) == 0);
+            assert(std::abs(after_redelivery.lamp_gain_scale - rebooted.lamp_gain_scale) < 0.0001f);
+            assert(std::abs(after_redelivery.mist_gain_scale - rebooted.mist_gain_scale) < 0.0001f);
+            assert(std::abs(after_redelivery.mist_on_threshold - rebooted.mist_on_threshold) < 0.0001f);
+            assert(std::abs(after_redelivery.mist_off_threshold - rebooted.mist_off_threshold) < 0.0001f);
+
+            // The previous retained command is also a durable receipt in the
+            // other NVS slot. Replaying it must not roll back the effective
+            // configuration or enqueue Core 1.
+            StaticJsonDocument<512> old_retained;
+            old_retained.set(doc);
+            old_retained["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
+            old_retained["revision"] = 1;
+            const size_t writes_before_old_replay = Preferences::mock_put_bytes_count;
+            assert(tuner.processCommand(old_retained.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
+            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+            assert(Preferences::mock_put_bytes_count == writes_before_old_replay);
+            assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
+            const DynamicTuningParams after_old_replay = tuner.getActiveParams();
+            assert(after_old_replay.revision == rebooted.revision);
+            assert(std::strcmp(after_old_replay.command_id, rebooted.command_id) == 0);
+            assert(std::abs(after_old_replay.lamp_gain_scale - rebooted.lamp_gain_scale) < 0.0001f);
+            assert(std::abs(after_old_replay.mist_gain_scale - rebooted.mist_gain_scale) < 0.0001f);
+            assert(std::abs(after_old_replay.mist_on_threshold - rebooted.mist_on_threshold) < 0.0001f);
+            assert(std::abs(after_old_replay.mist_off_threshold - rebooted.mist_off_threshold) < 0.0001f);
         }
 
         // Case 9: Invalid revision representations are rejected before RAM,

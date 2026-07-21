@@ -72,7 +72,7 @@ int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, ui
         const bool pending1 = slots.valid[1] && slots.records[1].commit_state == TUNING_NVS_PENDING_COMMIT &&
                               std::memcmp(&slots.records[1].params, &params, sizeof(params)) == 0;
         if (pending0 && (!pending1 || slots.records[0].generation >= slots.records[1].generation)) return 0;
-        return pending1 ? 1 : -1;
+        if (pending1) return 1;
     }
     if (!slots.valid[0]) return 0;
     if (!slots.valid[1]) return 1;
@@ -81,7 +81,10 @@ int selectWriteSlot(const NvsSlots& slots, const DynamicTuningParams& params, ui
 
 uint32_t generationForWrite(const NvsSlots& slots, int slot, uint8_t commit_state)
 {
-    if (commit_state == TUNING_NVS_READY_DISPATCH) return slots.records[slot].generation;
+    if (commit_state == TUNING_NVS_READY_DISPATCH && slots.valid[slot] &&
+        slots.records[slot].commit_state == TUNING_NVS_PENDING_COMMIT) {
+        return slots.records[slot].generation;
+    }
     const uint32_t gen0 = slots.valid[0] ? slots.records[0].generation : 0;
     const uint32_t gen1 = slots.valid[1] ? slots.records[1].generation : 0;
     return (gen0 > gen1 ? gen0 : gen1) + 1;
@@ -296,10 +299,19 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
 
 TuningResult TuningConfigManager::persistIdentityOnly(const DynamicTuningParams& incoming,
                                                        TuningReason& reason) {
-    // A semantically identical command must not consume flash endurance or
-    // alter the effective configuration. Its UUID/revision are intentionally
-    // not persisted, so exact duplicate detection is limited to this boot.
-    (void)incoming;
+    // Persist a new envelope generation for the command receipt while copying
+    // the already-effective parameters byte-for-byte. This makes retained QoS
+    // 1 redelivery idempotent across reboot without reapplying Core 1 config.
+    DynamicTuningParams identity_record = _active_params;
+    std::strncpy(identity_record.command_id, incoming.command_id,
+                 sizeof(identity_record.command_id) - 1);
+    identity_record.command_id[sizeof(identity_record.command_id) - 1] = '\0';
+    identity_record.revision = incoming.revision;
+    if (!saveToNvs(identity_record)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
+        return TuningResult::REJECTED;
+    }
+    _active_params = identity_record;
     reason = TuningReason::NO_CHANGE;
     return TuningResult::DUPLICATE;
 }
@@ -437,7 +449,21 @@ bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
 
 bool TuningConfigManager::_isExactDuplicate(const char* command_id) {
     if (command_id == nullptr) return false;
-    return std::strcmp(_active_params.command_id, command_id) == 0;
+    if (std::strcmp(_active_params.command_id, command_id) == 0) return true;
+
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+    NvsSlots slots{};
+    readNvsSlots(prefs, slots);
+    prefs.end();
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+        if (slots.valid[slot] &&
+            slots.records[slot].commit_state == TUNING_NVS_READY_DISPATCH &&
+            std::strcmp(slots.records[slot].params.command_id, command_id) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool TuningConfigManager::_isSemanticDiff(const DynamicTuningParams& incoming) {
