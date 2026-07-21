@@ -322,7 +322,6 @@ describe('MqttService', () => {
       await service.dispatchSetpoint('device-1', {
         temperatureSetpoint: 30,
         humiditySetpoint: 85,
-        control_mode: 'fuzzy_tpc',
         setpoint_ttl_sec: 120,
       });
 
@@ -340,7 +339,6 @@ describe('MqttService', () => {
         service.dispatchSetpoint('device-1', {
           temperatureSetpoint: 30,
           humiditySetpoint: 85,
-          control_mode: 'fuzzy_tpc',
           setpoint_ttl_sec: 120,
         }),
       ).rejects.toThrow('MQTT client is not connected');

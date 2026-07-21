@@ -273,6 +273,19 @@ void MqttManager::loop()
     if (state_ == MqttState::ERROR_NO_WIFI) {
         state_ = MqttState::DISCONNECTED;
     }
+    if (MessageDispatcher::consumeTuningQueueOverflow()) {
+        Serial.println("[MQTT] Tuning command REJECTED/CONTROL_QUEUE_UNAVAILABLE.");
+        publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                              storage::TuningResult::REJECTED,
+                              storage::TuningReason::QUEUE_FULL_ERROR, "");
+        // Reconnect so a retained desired command is redelivered instead of
+        // silently losing the broker-delivered update.
+        if (client_.connected()) {
+            client_.disconnect();
+        }
+        state_ = MqttState::DISCONNECTED;
+        return;
+    }
     maintainLoop();
 }
 

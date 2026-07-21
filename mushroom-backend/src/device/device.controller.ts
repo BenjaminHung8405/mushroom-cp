@@ -285,7 +285,6 @@ export class DeviceController {
     const sync = await this.mqttService.dispatchSetpoint(id, {
       temperatureSetpoint,
       humiditySetpoint,
-      control_mode: 'fuzzy_tpc',
       setpoint_ttl_sec: 0,
     });
     return { message: `Đang đồng bộ setpoint xuống thiết bị '${id}'.`, sync };

@@ -21,12 +21,12 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
     private readonly mqttService: MqttService,
     private readonly configService: ConfigService,
   ) {
-    this.bucket = this.configService.get('INFLUXDB_ANALYTICS_BUCKET') ?? '';
+    this.bucket = this.configService.get('INFLUXDB_BUCKET') ?? '';
   }
 
   onModuleInit(): void {
     if (!this.bucket) {
-      this.logger.error('INFLUXDB_ANALYTICS_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.');
+      this.logger.error('INFLUXDB_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.');
       return;
     }
 
@@ -82,22 +82,29 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
   private mapTelemetryToPoint(raw: RawTelemetryPayload): LiveTelemetryPoint {
     const timestamp = raw.receivedAt ? new Date(raw.receivedAt) : new Date(raw.timestamp);
 
-    let dataQuality: 'good' | 'degraded' | 'missing_target' = 'good';
-    if (
+    const missingRequiredControl =
+      !raw.control ||
+      raw.control.temperatureTarget === null ||
+      raw.control.humidityTarget === null ||
+      raw.control.source === null ||
+      raw.control.configRevision === null;
+    const missingTarget =
+      !raw.control ||
+      raw.control.temperatureTarget === null ||
+      raw.control.humidityTarget === null;
+    const missingMeasurementOrRelay =
       raw.temp_air === null ||
       raw.humidity_air === null ||
       !raw.actuators ||
       raw.actuators.mist_active === null ||
       raw.actuators.lamp_stage_active === null ||
-      raw.actuators.fan_active === null
-    ) {
-      dataQuality = 'degraded';
-    } else if (
-      !raw.control ||
-      raw.control.temperatureTarget === null ||
-      raw.control.humidityTarget === null
-    ) {
+      raw.actuators.fan_active === null;
+
+    let dataQuality: 'good' | 'degraded' | 'missing_target' = 'good';
+    if (missingTarget) {
       dataQuality = 'missing_target';
+    } else if (missingRequiredControl || missingMeasurementOrRelay) {
+      dataQuality = 'degraded';
     }
 
     return {

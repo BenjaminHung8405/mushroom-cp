@@ -38,6 +38,8 @@ public:
     static bool setExpectedTuningDesiredTopic(const char* topic);
     /** Non-blocking classification/copy from the PubSubClient callback. */
     static void dispatch(char* topic, uint8_t* payload, unsigned int length);
+    /** Consume one deferred queue-overflow signal in the Core-0 worker. */
+    static bool consumeTuningQueueOverflow();
 };
 
 } // namespace mqtt

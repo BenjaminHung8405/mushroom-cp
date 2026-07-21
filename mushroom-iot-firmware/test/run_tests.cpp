@@ -71,6 +71,7 @@ void initSemaphores();
 
 void (*mock_queue_send_hook)(QueueHandle_t, const void*) = nullptr;
 bool mock_fail_queue_overwrite = false;
+bool mock_fail_queue_send = false;
 
 int main() {
     mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
@@ -567,6 +568,14 @@ int main() {
         mqtt::MessageDispatcher::dispatch(desired_topic, oversized_payload, sizeof(oversized_payload));
         assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
 
+        // Queue-full desired messages must not be silently accepted. The
+        // callback defers its rejection to Core 0 and does not parse inline.
+        mock_fail_queue_send = true;
+        mqtt::MessageDispatcher::dispatch(desired_topic, desired_payload, sizeof(desired_payload));
+        mock_fail_queue_send = false;
+        assert(mqtt::MessageDispatcher::consumeTuningQueueOverflow() == true);
+        assert(mqtt::MessageDispatcher::consumeTuningQueueOverflow() == false);
+
         mqtt::g_network_worker_queue = previous_queue;
         mock_queue_send_hook = previous_hook;
     }
@@ -676,10 +685,11 @@ int main() {
         assert(reported["persisted"] == false);
         assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
 
-        // Fault injection: stage succeeds, handoff fails, then all subsequent
-        // persistence writes fail. The rejected candidate must remain PENDING
-        // and therefore be impossible to hydrate after a simulated reboot.
+        // Fault injection: final NVS commit fails after the PENDING stage.
+        // Core 1 must never receive or apply this rejected candidate.
         const DynamicTuningParams previous = tuning.getActiveParams();
+        DynamicTuningParams discarded{};
+        while (xQueueReceive(g_tuning_config_queue, &discarded, 0) == pdTRUE) {}
         mqtt::NetworkMessage queue_unavailable{};
         queue_unavailable.type = mqtt::CommandType::TUNING_DESIRED;
         const char queue_unavailable_payload[] =
@@ -693,14 +703,12 @@ int main() {
 
         const size_t writes_before_failure = Preferences::mock_put_bytes_count;
         Preferences::mock_fail_put_bytes_after = writes_before_failure + 1;
-        mock_fail_queue_overwrite = true;
         mqtt_manager.processNetworkMessage(queue_unavailable);
-        mock_fail_queue_overwrite = false;
         Preferences::mock_fail_put_bytes_after = 0;
 
         assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
         assert(std::strcmp(reported["status"], "REJECTED") == 0);
-        assert(std::strcmp(reported["reason_code"], "CONTROL_QUEUE_UNAVAILABLE") == 0);
+        assert(std::strcmp(reported["reason_code"], "PERSISTENCE_FAILED") == 0);
         assert(reported["persisted"] == false);
 
         DynamicTuningParams active_after_failure = tuning.getActiveParams();
@@ -710,6 +718,8 @@ int main() {
         assert(std::abs(active_after_failure.mist_gain_scale - previous.mist_gain_scale) < 1e-6f);
         assert(std::abs(active_after_failure.mist_on_threshold - previous.mist_on_threshold) < 1e-6f);
         assert(std::abs(active_after_failure.mist_off_threshold - previous.mist_off_threshold) < 1e-6f);
+        DynamicTuningParams core1_candidate{};
+        assert(xQueueReceive(g_tuning_config_queue, &core1_candidate, 0) == pdFALSE);
 
         tuning.resetForTest();
         assert(tuning.init() == true);

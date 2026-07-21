@@ -114,35 +114,28 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
     }
 
     // Stage a record which boot deliberately ignores. The old READY record
-    // remains the only hydrateable value until the Core-0 -> Core-1 handoff
-    // has succeeded.
+    // remains the only hydrateable value until the durable commit succeeds.
     if (!writeRecord(incoming_params, TUNING_NVS_PENDING_COMMIT)) {
         reason = TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }
 
-    if (g_tuning_config_queue == nullptr ||
-        xQueueOverwrite(g_tuning_config_queue, &incoming_params) != pdTRUE) {
-        // Do not attempt a rollback: a failed rollback can itself make a
-        // rejected candidate durable. The staged record is non-hydrateable,
-        // while the previous READY record remains authoritative after reboot.
-        reason = TuningReason::QUEUE_FULL_ERROR;
+    // A command is never visible to Core 1 until its NVS record is durable.
+    // If this final commit fails, the candidate remains PENDING and Core 1
+    // cannot receive it through the handoff queue.
+    if (!saveToNvs(incoming_params)) {
+        reason = TuningReason::NVS_WRITE_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }
 
-    // Mark READY only after handoff. If this fails, undo the live handoff on a
-    // best-effort basis and raise a persistence fault; boot still selects the
-    // previous READY record because this candidate remains PENDING.
-    if (!saveToNvs(incoming_params)) {
-        const bool queueRestored =
-            g_tuning_config_queue != nullptr &&
-            xQueueOverwrite(g_tuning_config_queue, &_active_params) == pdTRUE;
-        if (!queueRestored) {
-            Serial.println("[TUNING] FATAL: readiness commit and control rollback failed; reboot required.");
-        }
-        reason = TuningReason::NVS_WRITE_ERROR;
+    // The candidate is now durable. Queue failure is reported so the retained
+    // desired command can be replayed after reconnect; it cannot cause a
+    // rejected command to affect relay control.
+    if (g_tuning_config_queue == nullptr ||
+        xQueueOverwrite(g_tuning_config_queue, &incoming_params) != pdTRUE) {
+        reason = TuningReason::QUEUE_FULL_ERROR;
         unlock();
         return TuningResult::REJECTED;
     }

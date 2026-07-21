@@ -635,7 +635,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       temperatureSetpoint: number;
       humiditySetpoint: number;
       co2Setpoint?: number;
-      control_mode: 'fuzzy_tpc';
       setpoint_ttl_sec: number;
       configRevision?: number;
     },

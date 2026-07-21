@@ -12,6 +12,9 @@ namespace {
 constexpr size_t MAX_TUNING_DESIRED_TOPIC_BYTES = 160;
 char expected_tuning_desired_topic[MAX_TUNING_DESIRED_TOPIC_BYTES]{};
 size_t expected_tuning_desired_topic_length = 0;
+volatile bool tuning_queue_overflowed = false;
+unsigned long last_tuning_queue_overflow_log_ms = 0;
+bool has_logged_tuning_queue_overflow = false;
 
 bool isTuningDesiredTopic(const char* topic)
 {
@@ -73,7 +76,32 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
     }
     msg.payload[copy_len] = '\0';
     msg.payload_length = static_cast<uint16_t>(copy_len);
-    xQueueSend(g_network_worker_queue, &msg, 0);
+    if (xQueueSend(g_network_worker_queue, &msg, 0) != pdTRUE) {
+        // The callback remains bounded and does not parse/publish. Core 0
+        // emits the contract rejection and reconnects from its normal worker
+        // context so retained desired state can be redelivered.
+        if (msg.type == CommandType::TUNING_DESIRED) {
+            tuning_queue_overflowed = true;
+            const unsigned long now = millis();
+            if (!has_logged_tuning_queue_overflow ||
+                now - last_tuning_queue_overflow_log_ms >= 1000UL) {
+                Serial.println("[MQTT] Tuning desired queue full; deferred rejection requested.");
+                last_tuning_queue_overflow_log_ms = now;
+                has_logged_tuning_queue_overflow = true;
+            }
+        } else {
+            Serial.println("[MQTT] Network worker queue full; message dropped.");
+        }
+    }
+}
+
+bool MessageDispatcher::consumeTuningQueueOverflow()
+{
+    if (!tuning_queue_overflowed) {
+        return false;
+    }
+    tuning_queue_overflowed = false;
+    return true;
 }
 
 } // namespace mqtt

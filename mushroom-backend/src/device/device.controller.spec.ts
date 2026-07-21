@@ -115,7 +115,6 @@ describe('DeviceController', () => {
       expect(mqttService.dispatchSetpoint).toHaveBeenCalledWith('esp32_01', {
         temperatureSetpoint: 30,
         humiditySetpoint: 80,
-        control_mode: 'fuzzy_tpc',
         setpoint_ttl_sec: 0,
       });
     });

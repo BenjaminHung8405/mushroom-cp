@@ -1,3 +1,30 @@
+## [2026-07-21T18:23:10+0700] - Task A1–A5, B1–B3, C1–C7, D1–D4, E1–E6: Khắc phục lỗi chặn QA
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Các file sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.h`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.ts`
+  - `mushroom-backend/src/influx/services/control-history-influx-writer.service.spec.ts`
+  - `mushroom-backend/src/influx/influx.module.spec.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/device/device.controller.ts`
+  - `mushroom-backend/src/device/device.controller.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục & tự kiểm tra:**
+  - Giao dịch tuning đổi thành `PENDING → durable COMMITTED → Core 0→Core 1 queue handoff`; vì vậy fault-injection lỗi final NVS commit không thể đưa candidate bị `REJECTED/PERSISTENCE_FAILED` đến Core 1/relay. Regression xác nhận queue không có candidate và reboot chỉ hydrate config trước đó.
+  - Callback kiểm tra `xQueueSend`; queue đầy đặt cờ bounded/rate-limited để Core 0 publish `REJECTED/CONTROL_QUEUE_UNAVAILABLE` rồi reconnect nhận lại retained desired, không parse/persist/GPIO trong callback. Có regression queue-full.
+  - `controller_history` chuyển về raw `INFLUXDB_BUCKET`; `good` chỉ khi đủ target nhiệt/ẩm, source, revision, sensor và final relay. Thiếu target là `missing_target`; thiếu source/revision là `degraded`, với test từng trường hợp.
+  - Xóa `control_mode: 'fuzzy_tpc'` khỏi public setpoint API, DTO caller và tests; quét production backend/firmware không còn các key TPC/PWM bị cấm.
+  - Đã chạy: host firmware suite (`g++ ...` → `--- All Unit Tests Passed Successfully! ---`), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), backend `npm test -- --runInBand --silent` (**167/167 PASS**), `npm run build` (PASS), `git diff --check` (sạch).
+
 ## [2026-07-21T18:04:25+0700] - Task A1–A5, C4–C5, C7, D2–D4: Khắc phục phản hồi QA bảo mật/reliability
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
@@ -50,6 +77,16 @@
   - Đã chạy: `pnpm test --runInBand` (**162/162 PASS**), `pnpm build` (PASS), host firmware build/test từ source vào `/tmp/mushroom-firmware-tests` (PASS), `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -e otg` (SUCCESS), `bash -n scripts/provision-influx.sh`, kiểm tra reject bucket/retention invalid, và `git diff --check` (sạch).
 
 # WALKTHROUGH LOG — IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning
+
+## [2026-07-21T19:00:00+0700] - Security/Architecture QA Review: REJECTED
+
+- **Kết quả:** Từ chối duyệt. Các task A1–A5, B1–B3, C1–C7, D1–D4 và E1–E6 đã được trả về trạng thái `[ ] In Progress` trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. Luồng NVS/queue có thể để Core 1 áp dụng candidate trước khi commit NVS hoàn tất; khi commit sau đó thất bại, candidate đã có thể tác động relay dù command được `REJECTED`.
+  2. `ControlHistoryInfluxWriter` ghi `controller_history` vào analytics bucket thay vì raw bucket `INFLUXDB_BUCKET`, trái kiến trúc; đồng thời vẫn gắn `data_quality=good` khi thiếu Core-1 `source` hoặc `configRevision`.
+  3. Contract legacy TPC vẫn còn trong API (`control_mode: 'fuzzy_tpc'`), trái phạm vi cấm TPC/PWM.
+  4. MQTT callback bỏ qua kết quả `xQueueSend`; queue đầy sẽ làm mất retained desired command sau khi broker đã nhận QoS 1, không có log/reject/report.
+- **Yêu cầu:** Khắc phục các lỗi chặn, thêm regression test cho từng tình huống, chạy lại firmware/backend suite và gửi lại QA.
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 

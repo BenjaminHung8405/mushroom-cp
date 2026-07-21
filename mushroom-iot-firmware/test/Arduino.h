@@ -366,10 +366,11 @@ inline QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemS
 
 extern void (*mock_queue_send_hook)(QueueHandle_t, const void*);
 extern bool mock_fail_queue_overwrite;
+extern bool mock_fail_queue_send;
 
 inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, TickType_t /*xTicksToWait*/) {
     MockQueue* q = static_cast<MockQueue*>(xQueue);
-    if (q == nullptr) return pdFALSE;
+    if (q == nullptr || mock_fail_queue_send) return pdFALSE;
     if (q->items.size() >= q->capacity) return pdFALSE;
     std::vector<uint8_t> buf(q->item_size);
     std::memcpy(buf.data(), pvItemToQueue, q->item_size);
