@@ -2,6 +2,23 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:07:00+07:00] - Task C2: Định nghĩa TuningNvsRecord two-slot cho NVS Flash
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/models.h)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Định nghĩa struct `TuningNvsRecord` bọc quanh `DynamicTuningParams` hỗ trợ cơ chế lưu trữ NVS two-slot, đảm bảo các thuộc tính POD, alignment 32-bit tự nhiên, và sẵn sàng cho mô hình double-buffer persistence với generation/version và kiểm tra toàn vẹn dữ liệu qua CRC32.
+  - **Giải pháp:**
+    - Định nghĩa cấu trúc `TuningNvsRecord` trong [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/models.h) bao gồm: `version` (uint32_t) đại diện cho schema version, `generation` (uint32_t) đếm số lượt ghi monotonic để nhận biết slot mới nhất, `params` kiểu `DynamicTuningParams` (60 bytes) chứa các tham số tuning thực tế, và `crc32` (uint32_t) để lưu mã kiểm tra toàn vẹn (tính toán trên toàn record trừ trường `crc32` chính nó).
+    - Thêm `static_assert(std::is_trivially_copyable<TuningNvsRecord>::value, "...")` bảo đảm struct an toàn cho các tác vụ sao chép thô nhị phân.
+    - Cập nhật file unit test [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) để bổ sung assertions tự động kiểm nghiệm các đặc tính kỹ thuật bao gồm: thuộc tính POD, kích thước bộ nhớ (72 bytes cho `TuningNvsRecord`, 60 bytes cho `DynamicTuningParams`), và alignment (4 bytes).
+  - **Tự kiểm tra:**
+    - Thực thi biên dịch offline thành công bằng toolchain `g++` cục bộ (có liên kết thư viện `ArduinoJson` và `SHT31/BusIO` từ `.pio/libdeps/otg/`).
+    - Chạy `./run_tests_mac` thành công rực rỡ, vượt qua 100% assertions không gặp lỗi biên dịch hay runtime logic nào.
+
 ## [2026-07-21T11:03:00+07:00] - Task C1: Thêm POD DynamicTuningParams trong core/models.h
 
 - **Trạng thái:** `[ ] QA Review`

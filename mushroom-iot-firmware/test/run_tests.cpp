@@ -732,6 +732,15 @@ int main() {
     assert(alignof(TelemetryData) == 4);
     assert(alignof(ControlSetpointCommand) == 4);
 
+    // DynamicTuningParams and TuningNvsRecord Checks
+    assert(std::is_pod<DynamicTuningParams>::value == true);
+    assert(std::is_pod<TuningNvsRecord>::value == true);
+    assert(sizeof(DynamicTuningParams) == 60);
+    assert(sizeof(TuningNvsRecord) == 72);
+    assert(alignof(DynamicTuningParams) == 4);
+    assert(alignof(TuningNvsRecord) == 4);
+
+
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
     Serial.println("[TEST] Starting Task F1/F2 - Sensors Mock & Fault Injection Unit Tests...");
 

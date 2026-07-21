@@ -202,5 +202,19 @@ struct DynamicTuningParams {
 
 static_assert(std::is_trivially_copyable<DynamicTuningParams>::value, "DynamicTuningParams must be trivially copyable");
 
+/**
+ * @brief Two-slot record envelope for persisting dynamic tuning configuration in NVS.
+ * Uses double-buffer persistence with version and generation counters for crash consistency.
+ */
+struct TuningNvsRecord {
+    uint32_t version;             ///< Schema version (e.g. 1)
+    uint32_t generation;          ///< Monotonic generation counter to track latest valid write
+    DynamicTuningParams params;   ///< The nested tuning parameters
+    uint32_t crc32;               ///< CRC32 of the envelope (computed over all fields except crc32 itself)
+} __attribute__((aligned(4)));
+
+static_assert(std::is_trivially_copyable<TuningNvsRecord>::value, "TuningNvsRecord must be trivially copyable");
+
+
 
 
