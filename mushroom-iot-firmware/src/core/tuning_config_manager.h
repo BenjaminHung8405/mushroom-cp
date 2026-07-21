@@ -90,6 +90,15 @@ private:
     TuningReason validateAndParse(const JsonVariant& doc, DynamicTuningParams& out_params);
     bool loadFromNvs(DynamicTuningParams& out_params);
     bool saveToNvs(const DynamicTuningParams& params);
+
+    bool _validateSchemaVersion(const JsonVariant& doc);
+    bool _validateDeviceId(const JsonVariant& doc);
+    bool _validateCommandIdFormat(const char* uuid_str);
+    bool _validateConfigBounds(const JsonVariant& config);
+    bool _validateCrossField(float mist_on, float mist_off);
+    bool _validateNoNanInfinity(const JsonVariant& v);
+    bool _isExactDuplicate(const char* command_id);
+    bool _isSemanticDiff(const DynamicTuningParams& incoming);
 };
 
 } // namespace storage

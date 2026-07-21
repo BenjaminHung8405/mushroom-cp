@@ -741,10 +741,14 @@ int main() {
     assert(alignof(DynamicTuningParams) == 4);
     assert(alignof(TuningNvsRecord) == 4);
 
-    // TuningConfigManager API and Singleton Checks (Task C3)
-    Serial.println("[TEST] Starting Task C3 - TuningConfigManager Singleton and Public API Unit Tests...");
+    // TuningConfigManager API and Singleton Checks (Task C3 & C4)
+    Serial.println("[TEST] Starting Task C3/C4 - TuningConfigManager Singleton, Validation and Public API Unit Tests...");
     {
         storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+        
+        // Ensure NVS has a known device ID
+        storage::StorageManager& storage_inst = storage::StorageManager::get_instance();
+        storage_inst.save_device_id("mushroom_s3_unittest");
         
         // Test initial values and reset
         tuner.resetForTest();
@@ -758,19 +762,189 @@ int main() {
         // Test initialization
         assert(tuner.init() == true);
 
-        // Test processCommand stub
-        StaticJsonDocument<256> doc;
-        doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
-        doc["revision"] = 1;
-        doc["lamp_gain_scale"] = 1.1f;
-        doc["mist_gain_scale"] = 0.9f;
-        doc["mist_on_threshold"] = 0.28f;
-        doc["mist_off_threshold"] = 0.18f;
-        
-        storage::TuningReason reason = storage::TuningReason::OUT_OF_BOUNDS;
-        storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-        assert(result == storage::TuningResult::ACCEPTED);
-        assert(reason == storage::TuningReason::OK);
+        // Case 1: Valid payload
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 1;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OUT_OF_BOUNDS;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+            assert(reason == storage::TuningReason::OK);
+            
+            DynamicTuningParams active = tuner.getActiveParams();
+            assert(active.revision == 1);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
+            assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
+            assert(std::abs(active.mist_gain_scale - 0.9f) < 0.0001f);
+            assert(std::abs(active.mist_on_threshold - 0.28f) < 0.0001f);
+            assert(std::abs(active.mist_off_threshold - 0.18f) < 0.0001f);
+        }
+
+        // Case 2: Invalid schema version
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 2; // invalid version
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::INVALID_SCHEMA);
+        }
+
+        // Case 3: Invalid device ID
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
+            doc["device_id"] = "wrong_device_id";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::INVALID_DEVICE_ID);
+        }
+
+        // Case 4: Invalid UUID format
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-invalid-uuid-format"; // invalid uuid
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::INVALID_UUID);
+        }
+
+        // Case 5: Out of bounds (too high)
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.25f; // limit is 1.20f
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::OUT_OF_BOUNDS);
+        }
+
+        // Case 6: Cross-field violation (mist_off >= mist_on)
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215265";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.25f;
+            config["mist_off_threshold"] = 0.25f; // must be < mist_on
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::CROSS_FIELD_VIOLATION);
+        }
+
+        // Case 7: Duplicate UUID command_id
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264"; // same UUID as Case 1
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f;
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::DUPLICATE);
+            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+        }
+
+        // Case 8: Semantic diff = false (parameters same as Case 1, new UUID)
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215266"; // new UUID
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 2; // new revision
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.1f; // same as Case 1
+            config["mist_gain_scale"] = 0.9f; // same as Case 1
+            config["mist_on_threshold"] = 0.28f; // same as Case 1
+            config["mist_off_threshold"] = 0.18f; // same as Case 1
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::ACCEPTED);
+            assert(reason == storage::TuningReason::OK);
+            
+            DynamicTuningParams active = tuner.getActiveParams();
+            assert(active.revision == 2);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
+            // Float parameters remain correct
+            assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
+        }
+
+        // Case 9: NaN value rejection
+        {
+            StaticJsonDocument<256> doc;
+            doc["schema_version"] = 1;
+            doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215267";
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["revision"] = 3;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = "NaN"; // string / NaN rejection
+            config["mist_gain_scale"] = 0.9f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+            
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::REJECTED);
+        }
 
         // Verify Enum Values mapping
         assert(static_cast<uint8_t>(storage::TuningResult::ACCEPTED) == 0);

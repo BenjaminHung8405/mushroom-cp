@@ -2,6 +2,25 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:13:30+07:00] - Task C4: Triển khai validation schema, provisioned device ID, UUID, bounds, cross-field, duplicate và semantic diff
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [tuning_config_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.h)
+  - Sửa đổi: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Phát triển schema validation và logic so sánh trùng lặp/semantic cho dynamic tuning commands trong `TuningConfigManager` để bảo vệ an toàn hệ thống, tuân thủ nghiêm ngặt nguyên lý "Validate-before-mutate".
+  - **Giải pháp:**
+    - Khai báo các hàm helper validate private trong [tuning_config_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.h) để tổ chức code sạch sẽ và rõ ràng.
+    - Cài đặt đầy đủ `validateAndParse` trong [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp) kiểm tra: `schema_version` (phải là 1), `device_id` (phải khớp chính xác với `resolve_device_identity()` từ NVS), `command_id` format UUID (kiểm tra char-by-char bounded, không sử dụng regex hay cấp phát bộ nhớ động), kiểm tra giá trị số thực hữu hạn (reject `NaN`, `Infinity`, string number, và null), bounds range chặt chẽ cho 4 tham số float, và cross-field check (`mist_off_threshold < mist_on_threshold`).
+    - Cài đặt logic `processCommand`: nếu validation lỗi, trả về `REJECTED`. Nếu UUID trùng với command đang active, trả về `DUPLICATE`. Nếu config float trùng khớp (semantic diff = false, epsilon `0.001f`), chỉ cập nhật identity `command_id` và `revision` vào NVS mà không ghi lại các tham số float để chống wear flash không cần thiết. Ngược lại, thực hiện lưu trữ toàn bộ record.
+    - Cập nhật và bổ sung 9 test cases cực kỳ chi tiết trong [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) bao phủ toàn bộ các lỗi validation mong muốn cùng với kiểm nghiệm duplicate UUID và semantic diff.
+  - **Tự kiểm tra:**
+    - Thực hiện biên dịch offline thành công toàn bộ mã nguồn test trên Mac.
+    - Chạy `./run_tests_mac` thành công rực rỡ và ghi nhận `--- All Unit Tests Passed Successfully! ---` với 100% assertions đạt yêu cầu.
+
 ## [2026-07-21T11:11:00+07:00] - Task C3: Khai báo public API, enum result/reason code cho singleton TuningConfigManager
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
