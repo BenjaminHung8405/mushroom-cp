@@ -14,7 +14,8 @@ import { ControlHistoryInfluxWriter } from './services/control-history-influx-wr
   exports: [
     ConfigService,
     InfluxDbService,
-    ControlHistoryInfluxWriter,
   ],
 })
-export class InfluxModule {}
+export class InfluxModule {
+  constructor(private readonly controlHistoryInfluxWriter: ControlHistoryInfluxWriter) {}
+}

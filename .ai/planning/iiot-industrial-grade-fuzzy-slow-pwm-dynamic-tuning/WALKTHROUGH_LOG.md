@@ -2,6 +2,23 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T10:53:40+07:00] - Task B3: Đăng ký writer vào InfluxModule và import MqttModule cần thiết
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [influx.module.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/influx.module.ts)
+  - Tạo mới: [influx.module.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/influx/influx.module.spec.ts)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Tích hợp `ControlHistoryInfluxWriter` vào hệ thống thông qua `InfluxModule`, bảo đảm cơ chế Dependency Injection (DI) của NestJS hoạt động chính xác, giải quyết vấn đề tự động khởi tạo (instantiation) của NestJS cho các background listener service mà không sinh circular dependency hay rò rỉ bộ nhớ.
+  - **Giải pháp:**
+    - Sửa đổi `InfluxModule` để inject `ControlHistoryInfluxWriter` trực tiếp vào constructor của module. Điều này bắt buộc NestJS phải khởi tạo (instantiate) service khi module được load, kích hoạt vòng đời `onModuleInit()` để subscribe telemetry stream ngay khi ứng dụng khởi chạy.
+    - Loại bỏ `ControlHistoryInfluxWriter` khỏi mảng `exports` của `InfluxModule` vì service này tự động lắng nghe và ghi dữ liệu, không có bất kỳ consumer trực tiếp nào ở bên ngoài cần sử dụng (tuân thủ nguyên tắc least privilege & note của task).
+    - Duy trì sự độc lập giữa các module: `InfluxModule` import `MqttModule` (cung cấp `MqttService`), trong khi `MqttModule` không import `InfluxModule`, đảm bảo cấu trúc module không có circular dependency.
+    - Tạo mới file test `src/influx/influx.module.spec.ts` sử dụng NestJS `TestingModule` và `overrideModule` để giả lập `MqttModule` thông qua `MockMqttModule` trống nhằm tránh kéo theo các dependencies phức tạp liên quan đến database/TypeORM của `DeviceModule` khi chạy kiểm thử độc lập.
+  - **Tự kiểm tra:**
+    - Chạy thử nghiệm thành công toàn bộ test suite của backend với kết quả `157/157` test case PASS (bao gồm test module `InfluxModule` mới tạo và test service của writer).
+
 ## [2026-07-21T10:51:00+07:00] - Task B2: Triển khai ControlHistoryInfluxWriter Service
 
 - **Trạng thái:** `[ ] QA Review`
