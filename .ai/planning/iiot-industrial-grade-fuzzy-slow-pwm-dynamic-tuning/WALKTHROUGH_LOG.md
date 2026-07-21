@@ -2,6 +2,24 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:11:00+07:00] - Task C3: Khai báo public API, enum result/reason code cho singleton TuningConfigManager
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Các file tạo mới / sửa đổi:**
+  - Tạo mới: [tuning_config_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.h)
+  - Tạo mới: [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Khai báo cấu trúc API công khai, các mã kết quả/lý do tương ứng, cấu trúc lớp mẫu singleton của `TuningConfigManager` thuộc phân vùng Core 0 để quản lý và vận hành luồng tinh chỉnh động tham số PWM mờ.
+  - **Giải pháp:**
+    - Tạo tệp tiêu đề [tuning_config_manager.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.h) định nghĩa lớp `TuningConfigManager` với các API chính: `getInstance()` truy xuất singleton, `init()` khởi tạo, `processCommand()` xử lý JSON payload, và `getActiveParams()` trả về bản sao an toàn của các tham số cấu hình động đang có mà không làm rò rỉ cấu trúc vùng nhớ NVS envelope bên dưới (tuân thủ Single Responsibility & ổn định domain status).
+    - Khai báo các enum `TuningResult` (`ACCEPTED`, `REJECTED`, `DUPLICATE`) và `TuningReason` (`OK`, `INVALID_SCHEMA`, `INVALID_DEVICE_ID`, `INVALID_UUID`, `OUT_OF_BOUNDS`, `CROSS_FIELD_VIOLATION`, `DUPLICATE_UUID`, `NO_CHANGE`, `NVS_WRITE_ERROR`, `QUEUE_FULL_ERROR`) đóng gói chi tiết mã trả về phục vụ phân loại đầu ra khi có command điều khiển.
+    - Tạo tệp nguồn [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp) hiện thực hóa singleton và các khung hàm trống (stub) hỗ trợ kiểm thử tích hợp ban đầu.
+    - Bổ sung unit tests cho `TuningConfigManager` trong [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) để xác minh tính duy nhất (singleton), giá trị khởi tạo mặc định an toàn của `getActiveParams()`, cũng như việc sử dụng các kiểu dữ liệu enum đúng đặc tả.
+  - **Tự kiểm tra:**
+    - Biên dịch offline toàn bộ test suite và chạy thành công rực rỡ qua binary `./run_tests_mac`, xác minh 100% assertions hoạt động trơn tru và không có lỗi regression nào.
+
 ## [2026-07-21T11:07:00+07:00] - Task C2: Định nghĩa TuningNvsRecord two-slot cho NVS Flash
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

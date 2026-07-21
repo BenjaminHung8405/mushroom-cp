@@ -24,6 +24,7 @@
 #include "core/time_confidence.h"
 #include "network/ota_manager.h"
 #include "core/config_manager.h"
+#include "core/tuning_config_manager.h"
 #include <cassert>
 #include <type_traits>
 #include <cmath>
@@ -739,6 +740,54 @@ int main() {
     assert(sizeof(TuningNvsRecord) == 72);
     assert(alignof(DynamicTuningParams) == 4);
     assert(alignof(TuningNvsRecord) == 4);
+
+    // TuningConfigManager API and Singleton Checks (Task C3)
+    Serial.println("[TEST] Starting Task C3 - TuningConfigManager Singleton and Public API Unit Tests...");
+    {
+        storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+        
+        // Test initial values and reset
+        tuner.resetForTest();
+        DynamicTuningParams initial_params = tuner.getActiveParams();
+        assert(initial_params.revision == 0);
+        assert(std::abs(initial_params.lamp_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(initial_params.mist_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(initial_params.mist_on_threshold - 0.25f) < 0.0001f);
+        assert(std::abs(initial_params.mist_off_threshold - 0.15f) < 0.0001f);
+
+        // Test initialization
+        assert(tuner.init() == true);
+
+        // Test processCommand stub
+        StaticJsonDocument<256> doc;
+        doc["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
+        doc["revision"] = 1;
+        doc["lamp_gain_scale"] = 1.1f;
+        doc["mist_gain_scale"] = 0.9f;
+        doc["mist_on_threshold"] = 0.28f;
+        doc["mist_off_threshold"] = 0.18f;
+        
+        storage::TuningReason reason = storage::TuningReason::OUT_OF_BOUNDS;
+        storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+        assert(result == storage::TuningResult::ACCEPTED);
+        assert(reason == storage::TuningReason::OK);
+
+        // Verify Enum Values mapping
+        assert(static_cast<uint8_t>(storage::TuningResult::ACCEPTED) == 0);
+        assert(static_cast<uint8_t>(storage::TuningResult::REJECTED) == 1);
+        assert(static_cast<uint8_t>(storage::TuningResult::DUPLICATE) == 2);
+        
+        assert(static_cast<uint8_t>(storage::TuningReason::OK) == 0);
+        assert(static_cast<uint8_t>(storage::TuningReason::INVALID_SCHEMA) == 1);
+        assert(static_cast<uint8_t>(storage::TuningReason::INVALID_DEVICE_ID) == 2);
+        assert(static_cast<uint8_t>(storage::TuningReason::INVALID_UUID) == 3);
+        assert(static_cast<uint8_t>(storage::TuningReason::OUT_OF_BOUNDS) == 4);
+        assert(static_cast<uint8_t>(storage::TuningReason::CROSS_FIELD_VIOLATION) == 5);
+        assert(static_cast<uint8_t>(storage::TuningReason::DUPLICATE_UUID) == 6);
+        assert(static_cast<uint8_t>(storage::TuningReason::NO_CHANGE) == 7);
+        assert(static_cast<uint8_t>(storage::TuningReason::NVS_WRITE_ERROR) == 8);
+        assert(static_cast<uint8_t>(storage::TuningReason::QUEUE_FULL_ERROR) == 9);
+    }
 
 
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection
