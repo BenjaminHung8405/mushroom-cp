@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <type_traits>
 
 /**
  * @brief Plain Old Data (POD) structure for sensor telemetry.
@@ -184,6 +185,22 @@ struct PersistedManualOverride {
     uint8_t padding[3];
     uint32_t expires_epoch_s;
 } __attribute__((aligned(4)));
+
+/**
+ * @brief Plain Old Data (POD) structure for dynamic fuzzy PWM tuning parameters.
+ * Transmitted from Core 0 to Core 1 control loop via FreeRTOS queue.
+ */
+struct DynamicTuningParams {
+    char command_id[37];           ///< UUID string null-terminated
+    uint8_t padding_uuid[3];       ///< Padding to align to 32-bit (4-byte) boundary
+    uint32_t revision;             ///< Monotonic revision counter
+    float lamp_gain_scale;         ///< Gain scale for heating lamp demand [0.80, 1.20]
+    float mist_gain_scale;         ///< Gain scale for mist generator demand [0.80, 1.20]
+    float mist_on_threshold;       ///< Dynamic threshold for mist ON [0.20, 0.35]
+    float mist_off_threshold;      ///< Dynamic threshold for mist OFF [0.10, 0.20]
+} __attribute__((aligned(4)));
+
+static_assert(std::is_trivially_copyable<DynamicTuningParams>::value, "DynamicTuningParams must be trivially copyable");
 
 
 

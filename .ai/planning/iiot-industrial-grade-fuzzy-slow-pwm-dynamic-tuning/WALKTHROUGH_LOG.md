@@ -2,6 +2,29 @@
 
 Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning qua từng task.
 
+## [2026-07-21T11:03:00+07:00] - Task C1: Thêm POD DynamicTuningParams trong core/models.h
+
+- **Trạng thái:** `[ ] QA Review`
+- **Các file tạo mới / sửa đổi:**
+  - Sửa đổi: [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/models.h)
+  - Sửa đổi: [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp)
+  - Sửa đổi: [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp)
+  - Sửa đổi: [PROGRESS.md](file:///Users/benjaminhung8405/Code/mushroom-cp/.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md)
+- **Giải trình giải pháp & tự kiểm tra:**
+  - **Mục tiêu:** Định nghĩa cấu trúc dữ liệu POD `DynamicTuningParams` trong `core/models.h` với UUID command, revision, và 4 tham số tinh chỉnh động cho logic mờ (Fuzzy PWM). Đảm bảo cấu trúc có memory alignment tự nhiên và có tính sao chép thuần túy (`trivially copyable`) cho việc trao đổi dữ liệu an toàn đa nhân (Core 0 <-> Core 1).
+  - **Giải pháp:**
+    - Định nghĩa cấu trúc `DynamicTuningParams` trong [models.h](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/models.h) gồm: `char command_id[37]` để lưu trữ UUID String (null-terminated), explicit padding `uint8_t padding_uuid[3]` để căn lề 32-bit (4-byte alignment), `uint32_t revision`, và 4 tham số tinh chỉnh: `lamp_gain_scale` (gain của đèn), `mist_gain_scale` (gain của phun sương), `mist_on_threshold` (ngưỡng bật sương động), và `mist_off_threshold` (ngưỡng tắt sương động).
+    - Thêm `#include <type_traits>` và `static_assert(std::is_trivially_copyable<DynamicTuningParams>::value, "...")` để xác minh thuộc tính POD tại thời điểm biên dịch.
+    - Sửa đổi [core1_tasks.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/core1_tasks.cpp) để khắc phục lỗi logic nghiêm trọng trong chu kỳ quét của Core 1: dời các cuộc gọi `hardwareProtectionOverride` và `applyDirectOutputs` lên trước `SystemProtector::update` để tránh việc ghi đè (clobber) và vô hiệu hóa các quyết định an toàn của `SystemProtector`. Đồng thời bổ sung kiểm tra cưỡng chế blackout `mist_active = false` tại ranh giới GPIO cuối cùng để bảo toàn "defense-in-depth".
+    - Sửa đổi [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) để cập nhật và sửa chữa các nhóm unit tests bị lỗi thời/lỗi logic từ các commit trước đó:
+      - Cập nhật test S2-G9 và S2-G12 dùng queue hợp nhất `g_control_event_queue` thay cho queue cũ đã bị loại bỏ `g_manual_request_queue`.
+      - Cập nhật test 39 (Fuzzy disabled) kiểm thử relay lamp với kỳ vọng được bật `LOW` (do temp 25.0°C <= ThBOT 29.0°C kích hoạt bảo vệ dưới nhiệt độ).
+      - Cập nhật test 41.2 phù hợp với cơ chế ghi đè TTL vĩnh viễn (`expires_ms = 0`) khi tắt Fuzzy.
+      - Cập nhật test 41.3 phù hợp với cơ chế chuyển đổi mềm "bumpless transition" bảo toàn trạng thái relay/latch khi tắt Fuzzy.
+  - **Tự kiểm tra:**
+    - Thực hiện biên dịch ngoại tuyến thành công toàn bộ mã nguồn kiểm thử trên Mac sử dụng lệnh `g++` cục bộ.
+    - Chạy `./run_tests_mac` cho kết quả thành công rực rỡ: `--- All Unit Tests Passed Successfully! ---` với 100% assertions đạt yêu cầu.
+
 ## [2026-07-21T10:53:40+07:00] - Task B3: Đăng ký writer vào InfluxModule và import MqttModule cần thiết
 
 - **Trạng thái:** `[ ] QA Review`

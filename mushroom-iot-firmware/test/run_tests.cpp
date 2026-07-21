@@ -1526,12 +1526,12 @@ int main() {
         assert(state.lamp_active == true);
         assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
 
-        const ArbitratedOutputsPod holdDemand = {0.50f, 0.0f, 0.0f, 0.0f};
+        const ArbitratedOutputsPod holdDemand = {0.20f, 0.0f, 0.0f, 0.0f};
         relay_control::applyDirectOutputs(holdDemand, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == true);
 
-        const ArbitratedOutputsPod offDemand = {0.40f, 0.0f, 0.0f, 0.0f};
+        const ArbitratedOutputsPod offDemand = {0.10f, 0.0f, 0.0f, 0.0f};
         relay_control::applyDirectOutputs(offDemand, state);
         relay_control::writeRelays(state);
         assert(state.lamp_active == false);
@@ -2393,27 +2393,28 @@ int main() {
         {
             cabinet_buttons::reset_for_test();
             mock_millis_offset = 0;
-            if (g_manual_request_queue == nullptr) {
-                g_manual_request_queue = xQueueCreate(8, sizeof(ManualRequest));
+            if (g_control_event_queue == nullptr) {
+                g_control_event_queue = xQueueCreate(8, sizeof(ControlEvent));
             } else {
-                xQueueReset(g_manual_request_queue);
+                xQueueReset(g_control_event_queue);
             }
 
             mock_pin_values[config::hardware::PIN_BTN_MIST] = HIGH;
             mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
-            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+            assert(uxQueueMessagesWaiting(g_control_event_queue) == 0);
 
             // A stable active-LOW sample debounces a press and emits one request.
             mock_pin_values[config::hardware::PIN_BTN_MIST] = LOW;
             mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
-            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 1);
+            assert(uxQueueMessagesWaiting(g_control_event_queue) == 1);
 
-            ManualRequest req;
-            assert(xQueueReceive(g_manual_request_queue, &req, 0) == pdTRUE);
-            assert(req.channel == AppChannel::MIST);
-            assert(req.intent == AppIntent::FORCE_ON);
+            ControlEvent event;
+            assert(xQueueReceive(g_control_event_queue, &event, 0) == pdTRUE);
+            assert(event.type == ControlEventType::ManualRequest);
+            assert(event.manual.channel == AppChannel::MIST);
+            assert(event.manual.intent == AppIntent::FORCE_ON);
 
             // Release hysteresis: seven HIGH samples preserve the pressed state;
             // the eighth releases it and must not enqueue a second request.
@@ -2422,10 +2423,10 @@ int main() {
                 mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
                 cabinet_buttons::process_cabinet_buttons();
             }
-            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+            assert(uxQueueMessagesWaiting(g_control_event_queue) == 0);
             mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
-            assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+            assert(uxQueueMessagesWaiting(g_control_event_queue) == 0);
         }
 
         // S2-G11: Test force on not restored when time uncertain
@@ -2764,10 +2765,10 @@ int main() {
         mock_operation_counter = 0;
         mock_millis_offset = 0;
 
-        // Clear manual requests
-        if (g_manual_request_queue != nullptr) {
-            ManualRequest req_discard;
-            while (xQueueReceive(g_manual_request_queue, &req_discard, 0) == pdTRUE);
+        // Clear control events
+        if (g_control_event_queue != nullptr) {
+            ControlEvent event_discard;
+            while (xQueueReceive(g_control_event_queue, &event_discard, 0) == pdTRUE);
         }
 
         // 2. Run control pipeline loop once with fuzzy disabled.
@@ -2777,16 +2778,18 @@ int main() {
 
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW); // Forced ON by protector (25C <= ThBOT)
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
 
         // 3. Mock physical button press on Fan channel to FORCE_ON.
-        // This will put a ManualRequest on g_manual_request_queue.
-        ManualRequest req;
-        req.channel = AppChannel::FAN;
-        req.intent = AppIntent::FORCE_ON;
-        req.request_ms = millis();
-        xQueueSend(g_manual_request_queue, &req, 0);
+        // This will put a ControlEvent on g_control_event_queue.
+        ControlEvent event{};
+        event.type = ControlEventType::ManualRequest;
+        event.manual.channel = AppChannel::FAN;
+        event.manual.intent = AppIntent::FORCE_ON;
+        event.manual.request_ms = millis();
+        event.received_ms = event.manual.request_ms;
+        xQueueSend(g_control_event_queue, &event, 0);
 
         // 4. Run control pipeline loop again.
         // It must apply the manual override and turn Fan ON (LOW).
@@ -2883,10 +2886,10 @@ int main() {
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms == 31000UL);
 
-        // AOFF Mode (fuzzy_enabled = false) -> TTL must be 3 minutes (180,000ms)
+        // AOFF Mode (fuzzy_enabled = false) -> Persistent manual control (expires_ms = 0)
         manual::updateLatchOnAccepted(req, 1000UL, latches, false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
-        assert(latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms == 181000UL);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms == 0UL);
 
         // 41.3 AON -> AOFF Transition Cuts Off Relays Instantly
         protector::SystemProtector sys_protector;
@@ -2899,13 +2902,13 @@ int main() {
         assert(states.lamp_active == true);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
 
-        // Transition: fuzzy_enabled goes false -> immediate cutoff and override clear
+        // Transition: fuzzy_enabled goes false -> bumpless transfer (latches and states are preserved)
         sys_protector.update(2000UL, false, 25.0f, 70.0f, false, latches, states);
-        assert(states.lamp_active == false);
-        assert(states.mist_active == false);
-        assert(states.fan_active == false);
-        assert(states.hwat_active == false);
-        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+        assert(states.lamp_active == true);
+        assert(states.mist_active == true);
+        assert(states.fan_active == true);
+        assert(states.hwat_active == true);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
 
         // 41.4 Priority 1 Bio Bounds (Over-Limit Locks Cooldown)
         sys_protector.reset();

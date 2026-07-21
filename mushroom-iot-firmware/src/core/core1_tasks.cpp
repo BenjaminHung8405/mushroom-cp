@@ -868,6 +868,9 @@ static void runControlPipelineStep(
     }
 
     const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
+    
+    // Apply hardware protection override to outputs before mapping direct demands
+    relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, relayState);
 
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
@@ -883,10 +886,11 @@ static void runControlPipelineStep(
     );
 
     // Defense in depth at the final GPIO boundary. The interlock already ran
-    // inside SystemProtector before duty-cycle/bio-bound rules; reapplying it
-    // here guarantees a later policy change cannot energize Mist.
-    relay_control::hardwareProtectionOverride(outputs, rtcTime);
-    relay_control::applyDirectOutputs(outputs, relayState);
+    // inside SystemProtector; enforcing it here guarantees a later code change
+    // cannot accidentally bypass blackout rules.
+    if (relay_control::isSafetyBlackoutActive(rtcTime)) {
+        relayState.mist_active = false;
+    }
 
     // Apply the final protected binary states to the physical active-LOW relays.
     relay_control::writeRelays(relayState);
