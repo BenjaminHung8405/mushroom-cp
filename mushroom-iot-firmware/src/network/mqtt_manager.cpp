@@ -862,6 +862,7 @@ bool MqttManager::queueRelayToCore1(uint8_t pin, bool activate)
     if (!supported) return false;
     request.intent = activate ? AppIntent::FORCE_ON : AppIntent::FORCE_OFF;
     request.request_ms = millis();
+    request.source = ManualRequestSource::Remote;
     ControlEvent event{};
     event.type = ControlEventType::ManualRequest;
     event.manual = request;

@@ -13,6 +13,11 @@ struct ManualLatchEntry {
     bool active;
     AppIntent forced_state; // FORCE_ON or FORCE_OFF
     uint32_t expires_ms;
+    // A bounded exception for a physical cabinet-button functional test. It
+    // bypasses only soft bio limits and never hard interlocks or cooldowns.
+    bool cabinet_test_active = false;
+    uint8_t padding[3] = {0, 0, 0};
+    uint32_t cabinet_test_expires_ms = 0;
 } __attribute__((aligned(4)));
 
 using ManualLatchArray = std::array<ManualLatchEntry, static_cast<std::size_t>(AppChannel::COUNT)>;
@@ -34,7 +39,17 @@ void updateLatchOnAccepted(
     const ManualRequest &req,
     uint32_t now,
     ManualLatchArray &latch,
-    bool fuzzy_enabled);
+    bool fuzzy_enabled,
+    bool cabinet_test = false);
+
+/** True while a bounded cabinet-button soft-limit test may energize a relay. */
+bool isCabinetTestActive(const ManualLatchEntry &latch, uint32_t now);
+
+/** True only for an upper soft limit eligible for a cabinet-button test. */
+bool requiresCabinetTestBypass(
+    const ManualRequest &request,
+    const TelemetryData &telemetry,
+    const Trajectory::SetpointPod &setpoints);
 
 /**
  * @brief Expire manual latches past their TTL.

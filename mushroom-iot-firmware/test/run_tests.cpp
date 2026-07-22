@@ -2266,7 +2266,7 @@ int main() {
         // S2-G1: Test gate Mist block khi humidity=95
         {
             telemetry.humidity_air = 95.0f;
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::RejectedHumi);
         }
@@ -2274,7 +2274,7 @@ int main() {
         // S2-G2: Test gate Mist block khi humidity=NAN
         {
             telemetry.humidity_air = NAN;
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::RejectedNAN);
         }
@@ -2282,7 +2282,7 @@ int main() {
         // S2-G3: Test gate Mist PASS khi humidity=70
         {
             telemetry.humidity_air = 70.0f;
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::Accepted);
         }
@@ -2290,7 +2290,7 @@ int main() {
         // Blackout only gates Mist; HWAT remains independently controllable.
         {
             relay_control::RtcTimePod blackoutTime{true, 12U, 0U};
-            ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             assert(manual::evaluateSafetyGate(hwatReq, telemetry, setpoints, blackoutTime, cropDay) ==
                    ManualDecision::Accepted);
             manual::ManualLatchArray latch{};
@@ -2304,7 +2304,7 @@ int main() {
         // S2-G4: Test gate Lamp block khi temp=setpoint+4
         {
             telemetry.temp_air = setpoints.temp_target + 4.0f;
-            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::RejectedTemp);
         }
@@ -2313,7 +2313,7 @@ int main() {
         /*
         {
             telemetry.temp_air = setpoints.temp_target + 1.0f;
-            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, 9); // Day 9
             assert(dec == ManualDecision::RejectedLocked);
         }
@@ -2324,7 +2324,7 @@ int main() {
             telemetry.temp_air = 40.0f; // very hot
             telemetry.humidity_air = 99.0f; // very humid
             rtcTime.hour = 12; // blackout window
-            ManualRequest req = { AppChannel::FAN, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::FAN, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::Accepted);
         }
@@ -2333,7 +2333,7 @@ int main() {
         {
             telemetry.humidity_air = 95.0f;
             rtcTime.hour = 12;
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_OFF, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_OFF, 1000UL, ManualRequestSource::Remote };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::Accepted);
         }
@@ -2341,7 +2341,7 @@ int main() {
         // S2-G7: Test latch TTL expire sau 30 giây
         {
             manual::ManualLatchArray latch = {};
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             manual::updateLatchOnAccepted(req, 1000UL, latch, true);
             assert(latch[static_cast<size_t>(AppChannel::MIST)].active == true);
 
@@ -2360,7 +2360,7 @@ int main() {
         // S2-G8: Test latch không đè blackout Mist
         {
             manual::ManualLatchArray latch = {};
-            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest req = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             manual::updateLatchOnAccepted(req, 1000UL, latch, true);
 
             telemetry.humidity_air = 70.0f;
@@ -2379,10 +2379,10 @@ int main() {
         {
             telemetry.humidity_air = 95.0f;
             rtcTime.hour = 8;
-            ManualRequest reqButton = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest reqButton = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision decButton = manual::evaluateSafetyGate(reqButton, telemetry, setpoints, rtcTime, cropDay);
 
-            ManualRequest reqUI = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+            ManualRequest reqUI = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL, ManualRequestSource::Remote };
             ManualDecision decUI = manual::evaluateSafetyGate(reqUI, telemetry, setpoints, rtcTime, cropDay);
 
             assert(decButton == decUI);
@@ -2414,6 +2414,7 @@ int main() {
             assert(xQueueReceive(g_manual_request_queue, &req, 0) == pdTRUE);
             assert(req.channel == AppChannel::MIST);
             assert(req.intent == AppIntent::FORCE_ON);
+            assert(req.source == ManualRequestSource::CabinetButton);
 
             // Release hysteresis: seven HIGH samples preserve the pressed state;
             // the eighth releases it and must not enqueue a second request.
@@ -2426,6 +2427,51 @@ int main() {
             mock_millis_offset += config::hardware::BUTTON_POLL_INTERVAL_MS;
             cabinet_buttons::process_cabinet_buttons();
             assert(uxQueueMessagesWaiting(g_manual_request_queue) == 0);
+        }
+
+        // Cabinet-only soft-limit bypass is bounded to 30 seconds. Remote
+        // requests retain the existing rejection, while hard stops are never
+        // bypassed.
+        {
+            telemetry.humidity_air = 95.0f;
+            telemetry.temp_air = 30.0f;
+            rtcTime = {true, 8U, 0U};
+
+            ManualRequest remote = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL,
+                                     ManualRequestSource::Remote };
+            assert(manual::evaluateSafetyGate(remote, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::RejectedHumi);
+
+            ManualRequest cabinet = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL,
+                                      ManualRequestSource::CabinetButton };
+            assert(manual::evaluateSafetyGate(cabinet, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::Accepted);
+            assert(manual::requiresCabinetTestBypass(cabinet, telemetry, setpoints));
+
+            manual::ManualLatchArray testLatch{};
+            manual::updateLatchOnAccepted(cabinet, 1000UL, testLatch, false, true);
+            const size_t mistIndex = static_cast<size_t>(AppChannel::MIST);
+            assert(testLatch[mistIndex].expires_ms ==
+                   1000UL + config::hardware::CABINET_BUTTON_TEST_ON_MS);
+            assert(manual::isCabinetTestActive(testLatch[mistIndex], 30999UL));
+
+            FuzzyController::ArbitratedOutputsPod testOut = {0.0f, 0.0f, 0.0f, 0.0f};
+            manual::applyManualLatchToOutputs(testOut, testLatch, 30999UL, telemetry, setpoints, rtcTime, cropDay);
+            assert(testOut.Mist == 1.0f);
+
+            manual::updateLatchDecay(testLatch, 31000UL);
+            assert(!testLatch[mistIndex].active);
+            assert(!testLatch[mistIndex].cabinet_test_active);
+
+            telemetry.temp_air = 45.0f;
+            ManualRequest hardLamp = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL,
+                                      ManualRequestSource::CabinetButton };
+            assert(manual::evaluateSafetyGate(hardLamp, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::RejectedTemp);
+
+            rtcTime = {true, 12U, 0U};
+            assert(manual::evaluateSafetyGate(cabinet, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::RejectedBlackout);
         }
 
         // S2-G11: Test force on not restored when time uncertain
@@ -2984,6 +3030,30 @@ int main() {
         assert(states.mist_active == true);
 
         // 41.6 Priority 3 time-based limits (3-minute continuous ON -> 30s OFF cooldown)
+        // Automatic fuzzy demand is held ON for one minute after activation so
+        // thermal and mist equipment can reach useful output. Manual latches
+        // and all hard Protector paths remain immediate.
+        sys_protector.reset();
+        states = {true, false, false, false};
+        manual::ManualLatchArray fuzzyHoldLatches{};
+        sys_protector.update(1000UL, true, 30.0f, 70.0f, false, fuzzyHoldLatches, states);
+        states.lamp_active = false; // Simulate fuzzy demand falling below OFF threshold.
+        sys_protector.update(59000UL, true, 30.0f, 70.0f, false, fuzzyHoldLatches, states);
+        assert(states.lamp_active == true);
+        states.lamp_active = false;
+        sys_protector.update(61000UL, true, 30.0f, 70.0f, false, fuzzyHoldLatches, states);
+        assert(states.lamp_active == false);
+
+        // A manual FORCE_OFF is not delayed by the fuzzy minimum-ON timer.
+        sys_protector.reset();
+        states = {true, false, false, false};
+        manual::ManualLatchArray manualOffLatches{};
+        manualOffLatches[static_cast<size_t>(AppChannel::LAMP)] = {true, AppIntent::FORCE_OFF, 0U};
+        sys_protector.update(1000UL, true, 30.0f, 70.0f, false, manualOffLatches, states);
+        states.lamp_active = false;
+        sys_protector.update(2000UL, true, 30.0f, 70.0f, false, manualOffLatches, states);
+        assert(states.lamp_active == false);
+
         sys_protector.reset();
         states = {true, true, true, true};
 

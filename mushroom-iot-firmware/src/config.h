@@ -132,6 +132,12 @@ namespace config
 
         // Manual override duration while auto mode is enabled (AON).
         constexpr uint32_t MANUAL_LATCH_TTL_MS = 30000;
+        // Maximum ON time granted to a physical cabinet-button test when a
+        // soft Protector limit is already exceeded.
+        constexpr uint32_t CABINET_BUTTON_TEST_ON_MS = 30000;
+        // Once automatic fuzzy control energizes a relay, retain it long
+        // enough for heaters/misters to reach useful operating output.
+        constexpr uint32_t FUZZY_MIN_ON_DURATION_MS = 60000;
         // Continuous-operation safety lock for every relay channel.
         constexpr uint32_t MAX_ON_DURATION_MS = 180000;
         constexpr uint32_t COOLDOWN_DURATION_MS = 30000;

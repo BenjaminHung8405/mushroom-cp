@@ -13,7 +13,34 @@ constexpr float LAMP_WARNING_DELTA_C = 3.0f;
 // Giá trị 45°C = giới hạn sinh học nấm rơm (tết tiêu hoàn toàn > 45°C).
 constexpr float LAMP_HARD_CUTOFF_C = 45.0f;
 
+void clearCabinetTest(ManualLatchEntry& latch) {
+    latch.cabinet_test_active = false;
+    latch.cabinet_test_expires_ms = 0;
+}
+
 } // namespace
+
+bool requiresCabinetTestBypass(
+    const ManualRequest &request,
+    const TelemetryData &telemetry,
+    const Trajectory::SetpointPod &setpoints)
+{
+    if (request.intent != AppIntent::FORCE_ON) return false;
+    if (request.channel == AppChannel::MIST) {
+        return std::isfinite(telemetry.humidity_air) && telemetry.humidity_air >= MIST_WARNING_LIMIT_RH;
+    }
+    if (request.channel == AppChannel::LAMP) {
+        return std::isfinite(telemetry.temp_air) && telemetry.temp_air < LAMP_HARD_CUTOFF_C &&
+               telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C;
+    }
+    return false;
+}
+
+bool isCabinetTestActive(const ManualLatchEntry &latch, uint32_t now)
+{
+    return latch.active && latch.cabinet_test_active &&
+           static_cast<int32_t>(now - latch.cabinet_test_expires_ms) < 0;
+}
 
 ManualDecision evaluateSafetyGate(
     const ManualRequest &request,
@@ -30,7 +57,8 @@ ManualDecision evaluateSafetyGate(
         if (!std::isfinite(telemetry.humidity_air)) {
             return ManualDecision::RejectedNAN;
         }
-        if (telemetry.humidity_air >= MIST_WARNING_LIMIT_RH) {
+        if (telemetry.humidity_air >= MIST_WARNING_LIMIT_RH &&
+            request.source != ManualRequestSource::CabinetButton) {
             return ManualDecision::RejectedHumi;
         }
         if (relay_control::isSafetyBlackoutActive(rtcTime)) {
@@ -53,7 +81,8 @@ ManualDecision evaluateSafetyGate(
         //     return ManualDecision::RejectedLocked;
         // }
         const float lamp_warn_limit = setpoints.temp_target + LAMP_WARNING_DELTA_C;
-        if (telemetry.temp_air >= lamp_warn_limit) {
+        if (telemetry.temp_air >= lamp_warn_limit &&
+            request.source != ManualRequestSource::CabinetButton) {
             Serial.printf("[DIAG] LAMP rejected WARNING: temp=%.2fC >= target(%.2fC) + 3.0 = %.2fC\n",
                           telemetry.temp_air, setpoints.temp_target, lamp_warn_limit);
             return ManualDecision::RejectedTemp;
@@ -74,7 +103,8 @@ void updateLatchOnAccepted(
     const ManualRequest &req,
     uint32_t now,
     ManualLatchArray &latch,
-    bool fuzzy_enabled)
+    bool fuzzy_enabled,
+    bool cabinet_test)
 {
     size_t idx = static_cast<size_t>(req.channel);
     if (idx >= latch.size()) {
@@ -84,9 +114,17 @@ void updateLatchOnAccepted(
         latch[idx].active = false;
         latch[idx].forced_state = AppIntent::AUTO;
         latch[idx].expires_ms = 0;
+        clearCabinetTest(latch[idx]);
     } else {
         latch[idx].active = true;
         latch[idx].forced_state = req.intent;
+        if (cabinet_test) {
+            latch[idx].cabinet_test_active = true;
+            latch[idx].cabinet_test_expires_ms = now + config::hardware::CABINET_BUTTON_TEST_ON_MS;
+            latch[idx].expires_ms = latch[idx].cabinet_test_expires_ms;
+            return;
+        }
+        clearCabinetTest(latch[idx]);
         // Fuzzy ON uses a bounded 30-second intervention. Fuzzy OFF keeps the
         // manual intent until another command replaces it; the Protector still
         // owns all bio-bound, cooldown, and maximum-runtime decisions.
@@ -107,6 +145,7 @@ void updateLatchDecay(
                 latch[i].active = false;
                 latch[i].forced_state = AppIntent::AUTO;
                 latch[i].expires_ms = 0;
+                clearCabinetTest(latch[i]);
             }
         }
     }
@@ -127,11 +166,13 @@ void autoClearOnSensorViolation(
         (mistBlackout ||
          (latch[mistIdx].forced_state == AppIntent::FORCE_ON &&
           (!std::isfinite(telemetry.humidity_air) ||
-           telemetry.humidity_air >= MIST_WARNING_LIMIT_RH))))
+           (!latch[mistIdx].cabinet_test_active &&
+            telemetry.humidity_air >= MIST_WARNING_LIMIT_RH)))))
     {
         latch[mistIdx].active = false;
         latch[mistIdx].forced_state = AppIntent::AUTO;
         latch[mistIdx].expires_ms = 0;
+        clearCabinetTest(latch[mistIdx]);
     }
 
 
@@ -142,11 +183,13 @@ void autoClearOnSensorViolation(
             // Điều này đảm bảo đèn TẪT dù manual latch vẫn active.
             telemetry.temp_air >= LAMP_HARD_CUTOFF_C ||
             // Warning delta mềm: tắt khi vượt setpoint + 3°C
-            telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C)
+            (!latch[lampIdx].cabinet_test_active &&
+             telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C))
         {
             latch[lampIdx].active = false;
             latch[lampIdx].forced_state = AppIntent::AUTO;
             latch[lampIdx].expires_ms = 0;
+            clearCabinetTest(latch[lampIdx]);
         }
     }
 }
@@ -158,6 +201,7 @@ void resetAllManualLatchesOnAOffTransition(manual::ManualLatchArray &latch)
             latch[i].active = false;
             latch[i].forced_state = AppIntent::AUTO;
             latch[i].expires_ms = 0;
+            clearCabinetTest(latch[i]);
         }
     }
 }
@@ -174,7 +218,9 @@ void applyManualLatchToOutputs(
     // First, expire latch based on time
     updateLatchDecay(latch, now);
 
-    // Second, clear latch on safety boundary violations (Fuzzy-Bounds Guarding)
+    // Second, clear latch on safety boundary violations (Fuzzy-Bounds Guarding).
+    // A live cabinet test keeps only its soft-limit exception; hard stops still
+    // clear the latch before the relay boundary.
     autoClearOnSensorViolation(latch, telemetry, setpoints, rtcTime);
 
     // Apply active latch overrides

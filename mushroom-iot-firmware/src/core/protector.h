@@ -11,6 +11,8 @@ struct ChannelProtectorState {
     bool is_on = false;
     uint32_t on_start_ms = 0;
     uint32_t lock_until_ms = 0; // Timestamp until which the channel is locked OFF
+    bool fuzzy_min_on_active = false;
+    uint32_t fuzzy_on_start_ms = 0;
 };
 
 class SystemProtector {
@@ -35,6 +37,9 @@ public:
         manual::ManualLatchArray& manual_latches,
         relay_control::RelayStatePod& relay_states
     );
+
+    /** Returns true when this channel is currently locked OFF by Protector. */
+    bool isCooldownActive(AppChannel channel, uint32_t now) const;
 
     void reset();
 };

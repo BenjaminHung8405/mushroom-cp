@@ -75,10 +75,19 @@ enum class AppIntent : uint8_t {
     FORCE_OFF = 2, // Ép tắt
 };
 
+// Internal-only provenance for control-plane requests. MQTT payloads do not
+// expose this field; producers must explicitly identify their origin.
+enum class ManualRequestSource : uint8_t {
+    Remote = 0,
+    CabinetButton = 1,
+};
+
 struct ManualRequest {
     AppChannel channel;
     AppIntent  intent;      // AUTO / FORCE_ON / FORCE_OFF
     uint32_t   request_ms;  // millis() lúc phát request
+    ManualRequestSource source = ManualRequestSource::Remote;
+    uint8_t padding[3] = {0, 0, 0};
 } __attribute__((aligned(4)));
 
 /**
@@ -184,6 +193,5 @@ struct PersistedManualOverride {
     uint8_t padding[3];
     uint32_t expires_epoch_s;
 } __attribute__((aligned(4)));
-
 
 

@@ -561,7 +561,8 @@ void applyManualControlEvent(
     bool fuzzyEnabled,
     manual::ManualLatchArray& manualLatch,
     const TelemetryData& telemetry,
-    const Trajectory::SetpointPod& setpoints)
+    const Trajectory::SetpointPod& setpoints,
+    const protector::SystemProtector& systemProtector)
 {
     const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
     const ManualDecision decision = manual::evaluateSafetyGate(
@@ -576,10 +577,26 @@ void applyManualControlEvent(
     ack.ack_ms = now;
 
     const size_t index = static_cast<size_t>(request.channel);
-    if (decision == ManualDecision::Accepted) {
-        manual::updateLatchOnAccepted(request, now, manualLatch, fuzzyEnabled);
+    const bool cabinetTest = decision == ManualDecision::Accepted &&
+        request.source == ManualRequestSource::CabinetButton &&
+        manual::requiresCabinetTestBypass(request, telemetry, setpoints);
+    if (cabinetTest && systemProtector.isCooldownActive(request.channel, now)) {
+        ack.decision = ManualDecision::RejectedLocked;
+        ack.effective_intent = AppIntent::AUTO;
+        ack.expires_ms = 0U;
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[BUTTON] Cabinet test rejected: channel %d remains in Protector cooldown.\n",
+                      static_cast<int>(request.channel));
+    } else if (decision == ManualDecision::Accepted) {
+        manual::updateLatchOnAccepted(request, now, manualLatch, fuzzyEnabled, cabinetTest);
         ack.effective_intent = request.intent;
         ack.expires_ms = index < manualLatch.size() ? manualLatch[index].expires_ms : 0U;
+        if (cabinetTest) {
+            ScopedSerialLock guard(SerialLock::get_instance());
+            Serial.printf("[BUTTON] Cabinet test started: channel %d ON for up to %lu ms.\n",
+                          static_cast<int>(request.channel),
+                          static_cast<unsigned long>(config::hardware::CABINET_BUTTON_TEST_ON_MS));
+        }
     } else if (index < manualLatch.size() && manualLatch[index].active) {
         ack.effective_intent = manualLatch[index].forced_state;
         ack.expires_ms = manualLatch[index].expires_ms;
@@ -635,7 +652,8 @@ void drainControlEvents(
     uint32_t now,
     const TelemetryData& telemetry,
     const Trajectory::SetpointPod& setpoints,
-    manual::ManualLatchArray& manualLatch)
+    manual::ManualLatchArray& manualLatch,
+    const protector::SystemProtector& systemProtector)
 {
     if (g_control_event_queue == nullptr) return;
 
@@ -646,7 +664,7 @@ void drainControlEvents(
         } else if (event.type == ControlEventType::ManualRequest) {
             const bool fuzzyEnabled = config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI &&
                                       config::FUZZY_CONTROL_ENABLED;
-            applyManualControlEvent(event.manual, now, fuzzyEnabled, manualLatch, telemetry, setpoints);
+            applyManualControlEvent(event.manual, now, fuzzyEnabled, manualLatch, telemetry, setpoints, systemProtector);
         }
     }
 }
@@ -804,7 +822,8 @@ static void runControlPipelineStep(
 
     // All cross-core commands are applied by this Core-1-owned FIFO before
     // constructing the tick's base demand or entering SystemProtector.
-    drainControlEvents(now, telemetry, setpoints, manualLatch);
+    static protector::SystemProtector systemProtector;
+    drainControlEvents(now, telemetry, setpoints, manualLatch, systemProtector);
 
     const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
 
@@ -838,7 +857,8 @@ static void runControlPipelineStep(
 
     manual::applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTimeBeforeLatch, cropDay);
 
-    // Check for auto-releases and push events
+    // Check for auto-releases and push events. A test expiration is a normal
+    // TTL release; the following Protector pass re-applies any soft limit.
     for (size_t i = 0; i < manualLatch.size(); ++i) {
         if (prevLatch[i].active && !manualLatch[i].active) {
             storage::CropProfileStorage::getInstance().clearManualOverride(static_cast<AppChannel>(i));
@@ -846,6 +866,19 @@ static void runControlPipelineStep(
             if (prevLatch[i].expires_ms != 0U &&
                 static_cast<int32_t>(now - prevLatch[i].expires_ms) >= 0) {
                 reason = ManualReleaseReason::TTLExpired;
+                if (prevLatch[i].cabinet_test_active) {
+                    ScopedSerialLock guard(SerialLock::get_instance());
+                    Serial.printf("[BUTTON] Cabinet test expired: channel %d returned to Protector.\n",
+                                  static_cast<int>(i));
+                    // Do not inherit the previous AOFF relay state once a
+                    // bounded test ends. Protector may still force a relay
+                    // ON for a lower bio bound in the next arbitration step.
+                    const AppChannel channel = static_cast<AppChannel>(i);
+                    if (channel == AppChannel::MIST) outputs.Mist = 0.0f;
+                    else if (channel == AppChannel::FAN) outputs.Exh = 0.0f;
+                    else if (channel == AppChannel::LAMP) outputs.HLamp = 0.0f;
+                    else if (channel == AppChannel::HWAT) outputs.HWat = 0.0f;
+                }
             } else {
                 reason = ManualReleaseReason::SafetyLimitReached;
             }
@@ -869,7 +902,6 @@ static void runControlPipelineStep(
     relay_control::applyDirectOutputs(outputs, relayState);
 
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
-    static protector::SystemProtector systemProtector;
     systemProtector.update(
         now,
         fuzzyEnabled,

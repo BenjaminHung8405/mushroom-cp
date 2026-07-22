@@ -65,6 +65,7 @@ namespace cabinet_buttons
                 controlEvent.manual.channel = btn.channel;
                 controlEvent.manual.intent = intent_to_send;
                 controlEvent.manual.request_ms = millis();
+                controlEvent.manual.source = ManualRequestSource::CabinetButton;
                 controlEvent.received_ms = controlEvent.manual.request_ms;
 
                 const bool queued = enqueueControlEvent(controlEvent);

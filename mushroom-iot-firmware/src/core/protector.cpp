@@ -20,6 +20,8 @@ void clearManualLatch(manual::ManualLatchEntry& latch) {
     latch.active = false;
     latch.forced_state = AppIntent::AUTO;
     latch.expires_ms = 0;
+    latch.cabinet_test_active = false;
+    latch.cabinet_test_expires_ms = 0;
 }
 
 bool get_channel_state(const relay_control::RelayStatePod& rs, AppChannel ch) {
@@ -43,6 +45,11 @@ SystemProtector::SystemProtector() {
     reset();
 }
 
+bool SystemProtector::isCooldownActive(AppChannel channel, uint32_t now) const {
+    const size_t index = static_cast<size_t>(channel);
+    return index < states.size() && isLockActive(now, states[index].lock_until_ms);
+}
+
 void SystemProtector::reset() {
     prev_fuzzy_enabled = true;
     has_previous_fuzzy_mode = false;
@@ -50,6 +57,8 @@ void SystemProtector::reset() {
         state.is_on = false;
         state.on_start_ms = 0;
         state.lock_until_ms = 0;
+        state.fuzzy_min_on_active = false;
+        state.fuzzy_on_start_ms = 0;
     }
 }
 
@@ -78,6 +87,7 @@ void SystemProtector::update(
     for (size_t i = 0; i < static_cast<size_t>(AppChannel::COUNT); ++i) {
         AppChannel ch = static_cast<AppChannel>(i);
         ChannelProtectorState& state = states[i];
+        const bool cabinetTest = manual::isCabinetTestActive(manual_latches[i], now);
 
         // Priority 1: The time-confidence/midday interlock is non-bypassable.
         // It is evaluated before all protector rules so a low-humidity rule
@@ -87,6 +97,8 @@ void SystemProtector::update(
             clearManualLatch(manual_latches[i]);
             state.is_on = false;
             state.on_start_ms = 0;
+            state.fuzzy_min_on_active = false;
+            state.fuzzy_on_start_ms = 0;
             continue;
         }
 
@@ -100,32 +112,48 @@ void SystemProtector::update(
             }
             state.is_on = false;
             state.on_start_ms = 0;
+            state.fuzzy_min_on_active = false;
+            state.fuzzy_on_start_ms = 0;
             continue; // Force override, bypass bio rule ON checks
         }
 
         // Priority 3: Absolute Bio Bounds Guarding
         if (ch == AppChannel::LAMP && std::isfinite(temp_air)) {
             if (temp_air >= config::hardware::ThTOP) {
+                if (cabinetTest) {
+                    Serial.printf("[PROTECTOR] Cabinet test active: LAMP soft over-temp bypass until %lu\n",
+                                  static_cast<unsigned long>(manual_latches[i].cabinet_test_expires_ms));
+                } else {
                 // Over-temp: Turn OFF heating lamp and Lock for 5 minutes (300,000ms)
                 set_channel_state(relay_states, ch, false);
                 clearManualLatch(manual_latches[i]);
                 state.lock_until_ms = now + config::hardware::LAMP_OVER_TEMP_COOLDOWN_MS;
                 state.is_on = false;
                 state.on_start_ms = 0;
+                state.fuzzy_min_on_active = false;
+                state.fuzzy_on_start_ms = 0;
                 continue;
+                }
             } else if (temp_air <= config::hardware::ThBOT) {
                 // Under-temp: Force heating Lamp ON
                 set_channel_state(relay_states, ch, true);
             }
         } else if (ch == AppChannel::MIST && std::isfinite(humidity_air)) {
             if (humidity_air >= config::hardware::HmTOP) {
+                if (cabinetTest) {
+                    Serial.printf("[PROTECTOR] Cabinet test active: MIST soft over-humidity bypass until %lu\n",
+                                  static_cast<unsigned long>(manual_latches[i].cabinet_test_expires_ms));
+                } else {
                 // Over-humidity: Turn OFF mist and Lock for 10 minutes (600,000ms)
                 set_channel_state(relay_states, ch, false);
                 clearManualLatch(manual_latches[i]);
                 state.lock_until_ms = now + config::hardware::MIST_OVER_HUMIDITY_COOLDOWN_MS;
                 state.is_on = false;
                 state.on_start_ms = 0;
+                state.fuzzy_min_on_active = false;
+                state.fuzzy_on_start_ms = 0;
                 continue;
+                }
             } else if (humidity_air <= config::hardware::HmBOT) {
                 // Under-humidity: Force mist pump ON
                 set_channel_state(relay_states, ch, true);
@@ -134,6 +162,25 @@ void SystemProtector::update(
 
         // Priority 4: Normal checking and continuous limit (3-minute ON -> 30s OFF cooldown)
         bool final_active = get_channel_state(relay_states, ch);
+
+        // A manual latch must always retain immediate ON/OFF semantics. Only
+        // automatic fuzzy output receives a minimum ON hold to let real-world
+        // heaters/misters ramp up before a noisy demand can switch them off.
+        const bool automaticFuzzyOutput = fuzzy_enabled && !manual_latches[i].active;
+        if (!automaticFuzzyOutput) {
+            state.fuzzy_min_on_active = false;
+            state.fuzzy_on_start_ms = 0;
+        } else if (final_active && !state.fuzzy_min_on_active) {
+            state.fuzzy_min_on_active = true;
+            state.fuzzy_on_start_ms = now;
+        } else if (!final_active && state.fuzzy_min_on_active &&
+                   now - state.fuzzy_on_start_ms < config::hardware::FUZZY_MIN_ON_DURATION_MS) {
+            set_channel_state(relay_states, ch, true);
+            final_active = true;
+        } else if (!final_active) {
+            state.fuzzy_min_on_active = false;
+            state.fuzzy_on_start_ms = 0;
+        }
 
         if (final_active) {
             if (!state.is_on) {
@@ -152,6 +199,8 @@ void SystemProtector::update(
                     state.lock_until_ms = now + config::hardware::COOLDOWN_DURATION_MS;
                     state.is_on = false;
                     state.on_start_ms = 0;
+                    state.fuzzy_min_on_active = false;
+                    state.fuzzy_on_start_ms = 0;
                 }
             }
         } else {
