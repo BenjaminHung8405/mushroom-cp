@@ -89,10 +89,13 @@ void SystemProtector::update(
         ChannelProtectorState& state = states[i];
         const bool cabinetTest = manual::isCabinetTestActive(manual_latches[i], now);
 
-        // Priority 1: The time-confidence/midday interlock is non-bypassable.
-        // It is evaluated before all protector rules so a low-humidity rule
-        // cannot re-enable Mist during the blackout window.
-        if (ch == AppChannel::MIST && mist_blackout_active) {
+        // Priority 1: The time-confidence/midday interlock is normally
+        // non-bypassable. A live, bounded physical MIST cabinet test is the
+        // sole exception when its compile-time flag is enabled.
+        const bool bypassMistBlackout =
+            ch == AppChannel::MIST && cabinetTest &&
+            config::hardware::ENABLE_CABINET_MIST_BLACKOUT_BYPASS;
+        if (ch == AppChannel::MIST && mist_blackout_active && !bypassMistBlackout) {
             set_channel_state(relay_states, ch, false);
             clearManualLatch(manual_latches[i]);
             state.is_on = false;

@@ -579,7 +579,7 @@ void applyManualControlEvent(
     const size_t index = static_cast<size_t>(request.channel);
     const bool cabinetTest = decision == ManualDecision::Accepted &&
         request.source == ManualRequestSource::CabinetButton &&
-        manual::requiresCabinetTestBypass(request, telemetry, setpoints);
+        manual::requiresCabinetTestBypass(request, telemetry, setpoints, rtcTime);
     if (cabinetTest && systemProtector.isCooldownActive(request.channel, now)) {
         ack.decision = ManualDecision::RejectedLocked;
         ack.effective_intent = AppIntent::AUTO;
@@ -915,7 +915,12 @@ static void runControlPipelineStep(
     // Defense in depth at the final GPIO boundary. The interlock already ran
     // inside SystemProtector before duty-cycle/bio-bound rules; reapplying it
     // here guarantees a later policy change cannot energize Mist.
-    relay_control::hardwareProtectionOverride(outputs, rtcTime);
+    const size_t mistLatchIndex = static_cast<size_t>(AppChannel::MIST);
+    const bool bypassMistBlackout =
+        config::hardware::ENABLE_CABINET_MIST_BLACKOUT_BYPASS &&
+        mistLatchIndex < manualLatch.size() &&
+        manual::isCabinetTestActive(manualLatch[mistLatchIndex], now);
+    relay_control::hardwareProtectionOverride(outputs, rtcTime, bypassMistBlackout);
     relay_control::applyDirectOutputs(outputs, relayState);
 
     // Apply the final protected binary states to the physical active-LOW relays.

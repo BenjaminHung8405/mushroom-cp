@@ -1498,20 +1498,30 @@ int main() {
         // The biosafety blackout cannot be bypassed by fuzzy/manual demand.
         time_conf::setTimeConfidence(TimeConfidence::Trusted);
         ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 7U, 59U}, false);
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 8U, 0U}, false);
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 12U, 0U}, false);
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
         protectedOut.HWat = 1.0f;
         protectedOut.Mist = 1.0f;
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 31U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 15U, 59U}, false);
         assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
+        protectedOut.HWat = 1.0f;
+        protectedOut.Mist = 1.0f;
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 16U, 0U}, false);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U}, false);
+        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
+
+        // A caller can bypass the final blackout boundary only for a live,
+        // bounded cabinet MIST test authorized by Core 1.
+        protectedOut.Mist = 1.0f;
+        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 12U, 0U}, true);
+        assert(protectedOut.Mist == 1.0f);
 
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.
@@ -2446,7 +2456,7 @@ int main() {
                                       ManualRequestSource::CabinetButton };
             assert(manual::evaluateSafetyGate(cabinet, telemetry, setpoints, rtcTime, cropDay) ==
                    ManualDecision::Accepted);
-            assert(manual::requiresCabinetTestBypass(cabinet, telemetry, setpoints));
+            assert(manual::requiresCabinetTestBypass(cabinet, telemetry, setpoints, rtcTime));
 
             manual::ManualLatchArray testLatch{};
             manual::updateLatchOnAccepted(cabinet, 1000UL, testLatch, false, true);
@@ -2469,9 +2479,53 @@ int main() {
             assert(manual::evaluateSafetyGate(hardLamp, telemetry, setpoints, rtcTime, cropDay) ==
                    ManualDecision::RejectedTemp);
 
+            // A cabinet MIST test is the sole bounded blackout exception.
+            // Remote requests remain rejected and the final GPIO boundary
+            // requires the explicit bypass signal from Core 1.
+            telemetry.temp_air = 30.0f;
+            telemetry.humidity_air = 70.0f;
             rtcTime = {true, 12U, 0U};
+            time_conf::setTimeConfidence(TimeConfidence::Trusted);
             assert(manual::evaluateSafetyGate(cabinet, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::Accepted);
+            assert(manual::evaluateSafetyGate(remote, telemetry, setpoints, rtcTime, cropDay) ==
                    ManualDecision::RejectedBlackout);
+            assert(manual::requiresCabinetTestBypass(cabinet, telemetry, setpoints, rtcTime));
+
+            manual::ManualLatchArray blackoutTestLatch{};
+            manual::updateLatchOnAccepted(cabinet, 1000UL, blackoutTestLatch, false, true);
+            FuzzyController::ArbitratedOutputsPod blackoutTestOut = {0.0f, 0.0f, 0.0f, 0.0f};
+            manual::applyManualLatchToOutputs(
+                blackoutTestOut, blackoutTestLatch, 30999UL, telemetry, setpoints, rtcTime, cropDay);
+            assert(blackoutTestOut.Mist == 1.0f);
+
+            protector::SystemProtector blackoutProtector;
+            relay_control::RelayStatePod blackoutStates = {false, false, true, false};
+            blackoutProtector.update(30999UL, false, telemetry.temp_air, telemetry.humidity_air,
+                                     true, blackoutTestLatch, blackoutStates);
+            assert(blackoutStates.mist_active == true);
+            relay_control::hardwareProtectionOverride(blackoutTestOut, rtcTime, true);
+            assert(blackoutTestOut.Mist == 1.0f);
+
+            manual::applyManualLatchToOutputs(
+                blackoutTestOut, blackoutTestLatch, 31000UL, telemetry, setpoints, rtcTime, cropDay);
+            assert(!blackoutTestLatch[mistIndex].active);
+            blackoutTestOut.Mist = 0.0f; // Core 1 release path prevents inherited AOFF state.
+            blackoutProtector.update(31000UL, false, telemetry.temp_air, telemetry.humidity_air,
+                                     true, blackoutTestLatch, blackoutStates);
+            assert(blackoutStates.mist_active == false);
+            relay_control::hardwareProtectionOverride(blackoutTestOut, rtcTime, false);
+            assert(blackoutTestOut.Mist == 0.0f);
+
+            // The same 30-second cabinet test is permitted with an unusable
+            // time source; remote and automatic paths remain blackout-safe.
+            rtcTime = {false, 0U, 0U};
+            time_conf::setTimeConfidence(TimeConfidence::Uncertain);
+            assert(manual::evaluateSafetyGate(cabinet, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::Accepted);
+            assert(manual::evaluateSafetyGate(remote, telemetry, setpoints, rtcTime, cropDay) ==
+                   ManualDecision::RejectedBlackout);
+            time_conf::setTimeConfidence(TimeConfidence::Trusted);
         }
 
         // S2-G11: Test force on not restored when time uncertain

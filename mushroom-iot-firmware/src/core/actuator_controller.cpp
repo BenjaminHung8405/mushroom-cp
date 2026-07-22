@@ -148,8 +148,8 @@ namespace actuators
 namespace relay_control {
 namespace {
 
-constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 11U * 60U;
-constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 13U * 60U + 30U;
+constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 8U * 60U;
+constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 16U * 60U;
 // Temperature demand reaches 1.0 at a 4°C deficit. This 0.25/0.15
 // hysteresis starts heating at about 1.0°C below target and stops near 0.6°C.
 constexpr float FUZZY_ON_THRESHOLD = 0.25f;
@@ -163,7 +163,7 @@ bool isMiddayBlackout(const RtcTimePod& rtcTime) {
     const uint16_t minuteOfDay =
         static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
     return minuteOfDay >= MIDDAY_BLACKOUT_START_MINUTE &&
-           minuteOfDay <= MIDDAY_BLACKOUT_END_MINUTE;
+           minuteOfDay < MIDDAY_BLACKOUT_END_MINUTE;
 }
 
 bool resolveBinaryDemand(float demand, bool currentlyActive) {
@@ -190,8 +190,9 @@ bool isSafetyBlackoutActive(const RtcTimePod& rtcTime) {
 
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod& outputs,
-    const RtcTimePod& rtcTime) {
-    if (isSafetyBlackoutActive(rtcTime)) {
+    const RtcTimePod& rtcTime,
+    bool bypass_mist_blackout) {
+    if (isSafetyBlackoutActive(rtcTime) && !bypass_mist_blackout) {
         outputs.Mist = 0.0f;
     }
 }

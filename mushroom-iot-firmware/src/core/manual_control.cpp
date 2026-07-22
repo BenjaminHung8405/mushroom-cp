@@ -23,11 +23,19 @@ void clearCabinetTest(ManualLatchEntry& latch) {
 bool requiresCabinetTestBypass(
     const ManualRequest &request,
     const TelemetryData &telemetry,
-    const Trajectory::SetpointPod &setpoints)
+    const Trajectory::SetpointPod &setpoints,
+    const relay_control::RtcTimePod &rtcTime)
 {
     if (request.intent != AppIntent::FORCE_ON) return false;
     if (request.channel == AppChannel::MIST) {
-        return std::isfinite(telemetry.humidity_air) && telemetry.humidity_air >= MIST_WARNING_LIMIT_RH;
+        // Only a physical cabinet button may start this bounded test. It can
+        // exercise the MIST relay above the Protector's actual humidity limit
+        // and, when explicitly enabled, during any time-safety blackout.
+        return request.source == ManualRequestSource::CabinetButton &&
+               std::isfinite(telemetry.humidity_air) &&
+               (telemetry.humidity_air >= config::hardware::HmTOP ||
+                (config::hardware::ENABLE_CABINET_MIST_BLACKOUT_BYPASS &&
+                 relay_control::isSafetyBlackoutActive(rtcTime)));
     }
     if (request.channel == AppChannel::LAMP) {
         return std::isfinite(telemetry.temp_air) && telemetry.temp_air < LAMP_HARD_CUTOFF_C &&
@@ -61,7 +69,10 @@ ManualDecision evaluateSafetyGate(
             request.source != ManualRequestSource::CabinetButton) {
             return ManualDecision::RejectedHumi;
         }
-        if (relay_control::isSafetyBlackoutActive(rtcTime)) {
+        const bool cabinetBlackoutTest =
+            config::hardware::ENABLE_CABINET_MIST_BLACKOUT_BYPASS &&
+            request.source == ManualRequestSource::CabinetButton;
+        if (relay_control::isSafetyBlackoutActive(rtcTime) && !cabinetBlackoutTest) {
             return ManualDecision::RejectedBlackout;
         }
         return ManualDecision::Accepted;
@@ -162,8 +173,11 @@ void autoClearOnSensorViolation(
     // This lets Core 1 emit the normal release acknowledgement and erase the
     // persisted override before SystemProtector reaches the physical relay.
     const bool mistBlackout = relay_control::isSafetyBlackoutActive(rtcTime);
+    const bool activeCabinetMistBlackoutTest =
+        config::hardware::ENABLE_CABINET_MIST_BLACKOUT_BYPASS &&
+        latch[mistIdx].cabinet_test_active;
     if (latch[mistIdx].active &&
-        (mistBlackout ||
+        ((!activeCabinetMistBlackoutTest && mistBlackout) ||
          (latch[mistIdx].forced_state == AppIntent::FORCE_ON &&
           (!std::isfinite(telemetry.humidity_air) ||
            (!latch[mistIdx].cabinet_test_active &&

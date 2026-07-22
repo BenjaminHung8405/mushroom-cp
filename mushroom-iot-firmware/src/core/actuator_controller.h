@@ -56,10 +56,12 @@ struct RelayStatePod {
 /** True when the edge must enforce the non-bypassable Mist safety interlock. */
 bool isSafetyBlackoutActive(const RtcTimePod &rtcTime);
 
-/** Forces Mist OFF when the safety interlock is active. */
+/** Forces Mist OFF when the safety interlock is active unless a bounded
+ * physical cabinet MIST test has explicitly been authorized. */
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod &outputs,
-    const RtcTimePod &rtcTime);
+    const RtcTimePod &rtcTime,
+    bool bypass_mist_blackout);
 
 /**
  * Converts fuzzy/manual demands to stable binary relay states.

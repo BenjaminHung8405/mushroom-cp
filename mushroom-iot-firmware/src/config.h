@@ -16,7 +16,7 @@ namespace config
         constexpr uint8_t PIN_RELAY_MIST = 10; // Sương (Fogger/Mist)
         constexpr uint8_t PIN_RELAY_FAN = 11;  // Quạt (Fan)
         constexpr uint8_t PIN_RELAY_HWAT = 13; // Sưởi nước (Heater Water)
-        constexpr uint8_t PIN_RELAY_LAMP = 12   ; // Đèn nhiệt — relay duy nhất
+        constexpr uint8_t PIN_RELAY_LAMP = 12; // Đèn nhiệt — relay duy nhất
 
         // I2C Bus (e.g. SHT30, SCD30)
         constexpr uint8_t PIN_I2C_SDA = 8;
@@ -135,6 +135,10 @@ namespace config
         // Maximum ON time granted to a physical cabinet-button test when a
         // soft Protector limit is already exceeded.
         constexpr uint32_t CABINET_BUTTON_TEST_ON_MS = 30000;
+        // Permit only a physical MIST cabinet-button test to run during a
+        // MIST blackout. The test remains bounded by CABINET_BUTTON_TEST_ON_MS;
+        // remote/manual API requests and automatic control never bypass it.
+        constexpr bool ENABLE_CABINET_MIST_BLACKOUT_BYPASS = false;
         // Once automatic fuzzy control energizes a relay, retain it long
         // enough for heaters/misters to reach useful operating output.
         constexpr uint32_t FUZZY_MIN_ON_DURATION_MS = 60000;
@@ -142,7 +146,7 @@ namespace config
         constexpr uint32_t MAX_ON_DURATION_MS = 180000;
         constexpr uint32_t COOLDOWN_DURATION_MS = 30000;
         constexpr uint32_t LAMP_OVER_TEMP_COOLDOWN_MS = 300000;
-        constexpr uint32_t MIST_OVER_HUMIDITY_COOLDOWN_MS = 600000;
+        constexpr uint32_t MIST_OVER_HUMIDITY_COOLDOWN_MS = 30000;
 
         // NVS Keys for Bio Thresholds
         constexpr const char *KEY_BIO_T_MAX = "bio_t_max";

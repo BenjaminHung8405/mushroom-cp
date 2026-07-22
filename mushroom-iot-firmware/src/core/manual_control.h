@@ -45,11 +45,12 @@ void updateLatchOnAccepted(
 /** True while a bounded cabinet-button soft-limit test may energize a relay. */
 bool isCabinetTestActive(const ManualLatchEntry &latch, uint32_t now);
 
-/** True only for an upper soft limit eligible for a cabinet-button test. */
+/** True only when a cabinet MIST/LAMP request is eligible for a bounded test. */
 bool requiresCabinetTestBypass(
     const ManualRequest &request,
     const TelemetryData &telemetry,
-    const Trajectory::SetpointPod &setpoints);
+    const Trajectory::SetpointPod &setpoints,
+    const relay_control::RtcTimePod &rtcTime);
 
 /**
  * @brief Expire manual latches past their TTL.
