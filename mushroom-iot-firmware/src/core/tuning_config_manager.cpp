@@ -128,11 +128,13 @@ TuningNvsRecord makeRecord(const DynamicTuningParams& params, uint8_t commit_sta
 bool verifyReadback(Preferences& prefs, const char* key, const TuningNvsRecord& expected)
 {
     TuningNvsRecord readback{};
-    if (prefs.getBytes(key, &readback, sizeof(readback)) != sizeof(readback)) return false;
-    return isValidRecord(readback) &&
-           readback.crc32 == expected.crc32 &&
-           readback.generation == expected.generation &&
-           readback.commit_state == expected.commit_state;
+    if (prefs.getBytes(key, &readback, sizeof(TuningNvsRecord)) != sizeof(TuningNvsRecord)) {
+        return false;
+    }
+    if (!isValidRecord(readback)) {
+        return false;
+    }
+    return std::memcmp(&readback, &expected, sizeof(TuningNvsRecord)) == 0;
 }
 } // namespace
 

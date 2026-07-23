@@ -1962,6 +1962,10 @@ int main() {
             tuner.resetForTest();
             assert(tuner.init() == true);
 
+            // Ensure queue is empty before test
+            DynamicTuningParams temp_queue_params{};
+            while (xQueueReceive(g_tuning_config_queue, &temp_queue_params, 0) == pdTRUE) {}
+
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
             doc["command_id"] = "b0d33b2e-9d2a-43a9-8de6-bf10d3215268";
@@ -1984,6 +1988,14 @@ int main() {
             // Since verifyReadback rejects mismatched CRCs, processCommand must fail and return REJECTED
             assert(result == storage::TuningResult::REJECTED);
             assert(reason == storage::TuningReason::NVS_WRITE_ERROR);
+
+            // Verify active config and queue remain unchanged (fail-closed invariant)
+            DynamicTuningParams active = tuner.getActiveParams();
+            assert(std::abs(active.lamp_gain_scale - 1.0f) < 0.0001f);
+            assert(std::strcmp(active.command_id, "") == 0);
+
+            DynamicTuningParams queued_params{};
+            assert(xQueueReceive(g_tuning_config_queue, &queued_params, 0) == pdFALSE);
         }
 
         // Case K2: saveDurableReceipt fails due to corrupt readback (C5 regression)

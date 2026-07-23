@@ -8,3 +8,4 @@ run_tests
 run_tests_audit
 run_tests_mac
 test_bin
+run_tests_binary

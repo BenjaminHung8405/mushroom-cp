@@ -99,5 +99,6 @@ docker-compose.override.yml
 /mushroom-iot-firmware/run_tests_audit
 /mushroom-iot-firmware/run_tests_mac
 /mushroom-iot-firmware/test_bin
+/mushroom-iot-firmware/run_tests_binary
 # InfluxDB CLI config contains real auth tokens at runtime — never commit
 /data/mushroom_influxdb_config/influx-configs
