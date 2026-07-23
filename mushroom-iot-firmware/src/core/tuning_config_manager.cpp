@@ -166,15 +166,17 @@ TuningReason TuningConfigManager::validateCommandEnvelope(const JsonVariant& doc
     command_id = command.as<const char*>();
     if (!_validateCommandIdFormat(command_id)) return TuningReason::INVALID_UUID;
     const JsonVariant value = doc["revision"];
-    if (value.is<int32_t>()) {
-        const int32_t signed_revision = value.as<int32_t>();
-        if (signed_revision < 0) return TuningReason::INVALID_SCHEMA;
-        revision = static_cast<uint32_t>(signed_revision);
+    if (value.isNull() || value.is<const char*>() || value.is<bool>() || value.is<float>() || value.is<double>()) {
+        return TuningReason::INVALID_SCHEMA;
+    }
+    if (value.is<int>() || value.is<long>() || value.is<long long>() ||
+        value.is<unsigned int>() || value.is<unsigned long>() || value.is<unsigned long long>()) {
+        const int64_t rev = value.as<int64_t>();
+        if (rev < 0 || rev > 4294967295LL) return TuningReason::INVALID_SCHEMA;
+        revision = static_cast<uint32_t>(rev);
         return TuningReason::OK;
     }
-    if (!value.is<uint32_t>()) return TuningReason::INVALID_SCHEMA;
-    revision = value.as<uint32_t>();
-    return TuningReason::OK;
+    return TuningReason::INVALID_SCHEMA;
 }
 
 TuningReason TuningConfigManager::parseConfig(const JsonVariant& config, DynamicTuningParams& out_params) {
@@ -192,7 +194,13 @@ TuningReason TuningConfigManager::parseConfig(const JsonVariant& config, Dynamic
 }
 
 TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason) {
-    if (_storage == nullptr || !_storage->saveTuningParams(incoming)) {
+    if (_storage == nullptr) {
+        Serial.println("[TUNING] persistThenDispatch FAIL: _storage is null!");
+        reason = TuningReason::NVS_WRITE_ERROR;
+        return TuningResult::REJECTED;
+    }
+    if (!_storage->saveTuningParams(incoming)) {
+        Serial.println("[TUNING] persistThenDispatch FAIL: saveTuningParams returned false!");
         reason = TuningReason::NVS_WRITE_ERROR;
         return TuningResult::REJECTED;
     }
@@ -203,8 +211,11 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
         _active_params = _pending_params;
         _has_pending_dispatch = false;
         reason = TuningReason::OK;
+        Serial.printf("[TUNING] persistThenDispatch ACCEPTED: rev=%u command_id=%s\n",
+                      _active_params.revision, _active_params.command_id);
         return TuningResult::ACCEPTED;
     }
+    Serial.println("[TUNING] persistThenDispatch: g_tuning_config_queue send returned PENDING");
     reason = TuningReason::QUEUE_FULL_ERROR;
     return TuningResult::PENDING;
 }
@@ -228,18 +239,26 @@ TuningResult TuningConfigManager::recordNoChangeReceipt(const DynamicTuningParam
 bool TuningConfigManager::_validateSchemaVersion(const JsonVariant& doc) {
     JsonVariant version = doc["schema_version"];
     if (version.isNull()) return false;
-    if (version.is<const char*>()) return false;
-    if (!version.is<int>()) return false;
-    return version.as<int>() == 1;
+    return !version.is<const char*>() && !version.is<bool>() && version.as<int>() == 1;
 }
 
 bool TuningConfigManager::_validateDeviceId(const JsonVariant& doc) {
     JsonVariant dev_id = doc["device_id"];
-    if (dev_id.isNull() || !dev_id.is<const char*>()) return false;
+    if (dev_id.isNull() || !dev_id.is<const char*>()) {
+        Serial.println("[TUNING] _validateDeviceId: dev_id is null or not string");
+        return false;
+    }
     const char* actual = dev_id.as<const char*>();
     const char* expected = config::network::MQTT_CLIENT_ID_VAL.c_str();
-    if (expected == nullptr || expected[0] == '\0') return false;
-    return std::strcmp(expected, actual) == 0;
+    if (expected == nullptr || expected[0] == '\0') {
+        Serial.println("[TUNING] _validateDeviceId: expected MQTT_CLIENT_ID_VAL is empty");
+        return false;
+    }
+    bool match = (std::strcmp(expected, actual) == 0);
+    if (!match) {
+        Serial.printf("[TUNING] _validateDeviceId FAIL: expected='%s' actual='%s'\n", expected, actual);
+    }
+    return match;
 }
 
 bool TuningConfigManager::_validateCommandIdFormat(const char* uuid_str) {
@@ -289,9 +308,7 @@ bool TuningConfigManager::_validateCrossField(float mist_on, float mist_off) {
 }
 
 bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {
-    if (v.isNull()) return false;
-    if (v.is<const char*>()) return false;
-    if (!v.is<float>() && !v.is<double>() && !v.is<int>()) return false;
+    if (v.isNull() || v.is<const char*>() || v.is<bool>()) return false;
     float val = v.as<float>();
     return std::isfinite(val);
 }

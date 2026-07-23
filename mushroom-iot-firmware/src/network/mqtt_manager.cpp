@@ -300,32 +300,7 @@ void MqttManager::loop()
     }
     maintainLoop();
     if (client_.connected() && provisioned_) {
-        char pending_uuid[37]{};
-        if (storage::TuningConfigManager::getInstance().getPendingCommandId(pending_uuid)) {
-            bool is_duplicate_in_outbox = false;
-            for (size_t i = 0; i < pending_reports_count_; ++i) {
-                size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
-                if (std::strcmp(pending_reports_[idx].command_id, pending_uuid) == 0) {
-                    is_duplicate_in_outbox = true;
-                    break;
-                }
-            }
-            if (pending_reports_count_ < MAX_PENDING_REPORTS || is_duplicate_in_outbox) {
-                bool reserved = false;
-                if (!is_duplicate_in_outbox) {
-                    reserved = reserveOutboxSlot(pending_uuid);
-                }
-                DynamicTuningParams dispatched{};
-                if (storage::TuningConfigManager::getInstance().retryPendingDispatch(dispatched)) {
-                    enqueuePendingReport(storage::TuningResult::ACCEPTED,
-                                         storage::TuningReason::OK, dispatched.command_id);
-                } else {
-                    if (reserved) {
-                        cancelReservedOutboxSlot(pending_uuid);
-                    }
-                }
-            }
-        }
+        retryDurablePendingDispatch();
         processPendingReports();
     }
 }
@@ -1248,40 +1223,92 @@ static bool isValidUuidFormat(const char* uuid_str) {
     return true;
 }
 
+MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(char* payload,
+                                                                        size_t payload_length,
+                                                                        StaticJsonDocument<1024>& out_doc,
+                                                                        char out_command_id[37]) const
+{
+    if (out_command_id != nullptr) {
+        out_command_id[0] = '\0';
+    }
+
+    if (payload == nullptr || payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES) {
+        Serial.println("[MQTT] Tuning message classify: payload length exceeds bound.");
+        return TuningIngressDecision::DEFER_REDELIVERY;
+    }
+
+    const DeserializationError error = deserializeJson(out_doc, payload);
+    if (error) {
+        Serial.printf("[MQTT] Tuning message classify: JSON parse error: %s (len=%u, buf='%.*s').\n",
+                      error.c_str(), (unsigned)payload_length, (int)payload_length, payload);
+        return TuningIngressDecision::DEFER_REDELIVERY;
+    }
+
+    const char* raw_command_id = out_doc["command_id"].is<const char*>()
+        ? out_doc["command_id"].as<const char*>()
+        : nullptr;
+
+    if (raw_command_id == nullptr || !isValidUuidFormat(raw_command_id)) {
+        Serial.println("[MQTT] Tuning message classify: missing or invalid root command_id UUID.");
+        return TuningIngressDecision::DEFER_REDELIVERY;
+    }
+
+    if (out_command_id != nullptr) {
+        std::strncpy(out_command_id, raw_command_id, 36);
+        out_command_id[36] = '\0';
+    }
+
+    return TuningIngressDecision::PROCESS_COMMAND;
+}
+
+bool MqttManager::reserveTerminalReport(const char* command_id)
+{
+    return reserveOutboxSlot(command_id);
+}
+
+bool MqttManager::finalizeTerminalReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason)
+{
+    return finalizeReservedReport(command_id, result, reason);
+}
+
+void MqttManager::retryDurablePendingDispatch()
+{
+    auto& mgr = storage::TuningConfigManager::getInstance();
+    char pending_uuid[37]{};
+    if (!mgr.getPendingCommandId(pending_uuid)) {
+        return;
+    }
+    bool is_duplicate_in_outbox = false;
+    for (size_t i = 0; i < pending_reports_count_; ++i) {
+        size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+        if (std::strcmp(pending_reports_[idx].command_id, pending_uuid) == 0) {
+            is_duplicate_in_outbox = true;
+            break;
+        }
+    }
+    if (pending_reports_count_ < MAX_PENDING_REPORTS || is_duplicate_in_outbox) {
+        bool reserved = false;
+        if (!is_duplicate_in_outbox) {
+            reserved = reserveTerminalReport(pending_uuid);
+        }
+        DynamicTuningParams dispatched{};
+        if (mgr.retryPendingDispatch(dispatched)) {
+            finalizeTerminalReport(dispatched.command_id, storage::TuningResult::ACCEPTED, storage::TuningReason::OK);
+            processPendingReports();
+        } else {
+            if (reserved) {
+                cancelReservedOutboxSlot(pending_uuid);
+            }
+        }
+    }
+}
+
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     if (message.type == CommandType::TUNING_DESIRED) {
         if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
             message.payload_length > sizeof(message.payload)) {
-            Serial.println("[MQTT] Tuning command REJECTED: invalid payload length.");
-            return;
-        }
-
-        StaticJsonDocument<512> document;
-        const DeserializationError error = deserializeJson(
-            document, message.payload, message.payload_length);
-        if (error) {
-            Serial.printf("[MQTT] Tuning command JSON error: %s. Ignoring payload.\n",
-                          error.c_str());
-            return;
-        }
-
-        const char* raw_command_id = document["command_id"].is<const char*>()
-            ? document["command_id"].as<const char*>()
-            : nullptr;
-
-        if (raw_command_id == nullptr || !isValidUuidFormat(raw_command_id)) {
-            Serial.println("[MQTT] Tuning command ignored: missing or invalid root command_id UUID.");
-            return;
-        }
-
-        char command_id[37];
-        std::strncpy(command_id, raw_command_id, 36);
-        command_id[36] = '\0';
-
-        // Apply back-pressure: reserve outbox slot BEFORE calling processCommand (mutation)
-        if (!reserveOutboxSlot(command_id)) {
-            Serial.println("[MQTT] Outbox full, disconnecting to defer processing and trigger redelivery.");
+            Serial.println("[MQTT] Tuning payload DEFER_REDELIVERY: payload exceeds bound.");
             if (client_.connected()) {
                 client_.disconnect();
             }
@@ -1289,19 +1316,16 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
             return;
         }
 
-        storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
-        const storage::TuningResult result =
-            storage::TuningConfigManager::getInstance().processCommand(
-                document.as<JsonVariant>(), reason);
-        if (result == storage::TuningResult::PENDING) {
-            // Command was written to NVS, but queue dispatch to Core 1 is pending.
-            // Cancel reserved outbox slot until dispatch completes on retry.
-            cancelReservedOutboxSlot(command_id);
-            return;
-        }
+        char payload_buf[MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
+        std::memcpy(payload_buf, message.payload, message.payload_length);
+        payload_buf[message.payload_length] = '\0';
 
-        if (!finalizeReservedReport(command_id, result, reason)) {
-            Serial.printf("[MQTT] CRITICAL: Failed to finalize reserved outbox report for %s! Disconnecting.\n", command_id);
+        StaticJsonDocument<1024> document;
+        char command_id[37]{};
+        const TuningIngressDecision decision = classifyTuningMessage(payload_buf, message.payload_length, document, command_id);
+
+        if (decision == TuningIngressDecision::DEFER_REDELIVERY) {
+            Serial.println("[MQTT] Tuning payload DEFER_REDELIVERY: fail-closed, disconnecting to trigger broker redelivery.");
             if (client_.connected()) {
                 client_.disconnect();
             }
@@ -1309,7 +1333,33 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
             return;
         }
 
-        processPendingReports();
+        if (decision == TuningIngressDecision::PROCESS_COMMAND) {
+            if (!reserveTerminalReport(command_id)) {
+                Serial.println("[MQTT] Outbox full, disconnecting to defer processing and trigger redelivery.");
+                if (client_.connected()) {
+                    client_.disconnect();
+                }
+                state_ = MqttState::DISCONNECTED;
+                return;
+            }
+
+            storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
+            const storage::TuningResult result =
+                storage::TuningConfigManager::getInstance().processCommand(
+                    document.as<JsonVariant>(), reason);
+
+            if (result == storage::TuningResult::PENDING) {
+                cancelReservedOutboxSlot(command_id);
+                return;
+            }
+
+            if (!finalizeTerminalReport(command_id, result, reason)) {
+                Serial.println("[MQTT] Finalize report failed.");
+            }
+
+            processPendingReports();
+            return;
+        }
         return;
     }
 
@@ -1348,6 +1398,35 @@ bool MqttManager::enqueuePendingReport(storage::TuningResult result, storage::Tu
     }
     return finalizeReservedReport(command_id, result, reason);
 }
+
+#ifdef UNIT_TEST
+const char* MqttManager::pendingReportCommandIdForTest(size_t offset) const
+{
+    if (offset >= pending_reports_count_) {
+        return nullptr;
+    }
+    const size_t index = (pending_reports_head_ + offset) % MAX_PENDING_REPORTS;
+    return pending_reports_[index].command_id;
+}
+
+storage::TuningResult MqttManager::pendingReportResultForTest(size_t offset) const
+{
+    if (offset >= pending_reports_count_) {
+        return storage::TuningResult::PENDING;
+    }
+    const size_t index = (pending_reports_head_ + offset) % MAX_PENDING_REPORTS;
+    return pending_reports_[index].result;
+}
+
+storage::TuningReason MqttManager::pendingReportReasonForTest(size_t offset) const
+{
+    if (offset >= pending_reports_count_) {
+        return storage::TuningReason::OK;
+    }
+    const size_t index = (pending_reports_head_ + offset) % MAX_PENDING_REPORTS;
+    return pending_reports_[index].reason;
+}
+#endif
 
 bool MqttManager::finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason) {
     if (command_id == nullptr || command_id[0] == '\0') {

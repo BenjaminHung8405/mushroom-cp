@@ -118,20 +118,23 @@ bool TuningStorageImpl::writeRecord(const DynamicTuningParams& params, uint8_t c
 
     NvsSlots slots{};
     readNvsSlots(prefs, slots);
-    const int next_slot = selectWriteSlot(slots, params, commit_state);
-    if (next_slot < 0) {
+
+    const int slot = selectWriteSlot(slots, params, commit_state);
+    if (slot < 0) {
         prefs.end();
         return false;
     }
-    const TuningNvsRecord new_rec = makeRecord(
-        params, commit_state, generationForWrite(slots, next_slot, commit_state));
-    const char* key = next_slot == 0 ? "tune_s0" : "tune_s1";
-    size_t written = prefs.putBytes(key, &new_rec, sizeof(TuningNvsRecord));
-    if (written != sizeof(TuningNvsRecord)) {
+
+    const TuningNvsRecord record = makeRecord(
+        params, commit_state, generationForWrite(slots, slot, commit_state));
+    const char* key = slot == 0 ? "tune_s0" : "tune_s1";
+
+    if (prefs.putBytes(key, &record, sizeof(TuningNvsRecord)) != sizeof(TuningNvsRecord)) {
         prefs.end();
         return false;
     }
-    const bool verified = verifyReadback(prefs, key, new_rec);
+
+    const bool verified = verifyReadback(prefs, key, record);
     prefs.end();
     return verified;
 }

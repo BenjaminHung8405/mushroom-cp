@@ -106,19 +106,22 @@ public:
     uint8_t getReportingQos() const;
     unsigned long getReconnectInterval() const { return current_reconnect_backoff_; }
 
+    enum class TuningIngressDecision : uint8_t {
+        DEFER_REDELIVERY,
+        QUEUE_REJECTED_ACK,
+        PROCESS_COMMAND,
+    };
+
+    TuningIngressDecision classifyTuningMessage(char* payload,
+                                                 size_t payload_length,
+                                                 StaticJsonDocument<1024>& out_doc,
+                                                 char out_command_id[37]) const;
+    bool reserveTerminalReport(const char* command_id);
+    bool finalizeTerminalReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
+    void retryDurablePendingDispatch();
+
 #ifdef UNIT_TEST
 public:
-    struct PendingReportedTuning {
-        storage::TuningResult result;
-        storage::TuningReason reason;
-        char command_id[37];
-    };
-    static constexpr size_t MAX_PENDING_REPORTS = 8;
-    PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};
-    size_t pending_reports_head_ = 0;
-    size_t pending_reports_count_ = 0;
-    bool report_in_flight_ = false;
-
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
     bool hasPendingQos1Publish();
@@ -132,9 +135,16 @@ public:
         report_in_flight_ = false;
         std::memset(pending_reports_, 0, sizeof(pending_reports_));
     }
+    size_t pendingReportCountForTest() const { return pending_reports_count_; }
+    static constexpr size_t maxPendingReportsForTest() { return MAX_PENDING_REPORTS; }
+    bool reportInFlightForTest() const { return report_in_flight_; }
+    const char* pendingReportCommandIdForTest(size_t offset) const;
+    storage::TuningResult pendingReportResultForTest(size_t offset) const;
+    storage::TuningReason pendingReportReasonForTest(size_t offset) const;
     void setProvisionedForTest(bool val) { provisioned_ = val; }
     void setTenantForTest(const String& t) { tenant_ = t; }
     void setDeviceIdForTest(const String& d) { device_id_ = d; }
+    void setStateForTest(MqttState s) { state_ = s; }
 #endif
 
 private:
@@ -225,7 +235,6 @@ private:
     unsigned long current_reconnect_backoff_ = 1000;
     unsigned long last_telemetry_due_ = 0;
 
-#ifndef UNIT_TEST
     // Outbox buffer for QoS-1 reported tuning updates
     struct PendingReportedTuning {
         storage::TuningResult result;
@@ -238,6 +247,7 @@ private:
     size_t pending_reports_count_ = 0;
     bool report_in_flight_ = false;
 
+#ifndef UNIT_TEST
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
     bool hasPendingQos1Publish();

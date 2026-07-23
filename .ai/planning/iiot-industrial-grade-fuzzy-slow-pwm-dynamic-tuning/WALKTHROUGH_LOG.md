@@ -1,3 +1,29 @@
+## [2026-07-23T22:59:49+07:00] - Task D4: Tái cấu trúc state machine ingress/outbox theo QA Rejection
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `mushroom-iot-firmware/test/tuning_ingress_validation_tests.cpp`
+  - `mushroom-iot-firmware/test/tuning_report_outbox_tests.cpp`
+  - `mushroom-iot-firmware/test/tuning_storage_tests.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/storage/tuning_storage.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn dựa trên feedback QA:**
+  1. Phân rã D4 thành các helper có contract rõ ràng: `classifyTuningMessage`, `reserveTerminalReport`, `finalizeTerminalReport` và `retryDurablePendingDispatch`. Nhánh thiếu identity canonical fail-closed bằng MQTT disconnect/redelivery; nhánh có UUID canonical reserve ACK trước bất kỳ mutation NVS/RAM/Core-1 nào.
+  2. Chuyển state outbox về một định nghĩa dùng chung cho production và host test, loại duplication `#ifdef UNIT_TEST`. ACK vẫn nằm trong outbox sau transport acceptance và chỉ dequeue khi trạng thái QoS-1 không còn pending.
+  3. Tách regression D4 khỏi `run_tests.cpp` sang suite ingress và outbox riêng; runner chỉ gọi suite. Các suite kiểm tra invariant mutation, canonical identity, back-pressure, reconnect và lifecycle ACK.
+- **Xác minh:**
+  - Build/chạy độc lập các suite D4 ingress + outbox host: **PASS**.
+  - `git diff --check`: **PASS**.
+  - Full host monolith vẫn dừng ở assertion C3/C4 có sẵn `test/run_tests.cpp:1125` (ngoài D4); `pio` không được cài trong môi trường (`command not found`).
+
+---
+
 ## [2026-07-23T21:34:00+07:00] - Task D4: Khắc phục triệt để lỗi QA Rejection (Reserve-before-mutate, Structured JSON UUID & Regression Tests)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2 sau Rejection)
