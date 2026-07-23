@@ -4,5 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 
+run_tests
+run_tests_audit
 run_tests_mac
 test_bin

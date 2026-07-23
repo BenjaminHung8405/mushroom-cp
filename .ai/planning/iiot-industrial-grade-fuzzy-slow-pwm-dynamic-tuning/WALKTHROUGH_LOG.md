@@ -1,4 +1,34 @@
+## [2026-07-23T10:13:00+07:00] - Task C5, D4: Khắc phục lỗi QA Rejection (Lần 2 - Durable Receipt & Binary Cleanup)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** C5, D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.gitignore`
+  - `mushroom-iot-firmware/.gitignore`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - **C5 (NVS receipt validation & NUL-termination):**
+    - Sửa đổi hàm `saveDurableReceipt` để thực hiện xác minh CRC trước khi phân tích cú pháp chuỗi, xác minh sự tồn tại của NUL terminator trong giới hạn 37 byte bằng `memchr`, và thực hiện so sánh chuỗi ID lệnh nhận được bằng `memcmp` thay vì `strcmp`.
+    - Sửa đổi hàm `loadDurableReceipt` để tính toán/kiểm tra CRC trước tiên, xác minh NUL terminator bằng `memchr`, và chỉ gọi hàm định dạng UUID `_validateCommandIdFormat` sau khi chuỗi đã được chứng minh an toàn và NUL-terminated.
+    - Sửa đổi hàm helper `isValidRecord` để cũng xác minh `record.params.command_id` có NUL terminator nhằm đảm bảo an toàn tuyệt đối khi gọi `strcmp` so sánh.
+    - Thêm test case hồi quy `Case K3` để ghi nhận việc từ chối và bỏ qua an toàn đối với receipt có CRC hợp lệ nhưng không có ký tự NUL kết thúc mà không gây crash firmware.
+  - **D4 (Commit binary cleanup):**
+    - Loại bỏ triệt để các tệp nhị phân executable đã build (`run_tests` và `run_tests_audit`) khỏi Git index bằng lệnh `git rm --cached`.
+    - Cập nhật cả `.gitignore` ở thư mục gốc và thư mục `mushroom-iot-firmware` để bỏ qua các file binary trên vĩnh viễn.
+  - **Technical Debt:**
+    - Loại bỏ dòng in debug thừa (`Serial.printf("[DEBUG] Case K2 result...")`) tại dòng 2032 trong `run_tests.cpp`.
+- **Kết quả kiểm thử:**
+  - Chạy biên dịch và chạy host test cục bộ: thành công 100% (`--- All Unit Tests Passed Successfully! ---`).
+  - `git diff --check` hoàn toàn sạch sẽ.
+
+---
+
 ## [2026-07-21T22:18:00+07:00] - Task C5, D4: Sửa lỗi QA Rejection (Durable Receipt & QoS 1 Reported ACK Loss)
+
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2 sau Rejection)
 - **Task ID:** C5, D4

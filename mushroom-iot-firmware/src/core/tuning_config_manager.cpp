@@ -55,6 +55,7 @@ bool isValidRecord(const TuningNvsRecord& record)
     return record.version == TUNING_NVS_VERSION &&
            (record.commit_state == TUNING_NVS_PENDING_COMMIT ||
             record.commit_state == TUNING_NVS_READY_DISPATCH) &&
+           std::memchr(record.params.command_id, '\0', sizeof(record.params.command_id)) != nullptr &&
            calculateRecordCrc(record) == record.crc32;
 }
 
@@ -453,12 +454,18 @@ bool TuningConfigManager::saveDurableReceipt(const char* command_id) {
 
     if (read_bytes != sizeof(rec)) return false;
     if (read_rec.version != TUNING_NVS_VERSION) return false;
-    if (std::strcmp(read_rec.command_id, command_id) != 0) return false;
 
+    // 1. Verify CRC first before interpreting string fields
     const uint32_t expected_crc = calculateCRC32(
         reinterpret_cast<const uint8_t*>(&read_rec),
         offsetof(TuningReceiptRecord, crc32));
     if (read_rec.crc32 != expected_crc) return false;
+
+    // 2. Validate NUL-termination in NVS data to prevent out-of-bounds reads
+    if (std::memchr(read_rec.command_id, '\0', sizeof(read_rec.command_id)) == nullptr) return false;
+
+    // 3. Compare with expected using bounded memory comparison
+    if (std::memcmp(read_rec.command_id, rec.command_id, sizeof(read_rec.command_id)) != 0) return false;
 
     return true;
 }
@@ -471,15 +478,23 @@ void TuningConfigManager::loadDurableReceipt() {
     prefs.end();
     if (bytes != sizeof(rec)) return;
     if (rec.version != TUNING_NVS_VERSION) return;
+
+    // 1. Verify CRC first before interpreting string fields
     const uint32_t expected_crc = calculateCRC32(
         reinterpret_cast<const uint8_t*>(&rec),
         offsetof(TuningReceiptRecord, crc32));
     if (rec.crc32 != expected_crc) return;
+
+    // 2. Validate NUL-termination in NVS data to prevent out-of-bounds reads
+    if (std::memchr(rec.command_id, '\0', sizeof(rec.command_id)) == nullptr) return;
+
     // Full char-by-char UUID format validation: a CRC-valid receipt with a
     // malformed UUID (e.g. all-zero bytes, wrong char class) must be rejected.
     // Reuse the same validator used for incoming commands to prevent any crafted
     // flash content from injecting a bogus duplicate identity into the cache.
+    // 3. Only run UUID format validation after string is confirmed NUL-terminated
     if (!_validateCommandIdFormat(rec.command_id)) return;
+
     std::strncpy(_durable_receipt_command_id, rec.command_id,
                  sizeof(_durable_receipt_command_id) - 1);
     _durable_receipt_command_id[sizeof(_durable_receipt_command_id) - 1] = '\0';

@@ -82,6 +82,10 @@ public:
      */
     void resetForTest();
 
+#ifdef UNIT_TEST
+    const char* getDurableReceiptCommandIdForTest() const { return _durable_receipt_command_id; }
+#endif
+
 private:
     TuningConfigManager();
     ~TuningConfigManager() = default;

@@ -2029,7 +2029,6 @@ int main() {
 
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
-            Serial.printf("[DEBUG] Case K2 result: %d, reason: %d\n", (int)result, (int)reason);
             assert(result == storage::TuningResult::ACCEPTED);
 
             // Now send a semantically identical command with a DIFFERENT command_id.
@@ -2059,6 +2058,62 @@ int main() {
             storage::TuningResult result3 = tuner.processCommand(doc2.as<JsonVariant>(), reason3);
             assert(result3 == storage::TuningResult::DUPLICATE);
             assert(reason3 == storage::TuningReason::NO_CHANGE);
+        }
+
+        // Case K3: receipt with valid CRC but missing NUL terminator in command_id must be ignored safely without crash (C5 regression)
+        {
+            Serial.println("--- Case K3: receipt with valid CRC but missing NUL terminator ---");
+            storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+            tuner.resetForTest();
+
+            // Prepare a TuningReceiptRecord with no NUL terminator but correct CRC
+            struct RawReceiptRecord {
+                uint32_t version;
+                char command_id[37];
+                uint8_t padding[3];
+                uint32_t crc32;
+            } __attribute__((aligned(4)));
+
+            RawReceiptRecord raw_rec{};
+            raw_rec.version = 2; // TUNING_NVS_VERSION
+            std::memset(raw_rec.command_id, 'A', 37);
+            std::memset(raw_rec.padding, 0, 3);
+
+            auto calc_crc32 = [](const uint8_t *data, size_t length) -> uint32_t {
+                uint32_t crc = 0xFFFFFFFF;
+                for (size_t i = 0; i < length; i++) {
+                    crc ^= data[i];
+                    for (int j = 0; j < 8; j++) {
+                        if (crc & 1) {
+                            crc = (crc >> 1) ^ 0xEDB88320;
+                        } else {
+                            crc >>= 1;
+                        }
+                    }
+                }
+                return ~crc;
+            };
+
+            raw_rec.crc32 = calc_crc32(reinterpret_cast<const uint8_t*>(&raw_rec), offsetof(RawReceiptRecord, crc32));
+
+            // Write raw_rec manually to NVS
+            Preferences prefs;
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            assert(prefs.putBytes("tune_rcpt", &raw_rec, sizeof(raw_rec)) == sizeof(raw_rec));
+            prefs.end();
+
+            // Hydrate the manager. It should load the receipt, see valid CRC, but reject it because it is not NUL-terminated.
+            tuner.init();
+
+            // Verify it was ignored and not loaded
+            const char* cached_id = tuner.getDurableReceiptCommandIdForTest();
+            assert(cached_id[0] == '\0');
+
+            // Cleanup
+            assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+            prefs.remove("tune_rcpt");
+            prefs.end();
+            tuner.resetForTest();
         }
 
         // Cleanup
