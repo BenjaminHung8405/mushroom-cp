@@ -110,11 +110,7 @@ bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
         reinterpret_cast<const uint8_t*>(payload.c_str()),
         payload.length(), false);
     if (r == PublishQos1Result::BUSY) {
-        // All MQTT_QOS1_OUTBOUND_QUEUE_DEPTH slots are full — this ACK is lost.
-        // The backend shadow will see no reported ACK for this command; the
-        // device should reconnect and broker will redeliver any retained desired.
-        Serial.println("[MQTT] WARNING: outbound QoS-1 queue full; ACK dropped. "
-                       "Consider increasing MQTT_QOS1_OUTBOUND_QUEUE_DEPTH.");
+        Serial.println("[MQTT] WARNING: client busy; will retry from outbox.");
         return false;
     }
     return r == PublishQos1Result::QUEUED;
@@ -306,10 +302,10 @@ void MqttManager::loop()
     if (client_.connected() && provisioned_) {
         DynamicTuningParams dispatched{};
         if (storage::TuningConfigManager::getInstance().retryPendingDispatch(dispatched)) {
-            publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                                  storage::TuningResult::ACCEPTED,
-                                  storage::TuningReason::OK, dispatched.command_id);
+            enqueuePendingReport(storage::TuningResult::ACCEPTED,
+                                 storage::TuningReason::OK, dispatched.command_id);
         }
+        processPendingReports();
     }
 }
 
@@ -1218,14 +1214,12 @@ bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, un
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     if (message.type == CommandType::TUNING_DESIRED) {
-        // Desired tuning commands are deliberately parsed only in this Core-0
-        // worker context. The MQTT callback merely performs a bounded copy.
         if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
             message.payload_length > sizeof(message.payload)) {
             Serial.println("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: invalid payload length.");
-            publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                                  storage::TuningResult::REJECTED,
-                                  storage::TuningReason::INVALID_SCHEMA, "");
+            enqueuePendingReport(storage::TuningResult::REJECTED,
+                                 storage::TuningReason::INVALID_SCHEMA, "");
+            processPendingReports();
             return;
         }
 
@@ -1235,9 +1229,9 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         if (error) {
             Serial.printf("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: %s.\n",
                           error.c_str());
-            publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                                  storage::TuningResult::REJECTED,
-                                  storage::TuningReason::INVALID_SCHEMA, "");
+            enqueuePendingReport(storage::TuningResult::REJECTED,
+                                 storage::TuningReason::INVALID_SCHEMA, "");
+            processPendingReports();
             return;
         }
 
@@ -1248,16 +1242,11 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         const storage::TuningResult result =
             storage::TuningConfigManager::getInstance().processCommand(
                 document.as<JsonVariant>(), reason);
-        // A durable command with a temporarily unavailable handoff remains
-        // pending locally. Do not emit a terminal acknowledgement until the
-        // retry path has actually overwritten the Core-1 queue.
         if (result == storage::TuningResult::PENDING) {
             return;
         }
-        if (!publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                                   result, reason, command_id)) {
-            Serial.println("[MQTT] Failed to publish tuning reported acknowledgement.");
-        }
+        enqueuePendingReport(result, reason, command_id);
+        processPendingReports();
         return;
     }
 
@@ -1288,6 +1277,57 @@ String MqttManager::resolveClientId() const
     return config::network::MQTT_CLIENT_ID_VAL.length() > 0
                ? config::network::MQTT_CLIENT_ID_VAL
                : config::network::resolve_device_identity();
+}
+
+bool MqttManager::enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id) {
+    if (command_id == nullptr || command_id[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; i < pending_reports_count_; ++i) {
+        size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+        if (std::strcmp(pending_reports_[idx].command_id, command_id) == 0) {
+            pending_reports_[idx].result = result;
+            pending_reports_[idx].reason = reason;
+            return true;
+        }
+    }
+    if (pending_reports_count_ >= MAX_PENDING_REPORTS) {
+        pending_reports_head_ = (pending_reports_head_ + 1) % MAX_PENDING_REPORTS;
+        pending_reports_count_--;
+        Serial.println("[MQTT] WARNING: reported tuning outbox buffer overflow; dropped oldest ACK.");
+    }
+    size_t write_idx = (pending_reports_head_ + pending_reports_count_) % MAX_PENDING_REPORTS;
+    pending_reports_[write_idx].result = result;
+    pending_reports_[write_idx].reason = reason;
+    std::strncpy(pending_reports_[write_idx].command_id, command_id, sizeof(pending_reports_[write_idx].command_id) - 1);
+    pending_reports_[write_idx].command_id[sizeof(pending_reports_[write_idx].command_id) - 1] = '\0';
+    pending_reports_count_++;
+    return true;
+}
+
+void MqttManager::processPendingReports() {
+    if (!client_.connected() || !provisioned_) {
+        return;
+    }
+    while (pending_reports_count_ > 0 && !hasPendingQos1Publish()) {
+        const auto& report = pending_reports_[pending_reports_head_];
+        bool success = publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                             report.result, report.reason, report.command_id);
+        if (success) {
+            pending_reports_head_ = (pending_reports_head_ + 1) % MAX_PENDING_REPORTS;
+            pending_reports_count_--;
+        } else {
+            break;
+        }
+    }
+}
+
+bool MqttManager::hasPendingQos1Publish() {
+#ifndef UNIT_TEST
+    return client_.hasPendingQos1Publish();
+#else
+    return false;
+#endif
 }
 
 } // namespace mqtt

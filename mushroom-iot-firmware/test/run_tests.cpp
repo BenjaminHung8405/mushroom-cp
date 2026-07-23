@@ -26,6 +26,8 @@
 #include "core/config_manager.h"
 #include "core/tuning_config_manager.h"
 #include "../lib/PubSubClientQos1/src/PubSubClientQos1.h"
+#include "storage/tuning_storage.h"
+using storage::TuningNvsRecord;
 #undef MQTT_CALLBACK_SIGNATURE
 #include <cassert>
 #include <type_traits>
@@ -127,6 +129,9 @@ bool mock_core1_adopted_tuning_candidate = false;
 bool mock_drain_tuning_overwrite = false;
 
 int main() {
+    static storage::TuningStorageImpl tuning_storage;
+    storage::TuningConfigManager::getInstance().setStorage(&tuning_storage);
+
     mock_queue_send_hook = [](QueueHandle_t xQueue, const void* pvItemToQueue) {
         if (mqtt::g_network_worker_queue != nullptr && xQueue == mqtt::g_network_worker_queue) {
             const mqtt::NetworkMessage* msg = static_cast<const mqtt::NetworkMessage*>(pvItemToQueue);
@@ -2233,6 +2238,61 @@ int main() {
         tuner.resetForTest();
         // re-run hydration to restore default clean state
         hydrateSetpointsFromNVS();
+    }
+
+    // Task D4 - MqttManager Reported Tuning Outbox & Back-pressure Tests
+    Serial.println("[TEST] Starting Task D4 - MqttManager Reported Tuning Outbox & Back-pressure Unit Tests...");
+    {
+        mqtt::MqttManager& manager = mqtt::MqttManager::getInstance();
+        PubSubClient::mock_connected = true;
+        manager.resetOutboxForTest();
+        manager.setProvisionedForTest(true);
+        manager.setTenantForTest("mushroom");
+        manager.setDeviceIdForTest("mushroom_s3_unittest");
+
+        // 1. Basic Enqueue and Dequeue (non-blocking when client has no pending publish)
+        {
+            assert(manager.pending_reports_count_ == 0);
+            assert(manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, "d4444444-1234-1234-1234-123456789001") == true);
+            assert(manager.pending_reports_count_ == 1);
+
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 0);
+        }
+
+        // 2. Burst testing: exceed MAX_PENDING_REPORTS (8)
+        {
+            for (int i = 0; i < 10; ++i) {
+                char uuid[37];
+                sprintf(uuid, "d4444444-1234-1234-1234-1234567890%02d", i);
+                manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, uuid);
+            }
+
+            assert(manager.pending_reports_count_ == 8);
+            size_t oldest_idx = manager.pending_reports_head_;
+            assert(std::strcmp(manager.pending_reports_[oldest_idx].command_id, "d4444444-1234-1234-1234-123456789002") == 0);
+
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 0);
+        }
+
+        // 3. Short write recovery & Reconnect
+        {
+            manager.resetOutboxForTest();
+            PubSubClient::mock_connected = false;
+
+            assert(manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, "d4444444-1234-1234-1234-123456789099") == true);
+            assert(manager.pending_reports_count_ == 1);
+
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 1);
+
+            PubSubClient::mock_connected = true;
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 0);
+        }
+
+        manager.resetOutboxForTest();
     }
 
     // 16. Test Task F1/F2 - Sensors Mock & Fault Injection

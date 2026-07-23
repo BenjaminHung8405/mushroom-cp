@@ -15,6 +15,8 @@
 #include "core/time_confidence.h"
 #include "network/mqtt_manager.h"
 #include "network/wifi_manager.h"
+#include "storage/tuning_storage.h"
+#include "core/tuning_config_manager.h"
 
 void setup()
 {
@@ -40,6 +42,10 @@ void setup()
     {
         Serial.println("[MAIN] ERROR: NVS Storage initialization failed!");
     }
+
+    static storage::TuningStorageImpl tuning_storage;
+    storage::TuningConfigManager::getInstance().setStorage(&tuning_storage);
+
     storage::CropProfileStorage::getInstance().init();
 
     // Offline journal must be ready before WiFi/MQTT tasks can start.

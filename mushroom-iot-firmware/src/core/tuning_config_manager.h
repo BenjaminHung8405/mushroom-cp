@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/models.h"
+#include "core/tuning_storage_interface.h"
 #include <ArduinoJson.h>
 
 #ifndef UNIT_TEST
@@ -42,6 +43,11 @@ public:
 
     TuningConfigManager(const TuningConfigManager&) = delete;
     TuningConfigManager& operator=(const TuningConfigManager&) = delete;
+
+    /**
+     * @brief Set the persistence storage adapter.
+     */
+    void setStorage(ITuningStorage* storage) { _storage = storage; }
 
     /**
      * @brief Initialize the TuningConfigManager.
@@ -90,6 +96,7 @@ private:
     TuningConfigManager();
     ~TuningConfigManager() = default;
 
+    ITuningStorage* _storage = nullptr;
     DynamicTuningParams _active_params;
     DynamicTuningParams _pending_params;
     /// RAM-only fast path for same-session QoS-1 redelivery of a no-change command.
@@ -113,14 +120,6 @@ private:
     TuningReason parseConfig(const JsonVariant& config, DynamicTuningParams& out_params);
     TuningResult persistThenDispatch(const DynamicTuningParams& incoming, TuningReason& reason);
     TuningResult recordNoChangeReceipt(const DynamicTuningParams& incoming, TuningReason& reason);
-    bool loadFromNvs(DynamicTuningParams& out_params);
-    bool saveToNvs(const DynamicTuningParams& params);
-    bool writeRecord(const DynamicTuningParams& params, uint8_t commit_state);
-    /// Persist command_id-only receipt to NVS (no config envelope mutation).
-    bool saveDurableReceipt(const char* command_id);
-    /// Load persisted no-change receipt from NVS into _durable_receipt_command_id.
-    void loadDurableReceipt();
-    static uint32_t calculateCRC32(const uint8_t *data, size_t length);
 
     bool _validateSchemaVersion(const JsonVariant& doc);
     bool _validateDeviceId(const JsonVariant& doc);

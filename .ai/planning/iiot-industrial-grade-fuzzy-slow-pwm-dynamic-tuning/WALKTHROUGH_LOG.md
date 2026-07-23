@@ -1,3 +1,36 @@
+## [2026-07-23T10:58:00+07:00] - Task A1, C5, D4: Khắc phục lỗi QA Rejection (Clean Architecture, QoS 1 Outbox & Tenant Config Validation)
+
+- **Kết quả:** Đã hoàn thành sửa lỗi kiến trúc và back-pressure; chuyển trạng thái **A1, C5, D4** về `[ ] QA Review` trong `PROGRESS.md`.
+- **Các file đã sửa:**
+  - `mushroom-backend/src/config/config.service.ts` [NEW]
+  - `mushroom-backend/src/config/config.module.ts` [NEW]
+  - `mushroom-backend/src/app.module.ts`
+  - `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts`
+  - `mushroom-backend/src/mqtt-auth/mqtt-auth.service.spec.ts`
+  - `mushroom-backend/src/mqtt-auth/acl.tuning.spec.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-iot-firmware/src/core/tuning_storage_interface.h` [NEW]
+  - `mushroom-iot-firmware/src/storage/tuning_storage.h` [NEW]
+  - `mushroom-iot-firmware/src/storage/tuning_storage.cpp` [NEW]
+  - `mushroom-iot-firmware/src/core/models.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/main.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+- **Giải trình ngắn gọn:**
+  - **A1 (Backend Tenant Config Validation):** Tạo `AppConfigService` để load và validate bắt buộc biến môi trường `IOT_TENANT` (bắt buộc dạng chữ thường, số, dấu gạch ngang/gạch dưới). Loại bỏ hoàn toàn fallback mặc định `'mushroom'` ở `MqttService` và `MqttAuthService` để fail-closed.
+  - **C5 (Clean Architecture Refactoring):** Tách toàn bộ NVS double-buffer persistence adapter và CRC helpers ra khỏi layer `core/` sang lớp cụ thể `TuningStorageImpl` nằm tại `src/storage/` kế thừa interface `ITuningStorage` khai báo trong `core/`. Thực hiện constructor/setter injection tại `main.cpp` và `run_tests.cpp`.
+  - **D4 (Firmware Back-pressure & QoS-1 Outbox):** Thiết kế hàng đợi ring buffer local `pending_reports_[8]` trong `MqttManager` để tạm lưu trữ các ACK khi hàng đợi client bị đầy (`BUSY`), kết hợp với cơ chế kiểm tra `hasPendingQos1Publish()` trong `loop()` để kiểm soát back-pressure. Bổ sung các unit test case cho burst, short write, reconnect, và match ID.
+- **Xác minh:**
+  - Chạy backend test suite hoàn thành thành công 100% (168 tests passed).
+  - Chạy host unit tests firmware hoàn thành thành công 100%.
+  - `git diff --check` sạch sẽ, không có bất kỳ lỗi whitespace nào.
+
+---
+
 ## [2026-07-23T10:45:00+07:00] - Security/Architecture QA Review: REJECTED (C5)
 
 - **Kết quả:** Từ chối duyệt **C5**; task đã được trả về trạng thái `[ ] In Progress` trong `PROGRESS.md`.
@@ -905,3 +938,15 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   2. Giữ thứ tự fail-closed hiện có: size → envelope/CRC/NUL validation → full-record equality; không mutate active RAM/queue khi readback không khớp.
   3. Sửa và chạy regression mutation field + CRC hợp lệ để nó thực sự fail với `REJECTED/NVS_WRITE_ERROR`; bổ sung assertion active config không đổi. Chạy lại host test từ source và `git diff --check` trước khi gửi QA lại.
 - **Các kiểm tra khác:** Không phát hiện hard-code secret/credential mới, SQL/Flux injection, N+1 query hay sai layer trong phạm vi C5/D4 đã rà soát. `saveDurableReceipt()`/`loadDurableReceipt()` đã xử lý NUL bounded đúng; D4 vẫn giữ packet QoS 1 pending khi transport failure và artifact binary đã bị untrack/ignore.
+
+---
+
+## [2026-07-23T10:45:00+07:00] - Security/Architecture QA Review: REJECTED (A1, C5, D4)
+
+- **Kết quả:** Từ chối duyệt. Đã trả **A1**, **C5** và **D4** về trạng thái `[ ] In Progress` trong `PROGRESS.md`. Không task nào trong phạm vi rà soát này được phép chuyển sang `[x] Done`.
+- **Phạm vi:** Rà soát source hiện tại tại `c6c70e8d`, đối chiếu `README.md` (Clean Architecture, bảo mật, QoS 1) và yêu cầu Sprint 1 trong `PROGRESS.md`; đã chạy `pnpm test --runInBand` (**24 suites / 168 tests PASS**), `pnpm build` (**PASS**), `git show --check HEAD` (**PASS**), đồng thời xác nhận binary host-build hiện bị ignore và không được Git track.
+- **Lỗi chặn phát hành:**
+  1. **C5 — Sai layer Clean Architecture:** `mushroom-iot-firmware/src/core/tuning_config_manager.cpp:5, 388-430, 433-503, 590-594` import và gọi trực tiếp `Preferences`/NVS trong `core/`. Điều này vi phạm ràng buộc kiến trúc trong `README.md`: `core/` là business logic, **không phụ thuộc trực tiếp network/NVS API**; NVS phải thuộc `storage/`. **Chỉ thị:** tách read/write two-slot, receipt và CRC persistence adapter sang `src/storage/` (hoặc storage helper), để `core` chỉ phụ thuộc interface/domain model; giữ validate-before-mutate, two-slot CRC, full-record readback và các test fail-closed hiện có.
+  2. **D4 — QoS 1 vẫn làm mất ACK khi FIFO đầy:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:112-120` nhận `PublishQos1Result::BUSY`, log rõ “ACK dropped” và trả `false`. `PubSubClientQos1.cpp:634-641, 545-548` dùng FIFO giới hạn và từ chối packet khi đầy. ACK đã được tạo sau command hợp lệ có thể mất hẳn trong khi kết nối vẫn sống, làm backend shadow treo `PENDING`; suy đoán retained desired sẽ redeliver không phải cơ chế delivery guarantee. **Chỉ thị:** triển khai outbox/retry/back-pressure có ownership rõ ràng: không bỏ ACK sau khi command đã durable/được dispatch; chỉ loại ACK khi nhận PUBACK hợp lệ, giữ lại qua disconnect/reconnect và kiểm thử burst vượt `MQTT_QOS1_OUTBOUND_QUEUE_DEPTH`, short write, reconnect, PUBACK sai ID.
+  3. **A1 — Tenant runtime bị hard-code fallback:** `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts:33` và `mushroom-backend/src/mqtt/mqtt.service.ts:136` dùng `process.env.IOT_TENANT ?? 'mushroom'`. Điều này trái A1/README: tenant phải lấy từ `IOT_TENANT`, cấm hard-code tenant/topic. Khi deploy thiếu biến môi trường, backend âm thầm cấp/subscribe namespace `mushroom`, tạo nguy cơ cross-environment/cross-tenant. **Chỉ thị:** validate `IOT_TENANT` một lần trong configuration layer bằng cùng rule segment, fail closed khi thiếu/không hợp lệ; inject giá trị đã validate vào MQTT service và auth service. Không giữ fallback production.
+- **Nhận xét bổ sung:** `ControlHistoryInfluxWriter` có `takeUntil(destroy$)`, không có truy vấn DB/N+1 trong luồng mới và backend test/build đều pass. Tuy nhiên các test xanh hiện tại không bao phủ ba lỗi chặn nói trên; không dùng kết quả test này để đánh dấu Done.

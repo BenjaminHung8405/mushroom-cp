@@ -121,6 +121,8 @@ export interface TuningReportedEvent {
   receivedAt: Date;
 }
 
+import { AppConfigService } from '../config/config.service';
+
 type UplinkFeature =
   | 'status'
   | 'telemetry'
@@ -133,7 +135,7 @@ type UplinkFeature =
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttService.name);
-  private readonly tenant = process.env.IOT_TENANT ?? 'mushroom';
+  private readonly tenant: string;
   private client: mqtt.MqttClient | null = null;
 
   public readonly deviceStatus$ = new Subject<DeviceStatusEvent>();
@@ -158,8 +160,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(Device)
     private readonly deviceRepo: Repository<Device>,
     private readonly mqttAuth: MqttAuthService,
+    private readonly configService: AppConfigService,
     @Optional() private readonly deviceHealth?: DeviceHealthService,
-  ) {}
+  ) {
+    this.tenant = this.configService.getTenant();
+  }
 
   onModuleInit(): void {
     this.healthSubscription = this.deviceHealth?.healthChanges$.subscribe((event) => {

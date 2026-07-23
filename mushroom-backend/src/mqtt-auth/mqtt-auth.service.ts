@@ -8,6 +8,7 @@ import { timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { Device } from '../device/entities/device.entity';
 import { getTuningDesiredTopic, getTuningReportedTopic, parseTuningTopic } from '../mqtt/constants/mqtt-topics.const';
+import { AppConfigService } from '../config/config.service';
 
 export interface MqttAuthRequest {
   username?: string;
@@ -30,13 +31,16 @@ interface RateWindow {
 @Injectable()
 export class MqttAuthService {
   private readonly logger = new Logger(MqttAuthService.name);
-  private readonly tenant = process.env.IOT_TENANT ?? 'mushroom';
+  private readonly tenant: string;
   private readonly rateWindows = new Map<string, RateWindow>();
 
   constructor(
     @InjectRepository(Device)
     private readonly deviceRepo: Repository<Device>,
-  ) {}
+    private readonly configService: AppConfigService,
+  ) {
+    this.tenant = this.configService.getTenant();
+  }
 
   async authenticate(request: MqttAuthRequest): Promise<boolean> {
     const username = request.username ?? '';

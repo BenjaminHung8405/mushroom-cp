@@ -12,7 +12,11 @@ describe('MqttAuthService', () => {
     process.env.MQTT_BACKEND_USER = 'nestjs_backend';
     process.env.MQTT_BACKEND_PASS = 'backend-secret';
     process.env.IOT_TENANT = 'mushroom';
-    service = new MqttAuthService(repo as never);
+    const mockConfig = {
+      getTenant: () => 'mushroom',
+      get: (key: string) => process.env[key],
+    };
+    service = new MqttAuthService(repo as never, mockConfig as any);
   });
 
   it('authenticates the bootstrap credential only when it matches', async () => {

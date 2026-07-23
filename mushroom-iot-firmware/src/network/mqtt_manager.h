@@ -13,6 +13,7 @@
 #include "config.h"
 #include "core/time_confidence.h"
 #include "core/models.h"
+#include "core/tuning_config_manager.h"
 #include "protocols/mqtt_callbacks.h"
 
 namespace mqtt {
@@ -105,6 +106,32 @@ public:
     uint8_t getReportingQos() const;
     unsigned long getReconnectInterval() const { return current_reconnect_backoff_; }
 
+#ifdef UNIT_TEST
+public:
+    struct PendingReportedTuning {
+        storage::TuningResult result;
+        storage::TuningReason reason;
+        char command_id[37];
+    };
+    static constexpr size_t MAX_PENDING_REPORTS = 8;
+    PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};
+    size_t pending_reports_head_ = 0;
+    size_t pending_reports_count_ = 0;
+
+    bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
+    void processPendingReports();
+    bool hasPendingQos1Publish();
+
+    void resetOutboxForTest() {
+        pending_reports_head_ = 0;
+        pending_reports_count_ = 0;
+        std::memset(pending_reports_, 0, sizeof(pending_reports_));
+    }
+    void setProvisionedForTest(bool val) { provisioned_ = val; }
+    void setTenantForTest(const String& t) { tenant_ = t; }
+    void setDeviceIdForTest(const String& d) { device_id_ = d; }
+#endif
+
 private:
     MqttManager();
     ~MqttManager() = default;
@@ -192,6 +219,23 @@ private:
     unsigned long last_connect_attempt_ = 0;
     unsigned long current_reconnect_backoff_ = 1000;
     unsigned long last_telemetry_due_ = 0;
+
+#ifndef UNIT_TEST
+    // Outbox buffer for QoS-1 reported tuning updates
+    struct PendingReportedTuning {
+        storage::TuningResult result;
+        storage::TuningReason reason;
+        char command_id[37];
+    };
+    static constexpr size_t MAX_PENDING_REPORTS = 8;
+    PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};
+    size_t pending_reports_head_ = 0;
+    size_t pending_reports_count_ = 0;
+
+    bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
+    void processPendingReports();
+    bool hasPendingQos1Publish();
+#endif
 
 #ifndef UNIT_TEST
     void* mutex_ = nullptr;

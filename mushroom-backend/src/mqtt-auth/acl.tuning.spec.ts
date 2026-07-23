@@ -9,7 +9,11 @@ describe('MQTT ACL Tuning Security Regression Tests', () => {
     process.env.MQTT_BACKEND_USER = 'nestjs_backend';
     process.env.MQTT_BACKEND_PASS = 'backend-secret';
     process.env.IOT_TENANT = 'mushroom';
-    service = new MqttAuthService(null as never);
+    const mockConfig = {
+      getTenant: () => 'mushroom',
+      get: (key: string) => process.env[key],
+    };
+    service = new MqttAuthService(null as never, mockConfig as any);
   });
 
   describe('Backend superuser access', () => {

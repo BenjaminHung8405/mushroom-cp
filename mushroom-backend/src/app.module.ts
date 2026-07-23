@@ -10,9 +10,11 @@ import { AuthModule } from './auth/auth.module';
 import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
 import { OfflineSyncModule } from './offline-sync/offline-sync.module';
 import { InfluxModule } from './influx/influx.module';
+import { AppConfigModule } from './config/config.module';
 
 @Module({
   imports: [
+    AppConfigModule,
     DatabaseModule,
     MqttModule, // MQTT connection + LWT event streaming
     DeviceModule, // /devices/* REST + SSE endpoints

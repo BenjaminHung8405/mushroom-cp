@@ -7,26 +7,24 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Device } from '../device/entities/device.entity';
 import { MqttAuthService } from '../mqtt-auth/mqtt-auth.service';
 import { DeviceHealthService } from '../device-health/device-health.service';
+import { AppConfigService } from '../config/config.service';
 
 const mockMqttClient = {
   on: jest.fn(),
   subscribe: jest.fn(
     (topic: string, opts: unknown, cb?: (err: Error | null) => void) => {
       if (cb) cb(null);
-      return {} as mqtt.MqttClient;
-    },
+      return mockMqttClient;
+    }
   ),
-  publish: jest.fn(
-    (
-      topic: string,
-      message: string | Buffer,
-      opts: unknown,
-      cb?: (err?: Error) => void,
-    ) => {
-      if (cb) cb();
-      return {} as mqtt.MqttClient;
-    },
-  ),
+  unsubscribe: jest.fn((topic: string, opts: unknown, cb?: (err: Error | null) => void) => {
+    if (cb) cb(null);
+    return mockMqttClient;
+  }),
+  publish: jest.fn((topic: string, message: string, opts: unknown, cb?: (err: Error | null) => void) => {
+    if (cb) cb(null);
+    return mockMqttClient;
+  }),
   end: jest.fn(() => ({}) as mqtt.MqttClient),
   connected: true,
 };
@@ -65,6 +63,10 @@ describe('MqttService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MqttService,
+        { provide: AppConfigService, useValue: {
+          getTenant: () => 'mushroom',
+          get: (key: string) => process.env[key],
+        } },
         { provide: DeviceRegistryService, useValue: registry },
         { provide: getRepositoryToken(Device), useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() } },
         { provide: MqttAuthService, useValue: { enforceProvisionRateLimit: jest.fn() } },
