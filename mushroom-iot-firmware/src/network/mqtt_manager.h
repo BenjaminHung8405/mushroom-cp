@@ -117,14 +117,18 @@ public:
     PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};
     size_t pending_reports_head_ = 0;
     size_t pending_reports_count_ = 0;
+    bool report_in_flight_ = false;
 
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
     bool hasPendingQos1Publish();
+    bool reserveOutboxSlot(const char* command_id);
+    void cancelReservedOutboxSlot(const char* command_id);
 
     void resetOutboxForTest() {
         pending_reports_head_ = 0;
         pending_reports_count_ = 0;
+        report_in_flight_ = false;
         std::memset(pending_reports_, 0, sizeof(pending_reports_));
     }
     void setProvisionedForTest(bool val) { provisioned_ = val; }
@@ -231,10 +235,13 @@ private:
     PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};
     size_t pending_reports_head_ = 0;
     size_t pending_reports_count_ = 0;
+    bool report_in_flight_ = false;
 
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
     bool hasPendingQos1Publish();
+    bool reserveOutboxSlot(const char* command_id);
+    void cancelReservedOutboxSlot(const char* command_id);
 #endif
 
 #ifndef UNIT_TEST

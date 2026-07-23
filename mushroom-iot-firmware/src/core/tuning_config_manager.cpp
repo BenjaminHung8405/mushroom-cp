@@ -112,6 +112,18 @@ bool TuningConfigManager::retryPendingDispatch(DynamicTuningParams& dispatched_p
     return true;
 }
 
+bool TuningConfigManager::getPendingCommandId(char* out_uuid) {
+    lock();
+    bool has_pending = _has_pending_dispatch;
+    if (has_pending && out_uuid != nullptr) {
+        std::strncpy(out_uuid, _pending_params.command_id, 36);
+        out_uuid[36] = '\0';
+    }
+    unlock();
+    return has_pending;
+}
+
+
 void TuningConfigManager::resetForTest() {
     lock();
     std::memset(&_active_params, 0, sizeof(_active_params));

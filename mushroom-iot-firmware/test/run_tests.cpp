@@ -102,6 +102,7 @@ std::string PubSubClient::mock_server_host = "";
 uint16_t PubSubClient::mock_server_port = 0;
 bool PubSubClient::mock_connect_result = true;
 bool PubSubClient::mock_publish_result = true;
+bool PubSubClient::mock_has_pending_qos1_publish = false;
 PubSubClient::MQTT_CALLBACK_SIGNATURE PubSubClient::mock_callback = nullptr;
 std::vector<std::string> PubSubClient::mock_subscribed_topics;
 std::string PubSubClient::mock_last_published_topic = "";
@@ -697,6 +698,7 @@ int main() {
     {
         storage::TuningConfigManager& tuning = storage::TuningConfigManager::getInstance();
         tuning.resetForTest();
+        mqtt_manager.resetOutboxForTest();
         xQueueReset(g_tuning_config_queue);
         PubSubClient::mock_publish_result = true;
         PubSubClient::mock_last_published_topic.clear();
@@ -728,12 +730,18 @@ int main() {
         assert(reported["persisted"] == true);
         assert(std::abs(reported["reported_config"]["mist_on_threshold"].as<float>() - 0.28f) < 1e-6f);
 
+        // Dequeue first report
+        mqtt_manager.processPendingReports();
+
         mqtt_manager.processNetworkMessage(accepted);
         assert(deserializeJson(reported, PubSubClient::mock_last_published_payload) == DeserializationError::Ok);
         assert(std::strcmp(reported["status"], "DUPLICATE") == 0);
         assert(reported["reason_code"].isNull());
         assert(reported["persisted"] == true);
         assert(std::abs(reported["reported_config"]["lamp_gain_scale"].as<float>() - 1.1f) < 1e-6f);
+
+        // Dequeue second report
+        mqtt_manager.processPendingReports();
 
         mqtt::NetworkMessage rejected{};
         rejected.type = mqtt::CommandType::TUNING_DESIRED;
@@ -750,6 +758,9 @@ int main() {
         assert(std::strcmp(reported["reason_code"], "DEVICE_MISMATCH") == 0);
         assert(reported["persisted"] == false);
         assert(std::strcmp(reported["command_id"], "d5555555-1234-1234-1234-123456789012") == 0);
+
+        // Dequeue third report
+        mqtt_manager.processPendingReports();
 
         // Fault injection: final NVS commit fails after the PENDING stage.
         // Simulate Core 1 draining any queue overwrite immediately. The
@@ -794,6 +805,9 @@ int main() {
         assert(std::strcmp(reported["status"], "REJECTED") == 0);
         assert(std::strcmp(reported["reason_code"], "PERSISTENCE_FAILED") == 0);
         assert(reported["persisted"] == false);
+
+        // Dequeue fourth report
+        mqtt_manager.processPendingReports();
 
         DynamicTuningParams active_after_failure = tuning.getActiveParams();
         assert(active_after_failure.revision == previous.revision);
@@ -1656,7 +1670,7 @@ int main() {
             // Format of TuningReceiptRecord from tuning_config_manager.cpp:
             // version (4 bytes), command_id (37 bytes), padding (3 bytes), crc32 (4 bytes)
             struct DummyReceipt {
-                uint32_t version = 1;
+                uint32_t version = 2;
                 char command_id[37] = "invalid-uuid-format-here-1234567890";
                 uint8_t padding[3] = {0};
                 uint32_t crc32 = 0;
@@ -2245,6 +2259,7 @@ int main() {
     {
         mqtt::MqttManager& manager = mqtt::MqttManager::getInstance();
         PubSubClient::mock_connected = true;
+        PubSubClient::mock_has_pending_qos1_publish = false;
         manager.resetOutboxForTest();
         manager.setProvisionedForTest(true);
         manager.setTenantForTest("mushroom");
@@ -2256,24 +2271,59 @@ int main() {
             assert(manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, "d4444444-1234-1234-1234-123456789001") == true);
             assert(manager.pending_reports_count_ == 1);
 
+            // First call publishes and sets report_in_flight_ = true.
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 1);
+            assert(manager.report_in_flight_ == true);
+
+            // Second call sees mock_has_pending_qos1_publish is false, dequeues report, report_in_flight_ becomes false.
             manager.processPendingReports();
             assert(manager.pending_reports_count_ == 0);
+            assert(manager.report_in_flight_ == false);
         }
 
-        // 2. Burst testing: exceed MAX_PENDING_REPORTS (8)
+        // 2. Burst testing: exceed MAX_PENDING_REPORTS (8) without dropping
         {
+            manager.resetOutboxForTest();
             for (int i = 0; i < 10; ++i) {
                 char uuid[37];
                 sprintf(uuid, "d4444444-1234-1234-1234-1234567890%02d", i);
-                manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, uuid);
+                bool success = manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, uuid);
+                if (i < 8) {
+                    assert(success == true);
+                } else {
+                    assert(success == false); // Outbox is full, must reject new enqueues
+                }
             }
 
             assert(manager.pending_reports_count_ == 8);
             size_t oldest_idx = manager.pending_reports_head_;
-            assert(std::strcmp(manager.pending_reports_[oldest_idx].command_id, "d4444444-1234-1234-1234-123456789002") == 0);
+            // The oldest entry must still be 00, not 02, because no entries were dropped
+            assert(std::strcmp(manager.pending_reports_[oldest_idx].command_id, "d4444444-1234-1234-1234-123456789000") == 0);
 
+            // Start first publish while client is free
+            PubSubClient::mock_has_pending_qos1_publish = false;
             manager.processPendingReports();
+            // Should initiate first publish
+            assert(manager.report_in_flight_ == true);
+            assert(manager.pending_reports_count_ == 8);
+
+            // Simulate processing with pending Qos1 publish active (PUBACK in flight)
+            PubSubClient::mock_has_pending_qos1_publish = true;
+            // Calling process again with publish still pending should not dequeue or send next
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 8);
+            assert(manager.report_in_flight_ == true);
+
+            // Resolve pending publish (PUBACK received)
+            PubSubClient::mock_has_pending_qos1_publish = false;
+            // Now, we process the remaining. Since mock_has_pending_qos1_publish is false, each call will dequeue one and start next.
+            // Loop 8 times to process and dequeue all.
+            for (int i = 0; i < 8; ++i) {
+                manager.processPendingReports(); // Dequeues the previous, starts the next (if any)
+            }
             assert(manager.pending_reports_count_ == 0);
+            assert(manager.report_in_flight_ == false);
         }
 
         // 3. Short write recovery & Reconnect
@@ -2286,10 +2336,154 @@ int main() {
 
             manager.processPendingReports();
             assert(manager.pending_reports_count_ == 1);
+            assert(manager.report_in_flight_ == false); // Not sent because not connected
 
             PubSubClient::mock_connected = true;
+            manager.processPendingReports(); // starts publish
+            assert(manager.pending_reports_count_ == 1);
+            assert(manager.report_in_flight_ == true);
+
+            manager.processPendingReports(); // completes publish
+            assert(manager.pending_reports_count_ == 0);
+            assert(manager.report_in_flight_ == false);
+        }
+
+        // 4. Regression test for Outbox Full and Pending Dispatch
+        {
+            storage::StorageManager::get_instance().save_wifi_credentials("WiFi_STA_Test", "sta_password");
+            WiFi.mock_status = WL_CONNECTED;
+            wifi::init_wifi();
+            wifi::check_wifi_connection();
+            assert(wifi::get_wifi_state() == wifi::WifiState::STA_CONNECTED);
+
+            config::network::MQTT_USER_VAL = "mushroom_s3_unittest";
+            config::network::MQTT_PASSWORD_VAL = "dummy";
+            config::network::MQTT_BROKER_VAL = "dummy_broker";
+            config::network::MQTT_PORT_VAL = 1883;
+
+            storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
+            manager.resetOutboxForTest();
+            tuner.resetForTest();
+            manager.setProvisionedForTest(true);
+            manager.setTenantForTest("mushroom");
+            manager.setDeviceIdForTest("mushroom_s3_unittest");
+
+            // Clear queue
+            DynamicTuningParams dummy_qp;
+            while (xQueueReceive(g_tuning_config_queue, &dummy_qp, 0) == pdTRUE) {}
+
+            // Lấp đầy đủ MAX_PENDING_REPORTS (8 entries)
+            for (int i = 0; i < 8; ++i) {
+                char uuid[37];
+                sprintf(uuid, "d4444444-1234-1234-1234-1234567890%02d", i);
+                bool success = manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, uuid);
+                assert(success == true);
+            }
+            assert(manager.pending_reports_count_ == 8);
+
+            // Mock a tuning command at PENDING dispatch.
+            QueueHandle_t backup_queue = g_tuning_config_queue;
+            g_tuning_config_queue = nullptr;
+
+            // Submit a new tuning command
+            StaticJsonDocument<512> doc;
+            doc["schema_version"] = 1;
+            doc["device_id"] = "mushroom_s3_unittest";
+            doc["command_id"] = "d4444444-1234-1234-1234-123456789999";
+            doc["revision"] = 42;
+            JsonObject config = doc.createNestedObject("config");
+            config["lamp_gain_scale"] = 1.10f;
+            config["mist_gain_scale"] = 0.95f;
+            config["mist_on_threshold"] = 0.28f;
+            config["mist_off_threshold"] = 0.18f;
+
+            // Let's call processCommand: since queue is null, it should return PENDING!
+            storage::TuningReason reason = storage::TuningReason::OK;
+            storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
+            assert(result == storage::TuningResult::PENDING);
+            assert(reason == storage::TuningReason::QUEUE_FULL_ERROR);
+
+            // Restore g_tuning_config_queue
+            g_tuning_config_queue = backup_queue;
+
+            // At this point, the active parameters should NOT be changed yet because dispatch is pending
+            DynamicTuningParams active = tuner.getActiveParams();
+            assert(active.revision != 42); // Config has not been applied!
+
+            // Gọi loop() while outbox is full
+            PubSubClient::mock_connected = true;
+            manager.loop();
+
+            // Khẳng định config chưa được dispatch / active config chưa đổi khi outbox full
+            active = tuner.getActiveParams();
+            assert(active.revision != 42);
+
+            // Let's verify that we have exactly 8 pending reports and the pending command is not in it
+            assert(manager.pending_reports_count_ == 8);
+
+            // Now, let's release one slot in the outbox.
+            PubSubClient::mock_has_pending_qos1_publish = false;
+            // Since report_in_flight_ was already set to true inside manager.loop() (which called processPendingReports()),
+            // calling processPendingReports() here will dequeue the first report, decrementing count to 7.
+            // It will also immediately start publishing the second report (setting report_in_flight_ back to true).
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 7);
+            assert(manager.report_in_flight_ == true);
+
+            // Set mock_has_pending_qos1_publish to true to prevent dequeueing the next report during loop()
+            PubSubClient::mock_has_pending_qos1_publish = true;
+
+            // Gọi lại loop()
+            manager.loop();
+
+            // Khẳng định config đã được dispatch và active config đã đổi
+            active = tuner.getActiveParams();
+            assert(active.revision == 42);
+            assert(active.lamp_gain_scale == 1.10f);
+
+            // Khẳng định có đúng một ACK mới được enqueue/publish
+            assert(manager.pending_reports_count_ == 8);
+
+            // Check that the last element in the outbox is indeed for our pending command
+            size_t last_idx = (manager.pending_reports_head_ + manager.pending_reports_count_ - 1) % mqtt::MqttManager::MAX_PENDING_REPORTS;
+            assert(std::strcmp(manager.pending_reports_[last_idx].command_id, "d4444444-1234-1234-1234-123456789999") == 0);
+            assert(manager.pending_reports_[last_idx].result == storage::TuningResult::ACCEPTED);
+
+            // Chỉ dequeue ACK sau PUBACK hợp lệ; thử disconnect/reconnect và PUBACK sai ID.
+            // Chỉ dequeue ACK sau PUBACK hợp lệ; thử disconnect/reconnect và PUBACK sai ID.
+            for (int i = 0; i < 7; ++i) {
+                PubSubClient::mock_has_pending_qos1_publish = false;
+                manager.processPendingReports();
+            }
+
+            // Now, only 1 report is left in the outbox, which is our new report
+            assert(manager.pending_reports_count_ == 1);
+            assert(std::strcmp(manager.pending_reports_[manager.pending_reports_head_].command_id, "d4444444-1234-1234-1234-123456789999") == 0);
+            assert(manager.report_in_flight_ == true); // Already in flight from the last iteration
+
+            // Disconnect and Reconnect
+            PubSubClient::mock_connect_result = false;
+            PubSubClient::mock_connected = false;
+            PubSubClient::mock_has_pending_qos1_publish = true;
+            manager.loop();
+            assert(manager.pending_reports_count_ == 1);
+
+            PubSubClient::mock_connect_result = true;
+            PubSubClient::mock_connected = true;
+            manager.loop();
+            assert(manager.pending_reports_count_ == 1);
+
+            // PUBACK with incorrect message ID or in_flight active still true
+            PubSubClient::mock_has_pending_qos1_publish = true;
+            manager.processPendingReports();
+            assert(manager.pending_reports_count_ == 1);
+            assert(manager.report_in_flight_ == true);
+
+            // PUBACK correct
+            PubSubClient::mock_has_pending_qos1_publish = false;
             manager.processPendingReports();
             assert(manager.pending_reports_count_ == 0);
+            assert(manager.report_in_flight_ == false);
         }
 
         manager.resetOutboxForTest();

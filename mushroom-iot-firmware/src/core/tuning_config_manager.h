@@ -84,6 +84,14 @@ public:
     bool retryPendingDispatch(DynamicTuningParams& dispatched_params);
 
     /**
+     * @brief Check if there is a pending dispatch and retrieve its command_id.
+     * @param out_uuid Buffer of at least 37 bytes to receive the pending command UUID.
+     * @return true if there is a pending dispatch, false otherwise.
+     */
+    bool getPendingCommandId(char* out_uuid);
+
+
+    /**
      * @brief Reset manager state (mainly for unit tests isolation).
      */
     void resetForTest();

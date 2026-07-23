@@ -300,10 +300,31 @@ void MqttManager::loop()
     }
     maintainLoop();
     if (client_.connected() && provisioned_) {
-        DynamicTuningParams dispatched{};
-        if (storage::TuningConfigManager::getInstance().retryPendingDispatch(dispatched)) {
-            enqueuePendingReport(storage::TuningResult::ACCEPTED,
-                                 storage::TuningReason::OK, dispatched.command_id);
+        char pending_uuid[37]{};
+        if (storage::TuningConfigManager::getInstance().getPendingCommandId(pending_uuid)) {
+            bool is_duplicate_in_outbox = false;
+            for (size_t i = 0; i < pending_reports_count_; ++i) {
+                size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+                if (std::strcmp(pending_reports_[idx].command_id, pending_uuid) == 0) {
+                    is_duplicate_in_outbox = true;
+                    break;
+                }
+            }
+            if (pending_reports_count_ < MAX_PENDING_REPORTS || is_duplicate_in_outbox) {
+                bool reserved = false;
+                if (!is_duplicate_in_outbox) {
+                    reserved = reserveOutboxSlot(pending_uuid);
+                }
+                DynamicTuningParams dispatched{};
+                if (storage::TuningConfigManager::getInstance().retryPendingDispatch(dispatched)) {
+                    enqueuePendingReport(storage::TuningResult::ACCEPTED,
+                                         storage::TuningReason::OK, dispatched.command_id);
+                } else {
+                    if (reserved) {
+                        cancelReservedOutboxSlot(pending_uuid);
+                    }
+                }
+            }
         }
         processPendingReports();
     }
@@ -1211,15 +1232,94 @@ bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, un
     return true;
 }
 
+static bool extractCommandId(const char* payload, size_t length, char* out_uuid) {
+    if (payload == nullptr || length == 0 || out_uuid == nullptr) return false;
+    const char* key = "command_id";
+    const size_t key_len = std::strlen(key);
+    if (length < key_len) return false;
+
+    for (size_t i = 0; i <= length - key_len; ++i) {
+        if (std::memcmp(payload + i, key, key_len) == 0) {
+            size_t j = i + key_len;
+            while (j < length && payload[j] != ':') {
+                j++;
+            }
+            if (j >= length) continue;
+            j++; // skip ':'
+            while (j < length && payload[j] != '"' && payload[j] != '\'') {
+                j++;
+            }
+            if (j >= length) continue;
+            j++; // skip opening quote
+            if (j + 36 <= length) {
+                char temp[37];
+                std::memcpy(temp, payload + j, 36);
+                temp[36] = '\0';
+
+                bool valid = true;
+                for (int k = 0; k < 36; ++k) {
+                    char c = temp[k];
+                    if (k == 8 || k == 13 || k == 18 || k == 23) {
+                        if (c != '-') { valid = false; break; }
+                    } else {
+                        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                if (valid) {
+                    std::strcpy(out_uuid, temp);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     if (message.type == CommandType::TUNING_DESIRED) {
+        char ext_command_id[37]{};
+        bool has_uuid = extractCommandId(message.payload, message.payload_length, ext_command_id);
+
+        // Check if this command is already in the outbox
+        bool is_duplicate_in_outbox = false;
+        if (has_uuid) {
+            for (size_t i = 0; i < pending_reports_count_; ++i) {
+                size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+                if (std::strcmp(pending_reports_[idx].command_id, ext_command_id) == 0) {
+                    is_duplicate_in_outbox = true;
+                    break;
+                }
+            }
+        }
+
+        // Apply back-pressure: if outbox is full and this is not a duplicate in outbox, disconnect to defer
+        if (pending_reports_count_ >= MAX_PENDING_REPORTS && !is_duplicate_in_outbox) {
+            Serial.println("[MQTT] Outbox full, disconnecting to defer processing and trigger redelivery.");
+            if (client_.connected()) {
+                client_.disconnect();
+            }
+            state_ = MqttState::DISCONNECTED;
+            return;
+        }
+
+        // We have capacity. If we have a valid UUID and it's not already in outbox, reserve a slot!
+        bool reserved_slot = false;
+        if (has_uuid && !is_duplicate_in_outbox) {
+            reserved_slot = reserveOutboxSlot(ext_command_id);
+        }
+
         if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
             message.payload_length > sizeof(message.payload)) {
             Serial.println("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: invalid payload length.");
-            enqueuePendingReport(storage::TuningResult::REJECTED,
-                                 storage::TuningReason::INVALID_SCHEMA, "");
-            processPendingReports();
+            if (has_uuid) {
+                enqueuePendingReport(storage::TuningResult::REJECTED,
+                                     storage::TuningReason::INVALID_SCHEMA, ext_command_id);
+                processPendingReports();
+            }
             return;
         }
 
@@ -1229,24 +1329,40 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
         if (error) {
             Serial.printf("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: %s.\n",
                           error.c_str());
-            enqueuePendingReport(storage::TuningResult::REJECTED,
-                                 storage::TuningReason::INVALID_SCHEMA, "");
-            processPendingReports();
+            if (has_uuid) {
+                enqueuePendingReport(storage::TuningResult::REJECTED,
+                                     storage::TuningReason::INVALID_SCHEMA, ext_command_id);
+                processPendingReports();
+            }
             return;
         }
 
         const char* command_id = document["command_id"].is<const char*>()
             ? document["command_id"].as<const char*>()
             : "";
+
         storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
         const storage::TuningResult result =
             storage::TuningConfigManager::getInstance().processCommand(
                 document.as<JsonVariant>(), reason);
         if (result == storage::TuningResult::PENDING) {
+            // Command was written to NVS, but dispatch is pending.
+            // Since it is pending, we must cancel the reserved outbox slot!
+            if (reserved_slot) {
+                cancelReservedOutboxSlot(ext_command_id);
+            }
             return;
         }
-        enqueuePendingReport(result, reason, command_id);
-        processPendingReports();
+
+        if (command_id != nullptr && command_id[0] != '\0') {
+            enqueuePendingReport(result, reason, command_id);
+            processPendingReports();
+        } else {
+            if (reserved_slot) {
+                cancelReservedOutboxSlot(ext_command_id);
+            }
+            Serial.println("[MQTT] Tuning command completed but has no valid UUID. Ignoring report.");
+        }
         return;
     }
 
@@ -1292,9 +1408,8 @@ bool MqttManager::enqueuePendingReport(storage::TuningResult result, storage::Tu
         }
     }
     if (pending_reports_count_ >= MAX_PENDING_REPORTS) {
-        pending_reports_head_ = (pending_reports_head_ + 1) % MAX_PENDING_REPORTS;
-        pending_reports_count_--;
-        Serial.println("[MQTT] WARNING: reported tuning outbox buffer overflow; dropped oldest ACK.");
+        Serial.println("[MQTT] ERROR: enqueuePendingReport called but outbox is full! Rejecting report.");
+        return false;
     }
     size_t write_idx = (pending_reports_head_ + pending_reports_count_) % MAX_PENDING_REPORTS;
     pending_reports_[write_idx].result = result;
@@ -1309,15 +1424,23 @@ void MqttManager::processPendingReports() {
     if (!client_.connected() || !provisioned_) {
         return;
     }
-    while (pending_reports_count_ > 0 && !hasPendingQos1Publish()) {
-        const auto& report = pending_reports_[pending_reports_head_];
-        bool success = publishTuningReported(client_, provisioned_, tenant_, device_id_,
-                                             report.result, report.reason, report.command_id);
-        if (success) {
+
+    if (report_in_flight_) {
+        if (!hasPendingQos1Publish()) {
             pending_reports_head_ = (pending_reports_head_ + 1) % MAX_PENDING_REPORTS;
             pending_reports_count_--;
-        } else {
-            break;
+            report_in_flight_ = false;
+        }
+    }
+
+    if (!report_in_flight_ && pending_reports_count_ > 0) {
+        if (!hasPendingQos1Publish()) {
+            const auto& report = pending_reports_[pending_reports_head_];
+            bool success = publishTuningReported(client_, provisioned_, tenant_, device_id_,
+                                                 report.result, report.reason, report.command_id);
+            if (success) {
+                report_in_flight_ = true;
+            }
         }
     }
 }
@@ -1326,8 +1449,54 @@ bool MqttManager::hasPendingQos1Publish() {
 #ifndef UNIT_TEST
     return client_.hasPendingQos1Publish();
 #else
-    return false;
+    return PubSubClient::mock_has_pending_qos1_publish;
 #endif
+}
+
+bool MqttManager::reserveOutboxSlot(const char* command_id) {
+    if (command_id == nullptr || command_id[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; i < pending_reports_count_; ++i) {
+        size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+        if (std::strcmp(pending_reports_[idx].command_id, command_id) == 0) {
+            return true;
+        }
+    }
+    if (pending_reports_count_ >= MAX_PENDING_REPORTS) {
+        return false;
+    }
+    size_t write_idx = (pending_reports_head_ + pending_reports_count_) % MAX_PENDING_REPORTS;
+    pending_reports_[write_idx].result = storage::TuningResult::PENDING; // reserved placeholder
+    pending_reports_[write_idx].reason = storage::TuningReason::OK;
+    std::strncpy(pending_reports_[write_idx].command_id, command_id, sizeof(pending_reports_[write_idx].command_id) - 1);
+    pending_reports_[write_idx].command_id[sizeof(pending_reports_[write_idx].command_id) - 1] = '\0';
+    pending_reports_count_++;
+    return true;
+}
+
+void MqttManager::cancelReservedOutboxSlot(const char* command_id) {
+    if (command_id == nullptr || command_id[0] == '\0') {
+        return;
+    }
+    for (size_t i = 0; i < pending_reports_count_; ++i) {
+        size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
+        if (std::strcmp(pending_reports_[idx].command_id, command_id) == 0 &&
+            pending_reports_[idx].result == storage::TuningResult::PENDING) {
+            size_t last_idx = (pending_reports_head_ + pending_reports_count_ - 1) % MAX_PENDING_REPORTS;
+            if (idx == last_idx) {
+                pending_reports_count_--;
+            } else {
+                for (size_t j = i; j < pending_reports_count_ - 1; ++j) {
+                    size_t curr = (pending_reports_head_ + j) % MAX_PENDING_REPORTS;
+                    size_t next = (pending_reports_head_ + j + 1) % MAX_PENDING_REPORTS;
+                    pending_reports_[curr] = pending_reports_[next];
+                }
+                pending_reports_count_--;
+            }
+            return;
+        }
+    }
 }
 
 } // namespace mqtt

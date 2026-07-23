@@ -193,6 +193,22 @@ bool TuningStorageImpl::saveDurableReceipt(const char* command_id) {
     return true;
 }
 
+static bool validateCommandIdFormat(const char* uuid_str) {
+    if (uuid_str == nullptr) return false;
+    if (std::strlen(uuid_str) != 36) return false;
+    for (int i = 0; i < 36; ++i) {
+        char c = uuid_str[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (c != '-') return false;
+        } else {
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool TuningStorageImpl::loadDurableReceipt(char* out_command_id, size_t max_len) {
     if (out_command_id == nullptr || max_len < 37) return false;
     Preferences prefs;
@@ -208,6 +224,7 @@ bool TuningStorageImpl::loadDurableReceipt(char* out_command_id, size_t max_len)
         offsetof(TuningReceiptRecord, crc32));
     if (rec.crc32 != expected_crc) return false;
     if (std::memchr(rec.command_id, '\0', sizeof(rec.command_id)) == nullptr) return false;
+    if (!validateCommandIdFormat(rec.command_id)) return false;
 
     std::strncpy(out_command_id, rec.command_id, max_len - 1);
     out_command_id[max_len - 1] = '\0';

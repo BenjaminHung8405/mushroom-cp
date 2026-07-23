@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { validateSegment } from '../mqtt/constants/mqtt-topics.const';
 
 @Injectable()
 export class AppConfigService {
@@ -9,10 +10,10 @@ export class AppConfigService {
     if (!tenant) {
       throw new Error('Configuration error: IOT_TENANT environment variable is required.');
     }
-    if (!/^[a-z0-9_-]+$/.test(tenant)) {
-      throw new Error(
-        `Configuration error: IOT_TENANT "${tenant}" has invalid format. Only alphanumeric lowercase, hyphens, and underscores are allowed.`,
-      );
+    try {
+      validateSegment(tenant);
+    } catch (err: any) {
+      throw new Error(`Configuration error: IOT_TENANT is invalid. ${err.message}`);
     }
     this.tenant = tenant;
   }

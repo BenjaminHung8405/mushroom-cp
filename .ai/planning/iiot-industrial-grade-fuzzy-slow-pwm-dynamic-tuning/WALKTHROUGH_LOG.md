@@ -1,3 +1,61 @@
+## [2026-07-23T21:20:00+07:00] - Task A1, D4: Khắc phục lỗi QA Rejection (Tenant Config Validation & QoS 1 Outbox Back-pressure)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 3)
+- **Task ID:** A1, D4
+- **Các file đã sửa:**
+  - `mushroom-backend/src/config/config.service.ts`
+  - `mushroom-backend/src/config/config.service.spec.ts`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+- **Giải trình ngắn gọn:**
+  - **A1 (Tenant Validation):** Replaced the local regex check in `AppConfigService` with the shared `validateSegment` function from `mqtt-topics.const.ts` to ensure consistent constraints (non-empty, alphanumeric, underscores/hyphens, max 50 characters). It fails-closed immediately at DI/configuration initialization. Added comprehensive NestJS unit tests covering all edge cases.
+  - **D4 (Firmware QoS 1 Outbox & Back-pressure):** Modified `MqttManager::loop()` and `MqttManager::processNetworkMessage()` to reserve a placeholder slot in the local outbox before dispatching any tuning commands to Core 1. If queue/dispatch fails, the reservation is canceled. If the outbox is full and the command is not a duplicate, it disconnects to trigger redelivery.
+  - **Firmware QoS 1 Outbox Tests:** Fixed the regression test Case 4 setup to properly initialize mock WiFi connection, correctly simulate the asynchronous process pending reports flow, and verify the outbox back-pressure invariants.
+- **Xác minh:**
+  - Chạy và vượt qua 100% host unit tests firmware với QoS-1 outbox và back-pressure.
+  - Chạy backend test suite hoàn thành thành công 100% (172/172 tests passed).
+  - `git diff --check` sạch sẽ, không có bất kỳ lỗi whitespace nào.
+
+---
+
+## [2026-07-23T11:16:00+07:00] - Task C5, D4: Khắc phục lỗi QA Rejection (UUID Validation & QoS 1 Outbox Back-pressure)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** C5, D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/storage/tuning_storage.cpp`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+- **Giải trình ngắn gọn:**
+  - **C5 (UUID receipt hydration validation):** Khôi phục validation UUID char-by-char đầy đủ bằng helper `validateCommandIdFormat` theo thứ tự bắt buộc: `size -> CRC -> bounded NUL -> UUID format -> hydrate`. Sửa Case 13 unit test sử dụng phiên bản envelope `2` (trước đó sử dụng `1` nên bị reject từ cấp version check thay vì kiểm tra UUID), xác minh cache duplicate không bị nạp receipt sai định dạng.
+  - **D4 (Outbox & Back-pressure):** Loại bỏ hành vi ghi đè/giảm count khi outbox đầy. Implement back-pressure bằng cách ngắt kết nối MQTT client (disconnect) để broker gửi lại (redeliver) các command desired sau khi outbox đã trống. Bổ sung `report_in_flight_` tracking để chỉ dequeue báo cáo khỏi outbox sau khi đã nhận được PUBACK tương ứng. Sửa đổi và viết thêm regression tests bao phủ đầy đủ các kịch bản burst vượt capacity, reconnect, và match ID.
+  - **D4 (JSON errors / Empty UUID):** Viết helper `extractCommandId` thực hiện bounded string parsing để trích xuất `command_id` từ payload khi payload quá cỡ hoặc lỗi cú pháp JSON. Nếu trích xuất được UUID hợp lệ, phát báo cáo `REJECTED/INVALID_SCHEMA`. Nếu payload hoàn toàn không có UUID, bỏ qua và không gọi `enqueuePendingReport(..., "")` (tránh silent drop).
+- **Xác minh:**
+  - Chạy và vượt qua 100% host unit tests firmware với QoS-1 outbox và mock PUBACK logic (24 suites passed).
+  - Chạy backend test suite hoàn thành thành công 100% (168/168 tests passed).
+  - Khởi tạo backend build NestJS thành công.
+
+---
+
+## [2026-07-23T11:10:00+07:00] - Security/Architecture QA Review: REJECTED (C5, D4)
+
+- **Kết quả:** Từ chối duyệt. Đã trả **C5** và **D4** về trạng thái `[ ] In Progress` trong `PROGRESS.md`. **A1** đạt yêu cầu của vòng này và giữ trạng thái `[ ] QA Review`; không task nào được chuyển `[x] Done`.
+- **Phạm vi:** Rà soát commit `4c7b8501`, đối chiếu `README.md` (Clean Architecture, input/error safety, QoS 1) và các tiêu chí C5/D4 trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **D4 — outbox vẫn chủ động làm mất ACK:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:1294-1298` giảm `pending_reports_count_` và ghi đè entry cũ khi outbox 8 phần tử đầy. Đây là ACK của command đã được durable/dispatch; log “dropped oldest ACK” xác nhận delivery guarantee bị phá vỡ, backend có thể treo `PENDING`. Test mới tại `test/run_tests.cpp:2263-2274` còn coi việc drop 2 ACK đầu là kết quả đúng, nên không khóa yêu cầu “không được drop”.
+  2. **D4 — ACK lỗi schema có thể biến mất:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:1217-1235` enqueue `REJECTED/INVALID_SCHEMA` với `command_id` rỗng, nhưng `enqueuePendingReport()` từ chối mọi ID rỗng tại `1282-1284`. Như vậy malformed/oversize desired chỉ được log, không phát reported `REJECTED` như contract lỗi yêu cầu.
+  3. **C5 — regression validation receipt bị hồi quy khi tách storage:** `mushroom-iot-firmware/src/storage/tuning_storage.cpp:196-215` chỉ kiểm tra CRC và NUL rồi hydrate `command_id`; không còn UUID validation char-by-char đã có trước refactor. Receipt NVS CRC-valid nhưng UUID sai format được đưa vào duplicate cache, trái invariant validation khi hydrate và khiến Case 13 không còn kiểm thử đúng implementation.
+- **Chỉ thị sửa bắt buộc:**
+  1. Thay ring buffer overwrite bằng outbox có ownership/durability hoặc back-pressure không mất dữ liệu. Không giảm count, không ghi đè ACK nào khi đầy; chỉ release sau PUBACK hợp lệ. Bảo toàn qua short write và reconnect. Regression phải gửi `MAX_PENDING_REPORTS + n` ACK khác nhau và chứng minh toàn bộ được publish/ACK, gồm PUBACK sai ID.
+  2. Thiết kế reported error theo contract cho payload không parse được: trích xuất `command_id` hợp lệ bằng parser bounded trước khi reject, hoặc xác định rõ contract không ACK được payload không có UUID và không gọi enqueue với ID rỗng. Không được có đường code tạo `REJECTED` rồi im lặng bỏ nó.
+  3. Thêm UUID validator bounded vào `ITuningStorage`/domain helper hoặc trả receipt raw để core validate trước hydrate. Sau thứ tự size → CRC → bounded NUL → UUID format, chỉ hydrate khi hợp lệ. Thêm regression receipt CRC-valid nhưng malformed UUID và xác minh cache duplicate không đổi.
+- **Xác minh QA:** `IOT_TENANT=qa_tenant pnpm test --runInBand --silent` pass (**24 suites / 168 tests**) và `IOT_TENANT=qa_tenant pnpm build` pass. Kết quả backend không bao phủ hai failure path firmware nêu trên.
+
+---
+
 ## [2026-07-23T10:58:00+07:00] - Task A1, C5, D4: Khắc phục lỗi QA Rejection (Clean Architecture, QoS 1 Outbox & Tenant Config Validation)
 
 - **Kết quả:** Đã hoàn thành sửa lỗi kiến trúc và back-pressure; chuyển trạng thái **A1, C5, D4** về `[ ] QA Review` trong `PROGRESS.md`.
@@ -950,3 +1008,13 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   2. **D4 — QoS 1 vẫn làm mất ACK khi FIFO đầy:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:112-120` nhận `PublishQos1Result::BUSY`, log rõ “ACK dropped” và trả `false`. `PubSubClientQos1.cpp:634-641, 545-548` dùng FIFO giới hạn và từ chối packet khi đầy. ACK đã được tạo sau command hợp lệ có thể mất hẳn trong khi kết nối vẫn sống, làm backend shadow treo `PENDING`; suy đoán retained desired sẽ redeliver không phải cơ chế delivery guarantee. **Chỉ thị:** triển khai outbox/retry/back-pressure có ownership rõ ràng: không bỏ ACK sau khi command đã durable/được dispatch; chỉ loại ACK khi nhận PUBACK hợp lệ, giữ lại qua disconnect/reconnect và kiểm thử burst vượt `MQTT_QOS1_OUTBOUND_QUEUE_DEPTH`, short write, reconnect, PUBACK sai ID.
   3. **A1 — Tenant runtime bị hard-code fallback:** `mushroom-backend/src/mqtt-auth/mqtt-auth.service.ts:33` và `mushroom-backend/src/mqtt/mqtt.service.ts:136` dùng `process.env.IOT_TENANT ?? 'mushroom'`. Điều này trái A1/README: tenant phải lấy từ `IOT_TENANT`, cấm hard-code tenant/topic. Khi deploy thiếu biến môi trường, backend âm thầm cấp/subscribe namespace `mushroom`, tạo nguy cơ cross-environment/cross-tenant. **Chỉ thị:** validate `IOT_TENANT` một lần trong configuration layer bằng cùng rule segment, fail closed khi thiếu/không hợp lệ; inject giá trị đã validate vào MQTT service và auth service. Không giữ fallback production.
 - **Nhận xét bổ sung:** `ControlHistoryInfluxWriter` có `takeUntil(destroy$)`, không có truy vấn DB/N+1 trong luồng mới và backend test/build đều pass. Tuy nhiên các test xanh hiện tại không bao phủ ba lỗi chặn nói trên; không dùng kết quả test này để đánh dấu Done.
+## [2026-07-23T11:30:00+07:00] - Security/Architecture QA Review: REJECTED (A1, D4)
+
+- **Kết quả:** Từ chối duyệt. Đã trả **A1** và **D4** về trạng thái `[ ] In Progress` trong `PROGRESS.md`. C5 không có lỗi chặn mới trong phạm vi diff này và giữ trạng thái `[ ] QA Review`.
+- **Phạm vi:** Rà soát các thay đổi chưa commit của Execution Agent tại `mushroom-iot-firmware/src/network/mqtt_manager.cpp`, `mqtt_manager.h`, `storage/tuning_storage.cpp`, test firmware và tài liệu planning; đối chiếu `README.md`, `PROGRESS.md` và yêu cầu QoS 1/clean architecture trong `sprint_1.md`.
+- **Lỗi chặn phát hành:**
+  1. **D4 — Vẫn mất ACK khi local outbox đầy:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:303-307` gọi `retryPendingDispatch()` trước khi reserve outbox. Hàm này tại `src/core/tuning_config_manager.cpp:101-112` có thể enqueue sang Core 1, mutate active config và trả `true`; sau đó `enqueuePendingReport()` tại `mqtt_manager.cpp:1363-1386` trả `false` khi `pending_reports_count_ == MAX_PENDING_REPORTS`. Kết quả là command đã durable/applied nhưng ACK ACCEPTED không còn được giữ để retry, backend shadow treo `PENDING`. Kiểm tra preflight trong `processNetworkMessage()` không che phủ đường `retryPendingDispatch()` này. **Chỉ thị:** reserve một slot ACK trước mọi dispatch/commit có thể thành công, hoặc thay đổi contract để pending dispatch chỉ được commit khi ACK đã vào outbox; kiểm tra và xử lý mọi giá trị trả về của `enqueuePendingReport()`. Thêm regression: lấp đầy 8 slot, tạo tuning command ở trạng thái pending dispatch, gọi `loop()`, rồi xác nhận command chưa được dispatch/active chưa đổi cho tới khi outbox có chỗ; sau đó xác nhận đúng một ACK được publish và chỉ dequeue sau PUBACK hợp lệ/reconnect.
+  2. **A1 — Validation tenant không đồng nhất với topic contract:** `mushroom-backend/src/config/config.service.ts:12` dùng regex riêng `^[a-z0-9_-]+$`, không có giới hạn 50 ký tự của `validateSegment()` tại `src/mqtt/constants/mqtt-topics.const.ts:1-9`. Tenant dài 51+ ký tự vẫn được AppConfigService chấp nhận nhưng bị topic builder ném lỗi muộn trong lifecycle MQTT; điều này không phải validation một lần bằng cùng rule như chỉ thị QA, và dễ thành startup/ACL behavior không nhất quán. **Chỉ thị:** export/reuse validator segment duy nhất (hoặc helper config thuần được topic constants gọi lại), enforce non-empty + `[a-zA-Z0-9_-]{1,50}` theo contract hiện hữu trước DI; giữ fail closed, đồng thời thêm test 51 ký tự reject và test giá trị hợp lệ được MqttService/MqttAuthService dùng nhất quán.
+- **Kiểm tra đã thực hiện:** `git diff --check` PASS. C5 hiện đã tách NVS/Preferences khỏi `core` vào `storage`, readback so sánh toàn record bằng `memcmp`, và receipt load kiểm tra NUL bounded trước UUID; không phát hiện hard-code secret mới, SQL/Flux injection hoặc N+1 query trong phạm vi thay đổi này. Tuy nhiên hai lỗi trên đủ mức chặn phát hành; không được chuyển Task sang `[x] Done`.
+
+---

@@ -290,6 +290,7 @@ public:
     static uint16_t mock_server_port;
     static bool mock_connect_result;
     static bool mock_publish_result;
+    static bool mock_has_pending_qos1_publish;
     static std::vector<std::string> mock_subscribed_topics;
     static std::string mock_last_published_topic;
     static std::string mock_last_published_payload;
