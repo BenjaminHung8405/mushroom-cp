@@ -1,3 +1,30 @@
+## [2026-07-23T21:34:00+07:00] - Task D4: Khắc phục triệt để lỗi QA Rejection (Reserve-before-mutate, Structured JSON UUID & Regression Tests)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2 sau Rejection)
+- **Task ID:** D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn dựa trên chỉ thị QA:**
+  1. **Loại bỏ `extractCommandId()` quét raw string:** Thay thế hoàn toàn bằng parser JSON có cấu trúc `StaticJsonDocument<512>`. Trích xuất `command_id` duy nhất từ root `document["command_id"]` và xác thực định dạng UUID canonical bounded bằng helper `isValidUuidFormat()`. Nếu payload lỗi JSON hoặc thiếu/sai root UUID, firmware không thực hiện reserve/persist/dispatch hay gửi ACK.
+  2. **Bảo đảm reserve trước mọi mutation:** Sau khi parse và validate root UUID hợp lệ, gọi `reserveOutboxSlot(command_id)` trước khi gọi `TuningConfigManager::processCommand()`. Nếu outbox đầy, không gọi `processCommand()` (đảm bảo không thay đổi NVS hay RAM active config), thực hiện ngắt kết nối MQTT (`disconnect()`) để broker redeliver payload sau.
+  3. **Không bỏ qua kết quả outbox & tách API `finalizeReservedReport()`:** Thêm phương thức `finalizeReservedReport(command_id, result, reason)` để cập nhật thông tin kết quả xử lý vào slot đã được reserve thành công. Nếu không tìm thấy slot (vi phạm invariant), kích hoạt fail-safe ngắt kết nối lập tức.
+  4. **Bổ sung regression test bắt buộc (Test case 5 trong `run_tests.cpp`):**
+     - Root key escaped: `{"command_\\u0069d":"<uuid>", ...}` khi outbox còn một slot được parse đúng, reserve slot, persist/dispatch và gửi ACK.
+     - Root key có object nested / text prefix `command_id` đứng trước được parse chính xác root UUID.
+     - Outbox đầy: các payload trên không gọi `processCommand()`, active config giữ nguyên không bị thay đổi.
+     - Giải phóng capacity outbox: command được dispatch đúng một lần và ACK chỉ bị dequeue sau khi nhận PUBACK hợp lệ.
+- **Xác minh:**
+  - Chạy `run_tests_mac` host unit test firmware: **PASS 100%** (25 suites).
+  - Chạy backend test suite: **PASS 100%** (25 test suites / 172 tests).
+  - Chạy backend build `pnpm build`: **PASS**.
+  - `git diff --check` sạch sẽ.
+
+---
+
 ## [2026-07-23T21:20:00+07:00] - Task A1, D4: Khắc phục lỗi QA Rejection (Tenant Config Validation & QoS 1 Outbox Back-pressure)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 3)

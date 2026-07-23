@@ -123,6 +123,7 @@ public:
     void processPendingReports();
     bool hasPendingQos1Publish();
     bool reserveOutboxSlot(const char* command_id);
+    bool finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void cancelReservedOutboxSlot(const char* command_id);
 
     void resetOutboxForTest() {
@@ -241,6 +242,7 @@ private:
     void processPendingReports();
     bool hasPendingQos1Publish();
     bool reserveOutboxSlot(const char* command_id);
+    bool finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void cancelReservedOutboxSlot(const char* command_id);
 #endif
 

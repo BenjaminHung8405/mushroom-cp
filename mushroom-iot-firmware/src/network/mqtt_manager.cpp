@@ -1232,72 +1232,55 @@ bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, un
     return true;
 }
 
-static bool extractCommandId(const char* payload, size_t length, char* out_uuid) {
-    if (payload == nullptr || length == 0 || out_uuid == nullptr) return false;
-    const char* key = "command_id";
-    const size_t key_len = std::strlen(key);
-    if (length < key_len) return false;
-
-    for (size_t i = 0; i <= length - key_len; ++i) {
-        if (std::memcmp(payload + i, key, key_len) == 0) {
-            size_t j = i + key_len;
-            while (j < length && payload[j] != ':') {
-                j++;
-            }
-            if (j >= length) continue;
-            j++; // skip ':'
-            while (j < length && payload[j] != '"' && payload[j] != '\'') {
-                j++;
-            }
-            if (j >= length) continue;
-            j++; // skip opening quote
-            if (j + 36 <= length) {
-                char temp[37];
-                std::memcpy(temp, payload + j, 36);
-                temp[36] = '\0';
-
-                bool valid = true;
-                for (int k = 0; k < 36; ++k) {
-                    char c = temp[k];
-                    if (k == 8 || k == 13 || k == 18 || k == 23) {
-                        if (c != '-') { valid = false; break; }
-                    } else {
-                        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-                            valid = false;
-                            break;
-                        }
-                    }
-                }
-                if (valid) {
-                    std::strcpy(out_uuid, temp);
-                    return true;
-                }
+static bool isValidUuidFormat(const char* uuid_str) {
+    if (uuid_str == nullptr) return false;
+    if (std::strlen(uuid_str) != 36) return false;
+    for (int i = 0; i < 36; ++i) {
+        char c = uuid_str[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (c != '-') return false;
+        } else {
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                return false;
             }
         }
     }
-    return false;
+    return true;
 }
 
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     if (message.type == CommandType::TUNING_DESIRED) {
-        char ext_command_id[37]{};
-        bool has_uuid = extractCommandId(message.payload, message.payload_length, ext_command_id);
-
-        // Check if this command is already in the outbox
-        bool is_duplicate_in_outbox = false;
-        if (has_uuid) {
-            for (size_t i = 0; i < pending_reports_count_; ++i) {
-                size_t idx = (pending_reports_head_ + i) % MAX_PENDING_REPORTS;
-                if (std::strcmp(pending_reports_[idx].command_id, ext_command_id) == 0) {
-                    is_duplicate_in_outbox = true;
-                    break;
-                }
-            }
+        if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
+            message.payload_length > sizeof(message.payload)) {
+            Serial.println("[MQTT] Tuning command REJECTED: invalid payload length.");
+            return;
         }
 
-        // Apply back-pressure: if outbox is full and this is not a duplicate in outbox, disconnect to defer
-        if (pending_reports_count_ >= MAX_PENDING_REPORTS && !is_duplicate_in_outbox) {
+        StaticJsonDocument<512> document;
+        const DeserializationError error = deserializeJson(
+            document, message.payload, message.payload_length);
+        if (error) {
+            Serial.printf("[MQTT] Tuning command JSON error: %s. Ignoring payload.\n",
+                          error.c_str());
+            return;
+        }
+
+        const char* raw_command_id = document["command_id"].is<const char*>()
+            ? document["command_id"].as<const char*>()
+            : nullptr;
+
+        if (raw_command_id == nullptr || !isValidUuidFormat(raw_command_id)) {
+            Serial.println("[MQTT] Tuning command ignored: missing or invalid root command_id UUID.");
+            return;
+        }
+
+        char command_id[37];
+        std::strncpy(command_id, raw_command_id, 36);
+        command_id[36] = '\0';
+
+        // Apply back-pressure: reserve outbox slot BEFORE calling processCommand (mutation)
+        if (!reserveOutboxSlot(command_id)) {
             Serial.println("[MQTT] Outbox full, disconnecting to defer processing and trigger redelivery.");
             if (client_.connected()) {
                 client_.disconnect();
@@ -1306,63 +1289,27 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
             return;
         }
 
-        // We have capacity. If we have a valid UUID and it's not already in outbox, reserve a slot!
-        bool reserved_slot = false;
-        if (has_uuid && !is_duplicate_in_outbox) {
-            reserved_slot = reserveOutboxSlot(ext_command_id);
-        }
-
-        if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
-            message.payload_length > sizeof(message.payload)) {
-            Serial.println("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: invalid payload length.");
-            if (has_uuid) {
-                enqueuePendingReport(storage::TuningResult::REJECTED,
-                                     storage::TuningReason::INVALID_SCHEMA, ext_command_id);
-                processPendingReports();
-            }
-            return;
-        }
-
-        StaticJsonDocument<512> document;
-        const DeserializationError error = deserializeJson(
-            document, message.payload, message.payload_length);
-        if (error) {
-            Serial.printf("[MQTT] Tuning command REJECTED/INVALID_SCHEMA: %s.\n",
-                          error.c_str());
-            if (has_uuid) {
-                enqueuePendingReport(storage::TuningResult::REJECTED,
-                                     storage::TuningReason::INVALID_SCHEMA, ext_command_id);
-                processPendingReports();
-            }
-            return;
-        }
-
-        const char* command_id = document["command_id"].is<const char*>()
-            ? document["command_id"].as<const char*>()
-            : "";
-
         storage::TuningReason reason = storage::TuningReason::INVALID_SCHEMA;
         const storage::TuningResult result =
             storage::TuningConfigManager::getInstance().processCommand(
                 document.as<JsonVariant>(), reason);
         if (result == storage::TuningResult::PENDING) {
-            // Command was written to NVS, but dispatch is pending.
-            // Since it is pending, we must cancel the reserved outbox slot!
-            if (reserved_slot) {
-                cancelReservedOutboxSlot(ext_command_id);
-            }
+            // Command was written to NVS, but queue dispatch to Core 1 is pending.
+            // Cancel reserved outbox slot until dispatch completes on retry.
+            cancelReservedOutboxSlot(command_id);
             return;
         }
 
-        if (command_id != nullptr && command_id[0] != '\0') {
-            enqueuePendingReport(result, reason, command_id);
-            processPendingReports();
-        } else {
-            if (reserved_slot) {
-                cancelReservedOutboxSlot(ext_command_id);
+        if (!finalizeReservedReport(command_id, result, reason)) {
+            Serial.printf("[MQTT] CRITICAL: Failed to finalize reserved outbox report for %s! Disconnecting.\n", command_id);
+            if (client_.connected()) {
+                client_.disconnect();
             }
-            Serial.println("[MQTT] Tuning command completed but has no valid UUID. Ignoring report.");
+            state_ = MqttState::DISCONNECTED;
+            return;
         }
+
+        processPendingReports();
         return;
     }
 
@@ -1396,6 +1343,13 @@ String MqttManager::resolveClientId() const
 }
 
 bool MqttManager::enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id) {
+    if (!reserveOutboxSlot(command_id)) {
+        return false;
+    }
+    return finalizeReservedReport(command_id, result, reason);
+}
+
+bool MqttManager::finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason) {
     if (command_id == nullptr || command_id[0] == '\0') {
         return false;
     }
@@ -1407,17 +1361,8 @@ bool MqttManager::enqueuePendingReport(storage::TuningResult result, storage::Tu
             return true;
         }
     }
-    if (pending_reports_count_ >= MAX_PENDING_REPORTS) {
-        Serial.println("[MQTT] ERROR: enqueuePendingReport called but outbox is full! Rejecting report.");
-        return false;
-    }
-    size_t write_idx = (pending_reports_head_ + pending_reports_count_) % MAX_PENDING_REPORTS;
-    pending_reports_[write_idx].result = result;
-    pending_reports_[write_idx].reason = reason;
-    std::strncpy(pending_reports_[write_idx].command_id, command_id, sizeof(pending_reports_[write_idx].command_id) - 1);
-    pending_reports_[write_idx].command_id[sizeof(pending_reports_[write_idx].command_id) - 1] = '\0';
-    pending_reports_count_++;
-    return true;
+    Serial.printf("[MQTT] CRITICAL: Invariant violation, reserved outbox slot for %s not found!\n", command_id);
+    return false;
 }
 
 void MqttManager::processPendingReports() {

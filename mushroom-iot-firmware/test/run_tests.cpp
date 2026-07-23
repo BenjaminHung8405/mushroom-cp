@@ -2486,6 +2486,80 @@ int main() {
             assert(manager.report_in_flight_ == false);
         }
 
+        // 5. Mandatory QA Regression Test: Root Key Escaped, Nested/Prefix command_id, Outbox Full non-mutation
+        {
+            manager.resetOutboxForTest();
+            tuner.resetForTest();
+            tuner.init();
+
+            // Clear queue
+            DynamicTuningParams dummy_qp;
+            while (xQueueReceive(g_tuning_config_queue, &dummy_qp, 0) == pdTRUE) {}
+
+            // (A) Fill outbox to 7 slots (leaving 1 slot available)
+            for (int i = 0; i < 7; ++i) {
+                char uuid[37];
+                sprintf(uuid, "d4444444-1234-1234-1234-1234567890%02d", i);
+                assert(manager.enqueuePendingReport(storage::TuningResult::ACCEPTED, storage::TuningReason::OK, uuid) == true);
+            }
+            assert(manager.pending_reports_count_ == 7);
+
+            // Send a payload with root key escaped: {"command_\u0069d":"d4444444-1234-1234-1234-123456789077", ...}
+            NetworkMessage msg1{};
+            msg1.type = CommandType::TUNING_DESIRED;
+            const char* escaped_payload = "{\"schema_version\":1,\"command_\\u0069d\":\"d4444444-1234-1234-1234-123456789077\",\"device_id\":\"mushroom_s3_unittest\",\"revision\":10,\"config\":{\"lamp_gain_scale\":1.10,\"mist_gain_scale\":0.90,\"mist_on_threshold\":0.28,\"mist_off_threshold\":0.18}}";
+            std::strncpy(msg1.payload, escaped_payload, sizeof(msg1.payload) - 1);
+            msg1.payload_length = std::strlen(msg1.payload);
+
+            PubSubClient::mock_connected = true;
+            manager.processNetworkMessage(msg1);
+
+            // With 1 slot available, escaped root key command must be parsed, reserved, persisted & dispatched, and outbox count becomes 8!
+            assert(manager.pending_reports_count_ == 8);
+            DynamicTuningParams active1 = tuner.getActiveParams();
+            assert(active1.revision == 10);
+            assert(std::strcmp(active1.command_id, "d4444444-1234-1234-1234-123456789077") == 0);
+
+            // (B) Outbox is now FULL (8 slots). Send nested/prefix command_id payload.
+            // Payload contains a fake nested command_id before the root command_id.
+            NetworkMessage msg2{};
+            msg2.type = CommandType::TUNING_DESIRED;
+            const char* nested_payload = "{\"schema_version\":1,\"nested\":{\"command_id\":\"00000000-0000-0000-0000-000000000000\"},\"command_id\":\"d4444444-1234-1234-1234-123456789088\",\"device_id\":\"mushroom_s3_unittest\",\"revision\":20,\"config\":{\"lamp_gain_scale\":1.15,\"mist_gain_scale\":0.85,\"mist_on_threshold\":0.29,\"mist_off_threshold\":0.19}}";
+            std::strncpy(msg2.payload, nested_payload, sizeof(msg2.payload) - 1);
+            msg2.payload_length = std::strlen(msg2.payload);
+
+            // Save active config before sending when outbox is full
+            DynamicTuningParams before_full = tuner.getActiveParams();
+
+            manager.processNetworkMessage(msg2);
+
+            // Since outbox is FULL, processNetworkMessage must NOT call persist/dispatch!
+            // Active config must remain UNCHANGED, and MqttManager must be DISCONNECTED to trigger redelivery.
+            assert(manager.getState() == mqtt::MqttState::DISCONNECTED);
+            DynamicTuningParams after_full = tuner.getActiveParams();
+            assert(after_full.revision == before_full.revision);
+            assert(std::strcmp(after_full.command_id, before_full.command_id) == 0);
+
+            // (C) Reconnect & Dequeue one slot to simulate broker redelivery after capacity freed
+            PubSubClient::mock_connected = true;
+            PubSubClient::mock_has_pending_qos1_publish = false;
+            manager.processPendingReports(); // dequeues 1 report
+            assert(manager.pending_reports_count_ == 7);
+
+            // Send msg2 (the nested command_id payload) again now that slot is available
+            manager.processNetworkMessage(msg2);
+
+            // Now that a slot is free, root command_id "d4444444-1234-1234-1234-123456789088" must be reserved (NOT nested 0000...), dispatched once, and ACK enqueued!
+            assert(manager.pending_reports_count_ == 8);
+            DynamicTuningParams active2 = tuner.getActiveParams();
+            assert(active2.revision == 20);
+            assert(std::strcmp(active2.command_id, "d4444444-1234-1234-1234-123456789088") == 0);
+
+            size_t last_slot_idx = (manager.pending_reports_head_ + manager.pending_reports_count_ - 1) % mqtt::MqttManager::MAX_PENDING_REPORTS;
+            assert(std::strcmp(manager.pending_reports_[last_slot_idx].command_id, "d4444444-1234-1234-1234-123456789088") == 0);
+            assert(manager.pending_reports_[last_slot_idx].result == storage::TuningResult::ACCEPTED);
+        }
+
         manager.resetOutboxForTest();
     }
 
