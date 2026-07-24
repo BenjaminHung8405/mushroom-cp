@@ -11,6 +11,7 @@ import { MqttAuthModule } from './mqtt-auth/mqtt-auth.module';
 import { OfflineSyncModule } from './offline-sync/offline-sync.module';
 import { InfluxModule } from './influx/influx.module';
 import { AppConfigModule } from './config/config.module';
+import { TuningModule } from './tuning/tuning.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AppConfigModule } from './config/config.module';
     MqttAuthModule,
     OfflineSyncModule,
     InfluxModule,
+    TuningModule,
   ],
   controllers: [AppController],
   providers: [AppService],

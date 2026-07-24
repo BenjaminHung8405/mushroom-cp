@@ -1,3 +1,50 @@
+## [2026-07-24T12:29:10+07:00] - Task F9: Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F9
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/tuning.module.ts` [NEW]
+  - `mushroom-backend/src/tuning/tuning.module.spec.ts` [NEW]
+  - `mushroom-backend/src/app.module.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Khai báo NestJS `TuningModule` trong `src/tuning/tuning.module.ts` đại diện cho phân vùng quản lý cấu hình dynamic tuning và audit logs.
+  - Tuân thủ nguyên tắc **modular Clean Architecture**: đăng ký `TypeOrmModule.forFeature([DeviceTuningConfiguration, TuningAuditLog])`, khai báo provider `TuningConfigurationService`, và export `TuningConfigurationService` cùng `TypeOrmModule`.
+  - Sử dụng `forwardRef(() => MqttModule)` trong `TuningModule` imports để kết nối phụ thuộc 2 chiều an toàn mà không gây ra lỗi circular dependency runtime.
+  - Đăng ký và tích hợp `TuningModule` vào mảng `imports` của `AppModule` (`src/app.module.ts`).
+  - Không nhồi nhét hay trộn lẫn endpoint vào `DeviceController` hiện hữu.
+- **Xác minh:**
+  - Viết bộ unit test `src/tuning/tuning.module.spec.ts` kiểm thử khả năng biên dịch thành công của `TuningModule`, xác minh NestJS Dependency Injection container khởi tạo và resolve `TuningConfigurationService` chính xác.
+  - Chạy `npm test -- src/tuning/` thành công **100% PASS** (2 test suites passed, 29 tests passed).
+  - Chạy kiểm thử hồi quy toàn bộ backend (`npm test`) thành công **100% PASS** (27 test suites passed, 201 tests passed).
+  - Chạy `npm run build` biên dịch dự án NestJS backend thành công mà không có bất kỳ lỗi TypeScript nào.
+
+---
+
+## [2026-07-24T12:26:20+07:00] - Task F8: Implement `getTuningHistory()` với phân trang trong `TuningConfigurationService`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F8
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Implement phương thức `getTuningHistory()` trong `TuningConfigurationService` để truy xuất nhật ký kiểm toán (`TuningAuditLog`) phân trang của từng thiết bị.
+  - Thực hiện xác thực đầu vào `deviceId`: yêu cầu chuỗi hợp lệ, không rỗng, độ dài <= 50 ký tự; ném `BadRequestException` khi vi phạm.
+  - Áp dụng các quy tắc ràng buộc phân trang nghiêm ngặt: mặc định `limit = 20`, giới hạn tối đa `limit = 100` (tự động clamp nếu vượt quá 100 hoặc fallback về 20 nếu <= 0 / không hợp lệ).
+  - Ràng buộc `offset`: mặc định `offset = 0` (tự động fallback về 0 nếu < 0 / không hợp lệ).
+  - Áp dụng TypeORM `take` và `skip` kết hợp lọc tuyệt đối theo `deviceId` (`where: { deviceId: deviceId.trim() }`) để ngăn ngừa truy vấn lịch sử vô hạn hoặc làm rò rỉ dữ liệu audit của thiết bị khác.
+  - Đảm bảo thứ tự sắp xếp ổn định (stable order) với `order: { createdAt: 'DESC', id: 'DESC' }`.
+- **Xác minh:**
+  - Bổ sung 6 unit tests mới trong `tuning-configuration.service.spec.ts` bao gồm kiểm thử validation `deviceId`, mặc định limit/offset, clamp limit 100, fallback khi tham số không hợp lệ, trim `deviceId` và kiểm tra TypeORM options.
+  - Chạy kiểm thử đơn vị `npm test src/tuning/services/tuning-configuration.service.spec.ts` thành công **100% PASS** (28/28 tests passed).
+  - Chạy kiểm thử hồi quy toàn bộ dự án `mushroom-backend` (`npm test`) thành công **100% PASS** (26/26 test suites passed, 200/200 tests passed).
+
+---
+
 ## [2026-07-24T12:23:00+07:00] - Task F7: Implement `getLatestByDeviceId()` in `TuningConfigurationService`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

@@ -63,6 +63,48 @@ export class TuningConfigurationService {
     });
   }
 
+  /**
+   * Fetches paginated tuning audit log history for a specific device.
+   * Enforces pagination constraints (default limit 20, max 100) and stable ordering.
+   * Strictly filters by deviceId to prevent returning logs from other devices.
+   */
+  async getTuningHistory(
+    deviceId: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<{ items: TuningAuditLog[]; total: number; limit: number; offset: number }> {
+    if (!deviceId || typeof deviceId !== 'string' || deviceId.trim().length === 0 || deviceId.length > 50) {
+      throw new BadRequestException('deviceId is required and must be under 50 characters.');
+    }
+
+    let parsedLimit = typeof limit === 'number' && Number.isInteger(limit) ? limit : 20;
+    if (parsedLimit < 1) {
+      parsedLimit = 20;
+    } else if (parsedLimit > 100) {
+      parsedLimit = 100;
+    }
+
+    let parsedOffset = typeof offset === 'number' && Number.isInteger(offset) ? offset : 0;
+    if (parsedOffset < 0) {
+      parsedOffset = 0;
+    }
+
+    const [items, total] = await this.auditRepo.findAndCount({
+      where: { deviceId: deviceId.trim() },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: parsedLimit,
+      skip: parsedOffset,
+    });
+
+    return {
+      items,
+      total,
+      limit: parsedLimit,
+      offset: parsedOffset,
+    };
+  }
+
+
 
   /**
    * Creates a pending tuning command, publishes it via MQTT, and logs audit events.

@@ -22,6 +22,7 @@ describe('TuningConfigurationService', () => {
     save: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    findAndCount: jest.fn(),
   });
 
   const mockDataSource = () => ({
@@ -619,5 +620,103 @@ describe('TuningConfigurationService', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('getTuningHistory', () => {
+    it('should throw BadRequestException if deviceId is invalid', async () => {
+      await expect(service.getTuningHistory('')).rejects.toThrow('deviceId is required');
+      await expect(service.getTuningHistory('   ')).rejects.toThrow('deviceId is required');
+      await expect(service.getTuningHistory('a'.repeat(51))).rejects.toThrow('deviceId is required');
+    });
+
+    it('should use default limit 20 and offset 0 when not provided', async () => {
+      const mockItems = [
+        {
+          id: 'audit-1',
+          deviceId: 'device-1',
+          action: 'SYNC_ACCEPTED',
+          result: 'SUCCESS',
+          createdAt: new Date(),
+        },
+      ];
+      auditRepo.findAndCount.mockResolvedValue([mockItems as any, 1]);
+
+      const result = await service.getTuningHistory('device-1');
+
+      expect(auditRepo.findAndCount).toHaveBeenCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 20,
+        skip: 0,
+      });
+      expect(result).toEqual({
+        items: mockItems,
+        total: 1,
+        limit: 20,
+        offset: 0,
+      });
+    });
+
+    it('should clamp limit to 100 if limit exceeds 100', async () => {
+      auditRepo.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.getTuningHistory('device-1', 150, 0);
+
+      expect(auditRepo.findAndCount).toHaveBeenCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 100,
+        skip: 0,
+      });
+      expect(result.limit).toBe(100);
+    });
+
+    it('should fallback limit to 20 if limit is less than 1 or not an integer', async () => {
+      auditRepo.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.getTuningHistory('device-1', -5, 10);
+      expect(auditRepo.findAndCount).toHaveBeenLastCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 20,
+        skip: 10,
+      });
+
+      await service.getTuningHistory('device-1', 0, 10);
+      expect(auditRepo.findAndCount).toHaveBeenLastCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 20,
+        skip: 10,
+      });
+    });
+
+    it('should fallback offset to 0 if offset is negative or invalid', async () => {
+      auditRepo.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.getTuningHistory('device-1', 10, -15);
+
+      expect(auditRepo.findAndCount).toHaveBeenCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 10,
+        skip: 0,
+      });
+      expect(result.offset).toBe(0);
+    });
+
+    it('should trim deviceId and strictly filter audit logs by deviceId', async () => {
+      auditRepo.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.getTuningHistory('  device-99  ', 30, 50);
+
+      expect(auditRepo.findAndCount).toHaveBeenCalledWith({
+        where: { deviceId: 'device-99' },
+        order: { createdAt: 'DESC', id: 'DESC' },
+        take: 30,
+        skip: 50,
+      });
+    });
+  });
 });
+
 
