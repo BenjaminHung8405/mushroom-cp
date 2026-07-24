@@ -1,3 +1,22 @@
+## [2026-07-24T11:51:04+07:00] - Task F1: Tạo migration bảng `device_tuning_configurations`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F1
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/database/migrations/1720656000006-create-device-tuning-configurations.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Tạo file migration `1720656000006-create-device-tuning-configurations.ts` định nghĩa schema cho bảng `device_tuning_configurations`.
+  - Schema chứa các trường: `id` (UUID khóa chính, tạo phía application), `device_id` (FOREIGN KEY liên kết `devices(device_id)` hỗ trợ cascade delete), `command_id` (UUID của command dạng chuỗi 36 ký tự), `revision` (mã phiên bản dạng số nguyên), `status` (trạng thái đồng bộ, mặc định 'PENDING'), `config` (JSONB lưu trữ snapshot cấu hình đầy đủ của các tham số tuning), cùng các trường timestamp `published_at`, `created_at`, `updated_at`.
+  - Tạo index `idx_device_tuning_configs_device_created` trên `(device_id, created_at DESC)` nhằm phục vụ tối ưu hóa cho truy vấn lấy cấu hình mới nhất của thiết bị (latest lookup).
+  - Định nghĩa reversible `down()` để rollback sạch sẽ bảng và index khi revert.
+- **Xác minh:**
+  - Đã chạy thành công lệnh migration run `npm run migration:run` bên trong container backend (`mushroom_backend`), xác minh database tạo bảng và index thành công.
+  - Đã chạy thử nghiệm revert `npm run migration:revert` và xác nhận khôi phục cấu trúc database (drop bảng và index) hoàn hảo, sau đó áp dụng lại thành công.
+
+---
+
 ## [2026-07-24T11:45:00+07:00] - Sprint 1 Tracks A–E: QA Approval Chính thức
 
 - **Kết quả:** **LGTM**. Chuyển toàn bộ 27 task đang chờ QA của Sprint 1, gồm **A1–A5, B1–B3, C1–C7, D1–D4 và E1–E6**, sang trạng thái `[x] Done` trong `PROGRESS.md`.
