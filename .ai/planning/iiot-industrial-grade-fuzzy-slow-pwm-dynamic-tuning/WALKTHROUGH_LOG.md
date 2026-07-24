@@ -1,3 +1,46 @@
+## [2026-07-24T12:17:00+07:00] - Task F5: Implement `handleReportedAck()` in `TuningConfigurationService`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F5
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts` [NEW]
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Khai báo và implement service `TuningConfigurationService` cùng method `handleReportedAck()` phục vụ xử lý phản hồi đồng bộ cấu hình tuning (ACK) từ thiết bị Edge.
+  - Áp dụng **transactional outbox discipline**: Thực hiện toàn bộ logic cập nhật trạng thái đồng bộ (`SyncStatus`) và lưu nhật ký kiểm toán (`TuningAuditLog`) bên trong một transaction của cơ sở dữ liệu.
+  - Sử dụng pessimistic write lock (`SELECT ... FOR UPDATE` thông qua TypeORM `lock: { mode: 'pessimistic_write' }`) để đồng bộ hóa và ngăn ngừa tranh chấp dữ liệu (race conditions) khi nhận ACK dồn dập.
+  - Implement type guard và validation chặt chẽ đối với payload: Xác thực `deviceId` có hợp lệ, `commandId` đúng định dạng UUID (RFC-4122) và `status` thuộc tập hợp định nghĩa.
+  - Tự động bỏ qua an toàn và log warning/security warning nếu command ID không tồn tại hoặc sai lệch device ID (fail-closed, không clear retained, không mutate shadow).
+  - Đảm bảo tính **idempotent** khi nhận ACK QoS-1 trùng lặp: Nếu trạng thái cấu hình trong DB đã là `IN_SYNC` hoặc `REJECTED`, bỏ qua không xử lý lại, không ghi thêm audit hay phát SSE mới.
+  - Thực hiện **canonical comparison** so sánh cấu hình hiện tại (`configAfter`) với cấu hình đồng bộ thành công gần nhất trước đó (`configBefore` tìm theo `status: IN_SYNC` và thời gian tạo cũ hơn) để ghi nhận chi tiết thay đổi vào `TuningAuditLog`.
+  - Stream cập nhật realtime thông qua `tuningSync$` (Subject) chỉ được phát **sau khi transaction commit thành công** nhằm đảm bảo tính nhất quán dữ liệu ngoài luồng (outbox discipline).
+- **Xác minh:**
+  - Đã viết bộ unit test suite phủ đầy đủ 11 kịch bản từ validation, security logging, duplicate idempotency, transition thành công (`PENDING` -> `IN_SYNC` / `REJECTED`), đến bắt lỗi database.
+  - Chạy `npm test -- src/tuning/services/tuning-configuration.service.spec.ts` thành công **100% PASS** (11/11 tests pass).
+
+---
+
+## [2026-07-24T12:14:00+07:00] - Task F4: Khai báo entity `TuningAuditLog`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F4
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/entities/tuning-audit-log.entity.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Định nghĩa thực thể `TuningAuditLog` đại diện cho bảng kiểm toán `tuning_audit_logs`.
+  - Khớp cấu trúc bảng với các kiểu cột thích hợp: `id` khóa chính dạng UUID, khóa ngoại `configuration_id` liên kết `device_tuning_configurations(id)`, khóa ngoại `device_id` liên kết `devices(device_id)`, các cột metadata `actor`, `source`, `action`, `ruleset_version`, cùng các cột JSONB `kpi_snapshot`, `config_before`, `config_after`.
+  - Sử dụng decorator `@Index` để phản ánh chính xác index `idx_tuning_audit_device_created` trên `(device_id, created_at DESC)` từ migration.
+  - Loại bỏ các lỗi redundant TypeScript type `any | null` sang kiểu dữ liệu chi tiết `TuningConfigSnapshot | null` và `Record<string, any> | null` để đạt chất lượng code sạch sẽ và vượt qua bộ quy tắc linter của dự án.
+- **Xác minh:**
+  - Chạy biên dịch code thành công (`npx tsc --noEmit -p tsconfig.build.json`).
+  - Chạy `npx eslint src/tuning/entities/tuning-audit-log.entity.ts --fix` thành công để định dạng code theo chuẩn Prettier và đảm bảo không có lỗi linter.
+
+---
+
 ## [2026-07-24T12:09:00+07:00] - Task F3: Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
