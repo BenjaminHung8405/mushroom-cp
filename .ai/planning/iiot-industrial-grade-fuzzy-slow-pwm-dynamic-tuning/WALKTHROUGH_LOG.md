@@ -1,3 +1,26 @@
+## [2026-07-24T12:32:00+07:00] - Task F10: `MqttService` subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F10
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Bổ sung phương thức `clearTuningDesired(deviceId: string)` trong `MqttService` để phát tin nhắn rỗng (`""`) với `qos: 1, retain: true` nhằm xóa retained topic `desired` của thiết bị trên MQTT broker khi cấu hình tuning đã được xác nhận thành công.
+  - Implement `OnModuleInit` và `OnModuleDestroy` trong `TuningConfigurationService` để tự động đăng ký (subscribe) lắng nghe sự kiện `tuningReported$` từ `MqttService`, thiết lập luồng routing bất đồng bộ trực tiếp từ MQTT uplink handler tới `handleReportedAck()`.
+  - Tích hợp kiểm tra điều kiện xóa retained (`conditional retained-clear`): chỉ khi ACK xử lý thành công thuộc về lệnh PENDING mới nhất của chính thiết bị (`result.updated && result.isLatest`), backend mới tiến hành gọi `clearTuningDesired()`. ACK từ lệnh cũ hoặc ACK trùng lặp (duplicate QoS 1) tuyệt đối không được xóa retained message của lệnh mới hơn.
+  - Bảo lưu nguyên tắc kiểm soát tenant (`{tenant}/esp32/+/up/tuning/reported`), không rò rỉ wildcard cross-tenant, và tuân thủ chặt chẽ type-guard cho mọi payload uplink.
+- **Xác minh:**
+  - Thêm unit test trong `mqtt.service.spec.ts` kiểm thử phương thức `clearTuningDesired()` phát đúng topic/payload/qos/retain và bắt lỗi ngắt kết nối.
+  - Thêm unit test trong `tuning-configuration.service.spec.ts` phủ toàn bộ các trường hợp: xóa retained khi ACK mới nhất thành công, không xóa retained khi ACK của lệnh cũ tới, không xóa retained khi ACK trùng lặp, và tự động routing sự kiện từ `tuningReported$` qua lifecycle `onModuleInit`.
+  - Chạy `npm test` kiểm thử toàn bộ dự án backend: **100% PASS** (27 test suites passed, 207 tests passed).
+
+---
+
 ## [2026-07-24T12:29:10+07:00] - Task F9: Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

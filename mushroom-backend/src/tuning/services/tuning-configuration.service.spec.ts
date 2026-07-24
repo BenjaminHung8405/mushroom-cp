@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Subject } from 'rxjs';
 import { TuningConfigurationService, TuningSyncEvent } from './tuning-configuration.service';
 import { DeviceTuningConfiguration, SyncStatus } from '../entities/device-tuning-configuration.entity';
 import { TuningAuditLog } from '../entities/tuning-audit-log.entity';
@@ -31,6 +32,8 @@ describe('TuningConfigurationService', () => {
 
   const mockMqttService = () => ({
     publishTuningDesired: jest.fn(),
+    clearTuningDesired: jest.fn().mockResolvedValue(undefined),
+    tuningReported$: new Subject<TuningReportedEvent>(),
   });
 
   beforeEach(async () => {
@@ -352,6 +355,148 @@ describe('TuningConfigurationService', () => {
       expect(configEntity.status).toBe(SyncStatus.REJECTED);
       expect(emittedEvent).toBeDefined();
       expect(emittedEvent!.status).toBe(SyncStatus.REJECTED);
+    });
+
+    it('should clear retained desired topic when latest pending ACK arrives', async () => {
+      const configEntity = {
+        id: 'config-uuid',
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        revision: 2,
+        status: SyncStatus.PENDING,
+        config: { lamp_gain_scale: 1.2, mist_gain_scale: 0.8 },
+        publishedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity, options) => {
+            if (entity === DeviceTuningConfiguration) {
+              if (options.where.commandId === validCommandId) return Promise.resolve(configEntity);
+              return Promise.resolve({ commandId: validCommandId }); // isLatest: true
+            }
+            return Promise.resolve(null);
+          }),
+          save: jest.fn(),
+          create: jest.fn().mockReturnValue({}),
+        };
+        await cb(mockManager as any);
+      });
+
+      const ack: TuningReportedEvent = {
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        status: 'ACCEPTED',
+        reasonCode: null,
+        persisted: true,
+        receivedAt: new Date(),
+      };
+
+      const result = await service.handleReportedAck(ack);
+      expect(result).toEqual({ updated: true, isLatest: true });
+      expect(mqttService.clearTuningDesired).toHaveBeenCalledWith(validDeviceId);
+    });
+
+    it('should not clear retained desired when old ACK arrives after new command', async () => {
+      const oldCommandId = '11111111-1111-1111-1111-111111111111';
+      const newCommandId = '22222222-2222-2222-2222-222222222222';
+      const configEntity = {
+        id: 'config-uuid',
+        deviceId: validDeviceId,
+        commandId: oldCommandId,
+        revision: 1,
+        status: SyncStatus.PENDING,
+        config: { lamp_gain_scale: 1.0, mist_gain_scale: 1.0 },
+        publishedAt: new Date(),
+        createdAt: new Date(Date.now() - 5000),
+        updatedAt: new Date(),
+      };
+
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity, options) => {
+            if (entity === DeviceTuningConfiguration) {
+              if (options.where.commandId === oldCommandId) return Promise.resolve(configEntity);
+              // latest command is newCommandId
+              return Promise.resolve({ commandId: newCommandId });
+            }
+            return Promise.resolve(null);
+          }),
+          save: jest.fn(),
+          create: jest.fn().mockReturnValue({}),
+        };
+        await cb(mockManager as any);
+      });
+
+      const ack: TuningReportedEvent = {
+        deviceId: validDeviceId,
+        commandId: oldCommandId,
+        status: 'ACCEPTED',
+        reasonCode: null,
+        persisted: true,
+        receivedAt: new Date(),
+      };
+
+      const result = await service.handleReportedAck(ack);
+      expect(result).toEqual({ updated: true, isLatest: false });
+      expect(mqttService.clearTuningDesired).not.toHaveBeenCalled();
+    });
+
+    it('should not clear retained desired on duplicate ACK', async () => {
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity, options) => {
+            if (entity === DeviceTuningConfiguration) {
+              if (options.where.commandId === validCommandId) {
+                return Promise.resolve({
+                  id: 'config-uuid',
+                  deviceId: validDeviceId,
+                  commandId: validCommandId,
+                  status: SyncStatus.IN_SYNC,
+                  config: { lamp_gain_scale: 1 },
+                });
+              }
+              return Promise.resolve({ commandId: validCommandId });
+            }
+            return Promise.resolve(null);
+          }),
+          save: jest.fn(),
+        };
+        await cb(mockManager as any);
+      });
+
+      const ack: TuningReportedEvent = {
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        status: 'ACCEPTED',
+        reasonCode: null,
+        persisted: true,
+        receivedAt: new Date(),
+      };
+
+      const result = await service.handleReportedAck(ack);
+      expect(result).toEqual({ updated: false, isLatest: true });
+      expect(mqttService.clearTuningDesired).not.toHaveBeenCalled();
+    });
+
+    it('should automatically route tuningReported$ events to handleReportedAck on module init', async () => {
+      const handleSpy = jest.spyOn(service, 'handleReportedAck').mockResolvedValue({ updated: true, isLatest: true });
+      service.onModuleInit();
+
+      const ack: TuningReportedEvent = {
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        status: 'ACCEPTED',
+        reasonCode: null,
+        persisted: true,
+        receivedAt: new Date(),
+      };
+
+      (mqttService as any).tuningReported$.next(ack);
+      expect(handleSpy).toHaveBeenCalledWith(ack);
+      service.onModuleDestroy();
     });
   });
 

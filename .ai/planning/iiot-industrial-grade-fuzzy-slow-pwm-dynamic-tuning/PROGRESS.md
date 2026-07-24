@@ -84,7 +84,7 @@
 | F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | Query deterministic `ORDER BY created_at DESC LIMIT 1`, indexed, typed return. Không dùng in-memory map/configSync làm source of truth. |
 | F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | Enforce default 20, max 100 ở controller/service; TypeORM `take/skip`, stable order. Tuyệt đối không truy vấn lịch sử vô hạn hoặc trả audit của device khác. |
 | F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | Tuân thủ **modular Clean Architecture**: controller/service/entity ở module riêng, không nhồi endpoint vào `DeviceController`; kiểm tra circular dependencies và test module bootstrap. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] In Progress` | Subscribe đúng `{tenant}/esp32/+/up/tuning/reported` theo tenant config, tránh wildcard cross-tenant. Handler không trust payload; duplicate phải idempotent. Conditional retained-clear chỉ khi ACK thuộc latest pending command của đúng device. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | Subscribe đúng `{tenant}/esp32/+/up/tuning/reported` theo tenant config, tránh wildcard cross-tenant. Handler không trust payload; duplicate phải idempotent. Conditional retained-clear chỉ khi ACK thuộc latest pending command của đúng device. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 

@@ -420,5 +420,28 @@ describe('MqttService', () => {
         }),
       ).rejects.toThrow('MQTT client is not connected');
     });
+
+    it('should publish empty retained payload when clearTuningDesired is called', async () => {
+      mockMqttClient.connected = true;
+      const clearPromise = service.clearTuningDesired('device-1');
+
+      expect(mockMqttClient.publish).toHaveBeenCalledWith(
+        'mushroom/esp32/device-1/down/tuning/desired',
+        '',
+        { qos: 1, retain: true },
+        expect.any(Function),
+      );
+
+      const callback = mockMqttClient.publish.mock.calls.slice(-1)[0][3];
+      callback(null);
+      await expect(clearPromise).resolves.toBeUndefined();
+    });
+
+    it('should throw when clearTuningDesired is called while disconnected', async () => {
+      mockMqttClient.connected = false;
+      await expect(service.clearTuningDesired('device-1')).rejects.toThrow(
+        'MQTT client is not connected.',
+      );
+    });
   });
 });

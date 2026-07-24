@@ -6,10 +6,12 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, DataSource } from 'typeorm';
-import { Subject } from 'rxjs';
+import { Subject, Subscription } from 'rxjs';
 import {
   DeviceTuningConfiguration,
   SyncStatus,
@@ -34,9 +36,10 @@ export interface TuningSyncEvent {
 }
 
 @Injectable()
-export class TuningConfigurationService {
+export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TuningConfigurationService.name);
   public readonly tuningSync$ = new Subject<TuningSyncEvent>();
+  private tuningReportedSub?: Subscription;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -47,6 +50,22 @@ export class TuningConfigurationService {
     @Inject(forwardRef(() => MqttService))
     private readonly mqttService: MqttService,
   ) {}
+
+  onModuleInit(): void {
+    if (this.mqttService?.tuningReported$) {
+      this.tuningReportedSub = this.mqttService.tuningReported$.subscribe((event) => {
+        this.handleReportedAck(event).catch((err) => {
+          this.logger.error(
+            `Failed processing tuning ACK for device '${event?.deviceId}': ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      });
+    }
+  }
+
+  onModuleDestroy(): void {
+    this.tuningReportedSub?.unsubscribe();
+  }
 
   /**
    * Fetches the latest durable tuning configuration shadow for a device.
@@ -464,9 +483,20 @@ export class TuningConfigurationService {
       );
     }
 
-    // 6. SSE Event Emission after successful commit
-    if (result.updated && eventToEmit) {
-      this.tuningSync$.next(eventToEmit);
+    // 6. SSE Event Emission and Conditional Retained-Clear after successful commit
+    if (result.updated) {
+      if (eventToEmit) {
+        this.tuningSync$.next(eventToEmit);
+      }
+      if (result.isLatest && this.mqttService?.clearTuningDesired) {
+        try {
+          await this.mqttService.clearTuningDesired(deviceId);
+        } catch (mqttError) {
+          this.logger.warn(
+            `Failed to clear retained tuning desired topic for device '${deviceId}': ${mqttError instanceof Error ? mqttError.message : String(mqttError)}`,
+          );
+        }
+      }
     }
 
     return result;

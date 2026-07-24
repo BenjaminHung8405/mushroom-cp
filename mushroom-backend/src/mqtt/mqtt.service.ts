@@ -795,6 +795,21 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  async clearTuningDesired(deviceId: string): Promise<void> {
+    const topic = getTuningDesiredTopic(this.tenant, deviceId);
+    if (!this.client?.connected) {
+      throw new Error('MQTT client is not connected.');
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.client?.publish(
+        topic,
+        '',
+        { qos: 1, retain: true },
+        (error) => (error ? reject(error) : resolve()),
+      );
+    });
+  }
+
 
   async dispatchSetpoint(
     deviceId: string,
