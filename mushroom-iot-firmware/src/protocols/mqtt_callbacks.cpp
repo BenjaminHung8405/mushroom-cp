@@ -78,7 +78,11 @@ void MessageDispatcher::dispatch(char* topic, uint8_t* payload, unsigned int len
     } else if (strstr(topic, "/down/sync-burst/ack") != nullptr) {
         msg.type = CommandType::SYNC_BURST_ACK;
     } else if (isTuningDesiredTopic(topic)) {
-        if (length > MAX_TUNING_DESIRED_PAYLOAD_BYTES) {
+        // The worker owns parsing and terminal reporting. Preserve bounded
+        // oversize desired payloads so it can extract a canonical root
+        // command_id and publish REJECTED/INVALID_SCHEMA instead of silently
+        // losing an attributable command in this callback.
+        if (length > sizeof(msg.payload) - 1) {
             return;
         }
         msg.type = CommandType::TUNING_DESIRED;

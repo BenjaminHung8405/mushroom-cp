@@ -27,6 +27,9 @@ void run_all_tests()
     manager.resetOutboxForTest();
     manager.setProvisionedForTest(true);
     manager.setStateForTest(mqtt::MqttState::CONNECTED);
+    PubSubClient::mock_connected = true;
+    PubSubClient::mock_publish_result = true;
+    PubSubClient::mock_has_pending_qos1_publish = false;
     tuning.resetForTest();
     assert(tuning.init());
 
@@ -46,18 +49,62 @@ void run_all_tests()
         assertNoMutation(before, tuning.getActiveParams());
     };
 
-    // A terminal report requires a canonical command identity. Otherwise the
-    // protocol fails closed by disconnecting, so MQTT redelivery preserves the
-    // delivery obligation instead of silently dropping an unaddressable error.
+    const auto assertRejectedWithoutMutation = [&](const char* payload, size_t length) {
+        mqtt::NetworkMessage message{};
+        message.type = mqtt::CommandType::TUNING_DESIRED;
+        message.payload_length = length;
+        assert(length <= sizeof(message.payload));
+        std::memcpy(message.payload, payload, length);
+
+        manager.resetOutboxForTest();
+        manager.setStateForTest(mqtt::MqttState::CONNECTED);
+        PubSubClient::mock_connected = true;
+        PubSubClient::mock_has_pending_qos1_publish = false;
+        manager.processNetworkMessage(message);
+
+        assert(manager.getState() == mqtt::MqttState::CONNECTED);
+        assert(manager.pendingReportCountForTest() == 1);
+        assert(manager.reportInFlightForTest());
+        assert(PubSubClient::mock_last_published_payload.find("\"status\":\"REJECTED\"") != std::string::npos);
+        assert(PubSubClient::mock_last_published_payload.find("\"reason_code\":\"INVALID_SCHEMA\"") != std::string::npos);
+        assert(!PubSubClient::mock_last_published_retained);
+        assert(PubSubClient::mock_last_published_qos == 1);
+        assert(std::strcmp(manager.pendingReportCommandIdForTest(0), kValidCommandId) == 0);
+        assert(manager.pendingReportResultForTest(0) == storage::TuningResult::REJECTED);
+        assert(manager.pendingReportReasonForTest(0) == storage::TuningReason::INVALID_SCHEMA);
+        // QoS-1 ownership persists until the transport reports completion.
+        PubSubClient::mock_has_pending_qos1_publish = true;
+        manager.processPendingReports();
+        assert(manager.pendingReportCountForTest() == 1);
+        assertNoMutation(before, tuning.getActiveParams());
+        PubSubClient::mock_has_pending_qos1_publish = false;
+    };
+
+    // A malformed or oversize payload with a canonical root identity receives
+    // a terminal INVALID_SCHEMA report. The manager is never invoked, so this
+    // path cannot alter NVS, active RAM, or the Core-1 tuning queue.
+    const char malformed_with_uuid[] =
+        "{\"command_id\":\"d4444444-1234-1234-1234-123456789012\",";
+    assertRejectedWithoutMutation(malformed_with_uuid, std::strlen(malformed_with_uuid));
+    {
+        char oversized[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
+        const int prefix_length = std::snprintf(
+            oversized, sizeof(oversized), "{\"command_id\":\"%s\",", kValidCommandId);
+        assert(prefix_length > 0);
+        std::memset(oversized + prefix_length, ' ', sizeof(oversized) - prefix_length);
+        assertRejectedWithoutMutation(oversized, sizeof(oversized));
+    }
+
+    // A terminal report requires a canonical root command identity. Without
+    // one, the protocol fail-closes by disconnecting and broker redelivery
+    // rather than producing an invalid empty-command ACK.
     {
         char oversized[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1];
         std::memset(oversized, 'x', sizeof(oversized));
         assertDeferredWithoutMutation(oversized, sizeof(oversized));
     }
-    const char malformed[] = "{\"command_id\":\"d4444444-1234-1234-1234-123456789012\",";
     const char missing_uuid[] = "{\"device_id\":\"mushroom_s3_unittest\"}";
     const char invalid_uuid[] = "{\"command_id\":\"not-a-uuid\"}";
-    assertDeferredWithoutMutation(malformed, std::strlen(malformed));
     assertDeferredWithoutMutation(missing_uuid, std::strlen(missing_uuid));
     assertDeferredWithoutMutation(invalid_uuid, std::strlen(invalid_uuid));
 

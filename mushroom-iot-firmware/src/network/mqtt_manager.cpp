@@ -1243,11 +1243,10 @@ bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, un
     return true;
 }
 
-static bool isValidUuidFormat(const char* uuid_str) {
-    if (uuid_str == nullptr) return false;
-    if (std::strlen(uuid_str) != 36) return false;
-    for (int i = 0; i < 36; ++i) {
-        char c = uuid_str[i];
+static bool isCanonicalUuid36(const char* uuid_str, size_t length) {
+    if (uuid_str == nullptr || length != UUID_LEN) return false;
+    for (size_t i = 0; i < UUID_LEN; ++i) {
+        const char c = uuid_str[i];
         if (i == 8 || i == 13 || i == 18 || i == 23) {
             if (c != '-') return false;
         } else {
@@ -1259,7 +1258,86 @@ static bool isValidUuidFormat(const char* uuid_str) {
     return true;
 }
 
-MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(char* payload,
+// Extract only the root command_id without constructing a JSON document. This
+// permits a contract-valid terminal rejection when the complete desired
+// document is malformed or exceeds the parser bound. All reads are explicitly
+// bounded by payload_length; this helper neither allocates nor relies on NUL
+// termination.
+static bool extractRootCommandId(const char* payload, size_t payload_length,
+                                 char out_command_id[37])
+{
+    if (payload == nullptr || out_command_id == nullptr) return false;
+    out_command_id[0] = '\0';
+
+    size_t i = 0;
+    while (i < payload_length && (payload[i] == ' ' || payload[i] == '\t' ||
+                                  payload[i] == '\r' || payload[i] == '\n')) {
+        ++i;
+    }
+    if (i >= payload_length || payload[i++] != '{') return false;
+
+    size_t depth = 1;
+    while (i < payload_length && depth != 0) {
+        const char c = payload[i];
+        if (c == '"') {
+            const size_t string_start = ++i;
+            bool escaped = false;
+            while (i < payload_length) {
+                const char string_char = payload[i++];
+                if (escaped) {
+                    escaped = false;
+                } else if (string_char == '\\') {
+                    escaped = true;
+                } else if (string_char == '"') {
+                    break;
+                }
+            }
+            if (i > payload_length || payload[i - 1] != '"') return false;
+
+            const size_t string_length = i - string_start - 1;
+            if (depth != 1 || string_length != sizeof("command_id") - 1 ||
+                std::memcmp(payload + string_start, "command_id", string_length) != 0 ||
+                std::memchr(payload + string_start, '\\', string_length) != nullptr) {
+                continue;
+            }
+
+            size_t value_start = i;
+            while (value_start < payload_length &&
+                   (payload[value_start] == ' ' || payload[value_start] == '\t' ||
+                    payload[value_start] == '\r' || payload[value_start] == '\n')) {
+                ++value_start;
+            }
+            // A top-level string value may itself contain "command_id". It
+            // is an identity key only when followed by a member separator.
+            if (value_start >= payload_length || payload[value_start] != ':') continue;
+            ++value_start;
+            while (value_start < payload_length &&
+                   (payload[value_start] == ' ' || payload[value_start] == '\t' ||
+                    payload[value_start] == '\r' || payload[value_start] == '\n')) {
+                ++value_start;
+            }
+            if (value_start >= payload_length || payload[value_start++] != '"' ||
+                value_start + UUID_LEN >= payload_length ||
+                payload[value_start + UUID_LEN] != '"' ||
+                !isCanonicalUuid36(payload + value_start, UUID_LEN)) {
+                return false;
+            }
+
+            std::memcpy(out_command_id, payload + value_start, UUID_LEN);
+            out_command_id[UUID_LEN] = '\0';
+            return true;
+        }
+        if (c == '{' || c == '[') {
+            ++depth;
+        } else if (c == '}' || c == ']') {
+            --depth;
+        }
+        ++i;
+    }
+    return false;
+}
+
+MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(const char* payload,
                                                                         size_t payload_length,
                                                                         StaticJsonDocument<1024>& out_doc,
                                                                         char out_command_id[37]) const
@@ -1268,30 +1346,34 @@ MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(char* payl
         out_command_id[0] = '\0';
     }
 
+    const bool has_command_id = extractRootCommandId(payload, payload_length, out_command_id);
     if (payload == nullptr || payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES) {
         Serial.println("[MQTT] Tuning message classify: payload length exceeds bound.");
-        return TuningIngressDecision::DEFER_REDELIVERY;
+        return has_command_id ? TuningIngressDecision::QUEUE_REJECTED_ACK
+                              : TuningIngressDecision::DEFER_REDELIVERY;
     }
 
-    const DeserializationError error = deserializeJson(out_doc, payload);
+    const DeserializationError error = deserializeJson(out_doc, payload, payload_length);
     if (error) {
-        Serial.printf("[MQTT] Tuning message classify: JSON parse error: %s (len=%u, buf='%.*s').\n",
-                      error.c_str(), (unsigned)payload_length, (int)payload_length, payload);
-        return TuningIngressDecision::DEFER_REDELIVERY;
+        Serial.printf("[MQTT] Tuning message classify: JSON parse error: %s (len=%u).\n",
+                      error.c_str(), (unsigned)payload_length);
+        return has_command_id ? TuningIngressDecision::QUEUE_REJECTED_ACK
+                              : TuningIngressDecision::DEFER_REDELIVERY;
     }
 
     const char* raw_command_id = out_doc["command_id"].is<const char*>()
         ? out_doc["command_id"].as<const char*>()
         : nullptr;
 
-    if (raw_command_id == nullptr || !isValidUuidFormat(raw_command_id)) {
+    if (raw_command_id == nullptr ||
+        !isCanonicalUuid36(raw_command_id, strnlen(raw_command_id, UUID_LEN + 1))) {
         Serial.println("[MQTT] Tuning message classify: missing or invalid root command_id UUID.");
         return TuningIngressDecision::DEFER_REDELIVERY;
     }
 
     if (out_command_id != nullptr) {
-        std::strncpy(out_command_id, raw_command_id, 36);
-        out_command_id[36] = '\0';
+        std::memcpy(out_command_id, raw_command_id, UUID_LEN);
+        out_command_id[UUID_LEN] = '\0';
     }
 
     return TuningIngressDecision::PROCESS_COMMAND;
@@ -1342,9 +1424,8 @@ void MqttManager::retryDurablePendingDispatch()
 void MqttManager::processNetworkMessage(const NetworkMessage& message)
 {
     if (message.type == CommandType::TUNING_DESIRED) {
-        if (message.payload_length > MAX_TUNING_DESIRED_PAYLOAD_BYTES ||
-            message.payload_length > sizeof(message.payload)) {
-            Serial.println("[MQTT] Tuning payload DEFER_REDELIVERY: payload exceeds bound.");
+        if (message.payload_length > sizeof(message.payload)) {
+            Serial.println("[MQTT] Tuning payload DEFER_REDELIVERY: payload exceeds message buffer.");
             if (client_.connected()) {
                 client_.disconnect();
             }
@@ -1352,13 +1433,10 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
             return;
         }
 
-        char payload_buf[MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
-        std::memcpy(payload_buf, message.payload, message.payload_length);
-        payload_buf[message.payload_length] = '\0';
-
         StaticJsonDocument<1024> document;
         char command_id[37]{};
-        const TuningIngressDecision decision = classifyTuningMessage(payload_buf, message.payload_length, document, command_id);
+        const TuningIngressDecision decision = classifyTuningMessage(
+            message.payload, message.payload_length, document, command_id);
 
         if (decision == TuningIngressDecision::DEFER_REDELIVERY) {
             Serial.println("[MQTT] Tuning payload DEFER_REDELIVERY: fail-closed, disconnecting to trigger broker redelivery.");
@@ -1366,6 +1444,27 @@ void MqttManager::processNetworkMessage(const NetworkMessage& message)
                 client_.disconnect();
             }
             state_ = MqttState::DISCONNECTED;
+            return;
+        }
+
+        if (decision == TuningIngressDecision::QUEUE_REJECTED_ACK) {
+            // The bounded identity extractor established an attributable
+            // command before this branch. Reserve before any manager call so
+            // malformed/oversize desired payloads can never mutate NVS, RAM,
+            // or the Core-1 queue.
+            if (!reserveTerminalReport(command_id)) {
+                Serial.println("[MQTT] Outbox full, disconnecting to defer terminal rejection.");
+                if (client_.connected()) {
+                    client_.disconnect();
+                }
+                state_ = MqttState::DISCONNECTED;
+                return;
+            }
+            if (!finalizeTerminalReport(command_id, storage::TuningResult::REJECTED,
+                                        storage::TuningReason::INVALID_SCHEMA)) {
+                Serial.println("[MQTT] Finalize malformed tuning report failed.");
+            }
+            processPendingReports();
             return;
         }
 

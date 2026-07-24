@@ -112,7 +112,7 @@ public:
         PROCESS_COMMAND,
     };
 
-    TuningIngressDecision classifyTuningMessage(char* payload,
+    TuningIngressDecision classifyTuningMessage(const char* payload,
                                                  size_t payload_length,
                                                  StaticJsonDocument<1024>& out_doc,
                                                  char out_command_id[37]) const;

@@ -629,7 +629,9 @@ int main() {
 
         uint8_t oversized_payload[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
         mqtt::MessageDispatcher::dispatch(desired_topic, oversized_payload, sizeof(oversized_payload));
-        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdFALSE);
+        assert(xQueueReceive(mqtt::g_network_worker_queue, &message, 0) == pdTRUE);
+        assert(message.type == mqtt::CommandType::TUNING_DESIRED);
+        assert(message.payload_length == sizeof(oversized_payload));
 
         // Queue-full desired messages must not be silently accepted. The
         // callback defers its rejection to Core 0 and does not parse inline.

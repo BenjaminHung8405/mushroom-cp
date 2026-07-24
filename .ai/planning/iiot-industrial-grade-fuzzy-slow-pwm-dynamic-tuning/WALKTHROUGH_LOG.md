@@ -1091,3 +1091,25 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   1. **D4 — Vẫn mất ACK khi local outbox đầy:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:303-307` gọi `retryPendingDispatch()` trước khi reserve outbox. Hàm này tại `src/core/tuning_config_manager.cpp:101-112` có thể enqueue sang Core 1, mutate active config và trả `true`; sau đó `enqueuePendingReport()` tại `mqtt_manager.cpp:1363-1386` trả `false` khi `pending_reports_count_ == MAX_PENDING_REPORTS`. Kết quả là command đã durable/applied nhưng ACK ACCEPTED không còn được giữ để retry, backend shadow treo `PENDING`. Kiểm tra preflight trong `processNetworkMessage()` không che phủ đường `retryPendingDispatch()` này. **Chỉ thị:** reserve một slot ACK trước mọi dispatch/commit có thể thành công, hoặc thay đổi contract để pending dispatch chỉ được commit khi ACK đã vào outbox; kiểm tra và xử lý mọi giá trị trả về của `enqueuePendingReport()`. Thêm regression: lấp đầy 8 slot, tạo tuning command ở trạng thái pending dispatch, gọi `loop()`, rồi xác nhận command chưa được dispatch/active chưa đổi cho tới khi outbox có chỗ; sau đó xác nhận đúng một ACK được publish và chỉ dequeue sau PUBACK hợp lệ/reconnect.
   2. **A1 — Validation tenant không đồng nhất với topic contract:** `mushroom-backend/src/config/config.service.ts:12` dùng regex riêng `^[a-z0-9_-]+$`, không có giới hạn 50 ký tự của `validateSegment()` tại `src/mqtt/constants/mqtt-topics.const.ts:1-9`. Tenant dài 51+ ký tự vẫn được AppConfigService chấp nhận nhưng bị topic builder ném lỗi muộn trong lifecycle MQTT; điều này không phải validation một lần bằng cùng rule như chỉ thị QA, và dễ thành startup/ACL behavior không nhất quán. **Chỉ thị:** export/reuse validator segment duy nhất (hoặc helper config thuần được topic constants gọi lại), enforce non-empty + `[a-zA-Z0-9_-]{1,50}` theo contract hiện hữu trước DI; giữ fail closed, đồng thời thêm test 51 ký tự reject và test giá trị hợp lệ được MqttService/MqttAuthService dùng nhất quán.
 - **Kiểm tra đã thực hiện:** `git diff --check` PASS. C5 hiện đã tách NVS/Preferences khỏi `core` vào `storage`, readback so sánh toàn record bằng `memcmp`, và receipt load kiểm tra NUL bounded trước UUID; không phát hiện hard-code secret mới, SQL/Flux injection hoặc N+1 query trong phạm vi thay đổi này. Tuy nhiên hai lỗi trên đủ mức chặn phát hành; không được chuyển Task sang `[x] Done`.
+## [2026-07-24T11:01:27+07:00] - Task D4: Khắc phục QA Rejection malformed/oversize ingress (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/src/protocols/mqtt_callbacks.cpp`
+  - `mushroom-iot-firmware/test/tuning_ingress_validation_tests.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn dựa trên feedback QA:**
+  1. Bổ sung extraction `command_id` root bounded, không cấp phát heap và không phụ thuộc NUL termination; chỉ nhận UUID canonical 36 ký tự. Nhờ đó payload JSON malformed hoặc lớn hơn 512 byte nhưng còn identity hợp lệ được terminal ACK thay vì MQTT disconnect/redelivery.
+  2. Với nhánh malformed/oversize có identity, outbox được reserve trước mọi lời gọi `TuningConfigManager`, sau đó finalize `REJECTED/INVALID_SCHEMA`; không phát sinh mutation NVS/RAM/Core 1. Chỉ payload không thể định danh (hoặc outbox đầy) mới fail-closed bằng disconnect/redelivery; không có ACK `command_id` rỗng.
+  3. MQTT callback giữ nhẹ/bounded nhưng chuyển tiếp desired oversize tối đa dung lượng `NetworkMessage` đến worker để worker có thể thực hiện terminal ACK contract. Regression qua `processNetworkMessage()` xác nhận malformed và oversize có UUID tạo đúng report, không disconnect, active config không đổi và report còn trong outbox khi QoS 1 chưa hoàn tất; các trường hợp không UUID vẫn disconnect/không ACK.
+- **Xác minh:**
+  - `git diff --check` — **PASS**.
+  - Đã thử build host bằng `g++ -std=c++17 -DUNIT_TEST ...` và PlatformIO `run -e otg`; cả hai hiện bị chặn trước D4 bởi static assertion có sẵn `PersistedCropProfile` / `LegacyPersistedCropProfileV1` (`alignof == 4`). Không chỉnh sửa các invariant ngoài phạm vi D4.
+  - PlatformIO `run -e native` không khả dụng: `platformio.ini` chỉ có `base`, `otg`, `uart`.
+
+---
