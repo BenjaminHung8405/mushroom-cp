@@ -1,3 +1,18 @@
+## [2026-07-24T11:45:00+07:00] - Sprint 1 Tracks A–E: QA Approval Chính thức
+
+- **Kết quả:** **LGTM**. Chuyển toàn bộ 27 task đang chờ QA của Sprint 1, gồm **A1–A5, B1–B3, C1–C7, D1–D4 và E1–E6**, sang trạng thái `[x] Done` trong `PROGRESS.md`.
+- **Phạm vi kiểm toán:** Đối chiếu `README.md`, `sprint_1.md`, tiêu chí từng task trong `PROGRESS.md`, các thay đổi source được ghi nhận trong walkthrough, và diff Git liên quan.
+- **Các điểm đã xác minh:**
+  - MQTT topic/ACL fail-closed: dùng shared segment validation; device bị cô lập theo tenant/device; wildcard và access không thuộc allow-list bị từ chối.
+  - Influx controller history có typed nullable model, data-quality đúng contract, lifecycle `takeUntil`, và lỗi ghi không làm đứt MQTT pipeline.
+  - Firmware tuning dùng POD, two-slot CRC NVS, UUID bounded validation, duplicate/semantic-diff handling và handoff queue Core 0 → Core 1 không block.
+  - Desired/reported MQTT xử lý QoS 1, reserve-before-mutate, rejected ACK cho payload malformed có identity, và chỉ dequeue ACK khi PUBACK đúng packet ID/sequence.
+  - Core 1 áp dụng tuning tại tick boundary; Mist dùng hysteresis động, trong khi Lamp/Fan giữ ngưỡng cố định; các interlock cuối vẫn giữ quyền ưu tiên.
+- **Xác minh đã chạy:** `IOT_TENANT=qa_tenant pnpm test --runInBand --silent` (**25 suites / 172 tests PASS**) và `IOT_TENANT=qa_tenant pnpm build` (**PASS**); `git diff --check` sạch.
+- **Ghi chú không chặn:** Có thể tách nhỏ `extractRootCommandId()` và `processNetworkMessage()` để giữ convention hàm dưới 50 dòng, đồng thời hợp nhất hai helper CRC32 tại storage để giảm lặp code.
+
+---
+
 ## [2026-07-24T10:41:24+07:00] - Task A5, C5: Khắc phục QA Rejection (Lần 2)
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
