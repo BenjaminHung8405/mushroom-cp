@@ -32,3 +32,139 @@ Live telemetry uses backend `receivedAt`. Offline binary sync uses `boot_count` 
 - Flash writes cannot be guaranteed after the rail collapses. The journal is
   append-only and recovers complete records after an interrupted write, but a
   hold-up test on production hardware remains mandatory.
+
+## Lean OTA and edge recovery (ESP32-S3 N16R8)
+
+### Hardware and initial provisioning
+
+This firmware target is for **ESP32-S3-WROOM N16R8**: 16 MiB flash and 8 MiB
+OPI PSRAM. PlatformIO prints the generic `ESP32-S3-DevKitC-1-N8` board label,
+but the project overrides the flash size and PSRAM type for N16R8. Do **not**
+flash this image to an N8/no-PSRAM device.
+
+The partition table is `partitions/partitions.csv`:
+
+| Partition | Offset | Size | Purpose |
+| --- | ---: | ---: | --- |
+| `nvs` | `0x9000` | 20 KiB | Provisioning and OTA command state |
+| `otadata` | `0xE000` | 8 KiB | OTA slot state / rollback flags |
+| `app0` | `0x10000` | 3 MiB | Factory/current OTA application |
+| `app1` | `0x310000` | 3 MiB | Alternate OTA application |
+| `littlefs` | `0x610000` | 9.875 MiB | Offline storage |
+| `coredump` | `0xFF0000` | 64 KiB | Panic dump for Orange Pi extraction |
+
+The first deployment, and every migration from the old Arduino-only build,
+**must be a full flash**. It writes the ESP-IDF-built bootloader that contains
+the rollback feature, the partition table, and the application. Sending only
+an OTA image cannot upgrade an already-flashed precompiled Arduino bootloader.
+
+```bash
+cd mushroom-iot-firmware
+pio run -e otg
+pio run -e otg --target upload
+```
+
+Use the appropriate `uart` environment and serial port when connected through
+the CH343P bridge instead of native USB OTG. Keep the mandatory 10 kΩ external
+pull-down on relay inputs; during OTA the firmware drives GPIO 10, 11, 12, and
+13 HIGH (relay OFF for this active-low board) before it writes flash.
+
+### OTA command contract
+
+The Orange Pi hosts the image using local HTTP (for example Lighttpd) and
+publishes the command on:
+
+```text
+{tenant}/esp32/{device_id}/down/command
+```
+
+Example payload:
+
+```json
+{
+  "command_id": "ota_req_1029",
+  "action": "OTA_UPDATE",
+  "url": "http://192.168.1.50/firmware_v3.1.0.bin",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "size": 1450240,
+  "version": "3.1.0"
+}
+```
+
+`url`, `sha256`, and `size` may also be placed in the command's `parameters`
+object. The device accepts **only `http://`** URLs because the endpoint is the
+trusted, isolated farm LAN; integrity is provided by the required SHA-256 in
+the MQTT command. Do not expose that HTTP server to an untrusted network.
+
+Create metadata for the exact build artifact—not the ELF:
+
+```bash
+cd .pio/build/otg
+sha256sum firmware.bin
+stat -c%s firmware.bin
+```
+
+The firmware streams the response to the inactive OTA slot while calculating
+SHA-256. It requires HTTP 200, a content length equal to `size`, a valid ESP
+image, and an exact hash match. A failed stream or mismatch aborts the OTA
+transaction and reports a `FAILED` command ACK; it does not reboot or switch
+the boot slot.
+
+### Native rollback health gate
+
+The custom ESP-IDF bootloader is built with
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`. A successfully downloaded image
+boots as `ESP_OTA_IMG_PENDING_VERIFY`.
+
+For the next 45 seconds, Core 0 requires both conditions:
+
+1. A valid SHT30 measurement (not `NaN`).
+2. A completed MQTT reconnection.
+
+When both pass, it calls `esp_ota_mark_app_valid_cancel_rollback()` and sends
+the successful OTA ACK. If either does not pass before the timeout, it calls
+`esp_ota_mark_app_invalid_rollback_and_reboot()`. A panic, watchdog reset, or
+other reset before validation also leaves the image pending, so the bootloader
+returns to the previously valid OTA slot.
+
+Before production rollout, test: a correct SHA update, a deliberately wrong
+SHA (must remain on the old image), and a build with SHT30 or MQTT intentionally
+broken (must return to the previous image after the health timeout).
+
+### Orange Pi core-dump capture and rescue
+
+The ESP32 writes panic data to the 64 KiB `coredump` partition. It does not
+parse or publish a dump itself. Keep the **matching `firmware.elf`** for every
+released `.bin`; symbols from another build are not reliable.
+
+Install the ESP-IDF host tools on the Orange Pi so `esptool.py` and
+`espcoredump.py` are in `PATH`, then capture/decode a device after a heartbeat
+loss or panic:
+
+```bash
+./scripts/coredump_recovery.sh \
+  --port /dev/ttyACM0 \
+  --elf /srv/mushroom/releases/3.1.0/firmware.elf \
+  --out-dir /var/lib/mushroom/coredumps
+```
+
+The script reads exactly `0x10000` bytes from `0xFF0000`, retains a raw dump,
+and creates a decoded stack-trace report. A 64 KiB partition limits the amount
+of task stack data retained; keep the core-dump task count/stack settings
+within that budget and verify capture with `esp_system_abort()` on target
+hardware.
+
+Rescue flashing is intentionally never automatic. After capturing diagnostics,
+an operator can explicitly write a known-good **3 MiB-compatible** application
+image to `app0`:
+
+```bash
+./scripts/coredump_recovery.sh \
+  --port /dev/ttyACM0 \
+  --elf /srv/mushroom/releases/3.1.0/firmware.elf \
+  --flash-factory /srv/mushroom/releases/3.1.0/firmware.bin
+```
+
+This writes only `app0` at `0x10000` and preserves bootloader, partition table,
+and NVS. If the bootloader or partition table itself is damaged, use a wired
+full flash from a verified release instead.

@@ -15,6 +15,7 @@
 #include "core/system_manager.h"
 #include "core/time_confidence.h"
 #include "core/tuning_config_manager.h"
+#include "network/ota_manager.h"
 #include "network/wifi_manager.h"
 #include "protocols/mqtt_callbacks.h"
 
@@ -704,7 +705,10 @@ void MqttManager::dispatchCommand(JsonObject root)
             return;
         }
     }
-    const JsonObject parameters = root["parameters"].as<JsonObject>();
+    JsonObject parameters = root["parameters"].as<JsonObject>();
+    if (parameters.isNull()) {
+        parameters = root;
+    }
     if (sameText(action, "SET_RELAY")) {
         executeRelayCommand(parameters, command_id, 0);
     } else if (sameText(action, "SET_BASELINE_SETPOINT")) {
@@ -713,9 +717,27 @@ void MqttManager::dispatchCommand(JsonObject root)
         executeCropProfileCommand(parameters, command_id, started_ms);
     } else if (sameText(action, "SET_OPERATING_MODE")) {
         executeOperatingModeCommand(root, command_id, started_ms);
+    } else if (sameText(action, "OTA_UPDATE")) {
+        const char* url = parameters["url"] | "";
+        const char* sha256 = parameters["sha256"] | "";
+        const char* version = parameters["version"] | "";
+        const size_t size = parameters["size"] | 0U;
+        if (url[0] == '\0' || sha256[0] == '\0' || size == 0) {
+            publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms,
+                              nullptr, false, "INVALID_OTA_PARAM",
+                              "url, sha256, and size are required for OTA_UPDATE");
+            return;
+        }
+        ota::OtaRequest request;
+        request.command_id = command_id;
+        request.url = url;
+        request.sha256 = sha256;
+        request.version = version;
+        request.size = size;
+        ota::request_ota_update(request);
     } else {
         publishCommandAck(const_cast<char*>(command_id.c_str()), "FAILED", millis() - started_ms, nullptr, false,
-                          "INVALID_ACTION", "Supported actions: SET_RELAY, SET_BASELINE_SETPOINT, SET_CROP_PROFILE, SET_OPERATING_MODE");
+                          "INVALID_ACTION", "Supported actions: SET_RELAY, SET_BASELINE_SETPOINT, SET_CROP_PROFILE, SET_OPERATING_MODE, OTA_UPDATE");
     }
 }
 

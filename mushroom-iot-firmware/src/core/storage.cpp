@@ -788,6 +788,33 @@ namespace storage
         return false;
     }
 
+    bool StorageManager::save_pending_ota_command(const String &command_id)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+        const bool ok = prefs.putString("ota_cmd", command_id) > 0;
+        prefs.end();
+        return ok;
+    }
+
+    bool StorageManager::load_pending_ota_command(String &command_id)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+        command_id = prefs.getString("ota_cmd", "");
+        prefs.end();
+        return command_id.length() > 0;
+    }
+
+    bool StorageManager::clear_pending_ota_command()
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+        const bool ok = prefs.remove("ota_cmd");
+        prefs.end();
+        return ok;
+    }
+
     bool StorageManager::factory_reset()
     {
         Preferences prefs;

@@ -164,14 +164,14 @@ struct CropCheckpoint {
     uint16_t crop_day;
     float temp_target_c;
     float humidity_target_rh;
-} __attribute__((aligned(4)));
+} __attribute__((packed, aligned(4)));
 
 struct LightScheduleBlock {
     uint16_t start_day;
     uint16_t end_day;
     uint8_t status; // 0 = OFF, 1 = ON
     uint8_t reserved;
-} __attribute__((aligned(4)));
+} __attribute__((packed, aligned(4)));
 
 struct PersistedCropProfile {
     uint32_t magic;
@@ -185,7 +185,7 @@ struct PersistedCropProfile {
     CropCheckpoint checkpoints[MAX_CROP_CHECKPOINTS];
     LightScheduleBlock light_schedule[MAX_LIGHT_SCHEDULE_BLOCKS];
     uint32_t crc32;
-} __attribute__((aligned(4)));
+} __attribute__((packed, aligned(4)));
 
 static_assert(alignof(CropCheckpoint) == 4, "CropCheckpoint layout changed");
 static_assert(alignof(LightScheduleBlock) == 4, "LightScheduleBlock layout changed");

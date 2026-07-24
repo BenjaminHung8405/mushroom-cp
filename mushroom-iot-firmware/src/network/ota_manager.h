@@ -13,22 +13,33 @@
 
 namespace ota {
 
+    struct OtaRequest {
+        String command_id;
+        String url;
+        String sha256;
+        String version;
+        size_t size = 0;
+    };
+
     /// @brief Khởi tạo Mutex Semaphore cho OTA. Gọi trong wifi::init_wifi() hoặc setup().
     void init();
 
-    /// @brief Lưu URL OTA một cách thread-safe. An toàn để gọi từ MQTT Callback.
-    /// @param url URL HTTPS trỏ đến file firmware .bin mới.
-    void request_ota_update(const String& url);
+    /// @brief Lưu request OTA đã được MQTT xác thực. An toàn từ MQTT worker.
+    void request_ota_update(const OtaRequest& request);
 
-    /// @brief Kiểm tra xem có OTA pending không và lấy URL ra. Gọi định kỳ từ Core 0 loop.
-    /// @param[out] url Nếu trả về true, url chứa địa chỉ firmware cần tải.
+    /// @brief Kiểm tra request OTA pending. Gọi định kỳ từ Core 0 loop.
     /// @return true nếu có OTA pending, false if not.
-    bool check_ota_trigger(String& url);
+    bool check_ota_trigger(OtaRequest& request);
 
     /// @brief Thực hiện toàn bộ quy trình OTA: Safety → Interlock → Download.
     ///        Chạy đồng bộ trên Core 0. Chip sẽ reboot nếu thành công.
     ///        Nếu thất bại, Core 1 tasks sẽ được Resume lại.
-    /// @param url URL HTTPS đến file .bin firmware.
-    void perform_ota_update(const String& url);
+    void perform_ota_update(const OtaRequest& request);
+
+    /// @brief Start rollback health validation if this app booted pending verification.
+    void begin_boot_validation();
+
+    /// @brief Confirm the pending OTA image after SHT30 and MQTT are both healthy.
+    void process_boot_validation(bool sensor_healthy, bool mqtt_connected);
 
 } // namespace ota

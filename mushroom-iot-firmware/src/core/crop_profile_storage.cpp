@@ -18,9 +18,10 @@ struct LegacyPersistedCropProfileV1 {
     uint16_t checkpoint_count;
     int64_t crop_start_epoch_s;
     uint16_t total_crop_days;
+    uint8_t reserved[2];
     CropCheckpoint checkpoints[MAX_CROP_CHECKPOINTS];
     uint32_t crc32;
-} __attribute__((aligned(4)));
+} __attribute__((packed, aligned(4)));
 
 static_assert(alignof(LegacyPersistedCropProfileV1) == 4, "Legacy profile layout changed");
 static_assert(offsetof(LegacyPersistedCropProfileV1, crc32) + sizeof(uint32_t) ==

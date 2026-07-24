@@ -6,6 +6,7 @@
 #include "network/web_interface/web_interface.h"
 #include "core/telemetry.h"
 #include "core/offline_storage.h"
+#include "core/sensors.h"
 #include "protocols/mqtt_callbacks.h"
 #include <ArduinoJson.h>
 #include <cmath>
@@ -193,6 +194,7 @@ void taskCore0Communication(void* /*pvParameters*/)
 
     // Initialize MQTT
     mqtt::MqttManager::getInstance().init();
+    ota::begin_boot_validation();
 
     #ifndef UNIT_TEST
     xTaskCreatePinnedToCore(
@@ -223,6 +225,15 @@ void taskCore0Communication(void* /*pvParameters*/)
 
         // 2. Process MQTT loop (non-blocking)
         mqtt::MqttManager::getInstance().loop();
+
+        ota::process_boot_validation(
+            sensors::has_valid_sht30_read(),
+            mqtt::MqttManager::getInstance().isConnected());
+
+        ota::OtaRequest ota_request;
+        if (ota::check_ota_trigger(ota_request)) {
+            ota::perform_ota_update(ota_request);
+        }
 
         // Periodic durable checkpoint: network loss must not leave the whole
         // ring vulnerable until it reaches the high-watermark or power fails.

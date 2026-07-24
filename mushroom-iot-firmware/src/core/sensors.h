@@ -48,6 +48,9 @@ namespace sensors
      */
     bool read_all_telemetry(TelemetryData &data);
 
+    /** True after at least one successful SHT30 sample in this boot session. */
+    bool has_valid_sht30_read();
+
     // --- API bổ sung cho fault injection (SHT30) ---
     
     /**

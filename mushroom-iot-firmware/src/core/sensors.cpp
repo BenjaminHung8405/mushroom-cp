@@ -20,6 +20,7 @@ namespace sensors
 
     // Lưu mã lỗi cuối cùng của SHT30
     static SensorError sht30_last_error = SensorError::SUCCESS;
+    static volatile bool sht30_has_valid_read = false;
 
     // SHT30 defog heater state — heater biases temp UP / RH DOWN (finite, not NAN).
     // Control loops must hold last outputs for heater ON + cool-down.
@@ -84,6 +85,7 @@ namespace sensors
     {
         if (!sensors_initialized)
         {
+            sht30_has_valid_read = false;
             sht30_last_error = SensorError::ERR_NOT_INITIALIZED;
             temp = NAN;
             hum = NAN;
@@ -93,6 +95,7 @@ namespace sensors
 
         if (!sht30_healthy)
         {
+            sht30_has_valid_read = false;
             sht30_last_error = SensorError::ERR_DISCONNECTED;
             temp = NAN;
             hum = NAN;
@@ -171,6 +174,7 @@ namespace sensors
         // Kiểm tra xem dữ liệu có nằm trong dải đo an toàn vật lý hợp lệ không
         if (temp < -40.0f || temp > 125.0f || hum < 0.0f || hum > 100.0f)
         {
+            sht30_has_valid_read = false;
             sht30_last_error = SensorError::ERR_OUT_OF_RANGE;
             temp = NAN;
             hum = NAN;
@@ -178,6 +182,7 @@ namespace sensors
         }
 
         sht30_last_error = SensorError::SUCCESS;
+        sht30_has_valid_read = true;
         return true;
     }
 
@@ -236,10 +241,16 @@ namespace sensors
         return sht30_heater_active || (millis() < sht30_defog_hold_until);
     }
 
+    bool has_valid_sht30_read()
+    {
+        return sht30_has_valid_read;
+    }
+
 #ifdef UNIT_TEST
     void reset_sensors_initialized_for_test()
     {
         sensors_initialized = false;
+        sht30_has_valid_read = false;
     }
 #endif
 

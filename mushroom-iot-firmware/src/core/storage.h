@@ -248,6 +248,11 @@ namespace storage
          */
         bool load_bio_thresholds(float &t_max, float &t_min, float &h_max, float &h_min);
 
+        /** Persist an in-flight OTA command ID across the reboot boundary. */
+        bool save_pending_ota_command(const String &command_id);
+        bool load_pending_ota_command(String &command_id);
+        bool clear_pending_ota_command();
+
         /**
          * @brief Deletes all keys in the storage namespace, performing a factory reset.
          * @return true if reset successfully, false otherwise.

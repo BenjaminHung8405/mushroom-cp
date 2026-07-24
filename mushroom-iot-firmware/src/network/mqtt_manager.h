@@ -119,15 +119,15 @@ public:
     bool reserveTerminalReport(const char* command_id);
     bool finalizeTerminalReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void retryDurablePendingDispatch();
+    bool hasPendingQos1Publish();
+    uint16_t getPendingQos1MessageId();
+    uint16_t getLastPubAckMessageId();
+    uint32_t getPubAckSequence();
 
 #ifdef UNIT_TEST
 public:
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
-    bool hasPendingQos1Publish();
-    uint16_t getPendingQos1MessageId();
-    uint16_t getLastPubAckMessageId();
-    uint32_t getPubAckSequence();
     bool reserveOutboxSlot(const char* command_id);
     bool finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void cancelReservedOutboxSlot(const char* command_id);
@@ -255,7 +255,6 @@ private:
 #ifndef UNIT_TEST
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
-    bool hasPendingQos1Publish();
     bool reserveOutboxSlot(const char* command_id);
     bool finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void cancelReservedOutboxSlot(const char* command_id);
