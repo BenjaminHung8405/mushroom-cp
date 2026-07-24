@@ -10,6 +10,35 @@
 
 namespace storage {
 
+namespace {
+
+constexpr const char* LEGACY_PRODUCTION_MQTT_BROKER = "mushroomapp.mitelai.com";
+constexpr uint16_t LEGACY_PRODUCTION_MQTT_PORT = 10883;
+constexpr uint16_t PRODUCTION_MQTT_PORT = 1883;
+
+bool migrateLegacyProductionMqttPort(String& broker, uint16_t& port,
+                                     const String& user, const String& pass,
+                                     StorageManager& storage) {
+    if (broker != LEGACY_PRODUCTION_MQTT_BROKER ||
+        port != LEGACY_PRODUCTION_MQTT_PORT) {
+        return false;
+    }
+
+    port = PRODUCTION_MQTT_PORT;
+    Serial.printf("[CONFIG] Migrating legacy production MQTT endpoint %s:%u to :%u.\n",
+                  LEGACY_PRODUCTION_MQTT_BROKER,
+                  static_cast<unsigned>(LEGACY_PRODUCTION_MQTT_PORT),
+                  static_cast<unsigned>(PRODUCTION_MQTT_PORT));
+    if (storage.save_mqtt_config(broker, port, user, pass)) {
+        Serial.println("[CONFIG] MQTT endpoint migration persisted to NVS.");
+    } else {
+        Serial.println("[CONFIG] WARNING: MQTT endpoint migration was not persisted; using port 1883 for this boot.");
+    }
+    return true;
+}
+
+} // namespace
+
 ConfigManager& ConfigManager::getInstance() {
     static ConfigManager instance;
     return instance;
@@ -49,6 +78,9 @@ void ConfigManager::init() {
         _mqtt_broker = config::network::DEFAULT_MQTT_BROKER;
         _mqtt_port = config::network::DEFAULT_MQTT_PORT;
         _mqtt_pass = config::network::DEFAULT_MQTT_PASS;
+    } else {
+        migrateLegacyProductionMqttPort(_mqtt_broker, _mqtt_port,
+                                        _mqtt_user, _mqtt_pass, storage);
     }
 
     _device_id = config::network::resolve_device_identity();

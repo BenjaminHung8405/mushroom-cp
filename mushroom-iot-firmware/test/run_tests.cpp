@@ -4362,6 +4362,39 @@ int main() {
         assert(cfg.getWifiPass() == "SavedPass");
         assert(cfg.getMqttBroker() == "retained.broker.com");
         assert(cfg.getMqttPort() == 1885);
+
+        // Legacy production endpoint migrates exactly once without rotating its PSK.
+        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass",
+                                     "mushroomapp.mitelai.com", 10883,
+                                     "legacy_production_psk") == true);
+        cfg.init();
+        assert(cfg.getMqttBroker() == "mushroomapp.mitelai.com");
+        assert(cfg.getMqttPort() == 1883);
+        assert(cfg.getMqttPass() == "legacy_production_psk");
+
+        String persisted_broker, persisted_user, persisted_pass;
+        uint16_t persisted_port = 0;
+        assert(storage::StorageManager::get_instance().load_mqtt_config(
+                   persisted_broker, persisted_port, persisted_user, persisted_pass) == true);
+        assert(persisted_broker == "mushroomapp.mitelai.com");
+        assert(persisted_port == 1883);
+        assert(persisted_pass == "legacy_production_psk");
+
+        // The current production endpoint and all custom endpoints are preserved.
+        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass",
+                                     "mushroomapp.mitelai.com", 1883,
+                                     "current_production_psk") == true);
+        cfg.init();
+        assert(cfg.getMqttPort() == 1883);
+        assert(cfg.getMqttPass() == "current_production_psk");
+
+        assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass",
+                                     "192.168.1.99", 10883,
+                                     "custom_endpoint_psk") == true);
+        cfg.init();
+        assert(cfg.getMqttBroker() == "192.168.1.99");
+        assert(cfg.getMqttPort() == 10883);
+        assert(cfg.getMqttPass() == "custom_endpoint_psk");
     }
 
     // 41. Test SystemProtector, Bio Rules, NVS Bio Thresholds, and Active-LOW Mapping

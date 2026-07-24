@@ -2,7 +2,7 @@
 
 ## Transport and connectivity observability
 
-The current cloud endpoint `mushroomapp.mitelai.com:10883` is **plaintext MQTT
+The current cloud endpoint `mushroomapp.mitelai.com:1883` is **plaintext MQTT
 over TCP**, not MQTTS. Devices use `MQTT_TRANSPORT=plain` by default. TLS is an
 opt-in firmware build only when a trusted CA PEM is injected; production devices
 must not use insecure TLS mode.

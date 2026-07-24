@@ -167,7 +167,7 @@ function saveConfig(){
     $('ssid').focus();
     return;
   }
-  var port = parseInt(($('mqtt_port').value || '18883'), 10);
+  var port = parseInt(($('mqtt_port').value || '1883'), 10);
   if(isNaN(port) || port < 1 || port > 65535){
     showMsg('err', 'MQTT Port khong hop le.');
     return;

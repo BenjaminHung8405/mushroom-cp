@@ -3,11 +3,11 @@
 # Install as: /etc/mosquitto/conf.d/cloud_bridge.conf
 # Note: Replace 'mushroom_s3_a1b2c3d4e5f6' with your target ESP32 device_id.
 # Note: Replace 'your_device_token_here' with the MQTT token assigned to that device.
-# The cloud broker is exposed at mushroomapp.mitelai.com:10883. Its go-auth
+# The cloud broker is exposed at mushroomapp.mitelai.com:1883. Its go-auth
 # plugin communicates with mushroom-backend:3001 internally; DietPi does not.
 
 connection cloud-mushroom-bridge
-address mushroomapp.mitelai.com:10883
+address mushroomapp.mitelai.com:1883
 
 # Cloud identity: NestJS backend requires username == client ID == device ID.
 remote_clientid mushroom_s3_a1b2c3d4e5f6
@@ -27,4 +27,3 @@ cleansession false
 notifications true
 start_type automatic
 restart_timeout 10
-
