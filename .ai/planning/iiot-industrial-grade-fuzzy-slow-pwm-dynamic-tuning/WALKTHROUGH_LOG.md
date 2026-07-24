@@ -1,3 +1,23 @@
+## [2026-07-24T12:09:00+07:00] - Task F3: Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F3
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/entities/device-tuning-configuration.entity.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Khai báo entity `DeviceTuningConfiguration` đại diện cho bảng `device_tuning_configurations`.
+  - Định nghĩa enum `SyncStatus` chứa các trạng thái đồng bộ: `PENDING`, `IN_SYNC`, `REJECTED`, khớp với logic đồng bộ dữ liệu.
+  - Định nghĩa interface `TuningConfigSnapshot` chứa 4 tham số cấu hình tuning: `lamp_gain_scale`, `mist_gain_scale`, `mist_on_threshold`, `mist_off_threshold`.
+  - Sử dụng `@ManyToOne` để khai báo mối quan hệ `@ManyToOne(() => Device, { onDelete: 'CASCADE' })` với khóa ngoại `device_id` trỏ tới bảng `devices`.
+  - Đảm bảo mapping chính xác cột, kiểu dữ liệu, các ràng buộc strict nullability (trường `publishedAt` nullable: `Date | null`), và tránh sử dụng string literal rời rạc.
+- **Xác minh:**
+  - Chạy `npm run build` thành công, kiểm chứng NestJS dự án biên dịch thành công.
+  - Chạy bộ test suite của backend với `npm run test` thành công 100% (25 suites / 172 tests passed), đảm bảo không ảnh hưởng đến các tính năng hiện hữu của hệ thống.
+
+---
+
 ## [2026-07-24T12:04:00+07:00] - Task F2: Tạo migration bảng `tuning_audit_logs`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
