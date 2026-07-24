@@ -6,6 +6,7 @@ import { TuningModule } from './tuning.module';
 import { TuningConfigurationService } from './services/tuning-configuration.service';
 import { DeviceTuningConfiguration } from './entities/device-tuning-configuration.entity';
 import { TuningAuditLog } from './entities/tuning-audit-log.entity';
+import { TuningMqttOutbox } from './entities/tuning-mqtt-outbox.entity';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { MqttService } from '../mqtt/mqtt.service';
 
@@ -14,6 +15,7 @@ describe('TuningModule', () => {
   let mockConfigRepo: any;
   let mockAuditRepo: any;
   let mockMqttService: any;
+  let mockOutboxRepo: any;
 
   beforeEach(() => {
     mockDataSource = {
@@ -34,6 +36,7 @@ describe('TuningModule', () => {
     mockMqttService = {
       publishTuningDesired: jest.fn(),
     };
+    mockOutboxRepo = { find: jest.fn(), findOne: jest.fn(), save: jest.fn(), create: jest.fn() };
   });
 
   it('should compile TuningModule and provide TuningConfigurationService', async () => {
@@ -74,6 +77,8 @@ describe('TuningModule', () => {
       .useValue(mockConfigRepo)
       .overrideProvider(getRepositoryToken(TuningAuditLog))
       .useValue(mockAuditRepo)
+      .overrideProvider(getRepositoryToken(TuningMqttOutbox))
+      .useValue(mockOutboxRepo)
       .compile();
 
     expect(moduleRef).toBeDefined();

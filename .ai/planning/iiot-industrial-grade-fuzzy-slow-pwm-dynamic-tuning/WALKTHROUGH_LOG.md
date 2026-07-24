@@ -1,3 +1,48 @@
+## [2026-07-24T13:20:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 3)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-24 13:06–13:20 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 3).
+- **File đã sửa/thêm:**
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts` [NEW]
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts` [NEW]
+  - `mushroom-backend/src/tuning/entities/tuning-mqtt-outbox.entity.ts` [NEW]
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/tuning.module.ts`
+  - `mushroom-backend/src/tuning/tuning.module.spec.ts`
+  - `mushroom-backend/src/database/migrations/1720656000006-create-device-tuning-configurations.ts`
+  - `mushroom-backend/src/database/migrations/1720656000007-create-tuning-audit-logs.ts`
+  - `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts`
+  - `mushroom-backend/src/database/migrations/1720656000009-create-tuning-mqtt-outbox.ts` [NEW]
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.spec.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:**
+  - Tách toàn bộ side effect MQTT sang transactional outbox và dispatcher duy nhất. Dispatcher giữ advisory lock theo `device_id` xuyên lúc publish/clear và ghi delivery; stale clear được fence bằng config/revision latest, do đó không thể xóa desired revision mới.
+  - Persist outbox trong cùng transaction với command/audit/ACK. Lỗi ghi DB sau MQTT không chuyển shadow sang `REJECTED`; item chưa delivered sẽ retry durable sau restart.
+  - Bỏ retry cap 5 lần: backoff exponential có upper bound delay 5 phút nhưng không bỏ công việc; test outage trên 5 lần rồi broker recovery.
+  - Khôi phục migration `0006/0007` về nội dung đã publish; đưa delta hardening vào `0008`, bổ sung unique `(device_id, revision)`, rollback FK đối xứng và migration `0009` cho outbox. Latest/ACK/audit-before dùng `revision DESC` hoặc `revision < current` để deterministic khi timestamp trùng.
+  - Thay any-alias `Function` ở `writeAudit` bằng `EntityManager` strict typing và phân rã MQTT dispatch khỏi `TuningConfigurationService`.
+- **Xác minh:** `npx tsc --noEmit -p tsconfig.build.json` PASS; `npm test -- --runInBand` **29 suites, 187 tests PASS**; `git diff --check` PASS. Regression mới phủ stale clear/new publish, revision ordering, DB failure sau MQTT, outage >5 + recovery, migration up/down và latest timestamp trùng.
+
+---
+
+## [2026-07-24T13:05:00+07:00] - Security/Architecture QA Review: REJECTED (Track F, vòng 2)
+
+- **Kết quả:** **Từ chối duyệt** F1–F10. Đã chuyển toàn bộ Task Track F về `[ ] In Progress` trong `PROGRESS.md`. Không Task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Rà soát toàn bộ source được liệt kê ở entry Track F lúc `2026-07-24T12:50:00+07:00`, đối chiếu `README.md` v2.2 và tiêu chí F1–F10 trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **[Critical] F5/F6/F10 — Race làm xóa retained desired mới.** `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:220-235` chỉ khóa row khi kiểm tra latest, rồi commit trước khi gọi `clearTuningDesired()`. Trong khoảng đó, `createPendingCommand()` có thể tạo/publish command mới; clear payload rỗng sau đó sẽ xóa retained desired mới của thiết bị. Đồng thời `createOrGetPending()` chỉ serialize phần DB (`:114-134`), còn hai lệnh concurrent có thể publish MQTT đảo thứ tự ở `:149-155`, khiến desired revision cũ đè retained desired revision mới. **Chỉ thị:** dùng transactional outbox/dispatcher duy nhất theo `device_id` cho cả publish và retained-clear; serialise toàn bộ side effect theo device, fence bằng revision/command hiện hành, và test các interleaving publish-old/publish-new/clear-old. Không được dùng check-then-clear qua hai transaction như hiện tại.
+  2. **[Critical] F6 — Publish thành công nhưng ghi `published_at` thất bại bị đánh dấu `REJECTED`.** `tuning-configuration.service.ts:149-159` gọi MQTT trước rồi `configRepo.save()`, nhưng `catch` gọi `markPublishFailure()` cho cả hai loại lỗi. Nếu broker đã nhận retained desired nhưng DB update bị lỗi, `:162-171` chuyển durable shadow sang `REJECTED`; ACK sau đó bị bỏ qua ở `:184`, trong khi retained command còn tồn tại. Đây là split-brain điều khiển thiết bị. **Chỉ thị:** triển khai outbox durable trước publish, consumer idempotent và trạng thái delivery tách biệt; không được kết luận publish thất bại sau khi publish đã có thể thành công. Thêm fault-injection cho lỗi DB sau MQTT ACK và restart/retry.
+  3. **[High] F1/F2 — Migration vừa sửa migration cũ vừa có rollback phá schema.** Trái yêu cầu F1 “không sửa migration cũ”, `1720656000006` và `1720656000007` đã bị sửa để chèn constraint/cột/FK mới, rồi `1720656000008` lại cố upgrade cùng các thay đổi. Trên clean DB, `0008.up()` hầu như no-op nhưng `0008.down()` tại `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts:49-55` vẫn drop unique constraint và ba cột đã được `0006` tạo, đồng thời không hoàn nguyên hai FK audit mà `up()` thay đổi tại `:27-45`. Rollback để schema không còn khớp entity và phá idempotency. **Chỉ thị:** khôi phục nội dung lịch sử của migration đã từng phát hành; migration mới chỉ chứa delta upgrade. Viết `down()` đối xứng, có migration test clean-up-down và upgrade-up-down, xác nhận schema/constraint đúng ở từng bước.
+  4. **[High] F5 — Retry retained-clear dừng vĩnh viễn sau 5 lỗi broker.** `tuning-configuration.service.ts:220-240` để `retainedClearPending=true`, nhưng `:223` return khi attempts `>= 5`; worker `:210-217` sẽ liên tục thấy record due và không retry hay báo trạng thái terminal bền vững. Retained desired có thể sống vô hạn, trái mục tiêu offline/reconnect và yêu cầu retry durable. **Chỉ thị:** retry durable có backoff bị chặn mức delay (không bỏ công việc), hoặc trạng thái failure/operator remediation rõ ràng và alert; có test outage vượt 5 lần rồi broker hồi phục.
+  5. **[Medium] F6/F7 — “Latest” và revision không có invariant DB đủ chặt.** `getLatestByDeviceId()` (`:90-92`), `createOrGetPending()` (`:125`) và ACK/clear (`:182`, `:224`) chỉ dùng `created_at DESC`; timestamp không phải thứ tự revision bất biến và không có tie-break. Migration `0006:13` cũng thiếu unique `(device_id, revision)`. **Chỉ thị:** thêm constraint/index unique `(device_id, revision)` và dùng `revision DESC` (hoặc `created_at DESC, id DESC` nhất quán nếu chứng minh được semantics) cho latest; thêm regression hai command có cùng timestamp.
+- **Kiến trúc/chất lượng cần khắc phục:** `TuningConfigurationService` vẫn ôm persistence, authorization, MQTT dispatch, ACK, retry scheduler và SSE; `clearRetainedIfStillCurrent()` còn vượt convention 50 dòng khi tính cả flow transaction/side effect. Tách repository/outbox publisher/retained-clear worker để giới hạn side effects và testability. Không phát hiện secret hard-code mới hoặc SQL injection trong Track F; query advisory lock có parameter binding.
+- **Xác minh QA:** `npm test -- --runInBand` **PASS** (27 suites, 180 tests); `npx tsc --noEmit -p tsconfig.build.json` **PASS**; `git diff --check` **PASS**. Các test hiện có chỉ có 6 test Track-F service, không phủ migration rollback, interleaving publish/clear, DB failure sau MQTT publish, hay outage vượt retry cap; kết quả xanh không loại trừ các lỗi chặn trên.
+
+---
+
 ## [2026-07-24T12:50:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-24 12:39–12:50 (+07:00)

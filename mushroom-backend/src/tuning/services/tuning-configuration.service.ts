@@ -12,7 +12,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, LessThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, LessThan, Repository } from 'typeorm';
 import { Subject, Subscription } from 'rxjs';
 import * as crypto from 'crypto';
 import { Device } from '../../device/entities/device.entity';
@@ -34,10 +34,9 @@ import {
   MIST_ON_THRESHOLD_MAX,
   MIST_ON_THRESHOLD_MIN,
 } from '../constants/tuning-contract.constants';
+import { TuningMqttOutboxDispatcher } from './tuning-mqtt-outbox-dispatcher.service';
 
 const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const RETAINED_CLEAR_MAX_ATTEMPTS = 5;
-const RETAINED_CLEAR_RETRY_MS = 5_000;
 
 /** Identity derived from a verified JWT; never accept this data from a DTO. */
 export interface TuningPrincipal {
@@ -63,7 +62,6 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
   private readonly logger = new Logger(TuningConfigurationService.name);
   public readonly tuningSync$ = new Subject<TuningSyncEvent>();
   private tuningReportedSub?: Subscription;
-  private retainedClearTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -72,23 +70,21 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     @InjectRepository(TuningAuditLog)
     private readonly auditRepo: Repository<TuningAuditLog>,
     @Inject(forwardRef(() => MqttService)) private readonly mqttService: MqttService,
+    private readonly outboxDispatcher: TuningMqttOutboxDispatcher,
   ) {}
 
   onModuleInit(): void {
     this.tuningReportedSub = this.mqttService.tuningReported$?.subscribe((event) => {
       void this.handleReportedAck(event).catch((error: unknown) => this.logError('Failed processing tuning ACK', error));
     });
-    this.retainedClearTimer = setInterval(() => void this.retryRetainedClears(), RETAINED_CLEAR_RETRY_MS);
-    this.retainedClearTimer.unref();
   }
 
   onModuleDestroy(): void {
     this.tuningReportedSub?.unsubscribe();
-    if (this.retainedClearTimer) clearInterval(this.retainedClearTimer);
   }
 
   async getLatestByDeviceId(deviceId: string): Promise<DeviceTuningConfiguration | null> {
-    return this.configRepo.findOne({ where: { deviceId: this.validDeviceId(deviceId) }, order: { createdAt: 'DESC' } });
+    return this.configRepo.findOne({ where: { deviceId: this.validDeviceId(deviceId) }, order: { revision: 'DESC' } });
   }
 
   async getTuningHistory(deviceId: string, limit?: number, offset?: number): Promise<{ items: TuningAuditLog[]; total: number; limit: number; offset: number }> {
@@ -107,8 +103,8 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     this.validateCommandId(commandId);
     this.validateSnapshot(config);
     const pending = await this.createOrGetPending(principal, normalizedDeviceId, config, commandId);
-    if (pending.publishedAt || pending.status !== SyncStatus.PENDING) return pending;
-    return this.publishPending(pending, principal.subject);
+    await this.outboxDispatcher.dispatchDue();
+    return pending;
   }
 
   private async createOrGetPending(principal: TuningPrincipal, deviceId: string, config: TuningConfigSnapshot, commandId: string): Promise<DeviceTuningConfiguration> {
@@ -122,7 +118,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
           if (!this.sameSnapshot(existing.config, config)) throw new ConflictException('commandId is already bound to a different tuning configuration.');
           return existing;
         }
-        const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId }, order: { createdAt: 'DESC' } });
+        const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId }, order: { revision: 'DESC' } });
         const configBefore = latest?.status === SyncStatus.IN_SYNC ? latest.config : null;
         const saved = await manager.save(DeviceTuningConfiguration, manager.create(DeviceTuningConfiguration, {
           id: crypto.randomUUID(), deviceId, commandId, revision: (latest?.revision ?? 0) + 1,
@@ -130,6 +126,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
           retainedClearPending: false, retainedClearAttempts: 0, retainedClearNextAt: null,
         }));
         await this.writeAudit(manager, saved, principal.subject, 'api', 'CREATE_PENDING', configBefore, saved.config, 'Create pending tuning command', 'SUCCESS');
+        await this.outboxDispatcher.enqueueDesired(manager, saved);
         return saved;
       });
     } catch (error: unknown) {
@@ -146,31 +143,6 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private async publishPending(config: DeviceTuningConfiguration, actor: string): Promise<DeviceTuningConfiguration> {
-    try {
-      await this.mqttService.publishTuningDesired(config.deviceId, config.commandId, config.config);
-      config.publishedAt = new Date();
-      const saved = await this.configRepo.save(config);
-      this.emit(saved);
-      return saved;
-    } catch (error: unknown) {
-      await this.markPublishFailure(config, actor, error);
-      throw new InternalServerErrorException('Failed to publish tuning command to device.');
-    }
-  }
-
-  private async markPublishFailure(config: DeviceTuningConfiguration, actor: string, error: unknown): Promise<void> {
-    try {
-      await this.dataSource.transaction(async (manager) => {
-        await manager.update(DeviceTuningConfiguration, { id: config.id }, { status: SyncStatus.REJECTED, updatedAt: new Date() });
-        await this.writeAudit(manager, config, actor, 'api', 'PUBLISH_FAILED', null, config.config, this.errorMessage(error), 'FAILED');
-      });
-      config.status = SyncStatus.REJECTED;
-    } catch (auditError: unknown) {
-      this.logError('Failed to durably record MQTT publish failure', auditError);
-    }
-  }
-
   async handleReportedAck(ack: TuningReportedEvent): Promise<{ updated: boolean; isLatest: boolean }> {
     if (!this.isValidAck(ack)) return { updated: false, isLatest: false };
     const result = { updated: false, isLatest: false };
@@ -179,7 +151,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
       await this.dataSource.transaction(async (manager) => {
         const config = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, commandId: ack.commandId }, lock: { mode: 'pessimistic_write' } });
         if (!config) { this.logger.warn(`SECURITY: unknown tuning ACK device='${ack.deviceId}' command='${ack.commandId}'.`); return; }
-        const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId }, order: { createdAt: 'DESC' } });
+        const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId }, order: { revision: 'DESC' } });
         result.isLatest = latest?.id === config.id;
         if (config.status !== SyncStatus.PENDING) return;
         // Fail closed: ACCEPTED/DUPLICATE has no durability meaning unless persisted is true.
@@ -189,10 +161,11 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
           config.retainedClearPending = true;
           config.retainedClearAttempts = 0;
           config.retainedClearNextAt = new Date();
+          await this.outboxDispatcher.enqueueRetainedClear(manager, config);
         }
         config.updatedAt = new Date();
         await manager.save(DeviceTuningConfiguration, config);
-        const before = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, status: SyncStatus.IN_SYNC, createdAt: LessThan(config.createdAt) }, order: { createdAt: 'DESC' } });
+        const before = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, status: SyncStatus.IN_SYNC, revision: LessThan(config.revision) }, order: { revision: 'DESC' } });
         await this.writeAudit(manager, config, 'device', 'mqtt', accepted ? 'SYNC_ACCEPTED' : 'SYNC_REJECTED', before?.config ?? null, config.config, accepted ? ack.reasonCode : (ack.persisted ? ack.reasonCode : 'PERSISTENCE_NOT_CONFIRMED'), accepted ? 'SUCCESS' : 'FAILED');
         result.updated = true;
         event = this.toEvent(config);
@@ -202,43 +175,8 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
       throw new InternalServerErrorException('Failed to process tuning acknowledgement due to database error.');
     }
     if (event) this.tuningSync$.next(event);
-    if (result.updated && result.isLatest) await this.retryRetainedClears();
+    if (result.updated && result.isLatest) await this.outboxDispatcher.dispatchDue();
     return result;
-  }
-
-  /** Persistent outbox retry. A retained clear is never silently discarded. */
-  async retryRetainedClears(): Promise<void> {
-    const due = await this.configRepo.find({ where: { retainedClearPending: true }, order: { updatedAt: 'ASC' }, take: 20 });
-    const now = Date.now();
-    for (const candidate of due) {
-      if (!candidate.retainedClearNextAt || candidate.retainedClearNextAt.getTime() <= now) {
-        await this.clearRetainedIfStillCurrent(candidate.id);
-      }
-    }
-  }
-
-  private async clearRetainedIfStillCurrent(configurationId: string): Promise<void> {
-    const config = await this.dataSource.transaction(async (manager) => {
-      const locked = await manager.findOne(DeviceTuningConfiguration, { where: { id: configurationId }, lock: { mode: 'pessimistic_write' } });
-      if (!locked?.retainedClearPending || locked.retainedClearAttempts >= RETAINED_CLEAR_MAX_ATTEMPTS) return null;
-      const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: locked.deviceId }, order: { createdAt: 'DESC' } });
-      if (latest?.id !== locked.id || locked.status !== SyncStatus.IN_SYNC) {
-        locked.retainedClearPending = false;
-        await manager.save(DeviceTuningConfiguration, locked);
-        return null;
-      }
-      return locked;
-    });
-    if (!config) return;
-    try {
-      await this.mqttService.clearTuningDesired(config.deviceId);
-      await this.configRepo.update({ id: config.id, retainedClearPending: true }, { retainedClearPending: false, retainedClearNextAt: null });
-    } catch (error: unknown) {
-      const attempts = config.retainedClearAttempts + 1;
-      const delay = RETAINED_CLEAR_RETRY_MS * 2 ** Math.min(attempts - 1, 4);
-      await this.configRepo.update({ id: config.id }, { retainedClearAttempts: attempts, retainedClearNextAt: new Date(Date.now() + delay) });
-      this.logger.warn(`Retained tuning clear retry ${attempts}/${RETAINED_CLEAR_MAX_ATTEMPTS} for '${config.deviceId}': ${this.errorMessage(error)}`);
-    }
   }
 
   private validateSnapshot(config: TuningConfigSnapshot): void {
@@ -256,7 +194,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     if (!principal.isAdmin && !principal.allowedHouseIds.includes(device.houseId)) throw new ForbiddenException(`Not authorized to tune device '${deviceId}'.`);
   }
 
-  private async writeAudit(manager: { create: Function; save: Function }, config: DeviceTuningConfiguration, actor: string, source: string, action: string, before: TuningConfigSnapshot | null, after: TuningConfigSnapshot | null, reason: string | null, result: string): Promise<void> {
+  private async writeAudit(manager: EntityManager, config: DeviceTuningConfiguration, actor: string, source: string, action: string, before: TuningConfigSnapshot | null, after: TuningConfigSnapshot | null, reason: string | null, result: string): Promise<void> {
     await manager.save(TuningAuditLog, manager.create(TuningAuditLog, { id: crypto.randomUUID(), configurationId: config.id, deviceId: config.deviceId, actor, source, action, rulesetVersion: null, kpiSnapshot: null, configBefore: before, configAfter: after, reason, result }));
   }
 
