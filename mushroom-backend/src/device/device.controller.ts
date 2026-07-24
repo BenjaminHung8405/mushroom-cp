@@ -163,7 +163,6 @@ export class ApplyCropProfileDto {
   configRevision?: number;
 }
 
-
 /**
  * DeviceController — HTTP interface for device management and real-time status.
  */
@@ -205,16 +204,25 @@ export class DeviceController {
       filter((event) => event.deviceId === params.id),
       map((event) => ({ data: event }) satisfies MessageEvent),
     );
-    return cached ? merge(of({ data: cached } as MessageEvent), updates$) : updates$;
+    return cached
+      ? merge(of({ data: cached } as MessageEvent), updates$)
+      : updates$;
   }
 
   @Get(':id/config-sync')
   getConfigSync(@Param() params: DeviceParamsDto) {
-    return this.mqttService.getConfigSync(params.id) ?? {
-      deviceId: params.id, status: 'OUT_OF_SYNC', desiredRevision: null,
-      appliedRevision: null, commandId: null, kind: null, error: null,
-      updatedAt: null,
-    };
+    return (
+      this.mqttService.getConfigSync(params.id) ?? {
+        deviceId: params.id,
+        status: 'OUT_OF_SYNC',
+        desiredRevision: null,
+        appliedRevision: null,
+        commandId: null,
+        kind: null,
+        error: null,
+        updatedAt: null,
+      }
+    );
   }
 
   /**
@@ -319,7 +327,8 @@ export class DeviceController {
     @Body() body: OperatingModeDto,
   ) {
     const { id } = params;
-    const device = this.deviceRegistryService.get(id) ??
+    const device =
+      this.deviceRegistryService.get(id) ??
       (await this.deviceRegistryService.refreshOne(id));
     if (!device) {
       throw new NotFoundException(`Device '${id}' not found.`);
@@ -337,23 +346,40 @@ export class DeviceController {
     @Param() params: DeviceParamsDto,
     @Body() body: ApplyCropProfileDto,
   ) {
-    const device = this.deviceRegistryService.get(params.id) ??
+    const device =
+      this.deviceRegistryService.get(params.id) ??
       (await this.deviceRegistryService.refreshOne(params.id));
-    if (!device) throw new NotFoundException(`Device '${params.id}' not found.`);
+    if (!device)
+      throw new NotFoundException(`Device '${params.id}' not found.`);
 
     // Guard: only allow crop profile change when an active batch exists on this house
     try {
-      const activeBatch = await this.batchService.getActiveBatchByHouseId(device.houseId);
+      const activeBatch = await this.batchService.getActiveBatchByHouseId(
+        device.houseId,
+      );
       if (!activeBatch) {
-        throw new BadRequestException('Chua co vụ nuoi dang hoạt dong — khong the ap dung crop profile.');
+        throw new BadRequestException(
+          'Chua co vụ nuoi dang hoạt dong — khong the ap dung crop profile.',
+        );
       }
       // Validate checkpoints against active batch total days
-      if (body.totalCropDays !== activeBatch.totalCropDays && body.totalCropDays > activeBatch.totalCropDays) {
-        throw new BadRequestException(`totalCropDays(${body.totalCropDays}) nam ngoai khoang cho phep cua vụ (${activeBatch.totalCropDays} ngay).`);
+      if (
+        body.totalCropDays !== activeBatch.totalCropDays &&
+        body.totalCropDays > activeBatch.totalCropDays
+      ) {
+        throw new BadRequestException(
+          `totalCropDays(${body.totalCropDays}) nam ngoai khoang cho phep cua vụ (${activeBatch.totalCropDays} ngay).`,
+        );
       }
     } catch (err) {
-      if (err instanceof BadRequestException || err instanceof NotFoundException) throw err;
-      this.logger.warn(`Batch validation failed for ${params.id}: ${err?.message ?? 'unknown'}`);
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException
+      )
+        throw err;
+      this.logger.warn(
+        `Batch validation failed for ${params.id}: ${err?.message ?? 'unknown'}`,
+      );
     }
 
     const sync = await this.mqttService.dispatchCropProfile(params.id, body);
@@ -367,7 +393,7 @@ export class DeviceController {
     @Body() body: ActuatorOverrideDto,
   ) {
     const { id } = params;
-    let { actuator, state } = body;
+    const { actuator, state } = body;
 
     // 1. Check device registry
     const device =
@@ -384,19 +410,27 @@ export class DeviceController {
       const localTime = toZonedTime(new Date(), timezone);
       const hour = localTime.getHours();
       const minute = localTime.getMinutes();
-      
+
       const minutesSinceMidnight = hour * 60 + minute;
       const startBlackout = 11 * 60; // 11:00
       const endBlackout = 13 * 60 + 30; // 13:30
-      
-      if (minutesSinceMidnight >= startBlackout && minutesSinceMidnight <= endBlackout) {
+
+      if (
+        minutesSinceMidnight >= startBlackout &&
+        minutesSinceMidnight <= endBlackout
+      ) {
         throw new BadRequestException(
           `Không thể bật máy tạo ẩm thủ công trong khung giờ bảo vệ sốc nhiệt (11:00 - 13:30).`,
         );
       }
     }
 
-    if ((actuator === 'heater_air' || actuator === 'lamp' || actuator === 'lamp_stage') && state === true) {
+    if (
+      (actuator === 'heater_air' ||
+        actuator === 'lamp' ||
+        actuator === 'lamp_stage') &&
+      state === true
+    ) {
       // Check if active batch has cropDay > 8
       try {
         const activeBatch = await this.batchService.getActiveBatchByHouseId(

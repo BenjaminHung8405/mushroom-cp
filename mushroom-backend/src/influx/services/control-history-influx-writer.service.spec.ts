@@ -56,12 +56,16 @@ describe('ControlHistoryInfluxWriter', () => {
   it('should initialize and subscribe onModuleInit', () => {
     writer.onModuleInit();
     expect(mockConfigService.get).toHaveBeenCalledWith('INFLUXDB_BUCKET');
-    expect(mockInfluxDbService.getWriteApi).toHaveBeenCalledWith('test_bucket', 'ms', expect.objectContaining({
-      batchSize: 250,
-      maxBufferLines: 1_000,
-      maxRetries: 0,
-      writeFailed: expect.any(Function),
-    }));
+    expect(mockInfluxDbService.getWriteApi).toHaveBeenCalledWith(
+      'test_bucket',
+      'ms',
+      expect.objectContaining({
+        batchSize: 250,
+        maxBufferLines: 1_000,
+        maxRetries: 0,
+        writeFailed: expect.any(Function),
+      }),
+    );
   });
 
   it('should process telemetry events and write to InfluxDB with dataQuality="good"', async () => {
@@ -145,7 +149,7 @@ describe('ControlHistoryInfluxWriter', () => {
     await new Promise((resolve) => process.nextTick(resolve));
 
     expect(mockWriteApi.writePoint).toHaveBeenCalled();
-    const pointArg = mockWriteApi.writePoint.mock.calls[0][0] as any;
+    const pointArg = mockWriteApi.writePoint.mock.calls[0][0];
     expect(pointArg.toString()).toContain('data_quality=degraded');
     expect(pointArg.toString()).not.toContain('temperature_c=0');
     expect(pointArg.toString()).not.toContain('temperature_c=');
@@ -177,7 +181,7 @@ describe('ControlHistoryInfluxWriter', () => {
     await new Promise((resolve) => process.nextTick(resolve));
 
     expect(mockWriteApi.writePoint).toHaveBeenCalled();
-    const pointArg = mockWriteApi.writePoint.mock.calls[0][0] as any;
+    const pointArg = mockWriteApi.writePoint.mock.calls[0][0];
     expect(pointArg.toString()).toContain('data_quality=missing_target');
   });
 
@@ -186,19 +190,46 @@ describe('ControlHistoryInfluxWriter', () => {
     ['humidity target', { humidityTarget: null }, 'missing_target'],
     ['source', { source: null }, 'degraded'],
     ['config revision', { configRevision: null }, 'degraded'],
-    ['source and config revision', { source: null, configRevision: null }, 'degraded'],
-  ])('does not mark telemetry good when Core-1 %s is missing', async (_name, controlPatch, expectedQuality) => {
-    writer.onModuleInit();
-    telemetrySubject.next({
-      deviceId: 'device-123', houseId: 'house-1', temp_air: 25.5, humidity_air: 80.2, co2_level: 600,
-      control: { temperatureTarget: 24, humidityTarget: 85, co2Target: null, source: 'fuzzy', configRevision: 42, ...controlPatch },
-      actuators: { mist_active: true, fan_active: false, lamp_stage_active: true, lamp_stage2_active: false,
-        heater_water_active: false, midday_blackout_active: false },
-      receivedAt: new Date('2026-07-21T03:00:00Z'), timestamp: '2026-07-21T03:00:00Z',
-    });
-    await new Promise((resolve) => process.nextTick(resolve));
-    expect((mockWriteApi.writePoint.mock.calls[0][0] as Point).toString()).toContain(`data_quality=${expectedQuality}`);
-  });
+    [
+      'source and config revision',
+      { source: null, configRevision: null },
+      'degraded',
+    ],
+  ])(
+    'does not mark telemetry good when Core-1 %s is missing',
+    async (_name, controlPatch, expectedQuality) => {
+      writer.onModuleInit();
+      telemetrySubject.next({
+        deviceId: 'device-123',
+        houseId: 'house-1',
+        temp_air: 25.5,
+        humidity_air: 80.2,
+        co2_level: 600,
+        control: {
+          temperatureTarget: 24,
+          humidityTarget: 85,
+          co2Target: null,
+          source: 'fuzzy',
+          configRevision: 42,
+          ...controlPatch,
+        },
+        actuators: {
+          mist_active: true,
+          fan_active: false,
+          lamp_stage_active: true,
+          lamp_stage2_active: false,
+          heater_water_active: false,
+          midday_blackout_active: false,
+        },
+        receivedAt: new Date('2026-07-21T03:00:00Z'),
+        timestamp: '2026-07-21T03:00:00Z',
+      });
+      await new Promise((resolve) => process.nextTick(resolve));
+      expect(
+        (mockWriteApi.writePoint.mock.calls[0][0] as Point).toString(),
+      ).toContain(`data_quality=${expectedQuality}`);
+    },
+  );
 
   it('should continue the MQTT pipeline when Influx receives a burst', async () => {
     writer.onModuleInit();
@@ -240,6 +271,10 @@ describe('ControlHistoryInfluxWriter', () => {
   it('drops asynchronous write failures without creating an unhandled rejection', async () => {
     writer.onModuleInit();
     const options = mockInfluxDbService.getWriteApi.mock.calls[0][2];
-    await expect(options.writeFailed(new Error('offline'), ['controller_history,device_id=device-123 value=1'])).resolves.toBeUndefined();
+    await expect(
+      options.writeFailed(new Error('offline'), [
+        'controller_history,device_id=device-123 value=1',
+      ]),
+    ).resolves.toBeUndefined();
   });
 });

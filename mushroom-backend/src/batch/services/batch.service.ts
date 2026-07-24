@@ -14,7 +14,11 @@ import { MushroomHouse } from '../entities/mushroom-house.entity';
 import { toZonedTime } from 'date-fns-tz';
 import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { CreateBatchDto } from '../dto/create-batch.dto';
-import { UpdateCheckpointsDto, CheckpointDto, MetricType } from '../dto/update-checkpoints.dto';
+import {
+  UpdateCheckpointsDto,
+  CheckpointDto,
+  MetricType,
+} from '../dto/update-checkpoints.dto';
 import { LightScheduleBlockDto } from '../dto/update-light-schedule.dto';
 
 export interface BatchContext {
@@ -99,10 +103,11 @@ export class BatchService {
         metricType: 'ASC',
       },
     });
-    const lightSchedule = (await this.lightScheduleBlockRepository.find({
-      where: { batchId: activeBatch.id },
-      order: { startDay: 'ASC' },
-    })) ?? [];
+    const lightSchedule =
+      (await this.lightScheduleBlockRepository.find({
+        where: { batchId: activeBatch.id },
+        order: { startDay: 'ASC' },
+      })) ?? [];
 
     return {
       ...activeBatch,
@@ -143,9 +148,12 @@ export class BatchService {
         where: { id },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!batch) throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
+      if (!batch)
+        throw new NotFoundException(`Crop batch with ID '${id}' not found.`);
       if (batch.status !== 'ACTIVE') {
-        throw new BadRequestException('Only ACTIVE batches can have light schedules updated.');
+        throw new BadRequestException(
+          'Only ACTIVE batches can have light schedules updated.',
+        );
       }
       this.validateLightSchedule(blocks, batch.totalCropDays);
       await manager.delete(LightScheduleBlock, { batchId: id });
@@ -163,20 +171,32 @@ export class BatchService {
     let expectedStart = 1;
     let previousStatus: 'ON' | 'OFF' | null = null;
     for (const block of blocks) {
-      if (block.startDay > block.endDay || block.startDay < 1 || block.endDay > totalCropDays) {
-        throw new BadRequestException(`Light schedule block must be within days 1–${totalCropDays}.`);
+      if (
+        block.startDay > block.endDay ||
+        block.startDay < 1 ||
+        block.endDay > totalCropDays
+      ) {
+        throw new BadRequestException(
+          `Light schedule block must be within days 1–${totalCropDays}.`,
+        );
       }
       if (block.startDay !== expectedStart) {
-        throw new BadRequestException('Light schedule blocks must be ordered, contiguous, and non-overlapping.');
+        throw new BadRequestException(
+          'Light schedule blocks must be ordered, contiguous, and non-overlapping.',
+        );
       }
       if (block.status === previousStatus) {
-        throw new BadRequestException('Adjacent light schedule blocks must have different statuses.');
+        throw new BadRequestException(
+          'Adjacent light schedule blocks must have different statuses.',
+        );
       }
       expectedStart = block.endDay + 1;
       previousStatus = block.status;
     }
     if (expectedStart !== totalCropDays + 1) {
-      throw new BadRequestException(`Light schedule must cover every day from 1 to ${totalCropDays}.`);
+      throw new BadRequestException(
+        `Light schedule must cover every day from 1 to ${totalCropDays}.`,
+      );
     }
   }
 
@@ -514,7 +534,10 @@ export class BatchService {
     );
   }
 
-  private validateBounds(checkpoints: CheckpointDto[], totalDays: number): void {
+  private validateBounds(
+    checkpoints: CheckpointDto[],
+    totalDays: number,
+  ): void {
     const outOfBounds = checkpoints.find(
       (c) => c.cropDay < 1 || c.cropDay > totalDays,
     );
@@ -565,7 +588,15 @@ export class BatchService {
     this.validateDuplicates(tempCheckpoints, 'Temperature');
     this.validateDuplicates(humidityCheckpoints, 'Humidity');
 
-    this.validateBoundaryDays(tempCheckpoints, batch.totalCropDays, 'Temperature');
-    this.validateBoundaryDays(humidityCheckpoints, batch.totalCropDays, 'Humidity');
+    this.validateBoundaryDays(
+      tempCheckpoints,
+      batch.totalCropDays,
+      'Temperature',
+    );
+    this.validateBoundaryDays(
+      humidityCheckpoints,
+      batch.totalCropDays,
+      'Humidity',
+    );
   }
 }

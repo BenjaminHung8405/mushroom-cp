@@ -60,16 +60,20 @@ describe('MQTT ACL Tuning Security Regression Tests', () => {
     it('denies anonymous ACL requests when the backend user is not configured', () => {
       delete process.env.MQTT_BACKEND_USER;
 
-      expect(service.authorize({
-        topic: 'mushroom/esp32/device1/down/tuning/desired',
-        acc: 2,
-      })).toBe(false);
-      expect(service.authorize({
-        username: '',
-        clientid: '',
-        topic: 'mushroom/esp32/device1/up/tuning/reported',
-        acc: 1,
-      })).toBe(false);
+      expect(
+        service.authorize({
+          topic: 'mushroom/esp32/device1/down/tuning/desired',
+          acc: 2,
+        }),
+      ).toBe(false);
+      expect(
+        service.authorize({
+          username: '',
+          clientid: '',
+          topic: 'mushroom/esp32/device1/up/tuning/reported',
+          acc: 1,
+        }),
+      ).toBe(false);
     });
   });
 
@@ -168,22 +172,38 @@ describe('MQTT ACL Tuning Security Regression Tests', () => {
     });
 
     it('denies unmatched downlink writes and uplink reads by default', () => {
-      expect(service.authorize({
-        username: 'device1', clientid: 'device1',
-        topic: 'mushroom/esp32/device1/down/command', acc: 2,
-      })).toBe(false);
-      expect(service.authorize({
-        username: 'device1', clientid: 'device1',
-        topic: 'mushroom/esp32/device1/down/tuning/desired', acc: 2,
-      })).toBe(false);
-      expect(service.authorize({
-        username: 'device1', clientid: 'device1',
-        topic: 'mushroom/esp32/device1/up/telemetry', acc: 1,
-      })).toBe(false);
-      expect(service.authorize({
-        username: 'device1', clientid: 'device1',
-        topic: 'mushroom/esp32/device1/up/tuning/reported', acc: 1,
-      })).toBe(false);
+      expect(
+        service.authorize({
+          username: 'device1',
+          clientid: 'device1',
+          topic: 'mushroom/esp32/device1/down/command',
+          acc: 2,
+        }),
+      ).toBe(false);
+      expect(
+        service.authorize({
+          username: 'device1',
+          clientid: 'device1',
+          topic: 'mushroom/esp32/device1/down/tuning/desired',
+          acc: 2,
+        }),
+      ).toBe(false);
+      expect(
+        service.authorize({
+          username: 'device1',
+          clientid: 'device1',
+          topic: 'mushroom/esp32/device1/up/telemetry',
+          acc: 1,
+        }),
+      ).toBe(false);
+      expect(
+        service.authorize({
+          username: 'device1',
+          clientid: 'device1',
+          topic: 'mushroom/esp32/device1/up/tuning/reported',
+          acc: 1,
+        }),
+      ).toBe(false);
     });
   });
 

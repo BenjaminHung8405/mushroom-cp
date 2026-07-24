@@ -55,7 +55,9 @@ describe('TelemetryService', () => {
 
     const mockDatabaseService = {
       query: jest.fn().mockResolvedValue({ rows: [] }),
-      transaction: jest.fn(async (work) => work(jest.fn().mockResolvedValue({ rows: [] }))),
+      transaction: jest.fn(async (work) =>
+        work(jest.fn().mockResolvedValue({ rows: [] })),
+      ),
     };
 
     registry = {
@@ -69,7 +71,12 @@ describe('TelemetryService', () => {
       }),
       refreshOne: jest.fn().mockResolvedValue(null),
       touchLastSeen: jest.fn().mockResolvedValue(undefined),
-      getEnabled: jest.fn(), loadAll: jest.fn(), onModuleInit: jest.fn(), upsertCache: jest.fn(), invalidate: jest.fn(), listCached: jest.fn(),
+      getEnabled: jest.fn(),
+      loadAll: jest.fn(),
+      onModuleInit: jest.fn(),
+      upsertCache: jest.fn(),
+      invalidate: jest.fn(),
+      listCached: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -79,7 +86,10 @@ describe('TelemetryService', () => {
         { provide: BatchService, useValue: mockBatchService },
         { provide: DatabaseService, useValue: mockDatabaseService },
         { provide: DeviceRegistryService, useValue: registry },
-        { provide: OfflineSyncService, useValue: { writeBurst: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: OfflineSyncService,
+          useValue: { writeBurst: jest.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 
@@ -326,34 +336,72 @@ describe('TelemetryService', () => {
   });
   describe('offline sync delivery', () => {
     const burst: OfflineSyncBurst = {
-      bootCount: 4, chunkIndex: 2, chunkCrc32: 9, sessionLastDeltaS: 30,
-      records: [{ bootCount: 4, deltaTimeS: 0, temp: 25, humid: 80, mistState: true, lampState: false }],
+      bootCount: 4,
+      chunkIndex: 2,
+      chunkCrc32: 9,
+      sessionLastDeltaS: 30,
+      records: [
+        {
+          bootCount: 4,
+          deltaTimeS: 0,
+          temp: 25,
+          humid: 80,
+          mistState: true,
+          lampState: false,
+        },
+      ],
     };
 
     it('writes Influx and PostgreSQL before acknowledging a new chunk', async () => {
       const writer = (service as any).offlineSync as { writeBurst: jest.Mock };
-      await (service as any).processOfflineSyncBurst('device-1', 'house-1', new Date('2026-07-19T10:00:00.000Z'), burst);
-      expect(writer.writeBurst).toHaveBeenCalledWith('device-1', burst, expect.any(Date));
+      await (service as any).processOfflineSyncBurst(
+        'device-1',
+        'house-1',
+        new Date('2026-07-19T10:00:00.000Z'),
+        burst,
+      );
+      expect(writer.writeBurst).toHaveBeenCalledWith(
+        'device-1',
+        burst,
+        expect.any(Date),
+      );
       expect(dbService.transaction).toHaveBeenCalledTimes(1);
-      expect((mqttService.acknowledgeOfflineSyncBurst as jest.Mock)).toHaveBeenCalledWith('device-1', burst);
+      expect(
+        mqttService.acknowledgeOfflineSyncBurst as jest.Mock,
+      ).toHaveBeenCalledWith('device-1', burst);
     });
 
     it('withholds ACK and receipt transaction when Influx write fails', async () => {
       const writer = (service as any).offlineSync as { writeBurst: jest.Mock };
       writer.writeBurst.mockRejectedValueOnce(new Error('Influx down'));
-      await expect((service as any).processOfflineSyncBurst('device-1', 'house-1', new Date(), burst)).rejects.toThrow('Influx down');
+      await expect(
+        (service as any).processOfflineSyncBurst(
+          'device-1',
+          'house-1',
+          new Date(),
+          burst,
+        ),
+      ).rejects.toThrow('Influx down');
       expect(dbService.transaction).not.toHaveBeenCalled();
-      expect((mqttService.acknowledgeOfflineSyncBurst as jest.Mock)).not.toHaveBeenCalled();
+      expect(
+        mqttService.acknowledgeOfflineSyncBurst as jest.Mock,
+      ).not.toHaveBeenCalled();
     });
 
     it('replays ACK without duplicate persistence when receipt exists', async () => {
       dbService.query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
       const writer = (service as any).offlineSync as { writeBurst: jest.Mock };
-      await (service as any).processOfflineSyncBurst('device-1', 'house-1', new Date(), burst);
+      await (service as any).processOfflineSyncBurst(
+        'device-1',
+        'house-1',
+        new Date(),
+        burst,
+      );
       expect(writer.writeBurst).not.toHaveBeenCalled();
       expect(dbService.transaction).not.toHaveBeenCalled();
-      expect((mqttService.acknowledgeOfflineSyncBurst as jest.Mock)).toHaveBeenCalledWith('device-1', burst);
+      expect(
+        mqttService.acknowledgeOfflineSyncBurst as jest.Mock,
+      ).toHaveBeenCalledWith('device-1', burst);
     });
   });
-
 });

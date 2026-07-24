@@ -95,7 +95,13 @@ describe('BatchController', () => {
   describe('updateCheckpoints', () => {
     it('should call service.updateBatchCheckpoints and return the updated checkpoints', async () => {
       const mockCheckpoints = [
-        { id: 1, batchId: 'batch-1', metricType: 'TEMPERATURE', cropDay: 1, targetValue: 30 },
+        {
+          id: 1,
+          batchId: 'batch-1',
+          metricType: 'TEMPERATURE',
+          cropDay: 1,
+          targetValue: 30,
+        },
       ] as any[];
       service.updateBatchCheckpoints.mockResolvedValue(mockCheckpoints);
 
@@ -107,7 +113,10 @@ describe('BatchController', () => {
 
       const result = await controller.updateCheckpoints({ id: 'batch-1' }, dto);
       expect(result).toEqual(mockCheckpoints);
-      expect(service.updateBatchCheckpoints).toHaveBeenCalledWith('batch-1', dto);
+      expect(service.updateBatchCheckpoints).toHaveBeenCalledWith(
+        'batch-1',
+        dto,
+      );
     });
   });
 });

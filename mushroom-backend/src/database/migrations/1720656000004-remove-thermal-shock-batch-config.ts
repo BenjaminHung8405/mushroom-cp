@@ -8,9 +8,15 @@ export class RemoveThermalShockBatchConfig1720656000004 implements MigrationInte
   name = 'RemoveThermalShockBatchConfig1720656000004';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_protection`);
-    await queryRunner.query(`ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_start`);
-    await queryRunner.query(`ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_end`);
+    await queryRunner.query(
+      `ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_protection`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_start`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE crop_batches DROP COLUMN IF EXISTS thermal_shock_end`,
+    );
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {

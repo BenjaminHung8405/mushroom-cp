@@ -65,7 +65,9 @@ describe('InfluxModule', () => {
     // Verify services can be retrieved
     const influxDbService = moduleRef.get<InfluxDbService>(InfluxDbService);
     const configService = moduleRef.get<ConfigService>(ConfigService);
-    const controlHistoryWriter = moduleRef.get<ControlHistoryInfluxWriter>(ControlHistoryInfluxWriter);
+    const controlHistoryWriter = moduleRef.get<ControlHistoryInfluxWriter>(
+      ControlHistoryInfluxWriter,
+    );
 
     expect(influxDbService).toBeDefined();
     expect(configService).toBeDefined();

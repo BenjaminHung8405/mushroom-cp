@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { Point, WriteApi } from '@influxdata/influxdb-client';
@@ -10,7 +15,9 @@ import { LiveTelemetryPoint } from '../interfaces/live-telemetry-point.interface
 type RawTelemetryPayload = TelemetryEvent;
 
 @Injectable()
-export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy {
+export class ControlHistoryInfluxWriter
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(ControlHistoryInfluxWriter.name);
   private readonly destroy$ = new Subject<void>();
   private writeApi: WriteApi | null = null;
@@ -26,7 +33,9 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
 
   onModuleInit(): void {
     if (!this.bucket) {
-      this.logger.error('INFLUXDB_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.');
+      this.logger.error(
+        'INFLUXDB_BUCKET is not configured. ControlHistoryInfluxWriter will not record data.',
+      );
       return;
     }
 
@@ -38,33 +47,39 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
         maxRetries: 0,
         writeFailed: (error, lines) => {
           const deviceId = this.deviceIdFromLine(lines[0]) ?? 'unknown';
-          this.logger.error(`Failed to write controller history point for device ${deviceId}: ${error.message}`);
+          this.logger.error(
+            `Failed to write controller history point for device ${deviceId}: ${error.message}`,
+          );
           return Promise.resolve(); // Drop the bounded batch; never propagate into MQTT.
         },
       });
       if (!this.writeApi) {
-        this.logger.error('InfluxDB WriteApi is unavailable. ControlHistoryInfluxWriter will not record data.');
+        this.logger.error(
+          'InfluxDB WriteApi is unavailable. ControlHistoryInfluxWriter will not record data.',
+        );
       }
     } catch (err: any) {
-      this.logger.error(`Failed to initialize InfluxDB WriteApi: ${err.message}`);
+      this.logger.error(
+        `Failed to initialize InfluxDB WriteApi: ${err.message}`,
+      );
     }
 
-    this.mqttService.telemetry$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe({
-        next: (event) => {
-          try {
-            const point = this.mapTelemetryToPoint(event);
-            this.writePoint(point);
-          } catch (err: any) {
-            // Catch synchronous mapping error or promise rejection inside subscription
-            this.logger.error(`Error processing telemetry for device ${event.deviceId}: ${err.message}`);
-          }
-        },
-        error: (err) => {
-          this.logger.error(`Error in telemetry$ stream: ${err.message}`);
-        },
-      });
+    this.mqttService.telemetry$.pipe(takeUntil(this.destroy$)).subscribe({
+      next: (event) => {
+        try {
+          const point = this.mapTelemetryToPoint(event);
+          this.writePoint(point);
+        } catch (err: any) {
+          // Catch synchronous mapping error or promise rejection inside subscription
+          this.logger.error(
+            `Error processing telemetry for device ${event.deviceId}: ${err.message}`,
+          );
+        }
+      },
+      error: (err) => {
+        this.logger.error(`Error in telemetry$ stream: ${err.message}`);
+      },
+    });
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -80,7 +95,9 @@ export class ControlHistoryInfluxWriter implements OnModuleInit, OnModuleDestroy
   }
 
   private mapTelemetryToPoint(raw: RawTelemetryPayload): LiveTelemetryPoint {
-    const timestamp = raw.receivedAt ? new Date(raw.receivedAt) : new Date(raw.timestamp);
+    const timestamp = raw.receivedAt
+      ? new Date(raw.receivedAt)
+      : new Date(raw.timestamp);
 
     const missingRequiredControl =
       !raw.control ||

@@ -15,16 +15,25 @@ const mockMqttClient = {
     (topic: string, opts: unknown, cb?: (err: Error | null) => void) => {
       if (cb) cb(null);
       return mockMqttClient;
-    }
+    },
   ),
-  unsubscribe: jest.fn((topic: string, opts: unknown, cb?: (err: Error | null) => void) => {
-    if (cb) cb(null);
-    return mockMqttClient;
-  }),
-  publish: jest.fn((topic: string, message: string, opts: unknown, cb?: (err: Error | null) => void) => {
-    if (cb) cb(null);
-    return mockMqttClient;
-  }),
+  unsubscribe: jest.fn(
+    (topic: string, opts: unknown, cb?: (err: Error | null) => void) => {
+      if (cb) cb(null);
+      return mockMqttClient;
+    },
+  ),
+  publish: jest.fn(
+    (
+      topic: string,
+      message: string,
+      opts: unknown,
+      cb?: (err: Error | null) => void,
+    ) => {
+      if (cb) cb(null);
+      return mockMqttClient;
+    },
+  ),
   end: jest.fn(() => ({}) as mqtt.MqttClient),
   connected: true,
 };
@@ -57,24 +66,44 @@ describe('MqttService', () => {
       }),
       refreshOne: jest.fn().mockResolvedValue(null),
       touchLastSeen: jest.fn().mockResolvedValue(undefined),
-      get: jest.fn(), loadAll: jest.fn(), onModuleInit: jest.fn(), upsertCache: jest.fn(), invalidate: jest.fn(), listCached: jest.fn(),
+      get: jest.fn(),
+      loadAll: jest.fn(),
+      onModuleInit: jest.fn(),
+      upsertCache: jest.fn(),
+      invalidate: jest.fn(),
+      listCached: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MqttService,
-        { provide: AppConfigService, useValue: {
-          getTenant: () => 'mushroom',
-          get: (key: string) => process.env[key],
-        } },
+        {
+          provide: AppConfigService,
+          useValue: {
+            getTenant: () => 'mushroom',
+            get: (key: string) => process.env[key],
+          },
+        },
         { provide: DeviceRegistryService, useValue: registry },
-        { provide: getRepositoryToken(Device), useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() } },
-        { provide: MqttAuthService, useValue: { enforceProvisionRateLimit: jest.fn() } },
-        { provide: DeviceHealthService, useValue: {
-          healthChanges$: { subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })) },
-          handleLwtStatus: jest.fn(), handleTelemetryReceived: jest.fn(),
-          isCommandAllowed: jest.fn(() => true),
-        } },
+        {
+          provide: getRepositoryToken(Device),
+          useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() },
+        },
+        {
+          provide: MqttAuthService,
+          useValue: { enforceProvisionRateLimit: jest.fn() },
+        },
+        {
+          provide: DeviceHealthService,
+          useValue: {
+            healthChanges$: {
+              subscribe: jest.fn(() => ({ unsubscribe: jest.fn() })),
+            },
+            handleLwtStatus: jest.fn(),
+            handleTelemetryReceived: jest.fn(),
+            isCommandAllowed: jest.fn(() => true),
+          },
+        },
       ],
     }).compile();
 
@@ -109,7 +138,11 @@ describe('MqttService', () => {
 
       messageCallback(
         'mushroom/esp32/unknown-device/up/telemetry',
-        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
+        Buffer.from(
+          JSON.stringify({
+            readings: { temperature_celsius: 25.5, humidity_percent: 80 },
+          }),
+        ),
       );
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
@@ -120,7 +153,9 @@ describe('MqttService', () => {
     it('subscribes to tuning reported QoS 1 and routes a valid ACK by topic identity', (done) => {
       (service as any).subscribeToDeviceTopics();
       expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
-        'mushroom/esp32/+/up/tuning/reported', { qos: 1 }, expect.any(Function),
+        'mushroom/esp32/+/up/tuning/reported',
+        { qos: 1 },
+        expect.any(Function),
       );
       service.tuningReported$.subscribe((event) => {
         expect(event.deviceId).toBe('device-1');
@@ -128,22 +163,43 @@ describe('MqttService', () => {
         expect(event.status).toBe('ACCEPTED');
         done();
       });
-      messageCallback('mushroom/esp32/device-1/up/tuning/reported', Buffer.from(JSON.stringify({
-        device_id: 'device-1', command_id: '11111111-1111-1111-1111-111111111111',
-        status: 'ACCEPTED', persisted: true,
-      })));
+      messageCallback(
+        'mushroom/esp32/device-1/up/tuning/reported',
+        Buffer.from(
+          JSON.stringify({
+            device_id: 'device-1',
+            command_id: '11111111-1111-1111-1111-111111111111',
+            status: 'ACCEPTED',
+            persisted: true,
+          }),
+        ),
+      );
     });
 
     it('drops malformed and unknown-device tuning ACKs', () => {
       const next = jest.spyOn(service.tuningReported$, 'next');
-      messageCallback('mushroom/esp32/device-1/up/tuning/reported', Buffer.from(JSON.stringify({
-        device_id: 'device-1', status: 'ACCEPTED', persisted: true,
-      })));
+      messageCallback(
+        'mushroom/esp32/device-1/up/tuning/reported',
+        Buffer.from(
+          JSON.stringify({
+            device_id: 'device-1',
+            status: 'ACCEPTED',
+            persisted: true,
+          }),
+        ),
+      );
       registry.getEnabled.mockReturnValue(undefined);
-      messageCallback('mushroom/esp32/unknown-device/up/tuning/reported', Buffer.from(JSON.stringify({
-        device_id: 'unknown-device', command_id: '11111111-1111-1111-1111-111111111111',
-        status: 'ACCEPTED', persisted: true,
-      })));
+      messageCallback(
+        'mushroom/esp32/unknown-device/up/tuning/reported',
+        Buffer.from(
+          JSON.stringify({
+            device_id: 'unknown-device',
+            command_id: '11111111-1111-1111-1111-111111111111',
+            status: 'ACCEPTED',
+            persisted: true,
+          }),
+        ),
+      );
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -153,7 +209,11 @@ describe('MqttService', () => {
 
       messageCallback(
         'mushroom/esp32/disabled-dev/up/telemetry',
-        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
+        Buffer.from(
+          JSON.stringify({
+            readings: { temperature_celsius: 25.5, humidity_percent: 80 },
+          }),
+        ),
       );
 
       expect(nextTelemetrySpy).not.toHaveBeenCalled();
@@ -175,7 +235,11 @@ describe('MqttService', () => {
 
       messageCallback(
         'mushroom/esp32/device-1/up/telemetry',
-        Buffer.from(JSON.stringify({ readings: { temperature_celsius: 25.5, humidity_percent: 80 } })),
+        Buffer.from(
+          JSON.stringify({
+            readings: { temperature_celsius: 25.5, humidity_percent: 80 },
+          }),
+        ),
       );
     });
 
@@ -215,10 +279,17 @@ describe('MqttService', () => {
       });
       messageCallback(
         'mushroom/esp32/device-1/up/telemetry',
-        Buffer.from(JSON.stringify({
-          readings: { temperature_celsius: 25.5, humidity_percent: 80 },
-          actuator_states: { relay_1: 'OFF', relay_2: 'OFF', relay_3: 'OFF', relay_4: 'OFF' },
-        })),
+        Buffer.from(
+          JSON.stringify({
+            readings: { temperature_celsius: 25.5, humidity_percent: 80 },
+            actuator_states: {
+              relay_1: 'OFF',
+              relay_2: 'OFF',
+              relay_3: 'OFF',
+              relay_4: 'OFF',
+            },
+          }),
+        ),
       );
     });
 
@@ -227,15 +298,17 @@ describe('MqttService', () => {
 
       messageCallback(
         'mushroom/esp32/device-1/up/manual/ack',
-        Buffer.from(JSON.stringify({
-          channel: 0,
-          requested_intent: 1,
-          decision: 0,
-          effective_intent: 1,
-          release_reason: 0,
-          expires_ms: 900000,
-          ack_ms: 1000000,
-        })),
+        Buffer.from(
+          JSON.stringify({
+            channel: 0,
+            requested_intent: 1,
+            decision: 0,
+            effective_intent: 1,
+            release_reason: 0,
+            expires_ms: 900000,
+            ack_ms: 1000000,
+          }),
+        ),
       );
 
       expect(nextAckSpy).toHaveBeenCalled();
@@ -251,15 +324,17 @@ describe('MqttService', () => {
 
       messageCallback(
         'mushroom/esp32/device-1/up/manual/ack',
-        Buffer.from(JSON.stringify({
-          channel: 99,
-          requested_intent: 1,
-          decision: 0,
-          effective_intent: 1,
-          release_reason: 0,
-          expires_ms: 900000,
-          ack_ms: 1000000,
-        })),
+        Buffer.from(
+          JSON.stringify({
+            channel: 99,
+            requested_intent: 1,
+            decision: 0,
+            effective_intent: 1,
+            release_reason: 0,
+            expires_ms: 900000,
+            ack_ms: 1000000,
+          }),
+        ),
       );
 
       expect(nextAckSpy).not.toHaveBeenCalled();

@@ -1,4 +1,10 @@
-import { Body, Controller, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { MqttAuthService } from './mqtt-auth.service';
 import type { MqttAclRequest, MqttAuthRequest } from './mqtt-auth.service';
 

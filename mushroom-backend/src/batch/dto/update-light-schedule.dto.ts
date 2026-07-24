@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, Max, Min, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class LightScheduleBlockDto {
   @IsInt()

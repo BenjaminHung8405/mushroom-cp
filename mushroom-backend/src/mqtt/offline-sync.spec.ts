@@ -1,4 +1,9 @@
-import { crc32, decodeOfflineSyncBurst, OFFLINE_BURST_HEADER_BYTES, OFFLINE_BURST_MAGIC } from './offline-sync';
+import {
+  crc32,
+  decodeOfflineSyncBurst,
+  OFFLINE_BURST_HEADER_BYTES,
+  OFFLINE_BURST_MAGIC,
+} from './offline-sync';
 
 function validBurst(): Buffer {
   const body = Buffer.alloc(18);
@@ -24,8 +29,19 @@ function validBurst(): Buffer {
 describe('offline sync binary decoder', () => {
   it('decodes the packed little-endian record', () => {
     expect(decodeOfflineSyncBurst(validBurst())).toMatchObject({
-      bootCount: 7, chunkIndex: 3, sessionLastDeltaS: 30,
-      records: [{ bootCount: 7, deltaTimeS: 30, temp: 29.5, humid: 82.25, mistState: true, lampState: false }],
+      bootCount: 7,
+      chunkIndex: 3,
+      sessionLastDeltaS: 30,
+      records: [
+        {
+          bootCount: 7,
+          deltaTimeS: 30,
+          temp: 29.5,
+          humid: 82.25,
+          mistState: true,
+          lampState: false,
+        },
+      ],
     });
   });
 

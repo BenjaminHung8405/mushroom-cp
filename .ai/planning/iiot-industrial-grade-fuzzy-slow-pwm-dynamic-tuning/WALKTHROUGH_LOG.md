@@ -1,3 +1,24 @@
+## [2026-07-24T12:04:00+07:00] - Task F2: Tạo migration bảng `tuning_audit_logs`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F2
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/database/migrations/1720656000007-create-tuning-audit-logs.ts` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Tạo file migration `1720656000007-create-tuning-audit-logs.ts` định nghĩa schema cho bảng `tuning_audit_logs` để lưu nhật ký kiểm toán (audit logs) cho quá trình tuning cấu hình thiết bị.
+  - Bảng được thiết kế lưu trữ append-only với các trường: `id` (UUID khóa chính), `configuration_id` (FOREIGN KEY liên kết `device_tuning_configurations(id)` hỗ trợ cascade delete), `device_id` (FOREIGN KEY liên kết `devices(device_id)` hỗ trợ cascade delete), `actor` (đối tượng thực hiện), `source` (nguồn kích hoạt), `action` (hành động thực hiện), `ruleset_version` (phiên bản ruleset), `kpi_snapshot` (JSONB lưu snapshot KPI), `config_before` (JSONB cấu hình trước khi tuning), `config_after` (JSONB cấu hình sau khi tuning), `reason` (lý do/giải trình dạng TEXT), `result` (kết quả thực hiện), cùng timestamp `created_at`.
+  - Không lưu trữ các thông tin nhạy cảm hay credentials trong các cột JSONB để bảo mật thông tin.
+  - Tạo index `idx_tuning_audit_device_created` trên `(device_id, created_at DESC)` hỗ trợ tối ưu hóa truy vấn audit log phân trang theo từng thiết bị và thời gian.
+- **Xác minh:**
+  - Đã biên dịch thành công NestJS backend (`pnpm run build`).
+  - Đã chạy thành công lệnh migration run `pnpm run migration:run` bên trong container backend (`mushroom_backend`), xác minh database tạo bảng `tuning_audit_logs` và index thành công.
+  - Đã chạy thử nghiệm revert `pnpm run migration:revert` và xác nhận khôi phục cấu trúc database (drop bảng và index) sạch sẽ, sau đó chạy lại để đảm bảo trạng thái ổn định cho hệ thống.
+  - Đã chạy bộ test suite unit test của NestJS backend (`pnpm run test`) trên host, tất cả 25 test suites / 172 tests đều vượt qua thành công (`PASS`).
+
+---
+
 ## [2026-07-24T11:51:04+07:00] - Task F1: Tạo migration bảng `device_tuning_configurations`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

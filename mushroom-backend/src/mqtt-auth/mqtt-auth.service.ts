@@ -1,13 +1,14 @@
-import {
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { Device } from '../device/entities/device.entity';
-import { getTuningDesiredTopic, getTuningReportedTopic, parseTuningTopic } from '../mqtt/constants/mqtt-topics.const';
+import {
+  getTuningDesiredTopic,
+  getTuningReportedTopic,
+  parseTuningTopic,
+} from '../mqtt/constants/mqtt-topics.const';
 import { AppConfigService } from '../config/config.service';
 
 export interface MqttAuthRequest {
@@ -61,7 +62,9 @@ export class MqttAuthService {
     }
 
     if (!username || username !== clientId || !password) return false;
-    const device = await this.deviceRepo.findOne({ where: { deviceId: username } });
+    const device = await this.deviceRepo.findOne({
+      where: { deviceId: username },
+    });
     return Boolean(device?.enabled && this.sameSecret(password, device.token));
   }
 
@@ -107,13 +110,24 @@ export class MqttAuthService {
       return false;
     }
 
-    if (!username || username !== clientId || ![1, 2, 3, 4].includes(access)) return false;
+    if (!username || username !== clientId || ![1, 2, 3, 4].includes(access))
+      return false;
 
     const tuningTopic = parseTuningTopic(topic);
     if (tuningTopic) {
-      if (tuningTopic.tenant !== this.tenant || tuningTopic.deviceId !== username) return false;
-      if (tuningTopic.kind === 'desired') return topic === getTuningDesiredTopic(this.tenant, username) && (access === 1 || access === 4);
-      return topic === getTuningReportedTopic(this.tenant, username) && access === 2;
+      if (
+        tuningTopic.tenant !== this.tenant ||
+        tuningTopic.deviceId !== username
+      )
+        return false;
+      if (tuningTopic.kind === 'desired')
+        return (
+          topic === getTuningDesiredTopic(this.tenant, username) &&
+          (access === 1 || access === 4)
+        );
+      return (
+        topic === getTuningReportedTopic(this.tenant, username) && access === 2
+      );
     }
 
     // Phase 3 offline binary transport remains per-device, even though it uses
@@ -147,12 +161,18 @@ export class MqttAuthService {
     window.count += 1;
     if (window.count > maxRequests) {
       this.logger.warn(`Rate limit exceeded for ${key}.`);
-      const err = new HttpException('MQTT authentication rate limit exceeded.', 429);
-        throw err;
+      const err = new HttpException(
+        'MQTT authentication rate limit exceeded.',
+        429,
+      );
+      throw err;
     }
   }
 
-  private sameSecret(value: string, expected: string | null | undefined): boolean {
+  private sameSecret(
+    value: string,
+    expected: string | null | undefined,
+  ): boolean {
     if (!expected || !value) return false;
     const left = Buffer.from(value);
     const right = Buffer.from(expected);

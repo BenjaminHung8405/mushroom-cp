@@ -15,7 +15,9 @@ function assertProductionSecrets(): void {
 
   const unsafeKeys = productionSecretKeys.filter((key) => {
     const value = process.env[key]?.trim();
-    return !value || /change_me|changeme|default|example|replace_me/i.test(value);
+    return (
+      !value || /change_me|changeme|default|example|replace_me/i.test(value)
+    );
   });
   if (unsafeKeys.length > 0) {
     throw new Error(

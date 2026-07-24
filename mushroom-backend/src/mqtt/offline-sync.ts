@@ -29,19 +29,27 @@ export function crc32(bytes: Buffer): number {
       crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
     }
   }
-  return (~crc) >>> 0;
+  return ~crc >>> 0;
 }
 
 export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
-  if (payload.length < OFFLINE_BURST_HEADER_BYTES) throw new Error('payload too short');
-  if (payload.readUInt32LE(0) !== OFFLINE_BURST_MAGIC) throw new Error('invalid magic');
-  if (payload.readUInt8(4) !== OFFLINE_BURST_VERSION || payload.readUInt8(5) !== OFFLINE_BURST_HEADER_BYTES) {
+  if (payload.length < OFFLINE_BURST_HEADER_BYTES)
+    throw new Error('payload too short');
+  if (payload.readUInt32LE(0) !== OFFLINE_BURST_MAGIC)
+    throw new Error('invalid magic');
+  if (
+    payload.readUInt8(4) !== OFFLINE_BURST_VERSION ||
+    payload.readUInt8(5) !== OFFLINE_BURST_HEADER_BYTES
+  ) {
     throw new Error('unsupported schema');
   }
   const recordCount = payload.readUInt16LE(6);
-  if (recordCount === 0 || recordCount > OFFLINE_MAX_RECORDS_PER_BURST) throw new Error('invalid record count');
-  const expectedLength = OFFLINE_BURST_HEADER_BYTES + recordCount * OFFLINE_TELEMETRY_BYTES;
-  if (payload.length !== expectedLength) throw new Error('invalid payload length');
+  if (recordCount === 0 || recordCount > OFFLINE_MAX_RECORDS_PER_BURST)
+    throw new Error('invalid record count');
+  const expectedLength =
+    OFFLINE_BURST_HEADER_BYTES + recordCount * OFFLINE_TELEMETRY_BYTES;
+  if (payload.length !== expectedLength)
+    throw new Error('invalid payload length');
 
   const bootCount = payload.readUInt32LE(8);
   const chunkIndex = payload.readUInt32LE(12);
@@ -60,13 +68,26 @@ export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
     const humid = payload.readFloatLE(offset + 12);
     const mistState = payload.readUInt8(offset + 16);
     const lampState = payload.readUInt8(offset + 17);
-    if (recordBootCount !== bootCount || !Number.isFinite(temp) || !Number.isFinite(humid) ||
-        (mistState !== 0 && mistState !== 1) || (lampState !== 0 && lampState !== 1) ||
-        deltaTimeS < previousDelta || deltaTimeS > sessionLastDeltaS) {
+    if (
+      recordBootCount !== bootCount ||
+      !Number.isFinite(temp) ||
+      !Number.isFinite(humid) ||
+      (mistState !== 0 && mistState !== 1) ||
+      (lampState !== 0 && lampState !== 1) ||
+      deltaTimeS < previousDelta ||
+      deltaTimeS > sessionLastDeltaS
+    ) {
       throw new Error('invalid record');
     }
     previousDelta = deltaTimeS;
-    records.push({ bootCount, deltaTimeS, temp, humid, mistState: mistState === 1, lampState: lampState === 1 });
+    records.push({
+      bootCount,
+      deltaTimeS,
+      temp,
+      humid,
+      mistState: mistState === 1,
+      lampState: lampState === 1,
+    });
   }
   return { bootCount, chunkIndex, sessionLastDeltaS, chunkCrc32, records };
 }

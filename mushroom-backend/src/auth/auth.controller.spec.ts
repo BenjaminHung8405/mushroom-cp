@@ -1,5 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -53,6 +56,8 @@ describe('AuthController', () => {
   });
 
   it('GET /v1/auth/device-token should throw BadRequestException when X-Device-Id is missing', () => {
-    expect(() => controller.issueDeviceToken(undefined as unknown as string)).toThrow(BadRequestException);
+    expect(() =>
+      controller.issueDeviceToken(undefined as unknown as string),
+    ).toThrow(BadRequestException);
   });
 });

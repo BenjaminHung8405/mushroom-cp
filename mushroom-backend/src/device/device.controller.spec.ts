@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { DeviceController } from './device.controller';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
@@ -199,7 +203,7 @@ describe('DeviceController', () => {
 
     it('should block heater_air ON when cropDay > 8', async () => {
       deviceRegistryService.get.mockReturnValue(mockDevice);
-      
+
       // Batch started 9 days ago
       const startDate = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
       batchService.getActiveBatchByHouseId.mockResolvedValue({
@@ -224,7 +228,7 @@ describe('DeviceController', () => {
 
     it('should allow heater_air ON when cropDay <= 8', async () => {
       deviceRegistryService.get.mockReturnValue(mockDevice);
-      
+
       // Batch started 2 days ago
       const startDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       batchService.getActiveBatchByHouseId.mockResolvedValue({

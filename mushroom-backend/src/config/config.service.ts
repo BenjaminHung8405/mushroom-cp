@@ -8,12 +8,16 @@ export class AppConfigService {
   constructor() {
     const tenant = process.env.IOT_TENANT?.trim();
     if (!tenant) {
-      throw new Error('Configuration error: IOT_TENANT environment variable is required.');
+      throw new Error(
+        'Configuration error: IOT_TENANT environment variable is required.',
+      );
     }
     try {
       validateSegment(tenant);
     } catch (err: any) {
-      throw new Error(`Configuration error: IOT_TENANT is invalid. ${err.message}`);
+      throw new Error(
+        `Configuration error: IOT_TENANT is invalid. ${err.message}`,
+      );
     }
     this.tenant = tenant;
   }

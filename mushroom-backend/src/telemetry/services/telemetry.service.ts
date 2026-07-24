@@ -6,7 +6,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Subscription, Subject } from 'rxjs';
-import { MqttService, ManualAckEvent, TelemetryEvent } from '../../mqtt/mqtt.service';
+import {
+  MqttService,
+  ManualAckEvent,
+  TelemetryEvent,
+} from '../../mqtt/mqtt.service';
 import type { OfflineSyncBurst } from '../../mqtt/offline-sync';
 import { BatchService, BatchContext } from '../../batch/services/batch.service';
 import { DatabaseService } from '../../database/database.service';
@@ -18,7 +22,8 @@ export interface ManualAckState {
   requested_intent: 'auto' | 'on' | 'off';
   decision: number;
   effective_intent: 'auto' | 'on' | 'off';
-  release_reason: 'ttl_expired' | 'safety_limit_reached' | 'hardware_protection' | null;
+  release_reason:
+    'ttl_expired' | 'safety_limit_reached' | 'hardware_protection' | null;
   /** Server-wall-clock timestamp at which this latch expires; null for AUTO/release. */
   expires_ms: number | null;
   ack_ms: number;
@@ -79,7 +84,14 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   /** Keyed by deviceId (MQTT identity), never by houseId. */
   private readonly latestCache = new Map<string, TelemetrySnapshot>();
   /** Latest manual acks for each device. */
-  private readonly manualAcks = new Map<string, { mistAck?: ManualAckState | null, fanAck?: ManualAckState | null, lampAck?: ManualAckState | null }>();
+  private readonly manualAcks = new Map<
+    string,
+    {
+      mistAck?: ManualAckState | null;
+      fanAck?: ManualAckState | null;
+      lampAck?: ManualAckState | null;
+    }
+  >();
 
   constructor(
     private readonly mqttService: MqttService,
@@ -105,14 +117,22 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         this.handleManualAck(deviceId, ack);
       },
     );
-    this.offlineSyncSubscription = this.mqttService.offlineSyncBurst$?.subscribe(
-      ({ deviceId, houseId, receivedAt, burst }) => {
-        this.processOfflineSyncBurst(deviceId, houseId, receivedAt, burst).catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          this.logger.error(`Offline burst persistence failed for ${deviceId}: ${message}`);
-        });
-      },
-    ) ?? null;
+    this.offlineSyncSubscription =
+      this.mqttService.offlineSyncBurst$?.subscribe(
+        ({ deviceId, houseId, receivedAt, burst }) => {
+          this.processOfflineSyncBurst(
+            deviceId,
+            houseId,
+            receivedAt,
+            burst,
+          ).catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.error(
+              `Offline burst persistence failed for ${deviceId}: ${message}`,
+            );
+          });
+        },
+      ) ?? null;
     this.logger.log(
       'TelemetryService initialized and subscribed to telemetry stream.',
     );
@@ -181,24 +201,44 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     try {
       if (receipt.rows.length === 0) {
         await this.offlineSync.writeBurst(deviceId, burst, receivedAt);
-        this.logger.log(`Offline sync Influx persistence succeeded ${identity}`);
+        this.logger.log(
+          `Offline sync Influx persistence succeeded ${identity}`,
+        );
 
-        const context = await this.batchService.getBatchContext(houseId, receivedAt);
+        const context = await this.batchService.getBatchContext(
+          houseId,
+          receivedAt,
+        );
         await this.db.transaction(async (query) => {
           for (const record of burst.records) {
-            const timestamp = new Date(receivedAt.getTime() -
-              (burst.sessionLastDeltaS - record.deltaTimeS) * 1000);
+            const timestamp = new Date(
+              receivedAt.getTime() -
+                (burst.sessionLastDeltaS - record.deltaTimeS) * 1000,
+            );
             const event: TelemetryEvent = {
-              deviceId, houseId, temp_air: record.temp, humidity_air: record.humid,
+              deviceId,
+              houseId,
+              temp_air: record.temp,
+              humidity_air: record.humid,
               co2_level: null,
               actuators: {
-                mist_active: record.mistState, fan_active: null,
-                lamp_stage_active: record.lampState, lamp_stage2_active: null,
-                heater_water_active: null, midday_blackout_active: null,
+                mist_active: record.mistState,
+                fan_active: null,
+                lamp_stage_active: record.lampState,
+                lamp_stage2_active: null,
+                heater_water_active: null,
+                midday_blackout_active: null,
               },
-              receivedAt: timestamp, timestamp: timestamp.toISOString(),
+              receivedAt: timestamp,
+              timestamp: timestamp.toISOString(),
             };
-            await this.saveTelemetryLog(houseId, event, context, timestamp, query);
+            await this.saveTelemetryLog(
+              houseId,
+              event,
+              context,
+              timestamp,
+              query,
+            );
           }
           await query(
             `INSERT INTO offline_sync_receipts (device_id, boot_count, chunk_index, chunk_crc32, received_at)
@@ -206,16 +246,22 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
             [deviceId, burst.bootCount, burst.chunkIndex, burst.chunkCrc32],
           );
         });
-        this.logger.log(`Offline sync PostgreSQL persistence succeeded ${identity}`);
+        this.logger.log(
+          `Offline sync PostgreSQL persistence succeeded ${identity}`,
+        );
       } else {
-        this.logger.log(`Offline sync receipt already exists; replaying ACK ${identity}`);
+        this.logger.log(
+          `Offline sync receipt already exists; replaying ACK ${identity}`,
+        );
       }
 
       await this.mqttService.acknowledgeOfflineSyncBurst(deviceId, burst);
       this.logger.log(`Offline sync ACK sent ${identity}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Offline sync persistence failed; ACK withheld ${identity}: ${message}`);
+      this.logger.error(
+        `Offline sync persistence failed; ACK withheld ${identity}: ${message}`,
+      );
       throw error;
     }
   }
@@ -333,7 +379,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     event: TelemetryEvent,
     context: BatchContext,
     timestamp: Date,
-    query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> = this.db.query.bind(this.db),
+    query: <T = unknown>(
+      text: string,
+      params?: unknown[],
+    ) => Promise<{ rows: T[] }> = this.db.query.bind(this.db),
   ): Promise<void> {
     const humiditySetpoint = context.batchId ? context.targetHumid : null;
     const temperatureSetpoint = context.batchId ? context.targetTemp : null;
@@ -379,12 +428,18 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     context: BatchContext,
     timestamp: Date,
   ): void {
-    const desiredHumiditySetpoint = context.batchId ? context.targetHumid : null;
-    const desiredTemperatureSetpoint = context.batchId ? context.targetTemp : null;
+    const desiredHumiditySetpoint = context.batchId
+      ? context.targetHumid
+      : null;
+    const desiredTemperatureSetpoint = context.batchId
+      ? context.targetTemp
+      : null;
     // On live telemetry, Core 1's final target is authoritative. Fall back to
     // the batch context only while an older firmware has not sent control data.
-    const humiditySetpoint = event.control?.humidityTarget ?? desiredHumiditySetpoint;
-    const temperatureSetpoint = event.control?.temperatureTarget ?? desiredTemperatureSetpoint;
+    const humiditySetpoint =
+      event.control?.humidityTarget ?? desiredHumiditySetpoint;
+    const temperatureSetpoint =
+      event.control?.temperatureTarget ?? desiredTemperatureSetpoint;
     const actuators = event.actuators;
     const devAcks = this.manualAcks.get(deviceId) || {};
     const snapshot: TelemetrySnapshot = {
@@ -541,22 +596,30 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   handleManualAck(deviceId: string, ack: ManualAckEvent): void {
     const intent = (value: 0 | 1 | 2): ManualAckState['effective_intent'] =>
       value === 1 ? 'on' : value === 2 ? 'off' : 'auto';
-    const releaseReason = (value: 0 | 1 | 2 | 3): ManualAckState['release_reason'] =>
-      value === 1 ? 'ttl_expired' :
-      value === 2 ? 'safety_limit_reached' :
-      value === 3 ? 'hardware_protection' : null;
+    const releaseReason = (
+      value: 0 | 1 | 2 | 3,
+    ): ManualAckState['release_reason'] =>
+      value === 1
+        ? 'ttl_expired'
+        : value === 2
+          ? 'safety_limit_reached'
+          : value === 3
+            ? 'hardware_protection'
+            : null;
     // Firmware millis() values are uptime-relative. Convert the remaining latch
     // duration at receipt into a browser-safe wall-clock expiry timestamp.
-    const remainingMs = ack.expiresMs >= ack.ackMs ? ack.expiresMs - ack.ackMs : 0;
+    const remainingMs =
+      ack.expiresMs >= ack.ackMs ? ack.expiresMs - ack.ackMs : 0;
     const normalizedAck: ManualAckState = {
       channel: ack.channel,
       requested_intent: intent(ack.requestedIntent),
       decision: ack.decision,
       effective_intent: intent(ack.effectiveIntent),
       release_reason: releaseReason(ack.releaseReason),
-      expires_ms: ack.effectiveIntent === 0 || remainingMs === 0
-        ? null
-        : ack.receivedAt.getTime() + remainingMs,
+      expires_ms:
+        ack.effectiveIntent === 0 || remainingMs === 0
+          ? null
+          : ack.receivedAt.getTime() + remainingMs,
       ack_ms: ack.receivedAt.getTime(),
     };
     let devAcks = this.manualAcks.get(deviceId);
@@ -564,7 +627,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       devAcks = {};
       this.manualAcks.set(deviceId, devAcks);
     }
-    
+
     // In firmware AppChannel: MIST = 0, LAMP = 1, FAN = 2
     if (ack.channel === 0) {
       devAcks.mistAck = normalizedAck;

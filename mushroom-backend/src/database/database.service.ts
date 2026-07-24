@@ -20,9 +20,19 @@ export class DatabaseService implements OnModuleInit {
   }
 
   /** Execute related writes atomically; callers receive a query adapter scoped to one transaction. */
-  async transaction<T>(work: (query: <R = unknown>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    work: (
+      query: <R = unknown>(
+        text: string,
+        params?: unknown[],
+      ) => Promise<{ rows: R[] }>,
+    ) => Promise<T>,
+  ): Promise<T> {
     return this.dataSource.transaction(async (manager: EntityManager) => {
-      const query = async <R = unknown>(text: string, params?: unknown[]): Promise<{ rows: R[] }> => {
+      const query = async <R = unknown>(
+        text: string,
+        params?: unknown[],
+      ): Promise<{ rows: R[] }> => {
         const result = await manager.query(text, params);
         return { rows: Array.isArray(result) ? (result as R[]) : [] };
       };

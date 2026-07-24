@@ -6,16 +6,11 @@ import { ControlHistoryInfluxWriter } from './services/control-history-influx-wr
 
 @Module({
   imports: [MqttModule],
-  providers: [
-    ConfigService,
-    InfluxDbService,
-    ControlHistoryInfluxWriter,
-  ],
-  exports: [
-    ConfigService,
-    InfluxDbService,
-  ],
+  providers: [ConfigService, InfluxDbService, ControlHistoryInfluxWriter],
+  exports: [ConfigService, InfluxDbService],
 })
 export class InfluxModule {
-  constructor(private readonly controlHistoryInfluxWriter: ControlHistoryInfluxWriter) {}
+  constructor(
+    private readonly controlHistoryInfluxWriter: ControlHistoryInfluxWriter,
+  ) {}
 }

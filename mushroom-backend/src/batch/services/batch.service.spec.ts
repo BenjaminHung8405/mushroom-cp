@@ -12,8 +12,15 @@ import { CropBatch } from '../entities/crop-batch.entity';
 import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
 import { MushroomHouse } from '../entities/mushroom-house.entity';
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { UpdateCheckpointsDto, MetricType } from '../dto/update-checkpoints.dto';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import {
+  UpdateCheckpointsDto,
+  MetricType,
+} from '../dto/update-checkpoints.dto';
 
 describe('BatchService', () => {
   let service: BatchService;
@@ -65,7 +72,11 @@ describe('BatchService', () => {
       }),
       delete: jest.fn().mockResolvedValue({}),
       create: jest.fn().mockImplementation((entityClass, data) => data),
-      save: jest.fn().mockImplementation((entityClass, entities) => Promise.resolve(entities)),
+      save: jest
+        .fn()
+        .mockImplementation((entityClass, entities) =>
+          Promise.resolve(entities),
+        ),
     };
     cropBatchRepo.manager = {
       transaction: jest.fn().mockImplementation((cb) => cb(mockTxManager)),

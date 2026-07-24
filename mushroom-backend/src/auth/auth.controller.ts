@@ -1,4 +1,13 @@
-import { Body, Controller, HttpCode, Logger, Post, Get, Headers, BadRequestException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Logger,
+  Post,
+  Get,
+  Headers,
+  BadRequestException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import type { AuthTokenResponse } from './auth.service';
 import { RequestTokenDto } from './dto/request-token.dto';
@@ -27,11 +36,15 @@ export class AuthController {
 
   @Get('v1/auth/device-token')
   @HttpCode(200)
-  issueDeviceToken(@Headers('x-device-id') deviceId: string): AuthTokenResponse {
+  issueDeviceToken(
+    @Headers('x-device-id') deviceId: string,
+  ): AuthTokenResponse {
     if (!deviceId) {
       throw new BadRequestException('X-Device-Id header is required');
     }
-    this.logger.log(`Token request from GET device-token, deviceId='${deviceId}'`);
+    this.logger.log(
+      `Token request from GET device-token, deviceId='${deviceId}'`,
+    );
     return this.authService.issueDeviceToken(deviceId);
   }
 }

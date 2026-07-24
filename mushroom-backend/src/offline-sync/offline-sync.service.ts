@@ -1,5 +1,15 @@
-import { Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
-import { InfluxDB, Point, QueryApi, WriteApi } from '@influxdata/influxdb-client';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import {
+  InfluxDB,
+  Point,
+  QueryApi,
+  WriteApi,
+} from '@influxdata/influxdb-client';
 import type { OfflineSyncBurst } from '../mqtt/offline-sync';
 
 @Injectable()
@@ -13,13 +23,23 @@ export class OfflineSyncService implements OnModuleDestroy {
   private readonly queryApi: QueryApi | null;
 
   constructor() {
-    if (!this.influxUrl || !this.influxToken || !this.influxOrg || !this.influxBucket) {
-      this.logger.error('InfluxDB is not configured; offline sync persistence is unavailable.');
+    if (
+      !this.influxUrl ||
+      !this.influxToken ||
+      !this.influxOrg ||
+      !this.influxBucket
+    ) {
+      this.logger.error(
+        'InfluxDB is not configured; offline sync persistence is unavailable.',
+      );
       this.writeApi = null;
       this.queryApi = null;
       return;
     }
-    const influx = new InfluxDB({ url: this.influxUrl, token: this.influxToken });
+    const influx = new InfluxDB({
+      url: this.influxUrl,
+      token: this.influxToken,
+    });
     this.writeApi = influx.getWriteApi(this.influxOrg, this.influxBucket, 'ms');
     this.queryApi = influx.getQueryApi(this.influxOrg);
   }
@@ -29,21 +49,39 @@ export class OfflineSyncService implements OnModuleDestroy {
   }
 
   /** Writes an already validated framed MQTT burst. Failure is propagated so firmware does not receive an ACK. */
-  async writeBurst(deviceId: string, burst: OfflineSyncBurst, receivedAt: Date): Promise<void> {
-    if (!this.writeApi) throw new ServiceUnavailableException('InfluxDB offline-sync writer is unavailable');
+  async writeBurst(
+    deviceId: string,
+    burst: OfflineSyncBurst,
+    receivedAt: Date,
+  ): Promise<void> {
+    if (!this.writeApi)
+      throw new ServiceUnavailableException(
+        'InfluxDB offline-sync writer is unavailable',
+      );
 
     for (const record of burst.records) {
-      const timestamp = new Date(receivedAt.getTime() - (burst.sessionLastDeltaS - record.deltaTimeS) * 1000);
+      const timestamp = new Date(
+        receivedAt.getTime() -
+          (burst.sessionLastDeltaS - record.deltaTimeS) * 1000,
+      );
       this.writeRecord(deviceId, record, timestamp);
     }
     await this.writeApi.flush();
-    this.logger.log(`Influx offline burst persisted device=${deviceId} boot=${burst.bootCount} chunk=${burst.chunkIndex} records=${burst.records.length}`);
+    this.logger.log(
+      `Influx offline burst persisted device=${deviceId} boot=${burst.bootCount} chunk=${burst.chunkIndex} records=${burst.records.length}`,
+    );
   }
 
   /** Query and merge the three Influx measurements into UI-ready time-series rows. */
-  async getHistory(deviceId: string, from: Date, to: Date): Promise<OfflineHistoryPoint[]> {
+  async getHistory(
+    deviceId: string,
+    from: Date,
+    to: Date,
+  ): Promise<OfflineHistoryPoint[]> {
     if (!this.queryApi || !this.influxBucket) {
-      throw new ServiceUnavailableException('InfluxDB history query is unavailable');
+      throw new ServiceUnavailableException(
+        'InfluxDB history query is unavailable',
+      );
     }
     if (!isFiniteDate(from) || !isFiniteDate(to) || from >= to) return [];
 
@@ -57,31 +95,47 @@ export class OfflineSyncService implements OnModuleDestroy {
       |> sort(columns: ["_time"])`;
 
     try {
-      const rows = await this.queryApi.collectRows<Record<string, unknown>>(flux);
-      return rows.map(toOfflineHistoryPoint).filter((row): row is OfflineHistoryPoint => row !== null);
+      const rows =
+        await this.queryApi.collectRows<Record<string, unknown>>(flux);
+      return rows
+        .map(toOfflineHistoryPoint)
+        .filter((row): row is OfflineHistoryPoint => row !== null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Influx history query failed for ${deviceId}: ${message}`);
+      this.logger.error(
+        `Influx history query failed for ${deviceId}: ${message}`,
+      );
       throw new ServiceUnavailableException('InfluxDB history query failed');
     }
   }
 
-  private writeRecord(deviceId: string, record: OfflineSyncBurst['records'][number], timestamp: Date): void {
-    const base = (measurement: string) => new Point(measurement)
-      .tag('device_id', deviceId)
-      .tag('data_quality', 'trusted')
-      .tag('boot_count', String(record.bootCount))
-      .timestamp(timestamp);
+  private writeRecord(
+    deviceId: string,
+    record: OfflineSyncBurst['records'][number],
+    timestamp: Date,
+  ): void {
+    const base = (measurement: string) =>
+      new Point(measurement)
+        .tag('device_id', deviceId)
+        .tag('data_quality', 'trusted')
+        .tag('boot_count', String(record.bootCount))
+        .timestamp(timestamp);
 
-    this.writeApi?.writePoint(base('environment_telemetry')
-      .floatField('temperature_c', record.temp)
-      .floatField('humidity_percent', record.humid));
-    this.writeApi?.writePoint(base('actuator_events')
-      .booleanField('mist_state', record.mistState)
-      .booleanField('lamp_state', record.lampState));
-    this.writeApi?.writePoint(base('system_status')
-      .uintField('boot_count', record.bootCount)
-      .uintField('delta_time_s', record.deltaTimeS));
+    this.writeApi?.writePoint(
+      base('environment_telemetry')
+        .floatField('temperature_c', record.temp)
+        .floatField('humidity_percent', record.humid),
+    );
+    this.writeApi?.writePoint(
+      base('actuator_events')
+        .booleanField('mist_state', record.mistState)
+        .booleanField('lamp_state', record.lampState),
+    );
+    this.writeApi?.writePoint(
+      base('system_status')
+        .uintField('boot_count', record.bootCount)
+        .uintField('delta_time_s', record.deltaTimeS),
+    );
   }
 }
 
@@ -98,7 +152,9 @@ export interface OfflineHistoryPoint {
   fuzzyHumidDemand: number | null;
 }
 
-export function toOfflineHistoryPoint(row: Record<string, unknown>): OfflineHistoryPoint | null {
+export function toOfflineHistoryPoint(
+  row: Record<string, unknown>,
+): OfflineHistoryPoint | null {
   const time = typeof row._time === 'string' ? row._time : '';
   if (!time || Number.isNaN(new Date(time).getTime())) return null;
   return {
@@ -115,12 +171,19 @@ export function toOfflineHistoryPoint(row: Record<string, unknown>): OfflineHist
   };
 }
 
-function finiteNumber(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
 function finiteInteger(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : null;
+  if (typeof value === 'number')
+    return Number.isSafeInteger(value) ? value : null;
   if (typeof value !== 'string' || !/^-?\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
-function isFiniteDate(value: Date): boolean { return value instanceof Date && !Number.isNaN(value.getTime()); }
-function escapeFluxString(value: string): string { return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
+function isFiniteDate(value: Date): boolean {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+}
+function escapeFluxString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}

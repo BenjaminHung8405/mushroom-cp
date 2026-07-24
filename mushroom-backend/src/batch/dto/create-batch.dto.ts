@@ -53,5 +53,4 @@ export class CreateBatchDto {
   @Min(0)
   @Max(100)
   humidityOptimalMax?: number;
-
 }

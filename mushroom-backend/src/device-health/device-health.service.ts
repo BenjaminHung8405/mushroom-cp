@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Subject } from 'rxjs';
 import type { DeviceRecord } from '../device/device-registry.service';
 
@@ -43,7 +48,10 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
   readonly healthChanges$ = new Subject<DeviceHealthEvent>();
 
   onModuleInit(): void {
-    this.scheduler = setInterval(() => this.evaluateGlobalHealthStates(), EVALUATION_INTERVAL_MS);
+    this.scheduler = setInterval(
+      () => this.evaluateGlobalHealthStates(),
+      EVALUATION_INTERVAL_MS,
+    );
   }
 
   onModuleDestroy(): void {
@@ -52,7 +60,10 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     this.healthChanges$.complete();
   }
 
-  handleTelemetryReceived(record: DeviceRecord, receivedAt = new Date()): DeviceHealthEvent | null {
+  handleTelemetryReceived(
+    record: DeviceRecord,
+    receivedAt = new Date(),
+  ): DeviceHealthEvent | null {
     const cache = this.getOrCreate(record, receivedAt);
     if (!cache) return null;
     cache.isMqttOnline = true;
@@ -89,7 +100,10 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
 
   isCommandAllowed(deviceId: string): boolean {
     const health = this.getHealth(deviceId);
-    return health === HealthState.ONLINE_ACTIVE || health === HealthState.DEGRADED_LATENCY;
+    return (
+      health === HealthState.ONLINE_ACTIVE ||
+      health === HealthState.DEGRADED_LATENCY
+    );
   }
 
   remove(deviceId: string): void {
@@ -106,7 +120,8 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
   }
 
   private calculateHealth(cache: DeviceRuntimeCache, now: Date): HealthState {
-    if (cache.bootGraceUntil && now < cache.bootGraceUntil) return HealthState.ONLINE_ACTIVE;
+    if (cache.bootGraceUntil && now < cache.bootGraceUntil)
+      return HealthState.ONLINE_ACTIVE;
     const baseline = cache.lastTelemetryAt;
     if (!baseline) return HealthState.SENSOR_FAULT;
     const ageMs = now.getTime() - baseline.getTime();
@@ -115,7 +130,10 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     return HealthState.ONLINE_ACTIVE;
   }
 
-  private getOrCreate(record: DeviceRecord, now: Date): DeviceRuntimeCache | null {
+  private getOrCreate(
+    record: DeviceRecord,
+    now: Date,
+  ): DeviceRuntimeCache | null {
     if (!record.enabled) return null;
     const existing = this.cache.get(record.deviceId);
     if (existing) {
@@ -123,7 +141,9 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
       return existing;
     }
     if (this.cache.size >= this.maxEntries) {
-      this.logger.error(`Health runtime cache capacity (${this.maxEntries}) reached; dropping '${record.deviceId}'.`);
+      this.logger.error(
+        `Health runtime cache capacity (${this.maxEntries}) reached; dropping '${record.deviceId}'.`,
+      );
       return null;
     }
     const cache: DeviceRuntimeCache = {
@@ -137,7 +157,11 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     return cache;
   }
 
-  private transition(cache: DeviceRuntimeCache, health: HealthState, at: Date): DeviceHealthEvent | null {
+  private transition(
+    cache: DeviceRuntimeCache,
+    health: HealthState,
+    at: Date,
+  ): DeviceHealthEvent | null {
     if (cache.currentHealth === health) return null;
     cache.currentHealth = health;
     const event: DeviceHealthEvent = {
@@ -155,7 +179,10 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
   }
 
   private readCacheCap(): number {
-    const value = Number.parseInt(process.env.DEVICE_HEALTH_CACHE_CAP ?? '', 10);
+    const value = Number.parseInt(
+      process.env.DEVICE_HEALTH_CACHE_CAP ?? '',
+      10,
+    );
     return Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_CACHE_CAP;
   }
 }
