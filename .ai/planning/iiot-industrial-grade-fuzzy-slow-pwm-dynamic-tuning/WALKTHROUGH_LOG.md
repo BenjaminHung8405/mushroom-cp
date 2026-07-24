@@ -1,3 +1,29 @@
+## [2026-07-24T12:21:00+07:00] - Task F6: Implement `createPendingCommand()` in `TuningConfigurationService`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F6
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Implement phương thức `createPendingCommand()` trong `TuningConfigurationService` để khởi tạo lệnh tuning ở trạng thái `PENDING`.
+  - Áp dụng **ownership check** bằng cách xác minh thiết bị gửi lên có tồn tại trong hệ thống và ở trạng thái enabled thông qua truy vấn database bảng `devices`.
+  - Đảm bảo tính chất **idempotent** của lệnh (idempotency key): Nếu command ID đã tồn tại với thiết bị tương ứng trong cơ sở dữ liệu, phương thức sẽ ngay lập tức trả về cấu hình hiện tại để tránh khởi tạo trùng lặp.
+  - Áp dụng **strict bounds validation** cho các tham số đầu vào của `TuningConfigSnapshot` (`lamp_gain_scale`, `mist_gain_scale` trong khoảng [0.0, 5.0]; `mist_on_threshold`, `mist_off_threshold` trong khoảng [0.0, 1.0]; và gap tối thiểu `mist_off_threshold < mist_on_threshold - 0.001`).
+  - Ghi nhận đầy đủ thông tin kiểm toán thông qua `TuningAuditLog` với `action: 'CREATE_PENDING'` và so sánh config trước/sau (`configBefore`/`configAfter`).
+  - Tích hợp phát hành qua MQTT: Thêm phương thức public `publishTuningDesired` trong `MqttService` để xuất bản bản tin mong muốn của tuning dưới dạng retained QoS 1.
+  - Xử lý lỗi xuất bản MQTT an toàn: Nếu quá trình publish qua MQTT gặp sự cố ngoại lệ (mạng/broker lỗi), transaction bổ sung được kích hoạt để chuyển đổi trạng thái cấu hình sang `REJECTED`, ghi lại nhật ký kiểm toán thất bại (`PUBLISH_FAILED`) và ném lỗi tương ứng để không bao giờ để lại bản ghi `PENDING` mồ côi.
+  - Hỗ trợ truyền phát thời gian thực thông qua Event Stream SSE (`tuningSync$.next`) sau khi xuất bản thành công.
+- **Xác minh:**
+  - Bổ sung 9 kịch bản kiểm thử đơn vị bao gồm kiểm tra bounds validation, device ownership/disabled check, idempotency check, flow tạo pending & publish thành công, và rollback lỗi publish.
+  - Tất cả các tests liên quan trong `tuning-configuration.service.spec.ts` đều vượt qua thành công **PASS** (19/19 tests pass).
+  - Đã chạy thử nghiệm hồi quy thành công cho toàn bộ bộ test `src/mqtt/` và `src/mqtt-auth/` (46/46 tests pass).
+
+---
+
 ## [2026-07-24T12:17:00+07:00] - Task F5: Implement `handleReportedAck()` in `TuningConfigurationService`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

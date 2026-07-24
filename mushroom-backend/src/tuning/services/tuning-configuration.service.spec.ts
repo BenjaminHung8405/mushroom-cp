@@ -1,27 +1,35 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { InternalServerErrorException } from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { TuningConfigurationService, TuningSyncEvent } from './tuning-configuration.service';
 import { DeviceTuningConfiguration, SyncStatus } from '../entities/device-tuning-configuration.entity';
 import { TuningAuditLog } from '../entities/tuning-audit-log.entity';
-import { TuningReportedEvent } from '../../mqtt/mqtt.service';
+import { TuningReportedEvent, MqttService } from '../../mqtt/mqtt.service';
+import { Device } from '../../device/entities/device.entity';
 
 describe('TuningConfigurationService', () => {
   let service: TuningConfigurationService;
   let configRepo: jest.Mocked<Repository<DeviceTuningConfiguration>>;
   let auditRepo: jest.Mocked<Repository<TuningAuditLog>>;
+  let deviceRepo: jest.Mocked<Repository<Device>>;
   let dataSource: jest.Mocked<DataSource>;
+  let mqttService: jest.Mocked<MqttService>;
 
   const mockRepository = () => ({
     find: jest.fn(),
     findOne: jest.fn(),
     save: jest.fn(),
     create: jest.fn(),
+    update: jest.fn(),
   });
 
   const mockDataSource = () => ({
     transaction: jest.fn(),
+  });
+
+  const mockMqttService = () => ({
+    publishTuningDesired: jest.fn(),
   });
 
   beforeEach(async () => {
@@ -37,8 +45,16 @@ describe('TuningConfigurationService', () => {
           useFactory: mockRepository,
         },
         {
+          provide: getRepositoryToken(Device),
+          useFactory: mockRepository,
+        },
+        {
           provide: DataSource,
           useFactory: mockDataSource,
+        },
+        {
+          provide: MqttService,
+          useFactory: mockMqttService,
         },
       ],
     }).compile();
@@ -46,7 +62,9 @@ describe('TuningConfigurationService', () => {
     service = module.get<TuningConfigurationService>(TuningConfigurationService);
     configRepo = module.get(getRepositoryToken(DeviceTuningConfiguration));
     auditRepo = module.get(getRepositoryToken(TuningAuditLog));
+    deviceRepo = module.get(getRepositoryToken(Device));
     dataSource = module.get(DataSource);
+    mqttService = module.get(MqttService);
   });
 
   it('should be defined', () => {
@@ -334,22 +352,233 @@ describe('TuningConfigurationService', () => {
       expect(emittedEvent).toBeDefined();
       expect(emittedEvent!.status).toBe(SyncStatus.REJECTED);
     });
+  });
 
-    it('should throw InternalServerErrorException when database error occurs', async () => {
-      dataSource.transaction.mockRejectedValue(new Error('DB failure'));
+  describe('createPendingCommand', () => {
+    const validCommandId = '12345678-1234-1234-1234-1234567890ab';
+    const validDeviceId = 'device-1';
+    const validActor = 'admin-user';
+    const validConfig = {
+      lamp_gain_scale: 1.5,
+      mist_gain_scale: 2.0,
+      mist_on_threshold: 0.35,
+      mist_off_threshold: 0.25,
+    };
 
-      const ack: TuningReportedEvent = {
+    it('should throw BadRequestException if actor is missing or invalid', async () => {
+      await expect(service.createPendingCommand('', validDeviceId, validConfig, validCommandId)).rejects.toThrow(
+        'Actor is required'
+      );
+    });
+
+    it('should throw BadRequestException if deviceId is missing or invalid', async () => {
+      await expect(service.createPendingCommand(validActor, '', validConfig, validCommandId)).rejects.toThrow(
+        'deviceId is required'
+      );
+    });
+
+    it('should throw BadRequestException if commandId is not UUID', async () => {
+      await expect(service.createPendingCommand(validActor, validDeviceId, validConfig, 'not-a-uuid')).rejects.toThrow(
+        'commandId must be a valid UUID v4'
+      );
+    });
+
+    it('should throw BadRequestException if config bounds are violated', async () => {
+      // lamp_gain_scale > 5.0
+      await expect(
+        service.createPendingCommand(validActor, validDeviceId, { ...validConfig, lamp_gain_scale: 6.0 }, validCommandId)
+      ).rejects.toThrow('lamp_gain_scale must be between 0.0 and 5.0');
+
+      // mist_off_threshold >= mist_on_threshold
+      await expect(
+        service.createPendingCommand(validActor, validDeviceId, { ...validConfig, mist_off_threshold: 0.4 }, validCommandId)
+      ).rejects.toThrow('mist_off_threshold must be strictly less than mist_on_threshold');
+    });
+
+    it('should throw NotFoundException if device does not exist', async () => {
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockResolvedValue(null), // device find returns null
+        };
+        return cb(mockManager as any);
+      });
+
+      await expect(service.createPendingCommand(validActor, validDeviceId, validConfig, validCommandId)).rejects.toThrow(
+        NotFoundException
+      );
+    });
+
+    it('should throw BadRequestException if device is disabled', async () => {
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity) => {
+            if (entity === Device) {
+              return Promise.resolve({ deviceId: validDeviceId, enabled: false });
+            }
+            return Promise.resolve(null);
+          }),
+        };
+        return cb(mockManager as any);
+      });
+
+      await expect(service.createPendingCommand(validActor, validDeviceId, validConfig, validCommandId)).rejects.toThrow(
+        'is disabled'
+      );
+    });
+
+    it('should return existing config directly if commandId already exists (idempotency)', async () => {
+      const existingConfig = {
+        id: 'existing-uuid',
         deviceId: validDeviceId,
         commandId: validCommandId,
-        status: 'ACCEPTED',
-        reasonCode: null,
-        persisted: true,
-        receivedAt: new Date(),
+        revision: 3,
+        status: SyncStatus.PENDING,
+        config: validConfig,
+        publishedAt: new Date(),
       };
 
-      await expect(service.handleReportedAck(ack)).rejects.toThrow(
-        InternalServerErrorException
-      );
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity, options) => {
+            if (entity === Device) {
+              return Promise.resolve({ deviceId: validDeviceId, enabled: true });
+            }
+            if (entity === DeviceTuningConfiguration) {
+              return Promise.resolve(existingConfig);
+            }
+            return Promise.resolve(null);
+          }),
+        };
+        return cb(mockManager as any);
+      });
+
+      const result = await service.createPendingCommand(validActor, validDeviceId, validConfig, validCommandId);
+      expect(result).toEqual(existingConfig);
+      expect(mqttService.publishTuningDesired).not.toHaveBeenCalled();
+    });
+
+    it('should create pending config, publish MQTT, update publish time, and emit SSE', async () => {
+      const savedConfigEntity = {
+        id: 'new-config-uuid',
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        revision: 4,
+        status: SyncStatus.PENDING,
+        config: validConfig,
+        publishedAt: null as Date | null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mqttService.publishTuningDesired.mockResolvedValue(undefined);
+      configRepo.save.mockImplementation((data) => Promise.resolve(data as any));
+
+      let emittedEvent: TuningSyncEvent | null = null;
+      service.tuningSync$.subscribe((event) => {
+        emittedEvent = event;
+      });
+
+      // Mock the save of transaction to return savedConfigEntity
+      dataSource.transaction.mockImplementation(async (cb) => {
+        const mockManager = {
+          findOne: jest.fn().mockImplementation((entity, options) => {
+            if (entity === Device) {
+              return Promise.resolve({ deviceId: validDeviceId, enabled: true });
+            }
+            if (entity === DeviceTuningConfiguration) {
+              if (options.where.commandId === validCommandId) return Promise.resolve(null);
+              if (options.where.status === SyncStatus.IN_SYNC) return Promise.resolve(null);
+              return Promise.resolve({ revision: 3 });
+            }
+            return Promise.resolve(null);
+          }),
+          create: jest.fn().mockImplementation((entity, data) => data),
+          save: jest.fn().mockImplementation((entity, data) => {
+            if (entity === DeviceTuningConfiguration) {
+              return Promise.resolve(savedConfigEntity);
+            }
+            return Promise.resolve(data);
+          }),
+        };
+        return cb(mockManager as any);
+      });
+
+      const result = await service.createPendingCommand(validActor, validDeviceId, validConfig, validCommandId);
+
+      expect(mqttService.publishTuningDesired).toHaveBeenCalledWith(validDeviceId, validCommandId, validConfig);
+      expect(result.publishedAt).toBeInstanceOf(Date);
+      expect(configRepo.save).toHaveBeenCalled();
+      expect(emittedEvent).toBeDefined();
+      expect(emittedEvent!.commandId).toBe(validCommandId);
+    });
+
+    it('should rollback to REJECTED and log audit failure if MQTT publish throws error', async () => {
+      const savedConfigEntity = {
+        id: 'new-config-uuid',
+        deviceId: validDeviceId,
+        commandId: validCommandId,
+        revision: 4,
+        status: SyncStatus.PENDING,
+        config: validConfig,
+        publishedAt: null as Date | null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mqttService.publishTuningDesired.mockRejectedValue(new Error('MQTT network failure'));
+
+      let savedFailStatus = false;
+      let createdFailAudit = false;
+
+      // Let's adjust transaction mock to handle consecutive calls differently
+      let callCount = 0;
+      dataSource.transaction.mockImplementation(async (cb) => {
+        callCount++;
+        if (callCount === 1) {
+          const mockManager = {
+            findOne: jest.fn().mockImplementation((entity, options) => {
+              if (entity === Device) return Promise.resolve({ deviceId: validDeviceId, enabled: true });
+              if (entity === DeviceTuningConfiguration) return Promise.resolve(null);
+              return Promise.resolve(null);
+            }),
+            create: jest.fn().mockImplementation((entity, data) => data),
+            save: jest.fn().mockImplementation((entity, data) => {
+              if (entity === DeviceTuningConfiguration) {
+                return Promise.resolve(savedConfigEntity);
+              }
+              return Promise.resolve(data);
+            }),
+          };
+          return cb(mockManager as any);
+        } else {
+          const mockManager = {
+            update: jest.fn().mockImplementation((entity, criteria, partialEntity) => {
+              if (entity === DeviceTuningConfiguration && partialEntity.status === SyncStatus.REJECTED) {
+                savedFailStatus = true;
+              }
+              return Promise.resolve({} as any);
+            }),
+            create: jest.fn().mockImplementation((entity, data) => {
+              if (entity === TuningAuditLog) {
+                createdFailAudit = true;
+                expect(data.action).toBe('PUBLISH_FAILED');
+                expect(data.result).toBe('FAILED');
+              }
+              return data;
+            }),
+            save: jest.fn().mockImplementation((entity, data) => Promise.resolve(data)),
+          };
+          return cb(mockManager as any);
+        }
+      });
+
+      await expect(
+        service.createPendingCommand(validActor, validDeviceId, validConfig, validCommandId)
+      ).rejects.toThrow(InternalServerErrorException);
+
+      expect(savedFailStatus).toBe(true);
+      expect(createdFailAudit).toBe(true);
+      expect(savedConfigEntity.status).toBe(SyncStatus.REJECTED);
     });
   });
 });

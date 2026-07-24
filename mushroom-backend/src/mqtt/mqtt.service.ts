@@ -21,6 +21,7 @@ import {
 } from '../device-health/device-health.service';
 import { decodeOfflineSyncBurst, type OfflineSyncBurst } from './offline-sync';
 import {
+  getTuningDesiredTopic,
   getTuningReportedPattern,
   parseTuningTopic,
 } from './constants/mqtt-topics.const';
@@ -769,6 +770,31 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
     return commandId;
   }
+  async publishTuningDesired(
+    deviceId: string,
+    commandId: string,
+    config: {
+      lamp_gain_scale: number;
+      mist_gain_scale: number;
+      mist_on_threshold: number;
+      mist_off_threshold: number;
+    },
+  ): Promise<void> {
+    const topic = getTuningDesiredTopic(this.tenant, deviceId);
+    await this.publish(
+      topic,
+      {
+        command_id: commandId,
+        device_id: deviceId,
+        lamp_gain_scale: config.lamp_gain_scale,
+        mist_gain_scale: config.mist_gain_scale,
+        mist_on_threshold: config.mist_on_threshold,
+        mist_off_threshold: config.mist_off_threshold,
+      },
+      true, // retain = true
+    );
+  }
+
 
   async dispatchSetpoint(
     deviceId: string,
