@@ -36,6 +36,7 @@ using storage::TuningNvsRecord;
 
 namespace test_ingress { void run_all_tests(); }
 namespace test_outbox { void run_all_tests(); }
+namespace test_storage { void run_all_tests(); }
 
 HardwareSerial Serial;
 std::map<std::string, std::map<std::string, std::string>> Preferences::_global_storage;
@@ -4488,6 +4489,7 @@ int main() {
 
     test_ingress::run_all_tests();
     test_outbox::run_all_tests();
+    test_storage::run_all_tests();
 
     Serial.println("--- All Unit Tests Passed Successfully! ---");
     return 0;

@@ -1,3 +1,25 @@
+## [2026-07-24T10:41:24+07:00] - Task A5, C5: Khắc phục QA Rejection (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** A5, C5
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/storage/tuning_storage.h`
+  - `mushroom-iot-firmware/src/storage/tuning_storage.cpp`
+  - `mushroom-iot-firmware/test/tuning_storage_tests.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn dựa trên feedback QA:**
+  1. **C5:** Tạo validator UUID bounded dùng chung tại storage. Validator không dùng `strlen()` trên NVS: dùng `memchr` trong mảng 37 byte, bắt buộc NUL ở offset 36, kiểm tra dấu gạch nối tại `8/13/18/23` và ký tự hex ở các vị trí còn lại. `isValidRecord()` gọi validator trước khi slot thành valid; vì vậy hydrate active config, chọn generation và so sánh duplicate đều fail-closed. Regression mới ghi record hợp lệ, sửa UUID thành malformed và tính lại CRC, rồi xác minh load thất bại, active config giữ nguyên và record không là duplicate.
+  2. **A5:** Xác minh `docker-compose.yml` hiện đã truyền fail-closed `INFLUXDB_ANALYTICS_BUCKET` vào service `mushroom-backend` bằng chính environment variable mà `scripts/provision-influx.sh` sử dụng; không thêm hard-code bucket runtime.
+- **Xác minh:**
+  - Backend: `pnpm test --runInBand --silent` — **25 suites / 172 tests PASS**; `pnpm build` — **PASS**.
+  - A5: `bash -n scripts/provision-influx.sh` — **PASS**; `docker compose --env-file /dev/null config` render `INFLUXDB_ANALYTICS_BUCKET=qa_analytics` khi hợp lệ và fail-closed khi thiếu; provision script reject bucket invalid.
+  - `git diff --check` — **PASS**.
+  - Firmware host/PlatformIO build đã được thử nhưng hiện bị chặn bởi static assertion có sẵn, không liên quan trong `PersistedCropProfile`/`LegacyPersistedCropProfileV1` (`alignof == 4`), trước khi đến regression C5.
+
+---
+
 ## [2026-07-23T22:59:49+07:00] - Task D4: Tái cấu trúc state machine ingress/outbox theo QA Rejection
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
@@ -1069,5 +1091,3 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   1. **D4 — Vẫn mất ACK khi local outbox đầy:** `mushroom-iot-firmware/src/network/mqtt_manager.cpp:303-307` gọi `retryPendingDispatch()` trước khi reserve outbox. Hàm này tại `src/core/tuning_config_manager.cpp:101-112` có thể enqueue sang Core 1, mutate active config và trả `true`; sau đó `enqueuePendingReport()` tại `mqtt_manager.cpp:1363-1386` trả `false` khi `pending_reports_count_ == MAX_PENDING_REPORTS`. Kết quả là command đã durable/applied nhưng ACK ACCEPTED không còn được giữ để retry, backend shadow treo `PENDING`. Kiểm tra preflight trong `processNetworkMessage()` không che phủ đường `retryPendingDispatch()` này. **Chỉ thị:** reserve một slot ACK trước mọi dispatch/commit có thể thành công, hoặc thay đổi contract để pending dispatch chỉ được commit khi ACK đã vào outbox; kiểm tra và xử lý mọi giá trị trả về của `enqueuePendingReport()`. Thêm regression: lấp đầy 8 slot, tạo tuning command ở trạng thái pending dispatch, gọi `loop()`, rồi xác nhận command chưa được dispatch/active chưa đổi cho tới khi outbox có chỗ; sau đó xác nhận đúng một ACK được publish và chỉ dequeue sau PUBACK hợp lệ/reconnect.
   2. **A1 — Validation tenant không đồng nhất với topic contract:** `mushroom-backend/src/config/config.service.ts:12` dùng regex riêng `^[a-z0-9_-]+$`, không có giới hạn 50 ký tự của `validateSegment()` tại `src/mqtt/constants/mqtt-topics.const.ts:1-9`. Tenant dài 51+ ký tự vẫn được AppConfigService chấp nhận nhưng bị topic builder ném lỗi muộn trong lifecycle MQTT; điều này không phải validation một lần bằng cùng rule như chỉ thị QA, và dễ thành startup/ACL behavior không nhất quán. **Chỉ thị:** export/reuse validator segment duy nhất (hoặc helper config thuần được topic constants gọi lại), enforce non-empty + `[a-zA-Z0-9_-]{1,50}` theo contract hiện hữu trước DI; giữ fail closed, đồng thời thêm test 51 ký tự reject và test giá trị hợp lệ được MqttService/MqttAuthService dùng nhất quán.
 - **Kiểm tra đã thực hiện:** `git diff --check` PASS. C5 hiện đã tách NVS/Preferences khỏi `core` vào `storage`, readback so sánh toàn record bằng `memcmp`, và receipt load kiểm tra NUL bounded trước UUID; không phát hiện hard-code secret mới, SQL/Flux injection hoặc N+1 query trong phạm vi thay đổi này. Tuy nhiên hai lỗi trên đủ mức chặn phát hành; không được chuyển Task sang `[x] Done`.
-
----

@@ -45,6 +45,7 @@ private:
 
     static uint32_t calculateRecordCrc(const TuningNvsRecord& record);
     static uint32_t calculateCRC32(const uint8_t* data, size_t length);
+    static bool isValidCommandId(const char* command_id, size_t capacity);
     static bool isValidRecord(const TuningNvsRecord& record);
     static void readNvsSlots(Preferences& prefs, NvsSlots& slots);
     static int newestCommittedSlot(const NvsSlots& slots);

@@ -56,24 +56,43 @@ void run_all_tests() {
         assert(std::strcmp(rehydrated.command_id, "d4444444-1234-1234-1234-123456789010") == 0);
     }
 
-    // 2. Receipt NVS CRC-valid malformed UUID rejection
+    // 2. CRC-valid NVS envelope with a malformed UUID is fail-closed.
     {
-        storage::TuningNvsRecord record{};
-        record.version = 1;
-        record.generation = 1;
-        std::strncpy(record.params.command_id, "MALFORMED-UUID-FORMAT-1234567890123", sizeof(record.params.command_id) - 1);
-        record.crc32 = calculateRecordCrcForTest(record);
+        Preferences::_global_storage["mushroom_net"].clear();
+        tuner.resetForTest();
+        tuner.init();
+        const DynamicTuningParams active_before = tuner.getActiveParams();
 
-        // Inject corrupt record into NVS tune_s0
+        DynamicTuningParams valid_params = active_before;
+        std::strncpy(valid_params.command_id, "d4444444-1234-1234-1234-123456789010",
+                     sizeof(valid_params.command_id) - 1);
+        valid_params.revision = 1;
+        valid_params.lamp_gain_scale = 1.08f;
+        valid_params.mist_gain_scale = 1.05f;
+        valid_params.mist_on_threshold = 0.29f;
+        valid_params.mist_off_threshold = 0.16f;
+        assert(nvs_storage.saveTuningParams(valid_params));
+
         auto& global_nvs = Preferences::_global_storage["mushroom_net"];
+        storage::TuningNvsRecord record{};
+        std::memcpy(&record, global_nvs["tune_s0"].data(), sizeof(record));
+
+        // Simulate a crafted/corrupted record: mutate its UUID, then recalculate CRC.
+        std::strcpy(record.params.command_id, "z4444444-1234-1234-1234-123456789010");
+        record.crc32 = calculateRecordCrcForTest(record);
         global_nvs["tune_s0"] = std::string(reinterpret_cast<const char*>(&record), sizeof(record));
+
+        DynamicTuningParams loaded = active_before;
+        assert(nvs_storage.loadTuningParams(loaded) == false);
+        assert(std::memcmp(&loaded, &active_before, sizeof(loaded)) == 0);
+        assert(nvs_storage.isDuplicateInNvs("d4444444-1234-1234-1234-123456789010") == false);
 
         tuner.resetForTest();
         tuner.init();
 
-        // Malformed UUID record must be rejected; manager falls back to defaults or valid slot
+        // The malformed record cannot replace the safe active/default configuration.
         DynamicTuningParams fallback = tuner.getActiveParams();
-        assert(std::strcmp(fallback.command_id, "MALFORMED-UUID-FORMAT-1234567890123") != 0);
+        assert(std::memcmp(&fallback, &active_before, sizeof(fallback)) == 0);
     }
 
     std::cout << "[TEST SUITE] Tuning Storage & NVS Two-Slot Invariant Passed!" << std::endl;

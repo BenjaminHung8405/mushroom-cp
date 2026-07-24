@@ -31,11 +31,30 @@ uint32_t TuningStorageImpl::calculateCRC32(const uint8_t* data, size_t length) {
     return ~crc;
 }
 
+bool TuningStorageImpl::isValidCommandId(const char* command_id, size_t capacity) {
+    if (command_id == nullptr || capacity != sizeof(DynamicTuningParams::command_id)) return false;
+
+    const char* const terminator = static_cast<const char*>(std::memchr(command_id, '\0', capacity));
+    if (terminator == nullptr || terminator - command_id != 36) return false;
+
+    for (size_t i = 0; i < 36; ++i) {
+        const char c = command_id[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (c != '-') return false;
+        } else if (!((c >= '0' && c <= '9') ||
+                     (c >= 'a' && c <= 'f') ||
+                     (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool TuningStorageImpl::isValidRecord(const TuningNvsRecord& record) {
     return record.version == TUNING_NVS_VERSION &&
            (record.commit_state == TUNING_NVS_PENDING_COMMIT ||
             record.commit_state == TUNING_NVS_READY_DISPATCH) &&
-           std::memchr(record.params.command_id, '\0', sizeof(record.params.command_id)) != nullptr &&
+           isValidCommandId(record.params.command_id, sizeof(record.params.command_id)) &&
            calculateRecordCrc(record) == record.crc32;
 }
 
@@ -57,7 +76,7 @@ int TuningStorageImpl::newestCommittedSlot(const NvsSlots& slots) {
 }
 
 bool TuningStorageImpl::samePersistedParams(const DynamicTuningParams& lhs, const DynamicTuningParams& rhs) {
-    return std::strcmp(lhs.command_id, rhs.command_id) == 0 &&
+    return std::memcmp(lhs.command_id, rhs.command_id, sizeof(lhs.command_id)) == 0 &&
            lhs.revision == rhs.revision &&
            lhs.lamp_gain_scale == rhs.lamp_gain_scale &&
            lhs.mist_gain_scale == rhs.mist_gain_scale &&
@@ -167,6 +186,7 @@ bool TuningStorageImpl::saveDurableReceipt(const char* command_id) {
     rec.version = TUNING_NVS_VERSION;
     std::strncpy(rec.command_id, command_id, sizeof(rec.command_id) - 1);
     rec.command_id[sizeof(rec.command_id) - 1] = '\0';
+    if (!isValidCommandId(rec.command_id, sizeof(rec.command_id))) return false;
     rec.crc32 = calculateCRC32(
         reinterpret_cast<const uint8_t*>(&rec),
         offsetof(TuningReceiptRecord, crc32));
@@ -196,22 +216,6 @@ bool TuningStorageImpl::saveDurableReceipt(const char* command_id) {
     return true;
 }
 
-static bool validateCommandIdFormat(const char* uuid_str) {
-    if (uuid_str == nullptr) return false;
-    if (std::strlen(uuid_str) != 36) return false;
-    for (int i = 0; i < 36; ++i) {
-        char c = uuid_str[i];
-        if (i == 8 || i == 13 || i == 18 || i == 23) {
-            if (c != '-') return false;
-        } else {
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 bool TuningStorageImpl::loadDurableReceipt(char* out_command_id, size_t max_len) {
     if (out_command_id == nullptr || max_len < 37) return false;
     Preferences prefs;
@@ -226,8 +230,7 @@ bool TuningStorageImpl::loadDurableReceipt(char* out_command_id, size_t max_len)
         reinterpret_cast<const uint8_t*>(&rec),
         offsetof(TuningReceiptRecord, crc32));
     if (rec.crc32 != expected_crc) return false;
-    if (std::memchr(rec.command_id, '\0', sizeof(rec.command_id)) == nullptr) return false;
-    if (!validateCommandIdFormat(rec.command_id)) return false;
+    if (!isValidCommandId(rec.command_id, sizeof(rec.command_id))) return false;
 
     std::strncpy(out_command_id, rec.command_id, max_len - 1);
     out_command_id[max_len - 1] = '\0';
@@ -235,7 +238,7 @@ bool TuningStorageImpl::loadDurableReceipt(char* out_command_id, size_t max_len)
 }
 
 bool TuningStorageImpl::isDuplicateInNvs(const char* command_id) {
-    if (command_id == nullptr) return false;
+    if (!isValidCommandId(command_id, sizeof(DynamicTuningParams::command_id))) return false;
     Preferences prefs;
     if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
     NvsSlots slots{};
@@ -244,7 +247,8 @@ bool TuningStorageImpl::isDuplicateInNvs(const char* command_id) {
     for (uint8_t slot = 0; slot < 2; ++slot) {
         if (slots.valid[slot] &&
             slots.records[slot].commit_state == TUNING_NVS_READY_DISPATCH &&
-            std::strcmp(slots.records[slot].params.command_id, command_id) == 0) {
+            std::memcmp(slots.records[slot].params.command_id, command_id,
+                        sizeof(slots.records[slot].params.command_id)) == 0) {
             return true;
         }
     }
