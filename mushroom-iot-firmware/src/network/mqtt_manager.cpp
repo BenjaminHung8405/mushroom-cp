@@ -54,6 +54,7 @@ const char* tuningReasonCode(storage::TuningReason reason)
     case storage::TuningReason::CROSS_FIELD_VIOLATION: return "CROSS_FIELD_INVALID";
     case storage::TuningReason::NVS_WRITE_ERROR: return "PERSISTENCE_FAILED";
     case storage::TuningReason::QUEUE_FULL_ERROR: return "CONTROL_QUEUE_UNAVAILABLE";
+    case storage::TuningReason::STALE_REVISION: return "STALE_REVISION";
     default: return "INVALID_SCHEMA";
     }
 }
@@ -90,6 +91,9 @@ bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
     config["mist_gain_scale"] = effective.mist_gain_scale;
     config["mist_on_threshold"] = effective.mist_on_threshold;
     config["mist_off_threshold"] = effective.mist_off_threshold;
+    // The backend accepts IN_SYNC only after it canonical-compares this exact
+    // persisted effective revision and configuration against desired.
+    document["revision"] = effective.revision;
     document["persisted"] = result != storage::TuningResult::REJECTED;
     document["reported_at"] = nullptr;
 

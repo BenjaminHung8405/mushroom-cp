@@ -34,7 +34,8 @@ enum class TuningReason : uint8_t {
     DUPLICATE_UUID = 6,
     NO_CHANGE = 7,             ///< Parameters unchanged; command identity is persisted durably (survive reboot) but config envelope is not rewritten.
     NVS_WRITE_ERROR = 8,
-    QUEUE_FULL_ERROR = 9
+    QUEUE_FULL_ERROR = 9,
+    STALE_REVISION = 10
 };
 
 class TuningConfigManager {

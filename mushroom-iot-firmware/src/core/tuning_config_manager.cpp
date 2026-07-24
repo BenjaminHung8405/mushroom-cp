@@ -82,6 +82,11 @@ TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningR
     if (validation == TuningReason::OK && _isExactDuplicate(incoming_params.command_id)) {
         reason = TuningReason::DUPLICATE_UUID;
         result = TuningResult::DUPLICATE;
+    } else if (validation == TuningReason::OK &&
+               incoming_params.revision < _active_params.revision) {
+        // Persisted revision is a fence against retained stale commands.
+        reason = TuningReason::STALE_REVISION;
+        result = TuningResult::REJECTED;
     } else if (validation == TuningReason::OK && !_isSemanticDiff(incoming_params)) {
         result = recordNoChangeReceipt(incoming_params, reason);
     } else if (validation == TuningReason::OK) {
@@ -304,7 +309,7 @@ bool TuningConfigManager::_validateConfigBounds(const JsonVariant& config) {
 }
 
 bool TuningConfigManager::_validateCrossField(float mist_on, float mist_off) {
-    return mist_off < mist_on;
+    return mist_off < mist_on - 0.001f;
 }
 
 bool TuningConfigManager::_validateNoNanInfinity(const JsonVariant& v) {

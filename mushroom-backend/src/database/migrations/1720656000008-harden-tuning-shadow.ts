@@ -5,6 +5,28 @@ export class HardenTuningShadow1720656000008 implements MigrationInterface {
   name = 'HardenTuningShadow1720656000008';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Abort before any DDL: an operator must resolve historic ambiguity rather
+    // than receive a partially upgraded schema after a UNIQUE failure.
+    await queryRunner.query(`
+      DO $$
+      DECLARE duplicate_command_count bigint; duplicate_revision_count bigint;
+      BEGIN
+        SELECT COUNT(*) INTO duplicate_command_count FROM (
+          SELECT device_id, command_id FROM device_tuning_configurations
+          GROUP BY device_id, command_id HAVING COUNT(*) > 1
+        ) duplicate_commands;
+        SELECT COUNT(*) INTO duplicate_revision_count FROM (
+          SELECT device_id, revision FROM device_tuning_configurations
+          GROUP BY device_id, revision HAVING COUNT(*) > 1
+        ) duplicate_revisions;
+        IF duplicate_command_count > 0 OR duplicate_revision_count > 0 THEN
+          RAISE EXCEPTION USING
+            MESSAGE = format(
+              'Tuning shadow hardening aborted: %s duplicate (device_id, command_id) keys and %s duplicate (device_id, revision) keys. Remediate or deduplicate these historical rows, then rerun migration 1720656000008.',
+              duplicate_command_count, duplicate_revision_count);
+        END IF;
+      END $$
+    `);
     await queryRunner.query(`
       DO $$ BEGIN
         IF NOT EXISTS (

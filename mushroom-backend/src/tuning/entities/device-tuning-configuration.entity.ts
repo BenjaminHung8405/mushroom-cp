@@ -50,6 +50,19 @@ export class DeviceTuningConfiguration {
   @Column({ type: 'jsonb' })
   config: TuningConfigSnapshot;
 
+  /** Immutable effective snapshot returned by the Edge for this command. */
+  @Column({ name: 'reported_config', type: 'jsonb', nullable: true })
+  reportedConfig: TuningConfigSnapshot | null;
+
+  @Column({ name: 'reported_revision', type: 'integer', nullable: true })
+  reportedRevision: number | null;
+
+  @Column({ name: 'applied_at', type: 'timestamptz', nullable: true })
+  appliedAt: Date | null;
+
+  @Column({ name: 'rejection_reason', type: 'varchar', length: 64, nullable: true })
+  rejectionReason: string | null;
+
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
 

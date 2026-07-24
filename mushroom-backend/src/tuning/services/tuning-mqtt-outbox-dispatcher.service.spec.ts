@@ -72,7 +72,7 @@ describe('TuningMqttOutboxDispatcher', () => {
     const pending = config();
     const manager = {
       query: jest.fn(),
-      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(item).mockResolvedValueOnce(pending),
+      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(pending).mockResolvedValueOnce(pending),
       save: jest.fn().mockRejectedValueOnce(new Error('database write failed')),
     };
     const retryItem = outbox();
@@ -83,7 +83,7 @@ describe('TuningMqttOutboxDispatcher', () => {
 
     await (dispatcher as unknown as { dispatchOne(id: string): Promise<void> }).dispatchOne(item.id);
 
-    expect(mqtt.publishTuningDesired).toHaveBeenCalledWith(pending.deviceId, pending.commandId, snapshot);
+    expect(mqtt.publishTuningDesired).toHaveBeenCalledWith(pending.deviceId, pending.commandId, pending.revision, snapshot);
     expect(pending.status).toBe(SyncStatus.PENDING);
     expect(retryItem.attempts).toBe(1);
     expect(retryManager.save).toHaveBeenCalledWith(TuningMqttOutbox, retryItem);
@@ -94,10 +94,13 @@ describe('TuningMqttOutboxDispatcher', () => {
     const synced = config({ status: SyncStatus.IN_SYNC, retainedClearPending: true });
     const failedManager = {
       query: jest.fn(),
-      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(item).mockResolvedValueOnce(synced).mockResolvedValueOnce(synced),
+      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(synced).mockResolvedValueOnce(synced),
       save: jest.fn(),
     };
-    const retryManager = { findOne: jest.fn().mockResolvedValue(item), save: jest.fn() };
+    const retryManager = {
+      findOne: jest.fn().mockImplementation(async () => item),
+      save: jest.fn().mockImplementation(async (_entity: unknown, value: unknown) => value),
+    };
     mqtt.clearTuningDesired.mockRejectedValueOnce(new Error('broker unavailable'));
     dataSource.transaction
       .mockImplementationOnce(async (callback) => callback(failedManager))
@@ -109,7 +112,7 @@ describe('TuningMqttOutboxDispatcher', () => {
     item.nextAttemptAt = new Date(0);
     const recoveredManager = {
       query: jest.fn(),
-      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(item).mockResolvedValueOnce(synced).mockResolvedValueOnce(synced),
+      findOne: jest.fn().mockResolvedValueOnce(item).mockResolvedValueOnce(synced).mockResolvedValueOnce(synced),
       save: jest.fn(),
     };
     dataSource.transaction.mockImplementationOnce(async (callback) => callback(recoveredManager));

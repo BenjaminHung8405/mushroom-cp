@@ -25,6 +25,18 @@ import {
   getTuningReportedPattern,
   parseTuningTopic,
 } from './constants/mqtt-topics.const';
+import {
+  LAMP_GAIN_SCALE_MAX,
+  LAMP_GAIN_SCALE_MIN,
+  MIN_THRESHOLD_GAP,
+  MIST_GAIN_SCALE_MAX,
+  MIST_GAIN_SCALE_MIN,
+  MIST_OFF_THRESHOLD_MAX,
+  MIST_OFF_THRESHOLD_MIN,
+  MIST_ON_THRESHOLD_MAX,
+  MIST_ON_THRESHOLD_MIN,
+} from '../tuning/constants/tuning-contract.constants';
+import type { TuningConfigSnapshot } from '../tuning/entities/device-tuning-configuration.entity';
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -135,6 +147,10 @@ export interface TuningReportedEvent {
   status: 'ACCEPTED' | 'DUPLICATE' | 'REJECTED';
   reasonCode: string | null;
   persisted: boolean;
+  /** Canonical v1 effective configuration asserted by the Edge. */
+  reportedConfig: TuningConfigSnapshot;
+  /** Exact persisted effective revision asserted by the Edge. */
+  revision: number;
   receivedAt: Date;
 }
 
@@ -637,12 +653,22 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    const reportedConfig = this.parseTuningSnapshot(data.reported_config);
+    const revision = this.nonNegativeInteger(data.revision);
+    if (!reportedConfig || revision === null) {
+      this.logger.warn(
+        `Dropped tuning ACK with invalid reported_config/revision from '${deviceId}'.`,
+      );
+      return;
+    }
     this.tuningReported$.next({
       deviceId,
       commandId,
       status: status as TuningReportedEvent['status'],
       reasonCode,
       persisted,
+      reportedConfig,
+      revision,
       receivedAt,
     });
     void this.registry.touchLastSeen(deviceId, receivedAt);
@@ -773,6 +799,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   async publishTuningDesired(
     deviceId: string,
     commandId: string,
+    revision: number,
     config: {
       lamp_gain_scale: number;
       mist_gain_scale: number;
@@ -784,12 +811,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     await this.publish(
       topic,
       {
+        schema_version: 1,
         command_id: commandId,
         device_id: deviceId,
-        lamp_gain_scale: config.lamp_gain_scale,
-        mist_gain_scale: config.mist_gain_scale,
-        mist_on_threshold: config.mist_on_threshold,
-        mist_off_threshold: config.mist_off_threshold,
+        revision,
+        config: {
+          lamp_gain_scale: config.lamp_gain_scale,
+          mist_gain_scale: config.mist_gain_scale,
+          mist_on_threshold: config.mist_on_threshold,
+          mist_off_threshold: config.mist_off_threshold,
+        },
       },
       true, // retain = true
     );
@@ -1167,6 +1198,39 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       value >= 0
       ? value
       : null;
+  }
+
+  /** Strict v1 parser: rejects arrays, omitted fields, and forward-compatible extras. */
+  private parseTuningSnapshot(value: unknown): TuningConfigSnapshot | null {
+    const config = this.object(value);
+    const expected = [
+      'lamp_gain_scale',
+      'mist_gain_scale',
+      'mist_on_threshold',
+      'mist_off_threshold',
+    ];
+    if (!config || Object.keys(config).length !== expected.length || !expected.every((key) => key in config)) return null;
+    const lamp = config.lamp_gain_scale;
+    const mist = config.mist_gain_scale;
+    const on = config.mist_on_threshold;
+    const off = config.mist_off_threshold;
+    if (
+      typeof lamp !== 'number' || !Number.isFinite(lamp) ||
+      typeof mist !== 'number' || !Number.isFinite(mist) ||
+      typeof on !== 'number' || !Number.isFinite(on) ||
+      typeof off !== 'number' || !Number.isFinite(off)
+    ) return null;
+    if (lamp < LAMP_GAIN_SCALE_MIN || lamp > LAMP_GAIN_SCALE_MAX ||
+      mist < MIST_GAIN_SCALE_MIN || mist > MIST_GAIN_SCALE_MAX ||
+      on < MIST_ON_THRESHOLD_MIN || on > MIST_ON_THRESHOLD_MAX ||
+      off < MIST_OFF_THRESHOLD_MIN || off > MIST_OFF_THRESHOLD_MAX ||
+      off >= on - MIN_THRESHOLD_GAP) return null;
+    return {
+      lamp_gain_scale: lamp,
+      mist_gain_scale: mist,
+      mist_on_threshold: on,
+      mist_off_threshold: off,
+    };
   }
 
   private finiteMetric(value: unknown): number | null {

@@ -76,18 +76,47 @@ describe('TuningConfigurationService hardening', () => {
     const pending = { id: 'config-1', deviceId, commandId, revision: 1, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
     const manager = { findOne: jest.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(pending).mockResolvedValueOnce(null), save: jest.fn().mockResolvedValue(pending), create: jest.fn((_entity: unknown, value: unknown) => value) };
     dataSource.transaction.mockImplementation(async (callback) => callback(manager));
-    const result = await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: false, reasonCode: null, receivedAt: new Date() });
+    const result = await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: false, reasonCode: null, reportedConfig: config, revision: 1, receivedAt: new Date() });
     expect(result.updated).toBe(true);
     expect(pending.status).toBe(SyncStatus.REJECTED);
+    expect(pending.rejectionReason).toBe('PERSISTENCE_NOT_CONFIRMED');
     expect(mqtt.clearTuningDesired).not.toHaveBeenCalled();
+  });
+
+  it('rejects an accepted ACK whose revision or canonical config mismatches the desired', async () => {
+    const pending = { id: 'config-1', deviceId, commandId, revision: 2, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
+    const manager = { findOne: jest.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(pending).mockResolvedValueOnce(null), save: jest.fn().mockResolvedValue(pending), create: jest.fn((_entity: unknown, value: unknown) => value) };
+    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: true, reasonCode: null, reportedConfig: config, revision: 1, receivedAt: new Date() });
+    expect(pending.status).toBe(SyncStatus.REJECTED);
+    expect(pending.rejectionReason).toBe('REVISION_MISMATCH');
+
+    const other = { id: 'config-2', deviceId, commandId, revision: 3, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
+    const manager2 = { findOne: jest.fn().mockResolvedValueOnce(other).mockResolvedValueOnce(other).mockResolvedValueOnce(null), save: jest.fn().mockResolvedValue(other), create: jest.fn((_entity: unknown, value: unknown) => value) };
+    dataSource.transaction.mockImplementation(async (callback) => callback(manager2));
+    const bogus = { ...config, lamp_gain_scale: 0.9 };
+    await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: true, reasonCode: null, reportedConfig: bogus, revision: 3, receivedAt: new Date() });
+    expect(other.status).toBe(SyncStatus.REJECTED);
+    expect(other.rejectionReason).toBe('CANONICAL_MISMATCH');
   });
 
   it('queues a retained clear durably instead of issuing MQTT from the ACK transaction', async () => {
     const synced = { id: 'config-1', deviceId, commandId, revision: 1, status: SyncStatus.PENDING, config, retainedClearPending: false, createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
     const manager = { findOne: jest.fn().mockResolvedValueOnce(synced).mockResolvedValueOnce(synced).mockResolvedValueOnce(null), save: jest.fn().mockResolvedValue(synced), create: jest.fn((_entity: unknown, value: unknown) => value) };
     dataSource.transaction.mockImplementation(async (callback) => callback(manager));
-    await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: true, reasonCode: null, receivedAt: new Date() });
+    await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: true, reasonCode: null, reportedConfig: config, revision: 1, receivedAt: new Date() });
+    expect(synced.status).toBe(SyncStatus.IN_SYNC);
+    expect(synced.reportedConfig).toEqual(config);
+    expect(synced.reportedRevision).toBe(1);
     expect(outbox.enqueueRetainedClear).toHaveBeenCalledWith(manager, synced);
     expect(mqtt.clearTuningDesired).not.toHaveBeenCalled();
+  });
+
+  it('ignores malformed ACKs whose reported_config violates the v1 contract', async () => {
+    dataSource.transaction.mockImplementation(async () => undefined);
+    const bogus = { ...config, mist_off_threshold: config.mist_on_threshold };
+    const result = await service.handleReportedAck({ deviceId, commandId, status: 'ACCEPTED', persisted: true, reasonCode: null, reportedConfig: bogus, revision: 1, receivedAt: new Date() });
+    expect(result.updated).toBe(false);
+    expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 });

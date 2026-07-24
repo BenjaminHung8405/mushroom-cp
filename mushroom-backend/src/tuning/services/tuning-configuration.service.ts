@@ -87,6 +87,11 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     return this.configRepo.findOne({ where: { deviceId: this.validDeviceId(deviceId) }, order: { revision: 'DESC' } });
   }
 
+  async getLatestForPrincipal(principal: TuningPrincipal, deviceId: string): Promise<DeviceTuningConfiguration | null> {
+    await this.assertReadAccess(principal, deviceId);
+    return this.getLatestByDeviceId(deviceId);
+  }
+
   async getTuningHistory(deviceId: string, limit?: number, offset?: number): Promise<{ items: TuningAuditLog[]; total: number; limit: number; offset: number }> {
     const parsedLimit = Number.isInteger(limit) && (limit as number) >= 1 ? Math.min(limit as number, 100) : 20;
     const parsedOffset = Number.isInteger(offset) && (offset as number) >= 0 ? offset as number : 0;
@@ -94,6 +99,11 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
       where: { deviceId: this.validDeviceId(deviceId) }, order: { createdAt: 'DESC', id: 'DESC' }, take: parsedLimit, skip: parsedOffset,
     });
     return { items, total, limit: parsedLimit, offset: parsedOffset };
+  }
+
+  async getHistoryForPrincipal(principal: TuningPrincipal, deviceId: string, limit?: number, offset?: number): Promise<{ items: TuningAuditLog[]; total: number; limit: number; offset: number }> {
+    await this.assertReadAccess(principal, deviceId);
+    return this.getTuningHistory(deviceId, limit, offset);
   }
 
   /** Persist first, publish immutable durable snapshot second. */
@@ -123,8 +133,10 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
         const saved = await manager.save(DeviceTuningConfiguration, manager.create(DeviceTuningConfiguration, {
           id: crypto.randomUUID(), deviceId, commandId, revision: (latest?.revision ?? 0) + 1,
           status: SyncStatus.PENDING, config: { ...config }, publishedAt: null,
+          reportedConfig: null, reportedRevision: null, appliedAt: null, rejectionReason: null,
           retainedClearPending: false, retainedClearAttempts: 0, retainedClearNextAt: null,
         }));
+        await this.outboxDispatcher.supersedeUndeliveredDesired(manager, saved.deviceId, saved.revision);
         await this.writeAudit(manager, saved, principal.subject, 'api', 'CREATE_PENDING', configBefore, saved.config, 'Create pending tuning command', 'SUCCESS');
         await this.outboxDispatcher.enqueueDesired(manager, saved);
         return saved;
@@ -154,9 +166,14 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
         const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId }, order: { revision: 'DESC' } });
         result.isLatest = latest?.id === config.id;
         if (config.status !== SyncStatus.PENDING) return;
-        // Fail closed: ACCEPTED/DUPLICATE has no durability meaning unless persisted is true.
-        const accepted = (ack.status === 'ACCEPTED' || ack.status === 'DUPLICATE') && ack.persisted === true;
+        const rejectionReason = this.ackRejectionReason(ack, config);
+        // The status is evidence only if it matches the exact durable effective state.
+        const accepted = rejectionReason === null;
         config.status = accepted ? SyncStatus.IN_SYNC : SyncStatus.REJECTED;
+        config.reportedConfig = { ...ack.reportedConfig };
+        config.reportedRevision = ack.revision;
+        config.appliedAt = accepted ? ack.receivedAt : null;
+        config.rejectionReason = rejectionReason;
         if (accepted && result.isLatest) {
           config.retainedClearPending = true;
           config.retainedClearAttempts = 0;
@@ -166,7 +183,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
         config.updatedAt = new Date();
         await manager.save(DeviceTuningConfiguration, config);
         const before = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, status: SyncStatus.IN_SYNC, revision: LessThan(config.revision) }, order: { revision: 'DESC' } });
-        await this.writeAudit(manager, config, 'device', 'mqtt', accepted ? 'SYNC_ACCEPTED' : 'SYNC_REJECTED', before?.config ?? null, config.config, accepted ? ack.reasonCode : (ack.persisted ? ack.reasonCode : 'PERSISTENCE_NOT_CONFIRMED'), accepted ? 'SUCCESS' : 'FAILED');
+        await this.writeAudit(manager, config, 'device', 'mqtt', accepted ? 'SYNC_ACCEPTED' : 'SYNC_REJECTED', before?.reportedConfig ?? before?.config ?? null, config.reportedConfig, rejectionReason ?? ack.reasonCode, accepted ? 'SUCCESS' : 'FAILED');
         result.updated = true;
         event = this.toEvent(config);
       });
@@ -193,13 +210,20 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     if (!device.enabled) throw new BadRequestException(`Device '${deviceId}' is disabled.`);
     if (!principal.isAdmin && !principal.allowedHouseIds.includes(device.houseId)) throw new ForbiddenException(`Not authorized to tune device '${deviceId}'.`);
   }
+  private async assertReadAccess(principal: TuningPrincipal, deviceId: string): Promise<void> {
+    this.validatePrincipal(principal);
+    const normalizedDeviceId = this.validDeviceId(deviceId);
+    const device = await this.dataSource.manager.findOne(Device, { where: { deviceId: normalizedDeviceId } });
+    this.assertDeviceAccess(device, principal, normalizedDeviceId);
+  }
 
   private async writeAudit(manager: EntityManager, config: DeviceTuningConfiguration, actor: string, source: string, action: string, before: TuningConfigSnapshot | null, after: TuningConfigSnapshot | null, reason: string | null, result: string): Promise<void> {
     await manager.save(TuningAuditLog, manager.create(TuningAuditLog, { id: crypto.randomUUID(), configurationId: config.id, deviceId: config.deviceId, actor, source, action, rulesetVersion: null, kpiSnapshot: null, configBefore: before, configAfter: after, reason, result }));
   }
 
   private isValidAck(ack: TuningReportedEvent): boolean {
-    return !!ack && typeof ack.deviceId === 'string' && ack.deviceId.trim().length > 0 && ack.deviceId.length <= 50 && typeof ack.commandId === 'string' && COMMAND_ID_PATTERN.test(ack.commandId) && (ack.status === 'ACCEPTED' || ack.status === 'DUPLICATE' || ack.status === 'REJECTED') && typeof ack.persisted === 'boolean';
+    if (!ack || typeof ack.deviceId !== 'string' || !ack.deviceId.trim() || ack.deviceId.length > 50 || typeof ack.commandId !== 'string' || !COMMAND_ID_PATTERN.test(ack.commandId) || !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(ack.status) || typeof ack.persisted !== 'boolean' || !Number.isSafeInteger(ack.revision) || ack.revision < 0) return false;
+    try { this.validateSnapshot(ack.reportedConfig); return true; } catch { return false; }
   }
   private validDeviceId(value: string): string { if (typeof value !== 'string' || !value.trim() || value.length > 50) throw new BadRequestException('deviceId is required and must be under 50 characters.'); return value.trim(); }
   private validateCommandId(value: string): void { if (typeof value !== 'string' || !COMMAND_ID_PATTERN.test(value)) throw new BadRequestException('commandId must be a valid UUID.'); }
@@ -209,6 +233,12 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
   private emit(config: DeviceTuningConfiguration): void { this.tuningSync$.next(this.toEvent(config)); }
   private sameSnapshot(left: TuningConfigSnapshot, right: TuningConfigSnapshot): boolean {
     return left.lamp_gain_scale === right.lamp_gain_scale && left.mist_gain_scale === right.mist_gain_scale && left.mist_on_threshold === right.mist_on_threshold && left.mist_off_threshold === right.mist_off_threshold;
+  }
+  private ackRejectionReason(ack: TuningReportedEvent, config: DeviceTuningConfiguration): string | null {
+    if (ack.status === 'REJECTED') return ack.reasonCode ?? 'EDGE_REJECTED';
+    if (!ack.persisted) return 'PERSISTENCE_NOT_CONFIRMED';
+    if (ack.revision !== config.revision) return 'REVISION_MISMATCH';
+    return this.sameSnapshot(config.config, ack.reportedConfig) ? null : 'CANONICAL_MISMATCH';
   }
   private isUniqueViolation(error: unknown): boolean { return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === '23505'; }
   private errorMessage(error: unknown): string { return error instanceof Error ? error.message : 'Unknown error'; }

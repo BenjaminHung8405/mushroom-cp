@@ -1,3 +1,53 @@
+## [2026-07-24T14:16:31+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2 sau vòng 3)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-24 13:45–14:16 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2 sau vòng 3).
+- **File đã sửa/thêm:**
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning.controller.ts`
+  - `mushroom-backend/src/tuning/entities/device-tuning-configuration.entity.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts`
+  - `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts`
+  - `mushroom-backend/src/database/migrations/1720656000010-add-reported-tuning-shadow.ts` [NEW]
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts` [NEW]
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.spec.ts` [DELETED]
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA (vòng 3):**
+  - **[Critical #1] Canonical reported shadow.** Mở rộng contract `TuningReportedEvent` để bắt buộc mang `reported_config` v1 và `revision`. `MqttService.handleTuningReported()` parse strict theo v1: đúng 4 key `lamp_gain_scale/mist_gain_scale/mist_on_threshold/mist_off_threshold`, finite, đúng hard bounds `0.80–1.20` và `0.20–0.35`/`0.10–0.20`, cross-field gap `0.001`, `revision` là số nguyên không âm; payload thiếu, sai kiểu hoặc thừa key bị drop trước khi lên bus. `TuningConfigurationService.handleReportedAck()` không còn chấp nhận `ACCEPTED/DUPLICATE + persisted=true` như bằng chứng: `ackRejectionReason()` fail-closed với reason ổn định (`PERSISTENCE_NOT_CONFIRMED`, `REVISION_MISMATCH`, `CANONICAL_MISMATCH`, `EDGE_REJECTED`). Entity/migration `0010` persist `reported_config`, `reported_revision`, `applied_at`, `rejection_reason`; audit ghi bằng chứng reported canonical thay vì desired snapshot.
+  - **[High #2] Fencing revision hai lớp.** Backend: khi tạo revision mới trong cùng transaction gọi `supersedeUndeliveredDesired()` để mark-delivered mọi `PUBLISH_DESIRED` revision cũ. Dispatcher `shouldDeliver()` cho `PUBLISH_DESIRED` chỉ dispatch nếu candidate là latest revision của device và `PENDING`. Query `dispatchDue()` đưa điều kiện due (`next_attempt_at <= NOW()`) xuống DB, order `nextAttemptAt ASC, revision DESC` và có index migration `idx_tuning_mqtt_outbox_device_due` phù hợp. Firmware defense: `publishTuningDesired()` mang `schema_version=1`, `revision` và `config` object; firmware `validateAndParse()` parse `revision`, `parseConfig()` bọc trong `doc["config"]`; `TuningReportedEvent` reject payload thiếu revision.
+  - **[High #3] Migration upgrade an toàn + integration test thật.** `0008` thêm preflight `RAISE EXCEPTION` fail-before-DDL với số lượng duplicate `(device_id, command_id)` và `(device_id, revision)` cụ thể để operator remediate. `0010` thêm cột reported + index `(device_id, revision DESC)` phục vụ latest lookup. Xoá mock spec cũ, thay bằng `tuning-shadow-migrations.integration.spec.ts` kết nối `mushroom_db` (biến `TUNING_MIGRATION_DATABASE_URL` hoặc mặc định `192.168.107.2` + credentials từ `.env`) tạo/reset DB `tuning_migration_it`, thực chạy `0006 → 0010 up/down`, kiểm bảng/constraint/index/FK RESTRICT, upgrade dữ liệu duplicate, upgrade dữ liệu sạch. Auto-skip nếu DB không sẵn sàng để CI không fail giả.
+  - **[Medium #4] Read API + authorization.** Controller thêm `GET /tuning/devices/:deviceId/latest` và `/history` với `TuningPrincipalGuard`; service `getLatestForPrincipal()`/`getHistoryForPrincipal()` gọi `assertReadAccess()` xác minh device thuộc `houseId` của principal (admin bypass) trước mỗi read. Pagination parse fail-closed thành `NaN` → repository từ chối; module test dùng typed mocks (không còn `any` cho service repo).
+- **Xác minh:**
+  - `npx jest --runInBand src/database/migrations/tuning-shadow-migrations.integration.spec.ts` — 4/4 tests **PASS** (bao gồm clean install/rollback, preflight abort với duplicate, upgrade dữ liệu sạch với `0008 → 0010`).
+  - `npm test -- --runInBand` — **29 suites / 191 tests PASS**.
+  - `npx tsc --noEmit -p tsconfig.build.json` — **PASS**.
+  - `git diff --check` — **PASS**.
+
+---
+
+## [2026-07-24T13:45:00+07:00] - Security/Architecture QA Review: REJECTED (Track F, vòng 3)
+
+- **Kết quả:** **Từ chối duyệt** F1–F10. Toàn bộ Task Track F đã được chuyển từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`. Không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Rà soát toàn bộ source Track F được liệt kê tại entry `2026-07-24T13:20:00+07:00`, đối chiếu `README.md` v2.2, `sprint_1.md`, `PLAN.md` và yêu cầu F1–F10 trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **[Critical] F3/F5/F10 — Backend xác nhận `IN_SYNC` mà không hề kiểm reported effective configuration.** `mushroom-backend/src/mqtt/mqtt.service.ts:609-646` chỉ lấy `command_id`, `status`, `persisted`, `reason_code`; bỏ qua `reported_config` và `revision` vốn là phần của reported contract. Sau đó `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:152-169` chuyển `PENDING → IN_SYNC` chỉ dựa vào `ACCEPTED|DUPLICATE && persisted === true`, đồng thời ghi `config.config` (desired) làm `configAfter`, không lưu hay canonical-compare trạng thái Edge. Điều này vi phạm kiến trúc/flow tại `sprint_1.md:141-147` và acceptance criterion `PLAN.md:320`: firmware lỗi, firmware cũ, hoặc ACK không tương ứng effective config vẫn làm durable shadow/UI/audit báo đồng bộ thành công. **Chỉ thị:** mở rộng typed `TuningReportedEvent`/entity/migration để nhận full reported snapshot và revision; validate finite/bounds/cross-field + exact command/revision/canonical match với desired ngay trong transaction trước transition. Mismatch, missing hoặc malformed phải fail-closed (`REJECTED` có reason ổn định hoặc security log theo contract), không clear retained và không phát SSE success. Bổ sung test ACK mismatch từng field, missing/reported extra-invalid config, revision stale và duplicate QoS-1.
+  2. **[High] F6/F10 — Outbox cho phép command cũ còn `PENDING` được publish sau khi command mới đã tồn tại, làm thiết bị có thể áp dụng cấu hình stale.** `tuning-mqtt-outbox-dispatcher.service.ts:100-108` cho mọi configuration `PENDING` publish, không fence publish desired theo latest revision. Khi publish revision cũ thất bại, `:111-118` đẩy `nextAttemptAt` ra tương lai; `:68-72` luôn chọn item undelivered revision nhỏ nhất mà không xét `nextAttemptAt`, nên desired revision mới bị head-of-line blocked. Đến lúc retry, revision cũ vẫn được publish retained trước revision mới. MQTT/firmware desired payload tại `mqtt.service.ts:773-796` cũng không mang revision để Edge tự reject stale command. Điều này không bảo đảm mục tiêu README §1.1.4 “offline device nhận đúng desired retained mới nhất tại reconnect” và có thể apply command lỗi thời trước khi revision mới kịp publish. **Chỉ thị:** chọn một invariant an toàn và kiểm thử nó: (a) supersede/mark-delivered tất cả `PUBLISH_DESIRED` revision cũ trước publish revision mới, chỉ dispatch latest pending; hoặc (b) đưa revision vào desired contract, persist highest revision ở firmware và firmware reject stale revision. Scheduler phải không để head item retry future chặn latest desired; dùng query due/index phù hợp và test old publish failure → new command → reconnect chỉ nhận/apply newest.
+  3. **[High] F1/F2 — Migration upgrade không an toàn và test migration không kiểm schema thật.** `1720656000008-harden-tuning-shadow.ts:8-31` thêm unique `(device_id, command_id)` và `(device_id, revision)` trực tiếp. Bất kỳ database đã chạy `0006` trước hardening mà có duplicate hợp lệ theo schema cũ sẽ khiến upgrade dừng giữa chừng; không có preflight, remediation, hay chiến lược xử lý dữ liệu. `tuning-shadow-migrations.spec.ts:8-39` chỉ mock `QueryRunner.query`, vì vậy không phát hiện SQL/FK/constraint hay rollback schema sai trên PostgreSQL. Vi phạm F1/F2 yêu cầu migration chạy được clean database **và upgrade database**. **Chỉ thị:** thêm integration test PostgreSQL tạm thời cho clean `up/down` và upgrade có fixture duplicate; migration phải deterministically dedupe/migrate hoặc fail trước bất kỳ DDL với báo cáo/operator remediation rõ ràng. Xác nhận constraints, FK `RESTRICT`, index và entity mapping sau từng bước.
+  4. **[Medium] F7/F8/F9 — Read path và indexing chưa đạt yêu cầu production.** `tuning-configuration.service.ts:86-95` query latest theo `revision DESC`, nhưng migration chỉ index `(device_id, created_at DESC)` (`1720656000006...:21-24`), dẫn đến sort/scan theo device khi lịch sử lớn; thêm index `(device_id, revision DESC)`. `tuning.controller.ts:10-18` chỉ expose POST; chưa có endpoint guarded/ownership-checked cho latest/history dù PLAN §6.2 yêu cầu các read API. `tuning.module.spec.ts:14-18` còn dùng `any`, trái strict typing stated in README §2.2. **Chỉ thị:** thêm index migration delta, guarded read endpoints gọi ownership check trước service read, test cross-house deny và thay mock `any` bằng typed `jest.Mocked<Pick<...>>`/`unknown` cast tối thiểu.
+- **Đánh giá checklist:** Không phát hiện credential/secret hard-code mới trong Track F; JWT secret đọc từ environment và MQTT topic builder validate segment. SQL advisory-lock dùng parameter binding, không có SQL injection trực tiếp. Code đã cải thiện đáng kể bằng transactional outbox, lock theo device và retry durable; `createPendingCommand()` đã được phân rã, không còn method production >50 dòng rõ rệt. Tuy vậy các lỗi consistency/liveness và canonical shadow nêu trên là blocking, nên không đủ điều kiện LGTM.
+- **Xác minh QA:** `npx tsc --noEmit -p tsconfig.build.json` **PASS**; `npm test -- --runInBand` **PASS** (**29 suites, 187 tests**); `git diff --check` **PASS**. Test xanh không chứng minh các tình huống ACK canonical mismatch, stale desired sau retry, hay migration PostgreSQL upgrade thật vì các coverage này hiện chưa có.
+
+---
+
 ## [2026-07-24T13:20:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 3)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-24 13:06–13:20 (+07:00)
@@ -1466,3 +1516,27 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   - `git diff --check` — **PASS**.
   - Đã chạy lại host command `g++ -std=c++17 -DUNIT_TEST ...`; build hiện bị chặn trước D4 bởi static assertion có sẵn `PersistedCropProfile`/`LegacyPersistedCropProfileV1` (`alignof == 4`, host nhận `8`) và lỗi mock `Preferences::getBytesLength` có sẵn.
   - Đã chạy `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -d mushroom-iot-firmware -e otg`; build cũng bị chặn trước các file D4 bởi cùng static assertion layout có sẵn. Không thay đổi các invariant ngoài phạm vi task.
+## [2026-07-24T14:16:31+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-24 13:45–14:16 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa/thêm:**
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/tuning/entities/device-tuning-configuration.entity.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning.controller.ts`
+  - `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts`
+  - `mushroom-backend/src/database/migrations/1720656000010-add-reported-tuning-shadow.ts` [NEW]
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts` [NEW]
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:** Bổ sung reported effective config/revision end-to-end và canonical compare fail-closed trước `IN_SYNC`; persist evidence/reason audit; supersede desired revision cũ, query due trực tiếp trong DB và fence revision ở firmware; thêm payload revision, read API có JWT/house ownership; harden migration bằng duplicate preflight và integration PostgreSQL thật cho clean/upgrade/rollback/FK/index.
+- **Xác minh:** `TUNING_MIGRATION_ENABLE_LOCAL=1 ... npm test -- --runInBand` **PASS** (29 suites, 191 tests; gồm integration PostgreSQL); `npx tsc --noEmit -p tsconfig.build.json` **PASS**; `git diff --check` **PASS**.

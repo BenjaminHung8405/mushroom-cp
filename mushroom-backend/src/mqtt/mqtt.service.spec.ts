@@ -161,6 +161,13 @@ describe('MqttService', () => {
         expect(event.deviceId).toBe('device-1');
         expect(event.commandId).toBe('11111111-1111-1111-1111-111111111111');
         expect(event.status).toBe('ACCEPTED');
+        expect(event.revision).toBe(3);
+        expect(event.reportedConfig).toEqual({
+          lamp_gain_scale: 1,
+          mist_gain_scale: 1,
+          mist_on_threshold: 0.25,
+          mist_off_threshold: 0.15,
+        });
         done();
       });
       messageCallback(
@@ -171,6 +178,13 @@ describe('MqttService', () => {
             command_id: '11111111-1111-1111-1111-111111111111',
             status: 'ACCEPTED',
             persisted: true,
+            revision: 3,
+            reported_config: {
+              lamp_gain_scale: 1,
+              mist_gain_scale: 1,
+              mist_on_threshold: 0.25,
+              mist_off_threshold: 0.15,
+            },
           }),
         ),
       );
@@ -197,6 +211,13 @@ describe('MqttService', () => {
             command_id: '11111111-1111-1111-1111-111111111111',
             status: 'ACCEPTED',
             persisted: true,
+            revision: 1,
+            reported_config: {
+              lamp_gain_scale: 1,
+              mist_gain_scale: 1,
+              mist_on_threshold: 0.25,
+              mist_off_threshold: 0.15,
+            },
           }),
         ),
       );
