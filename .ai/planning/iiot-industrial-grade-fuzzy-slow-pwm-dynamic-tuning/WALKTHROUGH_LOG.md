@@ -1,3 +1,25 @@
+## [2026-07-24T12:23:00+07:00] - Task F7: Implement `getLatestByDeviceId()` in `TuningConfigurationService`
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)
+- **Task ID:** F7
+- **Các file đã tạo mới/sửa đổi:**
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn:**
+  - Implement phương thức `getLatestByDeviceId()` trong `TuningConfigurationService` để truy xuất bản ghi cấu hình tuning shadow mới nhất và bền vững của thiết bị.
+  - Sử dụng truy vấn cơ sở dữ liệu với điều kiện lọc theo `deviceId` và sắp xếp giảm dần theo thời gian tạo `order: { createdAt: 'DESC' }` (tương ứng câu lệnh SQL `ORDER BY created_at DESC LIMIT 1`).
+  - Đảm bảo cơ sở dữ liệu làm nguồn sự thật (durable shadow source of truth), tuyệt đối không sử dụng in-memory cache hay biến trạng thái tạm thời.
+  - Bổ sung validation tham số `deviceId`: yêu cầu kiểu chuỗi phi rỗng, độ dài <= 50 ký tự; ném `BadRequestException` fail-closed khi dữ liệu không hợp lệ.
+  - Trả về kiểu dữ liệu minh định `Promise<DeviceTuningConfiguration | null>`.
+- **Xác minh:**
+  - Bổ sung 3 unit tests mới trong `tuning-configuration.service.spec.ts` (kiểm tra validation `deviceId`, kiểm tra truy vấn `createdAt DESC`, và kiểm tra trường hợp trả về `null`).
+  - Đã tự chạy kiểm thử đơn vị thành công cho `TuningConfigurationService` (22/22 tests passed).
+  - Đã chạy kiểm thử hồi quy toàn bộ dự án `mushroom-backend` thành công (26/26 test suites passed, 194/194 tests passed).
+
+---
+
 ## [2026-07-24T12:21:00+07:00] - Task F6: Implement `createPendingCommand()` in `TuningConfigurationService`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

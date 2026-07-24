@@ -48,6 +48,21 @@ export class TuningConfigurationService {
     private readonly mqttService: MqttService,
   ) {}
 
+  /**
+   * Fetches the latest durable tuning configuration shadow for a device.
+   * Deterministically orders by createdAt DESC LIMIT 1 directly from database.
+   */
+  async getLatestByDeviceId(deviceId: string): Promise<DeviceTuningConfiguration | null> {
+    if (!deviceId || typeof deviceId !== 'string' || deviceId.trim().length === 0 || deviceId.length > 50) {
+      throw new BadRequestException('deviceId is required and must be under 50 characters.');
+    }
+
+    return await this.configRepo.findOne({
+      where: { deviceId: deviceId.trim() },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
 
   /**
    * Creates a pending tuning command, publishes it via MQTT, and logs audit events.

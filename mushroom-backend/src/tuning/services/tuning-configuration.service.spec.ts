@@ -581,4 +581,43 @@ describe('TuningConfigurationService', () => {
       expect(savedConfigEntity.status).toBe(SyncStatus.REJECTED);
     });
   });
+
+  describe('getLatestByDeviceId', () => {
+    it('should throw BadRequestException if deviceId is invalid', async () => {
+      await expect(service.getLatestByDeviceId('')).rejects.toThrow('deviceId is required');
+      await expect(service.getLatestByDeviceId('a'.repeat(51))).rejects.toThrow('deviceId is required');
+    });
+
+    it('should query repository with ORDER BY createdAt DESC', async () => {
+      const mockConfig = {
+        id: 'config-1',
+        deviceId: 'device-1',
+        commandId: '12345678-1234-1234-1234-1234567890ab',
+        revision: 1,
+        status: SyncStatus.IN_SYNC,
+        config: { lamp_gain_scale: 1, mist_gain_scale: 1, mist_on_threshold: 0.25, mist_off_threshold: 0.15 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      configRepo.findOne.mockResolvedValue(mockConfig as any);
+
+      const result = await service.getLatestByDeviceId('device-1');
+
+      expect(configRepo.findOne).toHaveBeenCalledWith({
+        where: { deviceId: 'device-1' },
+        order: { createdAt: 'DESC' },
+      });
+      expect(result).toEqual(mockConfig);
+    });
+
+    it('should return null when no config exists for deviceId', async () => {
+      configRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getLatestByDeviceId('unknown-device');
+
+      expect(result).toBeNull();
+    });
+  });
 });
+
