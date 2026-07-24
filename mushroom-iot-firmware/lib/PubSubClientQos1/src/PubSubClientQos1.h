@@ -143,6 +143,9 @@ private:
     QueuedQos1Entry outboundQueue_[MQTT_QOS1_OUTBOUND_QUEUE_DEPTH]{};
     uint8_t outboundQueueHead_ = 0;
     uint8_t outboundQueueCount_ = 0;
+    // Exact broker PUBACK events accepted by this QoS-1 state machine.
+    uint16_t lastPubAckMessageId_ = 0;
+    uint32_t pubAckSequence_ = 0;
     bool enqueueQos1Packet(const uint8_t* packet, uint16_t length);
     bool dequeueAndSendNextQos1();
     bool writePendingQos1(bool duplicate);
@@ -198,6 +201,8 @@ public:
                                  unsigned int plength, boolean retained);
     bool hasPendingQos1Publish() const { return pendingQos1.active; }
     uint16_t getPendingMessageId() const { return pendingQos1.messageId; }
+    uint16_t getLastPubAckMessageId() const { return lastPubAckMessageId_; }
+    uint32_t getPubAckSequence() const { return pubAckSequence_; }
    boolean publish_P(const char* topic, const char* payload, boolean retained);
    boolean publish_P(const char* topic, const uint8_t * payload, unsigned int plength, boolean retained);
    // Start to publish a message.

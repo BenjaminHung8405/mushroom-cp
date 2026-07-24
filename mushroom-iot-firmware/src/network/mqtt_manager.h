@@ -125,6 +125,9 @@ public:
     bool enqueuePendingReport(storage::TuningResult result, storage::TuningReason reason, const char* command_id);
     void processPendingReports();
     bool hasPendingQos1Publish();
+    uint16_t getPendingQos1MessageId();
+    uint16_t getLastPubAckMessageId();
+    uint32_t getPubAckSequence();
     bool reserveOutboxSlot(const char* command_id);
     bool finalizeReservedReport(const char* command_id, storage::TuningResult result, storage::TuningReason reason);
     void cancelReservedOutboxSlot(const char* command_id);
@@ -240,6 +243,8 @@ private:
         storage::TuningResult result;
         storage::TuningReason reason;
         char command_id[37];
+        uint16_t packet_message_id;
+        uint32_t puback_sequence_at_publish;
     };
     static constexpr size_t MAX_PENDING_REPORTS = 8;
     PendingReportedTuning pending_reports_[MAX_PENDING_REPORTS]{};

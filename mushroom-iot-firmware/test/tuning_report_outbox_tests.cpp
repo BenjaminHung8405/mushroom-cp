@@ -54,6 +54,9 @@ void run_all_tests()
     PubSubClient::mock_connected = true;
     PubSubClient::mock_publish_result = true;
     PubSubClient::mock_has_pending_qos1_publish = false;
+    PubSubClient::mock_pending_qos1_message_id = 0;
+    PubSubClient::mock_last_puback_message_id = 0;
+    PubSubClient::mock_puback_sequence = 0;
 
     // A validated command owns its terminal report before persistence/Core-1
     // dispatch. The ingress suite separately verifies structured parsing.
@@ -68,15 +71,29 @@ void run_all_tests()
     assert(manager.pendingReportResultForTest(0) == storage::TuningResult::ACCEPTED);
 
     // A report remains owned by the outbox from transport acceptance until
-    // PUBACK. A missing/wrong ACK leaves it in place; only the observed correct
-    // completion signal releases it exactly once.
+    // PUBACK. A missing/wrong ACK leaves it in place; only the exact packet's
+    // completion event releases it exactly once.
     manager.processPendingReports();
     assert(manager.pendingReportCountForTest() == 1);
     assert(manager.reportInFlightForTest());
+    const uint16_t report_packet_id = PubSubClient::mock_pending_qos1_message_id;
     PubSubClient::mock_has_pending_qos1_publish = true;
     manager.processPendingReports();
     assert(manager.pendingReportCountForTest() == 1);
     assert(manager.reportInFlightForTest());
+
+    // A concurrent QoS-1 publish can be acknowledged while the report is
+    // retained in the outbox. Its ACK must not release the report.
+    PubSubClient::mock_last_puback_message_id = static_cast<uint16_t>(report_packet_id + 1);
+    ++PubSubClient::mock_puback_sequence;
+    PubSubClient::mock_has_pending_qos1_publish = false;
+    manager.processPendingReports();
+    assert(manager.pendingReportCountForTest() == 1);
+    assert(manager.reportInFlightForTest());
+
+    // The matching PUBACK releases precisely the outbox head.
+    PubSubClient::mock_last_puback_message_id = report_packet_id;
+    ++PubSubClient::mock_puback_sequence;
     PubSubClient::mock_has_pending_qos1_publish = false;
     manager.processPendingReports();
     assert(manager.pendingReportCountForTest() == 0);
@@ -92,6 +109,9 @@ void run_all_tests()
     PubSubClient::mock_connected = true;
     manager.processPendingReports();
     assert(manager.reportInFlightForTest());
+    const uint16_t reconnect_report_packet_id = PubSubClient::mock_pending_qos1_message_id;
+    PubSubClient::mock_last_puback_message_id = reconnect_report_packet_id;
+    ++PubSubClient::mock_puback_sequence;
     PubSubClient::mock_has_pending_qos1_publish = false;
     manager.processPendingReports();
     assert(manager.pendingReportCountForTest() == 0);

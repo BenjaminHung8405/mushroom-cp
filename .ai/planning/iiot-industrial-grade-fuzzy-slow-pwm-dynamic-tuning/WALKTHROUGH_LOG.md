@@ -1113,3 +1113,26 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   - PlatformIO `run -e native` không khả dụng: `platformio.ini` chỉ có `base`, `otg`, `uart`.
 
 ---
+## [2026-07-24T11:28:57+07:00] - Task D4: Khắc phục QA Rejection (Lần 2)
+
+- **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review — Lần 2)
+- **Task ID:** D4
+- **Các file đã sửa:**
+  - `mushroom-iot-firmware/src/network/mqtt_manager.h`
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.h`
+  - `mushroom-iot-firmware/lib/PubSubClientQos1/src/PubSubClientQos1.cpp`
+  - `mushroom-iot-firmware/test/Arduino.h`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `mushroom-iot-firmware/test/tuning_ingress_validation_tests.cpp`
+  - `mushroom-iot-firmware/test/tuning_report_outbox_tests.cpp`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn dựa trên feedback QA:**
+  1. `extractRootCommandId()` nay so sánh key theo chuỗi JSON đã giải mã, thực hiện bounded decode cho các escape JSON hợp lệ, bao gồm `\uXXXX`. Vì thế key root `"command_\\u0069d"` được nhận là `command_id`; body malformed nhưng UUID canonical sẽ reserve/finalize terminal `REJECTED/INVALID_SCHEMA`, không disconnect/redelivery.
+  2. Mỗi `PendingReportedTuning` giữ `packet_message_id` và PUBACK sequence tại thời điểm publish. `PubSubClientQos1` công bố event PUBACK đã được state machine xác thực (packet ID + sequence); outbox chỉ release head khi event đó khớp packet ID của report. ACK của QoS-1 publish khác không thể dequeue report.
+  3. Bổ sung regression cho malformed escaped-key (terminal ACK, không mutation/không reconnect) và concurrent PUBACK mismatch (giữ outbox tới ACK matching).
+- **Xác minh:**
+  - `git diff --check` — **PASS**.
+  - Đã chạy lại host command `g++ -std=c++17 -DUNIT_TEST ...`; build hiện bị chặn trước D4 bởi static assertion có sẵn `PersistedCropProfile`/`LegacyPersistedCropProfileV1` (`alignof == 4`, host nhận `8`) và lỗi mock `Preferences::getBytesLength` có sẵn.
+  - Đã chạy `/Users/benjaminhung8405/.platformio/penv/bin/platformio run -d mushroom-iot-firmware -e otg`; build cũng bị chặn trước các file D4 bởi cùng static assertion layout có sẵn. Không thay đổi các invariant ngoài phạm vi task.

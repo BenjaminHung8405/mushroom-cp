@@ -291,6 +291,9 @@ public:
     static bool mock_connect_result;
     static bool mock_publish_result;
     static bool mock_has_pending_qos1_publish;
+    static uint16_t mock_pending_qos1_message_id;
+    static uint16_t mock_last_puback_message_id;
+    static uint32_t mock_puback_sequence;
     static std::vector<std::string> mock_subscribed_topics;
     static std::string mock_last_published_topic;
     static std::string mock_last_published_payload;
@@ -342,8 +345,18 @@ public:
             reinterpret_cast<const char*>(payload), payload == nullptr ? 0 : plength);
         mock_last_published_retained = retained;
         mock_last_published_qos = 1;
+        if (mock_publish_result) {
+            ++mock_pending_qos1_message_id;
+            if (mock_pending_qos1_message_id == 0) {
+                ++mock_pending_qos1_message_id;
+            }
+        }
         return mock_publish_result;
     }
+
+    uint16_t getPendingMessageId() const { return mock_pending_qos1_message_id; }
+    uint16_t getLastPubAckMessageId() const { return mock_last_puback_message_id; }
+    uint32_t getPubAckSequence() const { return mock_puback_sequence; }
 
     bool subscribe(const char* topic) { if (topic) mock_subscribed_topics.push_back(topic); return true; }
     bool subscribe(const char* topic, uint8_t qos) { if (topic) mock_subscribed_topics.push_back(topic); return true; }

@@ -86,6 +86,13 @@ void run_all_tests()
     const char malformed_with_uuid[] =
         "{\"command_id\":\"d4444444-1234-1234-1234-123456789012\",";
     assertRejectedWithoutMutation(malformed_with_uuid, std::strlen(malformed_with_uuid));
+    // JSON member names may use legal escapes. Even though this body is
+    // malformed, its decoded root identity remains attributable and must get
+    // a terminal INVALID_SCHEMA report rather than disconnect/redelivery.
+    const char malformed_with_escaped_key[] =
+        "{\"command_\\u0069d\":\"d4444444-1234-1234-1234-123456789012\",";
+    assertRejectedWithoutMutation(malformed_with_escaped_key,
+                                  std::strlen(malformed_with_escaped_key));
     {
         char oversized[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
         const int prefix_length = std::snprintf(

@@ -434,6 +434,8 @@ boolean PubSubClientQos1::loop() {
                             (static_cast<uint16_t>(this->buffer[llen + 1]) << 8) |
                             this->buffer[llen + 2];
                         if (pendingQos1.active && ackId == pendingQos1.messageId) {
+                            lastPubAckMessageId_ = ackId;
+                            ++pubAckSequence_;
                             pendingQos1.active = false;
                             pendingQos1.packetLength = 0;
                             pendingQos1.retryCount = 0;

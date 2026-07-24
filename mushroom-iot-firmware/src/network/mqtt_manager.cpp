@@ -1258,6 +1258,59 @@ static bool isCanonicalUuid36(const char* uuid_str, size_t length) {
     return true;
 }
 
+static int decodeHexNibble(char value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+// Compare a JSON string token with a fixed ASCII member name after decoding
+// JSON escapes. This deliberately avoids allocating a decoded copy because it
+// is used for malformed/oversize ingress payload attribution.
+static bool jsonKeyMatchesAscii(const char* encoded, size_t encoded_length,
+                                const char* expected) {
+    if (encoded == nullptr || expected == nullptr) return false;
+
+    size_t encoded_index = 0;
+    size_t expected_index = 0;
+    while (encoded_index < encoded_length && expected[expected_index] != '\0') {
+        char decoded = encoded[encoded_index++];
+        if (decoded == '\\') {
+            if (encoded_index >= encoded_length) return false;
+            const char escape = encoded[encoded_index++];
+            switch (escape) {
+            case '"': decoded = '"'; break;
+            case '\\': decoded = '\\'; break;
+            case '/': decoded = '/'; break;
+            case 'b': decoded = '\b'; break;
+            case 'f': decoded = '\f'; break;
+            case 'n': decoded = '\n'; break;
+            case 'r': decoded = '\r'; break;
+            case 't': decoded = '\t'; break;
+            case 'u': {
+                if (encoded_length - encoded_index < 4) return false;
+                int codepoint = 0;
+                for (size_t nibble_index = 0; nibble_index < 4; ++nibble_index) {
+                    const int nibble = decodeHexNibble(encoded[encoded_index++]);
+                    if (nibble < 0) return false;
+                    codepoint = (codepoint << 4) | nibble;
+                }
+                // command_id is ASCII; surrogate pairs and non-ASCII Unicode
+                // cannot decode to any character in the expected key.
+                if (codepoint > 0x7f) return false;
+                decoded = static_cast<char>(codepoint);
+                break;
+            }
+            default:
+                return false;
+            }
+        }
+        if (decoded != expected[expected_index++]) return false;
+    }
+    return encoded_index == encoded_length && expected[expected_index] == '\0';
+}
+
 // Extract only the root command_id without constructing a JSON document. This
 // permits a contract-valid terminal rejection when the complete desired
 // document is malformed or exceeds the parser bound. All reads are explicitly
@@ -1295,9 +1348,8 @@ static bool extractRootCommandId(const char* payload, size_t payload_length,
             if (i > payload_length || payload[i - 1] != '"') return false;
 
             const size_t string_length = i - string_start - 1;
-            if (depth != 1 || string_length != sizeof("command_id") - 1 ||
-                std::memcmp(payload + string_start, "command_id", string_length) != 0 ||
-                std::memchr(payload + string_start, '\\', string_length) != nullptr) {
+            if (depth != 1 ||
+                !jsonKeyMatchesAscii(payload + string_start, string_length, "command_id")) {
                 continue;
             }
 
@@ -1585,7 +1637,9 @@ void MqttManager::processPendingReports() {
     }
 
     if (report_in_flight_) {
-        if (!hasPendingQos1Publish()) {
+        const auto& report = pending_reports_[pending_reports_head_];
+        if (getPubAckSequence() != report.puback_sequence_at_publish &&
+            getLastPubAckMessageId() == report.packet_message_id) {
             pending_reports_head_ = (pending_reports_head_ + 1) % MAX_PENDING_REPORTS;
             pending_reports_count_--;
             report_in_flight_ = false;
@@ -1595,9 +1649,20 @@ void MqttManager::processPendingReports() {
     if (!report_in_flight_ && pending_reports_count_ > 0) {
         if (!hasPendingQos1Publish()) {
             const auto& report = pending_reports_[pending_reports_head_];
+            // Reservation is intentionally visible before command mutation,
+            // but only a finalized terminal outcome may enter transport.
+            if (report.result == storage::TuningResult::PENDING) {
+                return;
+            }
             bool success = publishTuningReported(client_, provisioned_, tenant_, device_id_,
                                                  report.result, report.reason, report.command_id);
             if (success) {
+                // The report is only publishable when no other QoS-1 packet is
+                // active, so this is its exact packet ID—not merely a global
+                // transport-pending boolean.
+                auto& mutable_report = pending_reports_[pending_reports_head_];
+                mutable_report.packet_message_id = getPendingQos1MessageId();
+                mutable_report.puback_sequence_at_publish = getPubAckSequence();
                 report_in_flight_ = true;
             }
         }
@@ -1609,6 +1674,30 @@ bool MqttManager::hasPendingQos1Publish() {
     return client_.hasPendingQos1Publish();
 #else
     return PubSubClient::mock_has_pending_qos1_publish;
+#endif
+}
+
+uint16_t MqttManager::getPendingQos1MessageId() {
+#ifndef UNIT_TEST
+    return client_.getPendingMessageId();
+#else
+    return PubSubClient::mock_pending_qos1_message_id;
+#endif
+}
+
+uint16_t MqttManager::getLastPubAckMessageId() {
+#ifndef UNIT_TEST
+    return client_.getLastPubAckMessageId();
+#else
+    return PubSubClient::mock_last_puback_message_id;
+#endif
+}
+
+uint32_t MqttManager::getPubAckSequence() {
+#ifndef UNIT_TEST
+    return client_.getPubAckSequence();
+#else
+    return PubSubClient::mock_puback_sequence;
 #endif
 }
 
