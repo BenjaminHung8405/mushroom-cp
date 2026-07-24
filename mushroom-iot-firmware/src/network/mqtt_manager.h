@@ -21,6 +21,19 @@
 
 namespace mqtt {
 
+constexpr uint16_t MQTT_CONNECT_TIMEOUT_SEC = 3;
+constexpr uint16_t CORE0_TWDT_TIMEOUT_SEC = 8;
+constexpr uint16_t MQTT_CONNECT_WDT_HEADROOM_SEC = 2;
+
+static_assert(MQTT_CONNECT_TIMEOUT_SEC + MQTT_CONNECT_WDT_HEADROOM_SEC <=
+                  CORE0_TWDT_TIMEOUT_SEC,
+              "MQTT connect timeout must leave at least 2 seconds of Core-0 TWDT headroom");
+
+#if defined(MQTT_SOCKET_TIMEOUT)
+static_assert(MQTT_SOCKET_TIMEOUT == MQTT_CONNECT_TIMEOUT_SEC,
+              "MQTT_SOCKET_TIMEOUT must match MQTT_CONNECT_TIMEOUT_SEC");
+#endif
+
 enum class ProvisionState : uint8_t {
     IDLE,
     CLAIMING,
@@ -62,7 +75,8 @@ public:
     /** Initialise client, resolve topics, set callback & LWT. */
     bool init();
 
-    /** Non-blocking loop invoked from Core 0 communication task. */
+    /** Invoked from the Core 0 communication task. A reconnect may block up to
+     * MQTT_CONNECT_TIMEOUT_SEC, which is constrained below the Core-0 TWDT. */
     void loop();
 
     /* ---- Published payloads ---- */

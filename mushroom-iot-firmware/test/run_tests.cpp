@@ -90,6 +90,7 @@ void alterFieldAndRecalculateCrcHook(const char* key, const void*, size_t len) {
 }
 
 bool WiFiClient::mock_fail_write = false;
+uint32_t WiFiClient::mock_timeout_seconds = 0;
 
 wl_status_t WiFiClass::mock_status = WL_IDLE_STATUS;
 wifi_mode_t WiFiClass::mock_mode = WIFI_OFF;
@@ -101,6 +102,7 @@ unsigned long mock_millis_offset = 0;
 bool PubSubClient::mock_connected = false;
 uint16_t PubSubClient::mock_buffer_size = 0;
 uint16_t PubSubClient::mock_keep_alive = 0;
+uint16_t PubSubClient::mock_socket_timeout = 0;
 int PubSubClient::mock_state = 0;
 std::string PubSubClient::mock_server_host = "";
 uint16_t PubSubClient::mock_server_port = 0;
@@ -391,6 +393,8 @@ int main() {
     config::network::MQTT_PASSWORD_VAL = "12345678-1234-1234-1234-123456789abc";
     PubSubClient::mock_buffer_size = 0;
     PubSubClient::mock_keep_alive = 0;
+    PubSubClient::mock_socket_timeout = 0;
+    WiFiClient::mock_timeout_seconds = 0;
     PubSubClient::mock_server_host = "";
     PubSubClient::mock_server_port = 0;
     {
@@ -398,6 +402,11 @@ int main() {
         assert(mqtt_manager.init() == true);
         assert(PubSubClient::mock_buffer_size == 2048);
         assert(PubSubClient::mock_keep_alive == 60);
+        assert(WiFiClient::mock_timeout_seconds == mqtt::MQTT_CONNECT_TIMEOUT_SEC);
+        assert(PubSubClient::mock_socket_timeout == mqtt::MQTT_CONNECT_TIMEOUT_SEC);
+        static_assert(mqtt::MQTT_CONNECT_TIMEOUT_SEC + mqtt::MQTT_CONNECT_WDT_HEADROOM_SEC <=
+                          mqtt::CORE0_TWDT_TIMEOUT_SEC,
+                      "MQTT timeout must leave Core-0 WDT headroom");
         assert(PubSubClient::mock_server_host == "mushroomapp.mitelai.com");
         assert(PubSubClient::mock_server_port == 1883);
         assert(mqtt_manager.getState() == mqtt::MqttState::IDLE);

@@ -216,7 +216,7 @@ void taskCore0Communication(void* /*pvParameters*/)
         0
     );
 
-    esp_task_wdt_init(8, true);  // Cấu hình ngưỡng WDT lên 8 giây, hard-reset nếu timeout
+    esp_task_wdt_init(mqtt::CORE0_TWDT_TIMEOUT_SEC, true);  // Hard-reset if a registered task cannot feed within 8 seconds.
     esp_task_wdt_add(nullptr);   // Đăng ký task hiện tại (Core 0) với WDT daemon
     #endif
 
@@ -232,7 +232,8 @@ void taskCore0Communication(void* /*pvParameters*/)
         // 1. Check WiFi connection status and handle reconnects (non-blocking)
         wifi::check_wifi_connection();
 
-        // 2. Process MQTT loop (non-blocking)
+        // 2. Process MQTT lifecycle. A reconnect can synchronously block for
+        // MQTT_SOCKET_TIMEOUT, which is kept safely below the 8-second TWDT.
         mqtt::MqttManager::getInstance().loop();
 
         ota::process_boot_validation(

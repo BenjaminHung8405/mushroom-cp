@@ -258,6 +258,7 @@ public:
     std::vector<uint8_t> mock_input;
     size_t mock_input_pos = 0;
     static bool mock_fail_write;
+    static uint32_t mock_timeout_seconds;
 
     WiFiClient() {}
     int available() override { return mock_input.size() - mock_input_pos; }
@@ -274,6 +275,7 @@ public:
     }
     int connect(IPAddress ip, uint16_t port) override { return 1; }
     int connect(const char *host, uint16_t port) override { return 1; }
+    int setTimeout(uint32_t seconds) { mock_timeout_seconds = seconds; return 0; }
     void stop() override {}
     uint8_t connected() override { return 1; }
     operator bool() override { return true; }
@@ -285,6 +287,7 @@ public:
     static bool mock_connected;
     static uint16_t mock_buffer_size;
     static uint16_t mock_keep_alive;
+    static uint16_t mock_socket_timeout;
     static int mock_state;
     static std::string mock_server_host;
     static uint16_t mock_server_port;
@@ -313,6 +316,7 @@ public:
     PubSubClient& setCallback(MQTT_CALLBACK_SIGNATURE cb) { mock_callback = cb; return *this; }
     bool setBufferSize(uint16_t size) { mock_buffer_size = size; return true; }
     PubSubClient& setKeepAlive(uint16_t keepAlive) { mock_keep_alive = keepAlive; return *this; }
+    PubSubClient& setSocketTimeout(uint16_t timeout) { mock_socket_timeout = timeout; return *this; }
 
     bool connect(const char* id) { mock_connected = mock_connect_result; if (mock_connect_result) mock_state = 0; return mock_connect_result; }
     bool connect(const char* id, const char* user, const char* pass) { mock_connected = mock_connect_result; if (mock_connect_result) mock_state = 0; return mock_connect_result; }

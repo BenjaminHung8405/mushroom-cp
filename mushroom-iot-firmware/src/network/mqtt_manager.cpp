@@ -36,6 +36,10 @@ constexpr unsigned long BOOTSTRAP_RESPONSE_TIMEOUT_MS = 15000;
 constexpr uint8_t MAX_BOOTSTRAP_CLAIMS = 3;
 constexpr unsigned long MQTT_HEARTBEAT_INTERVAL_MS = 60000;
 
+static_assert(MQTT_CONNECT_TIMEOUT_SEC + MQTT_CONNECT_WDT_HEADROOM_SEC <=
+                  CORE0_TWDT_TIMEOUT_SEC,
+              "MQTT connection timeout must leave Core-0 TWDT recovery headroom");
+
 const char* tuningStatusName(storage::TuningResult result)
 {
     switch (result) {
@@ -245,10 +249,11 @@ void MqttManager::configurePubSubClient(const String& client_id)
 #endif
     wifi_client_.setCACert(MQTT_TLS_ROOT_CA);
 #endif
-    // ESP32 WiFiClient::setTimeout() takes seconds, not milliseconds.
-    wifi_client_.setTimeout(MQTT_SOCKET_TIMEOUT);
-    client_.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
 #endif
+    // WiFiClient timeout bounds DNS/TCP connect; PubSubClient timeout bounds
+    // the MQTT CONNACK wait. Both must remain shorter than the Core-0 TWDT.
+    wifi_client_.setTimeout(MQTT_CONNECT_TIMEOUT_SEC);
+    client_.setSocketTimeout(MQTT_CONNECT_TIMEOUT_SEC);
     client_.setKeepAlive(60);
     client_.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
     client_.setCallback(MqttManager::onCallbackStatic);
@@ -361,11 +366,18 @@ void MqttManager::tryReconnect()
     last_connect_attempt_ = millis();
     ++connect_attempts_;
     state_ = MqttState::CONNECTING;
+    Serial.printf("[MQTT] Connect start: broker=%s port=%u attempt=%lu timeout=%us.\n",
+                  config::network::MQTT_BROKER_VAL.c_str(),
+                  static_cast<unsigned>(config::network::MQTT_PORT_VAL),
+                  static_cast<unsigned long>(connect_attempts_),
+                  static_cast<unsigned>(MQTT_CONNECT_TIMEOUT_SEC));
     if (!doConnect()) {
         ++consecutive_failures_;
         last_mqtt_error_ = client_.state();
-        Serial.printf("[MQTT] WARN: Connect failed (state=%d, attempt=%lu, consecutive=%lu).\n",
-                      last_mqtt_error_, static_cast<unsigned long>(connect_attempts_),
+        Serial.printf("[MQTT] WARN: Connect failed: reason=%s state=%d latency=%lums attempt=%lu consecutive=%lu.\n",
+                      connectFailureReason(last_mqtt_error_), last_mqtt_error_,
+                      static_cast<unsigned long>(last_connect_latency_ms_),
+                      static_cast<unsigned long>(connect_attempts_),
                       static_cast<unsigned long>(consecutive_failures_));
         state_ = MqttState::DISCONNECTED;
         current_reconnect_backoff_ = std::min(
@@ -394,11 +406,11 @@ bool MqttManager::doConnect()
         ? client_.connect(client_id.c_str(), username, password)
         : client_.connect(client_id.c_str(), username, password,
                           lwt_topic.c_str(), MQTT_QOS, true, lwt_payload.c_str());
+    last_connect_latency_ms_ = millis() - started_ms;
     if (!connected) {
         return false;
     }
 
-    last_connect_latency_ms_ = millis() - started_ms;
     ++successful_connects_;
     if (successful_connects_ > 1) ++reconnect_count_;
     consecutive_failures_ = 0;
@@ -583,7 +595,7 @@ const char* MqttManager::transportName() const
 const char* MqttManager::connectFailureReason(int state) const
 {
     if (state == MQTT_CONNECTION_TIMEOUT) return "CONNACK_TIMEOUT";
-    if (state == MQTT_CONNECT_FAILED) return "TCP_CONNECT_FAILED";
+    if (state == MQTT_CONNECT_FAILED) return "DNS_OR_TCP_CONNECT_FAILED";
     if (state == MQTT_CONNECTION_LOST) return "CONNECTION_LOST";
     if (state == MQTT_CONNECT_BAD_CREDENTIALS || state == MQTT_CONNECT_UNAUTHORIZED) return "AUTH_REJECTED";
     return "CONFIG_ERROR";
