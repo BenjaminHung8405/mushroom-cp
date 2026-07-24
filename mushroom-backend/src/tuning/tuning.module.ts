@@ -4,6 +4,8 @@ import { DeviceTuningConfiguration } from './entities/device-tuning-configuratio
 import { TuningAuditLog } from './entities/tuning-audit-log.entity';
 import { TuningConfigurationService } from './services/tuning-configuration.service';
 import { MqttModule } from '../mqtt/mqtt.module';
+import { TuningController } from './controllers/tuning.controller';
+import { TuningPrincipalGuard } from './guards/tuning-principal.guard';
 
 /**
  * TuningModule — Manages IIoT Direct-Relay Fuzzy Dynamic Tuning configurations and audit logs.
@@ -14,7 +16,8 @@ import { MqttModule } from '../mqtt/mqtt.module';
     TypeOrmModule.forFeature([DeviceTuningConfiguration, TuningAuditLog]),
     forwardRef(() => MqttModule),
   ],
-  providers: [TuningConfigurationService],
+  controllers: [TuningController],
+  providers: [TuningConfigurationService, TuningPrincipalGuard],
   exports: [TuningConfigurationService, TypeOrmModule],
 })
 export class TuningModule {}

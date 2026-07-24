@@ -9,10 +9,14 @@ export class CreateDeviceTuningConfigurations1720656000006 implements MigrationI
         id UUID PRIMARY KEY,
         device_id VARCHAR(50) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
         command_id VARCHAR(36) NOT NULL,
+        CONSTRAINT uq_device_tuning_configs_device_command UNIQUE (device_id, command_id),
         revision INTEGER NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
         config JSONB NOT NULL,
         published_at TIMESTAMPTZ,
+        retained_clear_pending BOOLEAN NOT NULL DEFAULT FALSE,
+        retained_clear_attempts INTEGER NOT NULL DEFAULT 0,
+        retained_clear_next_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )

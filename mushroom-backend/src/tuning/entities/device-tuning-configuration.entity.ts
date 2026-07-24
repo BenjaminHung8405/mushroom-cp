@@ -53,6 +53,15 @@ export class DeviceTuningConfiguration {
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
 
+  @Column({ name: 'retained_clear_pending', type: 'boolean', default: false })
+  retainedClearPending: boolean;
+
+  @Column({ name: 'retained_clear_attempts', type: 'integer', default: 0 })
+  retainedClearAttempts: number;
+
+  @Column({ name: 'retained_clear_next_at', type: 'timestamptz', nullable: true })
+  retainedClearNextAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

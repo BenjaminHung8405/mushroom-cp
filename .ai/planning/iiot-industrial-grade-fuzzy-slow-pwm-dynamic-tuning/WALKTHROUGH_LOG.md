@@ -1,3 +1,52 @@
+## [2026-07-24T12:50:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-24 12:39–12:50 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa/thêm:**
+  - `mushroom-backend/src/database/migrations/1720656000006-create-device-tuning-configurations.ts`
+  - `mushroom-backend/src/database/migrations/1720656000007-create-tuning-audit-logs.ts`
+  - `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts`
+  - `mushroom-backend/src/tuning/constants/tuning-contract.constants.ts`
+  - `mushroom-backend/src/tuning/entities/device-tuning-configuration.entity.ts`
+  - `mushroom-backend/src/tuning/entities/tuning-audit-log.entity.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning.controller.ts`
+  - `mushroom-backend/src/tuning/dto/create-tuning-command.dto.ts`
+  - `mushroom-backend/src/tuning/guards/tuning-principal.guard.ts`
+  - `mushroom-backend/src/tuning/tuning.module.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:**
+  - Đưa validation về immutable contract v1 (gain `0.80–1.20`, mist-on `0.20–0.35`, mist-off `0.10–0.20`) bằng constants typed dùng chung và giữ cross-field gap `0.001`.
+  - Thay actor string bằng `TuningPrincipal` typed; endpoint chỉ tạo principal sau khi xác thực chữ ký/expiry JWT và transaction kiểm quyền house của device trước khi ghi command/audit.
+  - Bổ sung unique database constraint `(device_id, command_id)`, advisory transaction lock theo device để serialize revision, xử lý race unique, và từ chối idempotency body mismatch; MQTT luôn publish `pending.config` snapshot durable.
+  - ACK chỉ chuyển `IN_SYNC` khi firmware xác nhận `persisted === true`; ACK accepted/duplicate không durable fail-closed thành `REJECTED` có audit.
+  - Thay retained-clear bị swallow bằng state flag durable, retry worker bounded exponential backoff, và tái kiểm điều kiện latest command trong row lock trước khi clear.
+  - Loại audit FK cascade, đổi sang `RESTRICT`, thêm migration nâng cấp an toàn cho DB đã chạy migration cũ, và thay `Record<string, any>` bằng `Record<string, unknown>`.
+  - Phân rã `createPendingCommand()` thành validation, transaction authorization/persistence, publish và durable failure handling.
+- **Xác minh:** `npx jest tuning/services/tuning-configuration.service.spec.ts tuning/tuning.module.spec.ts --runInBand` **PASS** (2 suites, 6 tests); `npx nest build` **PASS**; `git diff --check` **PASS**.
+
+---
+
+## [2026-07-24T12:38:00+07:00] - Security/Architecture QA Review: REJECTED (F1–F10)
+
+- **Kết quả:** Từ chối duyệt toàn bộ Track F (F1–F10). Đã đưa trạng thái các task liên quan từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`. Không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Rà soát source được liệt kê trong các entry F1–F10 của walkthrough, đối chiếu `README.md` v2.2 (contract tuning v1, Clean Architecture, transactional/outbox và bảo mật) cùng yêu cầu Track F trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **F6 — Hard bounds sai contract v1, có thể phát desired mà firmware bắt buộc reject:** `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:177-193` chấp nhận gain `[0, 5]` và thresholds `[0, 1]`. README §1.2 bắt buộc lần lượt `[0.80, 1.20]`, `mist_on [0.20, 0.35]`, `mist_off [0.10, 0.20]`; firmware phải enforce cùng contract. Backend hiện durable/publish các cấu hình không thể áp dụng, rồi tạo shadow không nhất quán. **Chỉ thị:** thay các magic bounds bằng constants dùng chung/contract v1 đúng giá trị, giữ finite-number và cross-field `off < on - 0.001`, thêm regression cho mọi min/max và trường hợp backend không publish khi vượt bound.
+  2. **F6 — Thiếu xác thực actor và device ownership theo JWT:** `tuning-configuration.service.ts:133-146,199-206` nhận `actor: string` từ caller, chỉ kiểm tra non-empty; kiểm tra device chỉ là tồn tại/enabled, không hề kiểm actor có quyền với `deviceId`. Điều này vi phạm README §3.4: không tin `requested_by` từ client và mọi endpoint phải verify ownership. Service API có thể bị gọi với actor giả để tạo audit giả và điều khiển thiết bị tenant/house khác. **Chỉ thị:** controller phải lấy actor/role từ JWT đã verify; service nhận một principal typed thay vì string tùy ý và gọi authorization/ownership service (house/device scope) trong transaction trước khi tạo command. Không log hoặc persist actor client-supplied.
+  3. **F1/F6 — Idempotency và revision có race condition:** migration `1720656000006-create-device-tuning-configurations.ts:8-18` không có unique constraint `(device_id, command_id)`; `tuning-configuration.service.ts:208-229` thực hiện check-then-insert và `lastAnyConfig.revision + 1` không khóa scope thiết bị. Hai request đồng thời có thể cùng qua check, sinh duplicate command hoặc cùng revision. **Chỉ thị:** thêm unique database constraint/index cho `(device_id, command_id)` (và constraint revision theo device nếu revision phải unique), bắt unique violation để trả bản ghi hiện hữu; serialize cấp revision bằng lock/advisory lock hoặc allocator transaction-safe. Thêm concurrency regression.
+  4. **F6 — Retry idempotency publish sai snapshot đã durable:** `tuning-configuration.service.ts:270-277` nếu command PENDING/publishedAt null được gửi lại sẽ gọi `publishTuningDesired(deviceId, commandId, inputConfig)` từ request hiện tại, thay vì `pendingConfig.config`. Cùng command ID nhưng body khác có thể publish payload không khớp config/audit durable. **Chỉ thị:** publish chính xác immutable snapshot `pendingConfig.config`, đồng thời canonicalize/compare input khi idempotency key tồn tại; reject mismatch hoặc return existing mà không republish body khác. Bổ sung test.
+  5. **F5/F10 — ACK `ACCEPTED`/`DUPLICATE` không kiểm `persisted`:** `tuning-configuration.service.ts:417-423` chuyển sang `IN_SYNC` không xét `ack.persisted`; `mqtt.service.ts:606-646` chỉ type-check boolean. Theo contract durability, ACK chưa persist không thể xác nhận shadow `IN_SYNC`. **Chỉ thị:** chỉ cho `IN_SYNC` khi `persisted === true`; ACK accepted/duplicate không persisted phải fail-closed (security log và không transition, hoặc mapping REJECTED theo contract được ghi rõ). Thêm unit test cho hai trạng thái này.
+  6. **F5/F10 — Clear retained không đáng tin cậy sau DB commit:** `tuning-configuration.service.ts:484-494` nuốt mọi lỗi `clearTuningDesired()` sau khi ACK đã commit. Khi broker disconnect, desired retained của command đã xử lý tồn tại vô hạn và có thể bị thiết bị nhận lại ở reconnect; không có outbox/retry durable nào để đảm bảo thao tác clear. **Chỉ thị:** persist pending retained-clear trong transactional outbox hoặc một state flag trong cùng transaction ACK, rồi worker retry bounded/backoff đến khi broker confirm; giữ điều kiện latest command tại thời điểm thực hiện clear. Test lỗi publish/reconnect và retry success.
+  7. **F2/F4 — Audit log không append-only:** `1720656000007-create-tuning-audit-logs.ts:10-11` đặt FK `configuration_id` và `device_id` là `ON DELETE CASCADE`; entity `tuning-audit-log.entity.ts:25-34` phản chiếu cascade. Xóa device/config sẽ xóa audit evidence, trái yêu cầu F2 “Audit append-only”. **Chỉ thị:** không cascade delete audit history; dùng restrictive FK/retention policy phù hợp hoặc immutable denormalized audit records, và cấm service update/delete audit. Thêm migration upgrade an toàn cùng test referential behavior.
+- **Nợ kiến trúc/chất lượng cần xử lý cùng đợt sửa:** `tuning-configuration.service.ts:133-339` là method 207 dòng, trộn input validation, authorization/device lookup, idempotency, revision, persistence, MQTT và SSE; vi phạm yêu cầu hàm >50 dòng phải phân rã. Tách validator/domain policy, repository transaction và publisher/outbox collaborator. `tuning-audit-log.entity.ts:54` còn `Record<string, any>` trái strict typing; thay `any` bằng `unknown`/KPI interface cụ thể.
+- **Kiểm tra thực hiện:** `npx tsc --noEmit -p tsconfig.build.json` PASS; `npx jest --runInBand src/tuning` PASS (**2 suites, 33 tests**); `git diff --check` PASS trước khi ghi log QA. Các test hiện hữu không bao phủ các vi phạm contract, authorization, concurrency và durable clear nêu trên, nên không đủ điều kiện duyệt.
+
+---
+
 ## [2026-07-24T12:32:00+07:00] - Task F10: `MqttService` subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`
 
 - **Trạng thái:** `[ ] QA Review` (Đang chờ QA Review)

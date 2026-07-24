@@ -22,14 +22,14 @@ export class TuningAuditLog {
   @Column({ name: 'configuration_id', type: 'uuid' })
   configurationId: string;
 
-  @ManyToOne(() => DeviceTuningConfiguration, { onDelete: 'CASCADE' })
+  @ManyToOne(() => DeviceTuningConfiguration, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'configuration_id' })
   configuration?: DeviceTuningConfiguration;
 
   @Column({ name: 'device_id', type: 'varchar', length: 50 })
   deviceId: string;
 
-  @ManyToOne(() => Device, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Device, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'device_id' })
   device?: Device;
 
@@ -51,7 +51,7 @@ export class TuningAuditLog {
   rulesetVersion: string | null;
 
   @Column({ name: 'kpi_snapshot', type: 'jsonb', nullable: true })
-  kpiSnapshot: Record<string, any> | null;
+  kpiSnapshot: Record<string, unknown> | null;
 
   @Column({ name: 'config_before', type: 'jsonb', nullable: true })
   configBefore: TuningConfigSnapshot | null;
