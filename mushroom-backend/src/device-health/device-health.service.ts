@@ -29,6 +29,7 @@ export interface DeviceHealthEvent {
 interface DeviceRuntimeCache {
   record: Pick<DeviceRecord, 'deviceId' | 'houseId'>;
   isMqttOnline: boolean;
+  lastLivenessAt: Date | null;
   lastTelemetryAt: Date | null;
   bootGraceUntil: Date | null;
   currentHealth: HealthState;
@@ -67,6 +68,7 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     const cache = this.getOrCreate(record, receivedAt);
     if (!cache) return null;
     cache.isMqttOnline = true;
+    cache.lastLivenessAt = receivedAt;
     cache.lastTelemetryAt = receivedAt;
     cache.bootGraceUntil = null;
     return this.transition(cache, HealthState.ONLINE_ACTIVE, receivedAt);
@@ -87,11 +89,25 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     }
 
     cache.isMqttOnline = true;
+    cache.lastLivenessAt = receivedAt;
     // An online retained/LWT status can arrive before the first real telemetry.
     // Use a fresh baseline for one boot grace window; never reuse stale pre-boot data.
     cache.lastTelemetryAt = receivedAt;
     cache.bootGraceUntil = new Date(receivedAt.getTime() + ACTIVE_MS);
     return this.transition(cache, HealthState.ONLINE_ACTIVE, receivedAt);
+  }
+
+  /** A valid MQTT heartbeat proves transport liveness but not sensor health. */
+  handleHeartbeatReceived(
+    record: DeviceRecord,
+    receivedAt = new Date(),
+  ): DeviceHealthEvent | null {
+    const cache = this.getOrCreate(record, receivedAt);
+    if (!cache) return null;
+    cache.isMqttOnline = true;
+    cache.lastLivenessAt = receivedAt;
+    cache.bootGraceUntil = null;
+    return this.transition(cache, this.calculateHealth(cache, receivedAt), receivedAt);
   }
 
   getHealth(deviceId: string): HealthState {
@@ -122,11 +138,16 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
   private calculateHealth(cache: DeviceRuntimeCache, now: Date): HealthState {
     if (cache.bootGraceUntil && now < cache.bootGraceUntil)
       return HealthState.ONLINE_ACTIVE;
-    const baseline = cache.lastTelemetryAt;
-    if (!baseline) return HealthState.SENSOR_FAULT;
-    const ageMs = now.getTime() - baseline.getTime();
-    if (ageMs > FAULT_MS) return HealthState.SENSOR_FAULT;
-    if (ageMs > ACTIVE_MS) return HealthState.DEGRADED_LATENCY;
+    const liveness = cache.lastLivenessAt;
+    // Only retained status/LWT changes ONLINE/OFFLINE. Missing heartbeats make
+    // an online device degraded/faulted, never silently override LWT state.
+    if (!liveness || now.getTime() - liveness.getTime() > FAULT_MS)
+      return HealthState.SENSOR_FAULT;
+    const sensorBaseline = cache.lastTelemetryAt;
+    if (!sensorBaseline || now.getTime() - sensorBaseline.getTime() > FAULT_MS)
+      return HealthState.SENSOR_FAULT;
+    if (now.getTime() - liveness.getTime() > ACTIVE_MS)
+      return HealthState.DEGRADED_LATENCY;
     return HealthState.ONLINE_ACTIVE;
   }
 
@@ -149,6 +170,7 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     const cache: DeviceRuntimeCache = {
       record: { deviceId: record.deviceId, houseId: record.houseId },
       isMqttOnline: false,
+      lastLivenessAt: now,
       lastTelemetryAt: now,
       bootGraceUntil: null,
       currentHealth: HealthState.UNKNOWN,

@@ -3806,12 +3806,20 @@ int main() {
             assert(latch[static_cast<size_t>(AppChannel::HWAT)].active);
         }
 
-        // S2-G4: Test gate Lamp block khi temp=setpoint+4
+        // S2-G4: Test gate Lamp block khi temp >= setpoint target
         {
-            telemetry.temp_air = setpoints.temp_target + 4.0f;
+            telemetry.temp_air = setpoints.temp_target;
             ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
             ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
             assert(dec == ManualDecision::RejectedTemp);
+        }
+
+        // Test gate Lamp PASS khi temp < setpoint target
+        {
+            telemetry.temp_air = setpoints.temp_target - 1.0f;
+            ManualRequest req = { AppChannel::LAMP, AppIntent::FORCE_ON, 1000UL };
+            ManualDecision dec = manual::evaluateSafetyGate(req, telemetry, setpoints, rtcTime, cropDay);
+            assert(dec == ManualDecision::Accepted);
         }
 
         // Test crop Day lock for lamp (> 8 days)

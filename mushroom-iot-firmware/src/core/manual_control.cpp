@@ -43,19 +43,14 @@ ManualDecision evaluateSafetyGate(
             return ManualDecision::RejectedNAN;
         }
         // Hard safety cutoff tuyệt đối: không cho bật đèn khi nhiệt độ >= 45°C.
-        // Kiểm tra này ưu tiên trước mọi điều kiện khác.
         if (telemetry.temp_air >= LAMP_HARD_CUTOFF_C) {
             Serial.printf("[DIAG] LAMP rejected HARD: temp=%.2fC >= 45.0C\n", telemetry.temp_air);
             return ManualDecision::RejectedTemp;
         }
-        // Temporarily commented out:
-        // if (cropDay > 8) {
-        //     return ManualDecision::RejectedLocked;
-        // }
-        const float lamp_warn_limit = setpoints.temp_target + LAMP_WARNING_DELTA_C;
-        if (telemetry.temp_air >= lamp_warn_limit) {
-            Serial.printf("[DIAG] LAMP rejected WARNING: temp=%.2fC >= target(%.2fC) + 3.0 = %.2fC\n",
-                          telemetry.temp_air, setpoints.temp_target, lamp_warn_limit);
+        // Không cho phép bật đèn sưởi khi Nhiệt độ Hiện tại >= Nhiệt độ Đặt (setpoints.temp_target)
+        if (telemetry.temp_air >= setpoints.temp_target) {
+            Serial.printf("[DIAG] LAMP rejected: temp=%.2fC >= target=%.2fC\n",
+                          telemetry.temp_air, setpoints.temp_target);
             return ManualDecision::RejectedTemp;
         }
         return ManualDecision::Accepted;
@@ -139,10 +134,9 @@ void autoClearOnSensorViolation(
     if (latch[lampIdx].active && latch[lampIdx].forced_state == AppIntent::FORCE_ON) {
         if (!std::isfinite(telemetry.temp_air) ||
             // Hard safety cutoff tuyệt đối: buộc tắt đèn nếu nhiệt độ >= 45°C.
-            // Điều này đảm bảo đèn TẪT dù manual latch vẫn active.
             telemetry.temp_air >= LAMP_HARD_CUTOFF_C ||
-            // Warning delta mềm: tắt khi vượt setpoint + 3°C
-            telemetry.temp_air >= setpoints.temp_target + LAMP_WARNING_DELTA_C)
+            // Tắt đèn khi nhiệt độ hiện tại vượt quá hoặc bằng Nhiệt độ Đặt
+            telemetry.temp_air >= setpoints.temp_target)
         {
             latch[lampIdx].active = false;
             latch[lampIdx].forced_state = AppIntent::AUTO;

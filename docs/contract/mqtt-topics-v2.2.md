@@ -1,5 +1,24 @@
 # MQTT Topics Contract v2.2 — Direct-Relay Fuzzy Dynamic Tuning
 
+## Transport and connectivity observability
+
+The current cloud endpoint `mushroomapp.mitelai.com:10883` is **plaintext MQTT
+over TCP**, not MQTTS. Devices use `MQTT_TRANSPORT=plain` by default. TLS is an
+opt-in firmware build only when a trusted CA PEM is injected; production devices
+must not use insecure TLS mode.
+
+Device uplink observability topics:
+
+- `mushroom/esp32/{device_id}/up/connection` (QoS 1, non-retained): CONNECTED,
+  CONNECT_FAILED, or DISCONNECTED event with connection latency/counters.
+- `mushroom/esp32/{device_id}/up/heartbeat` (QoS 0, non-retained): emitted at
+  least every 60 seconds while connected; carries transport, MQTT counters and
+  SHT30 health.
+
+Telemetry remains backward compatible and adds `metadata.mqtt` plus
+`metadata.sensor.sht30`. When SHT30 is unavailable, temperature and humidity
+are `null`; this is a degraded health state, not an MQTT disconnect.
+
 Tài liệu này định nghĩa cấu trúc topic, chính sách QoS, chính sách Retain và cấu trúc dữ liệu payload cho luồng Dynamic Tuning (Fuzzy Logic) trong dự án IIoT.
 
 ## 1. Topic Namespaces

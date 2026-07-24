@@ -11,8 +11,8 @@ namespace config
 {
     namespace network
     {
-        String STA_SSID = "";
-        String STA_PASS = "";
+        String STA_SSID = DEFAULT_STA_SSID;
+        String STA_PASS = DEFAULT_STA_PASS;
 
         String MQTT_BROKER_VAL = DEFAULT_MQTT_BROKER;
         uint16_t MQTT_PORT_VAL = DEFAULT_MQTT_PORT;
@@ -62,9 +62,10 @@ namespace config
             }
             else
             {
-                Serial.println("[CONFIG] No WiFi credentials found in NVS, default to empty.");
-                STA_SSID = "";
-                STA_PASS = "";
+                STA_SSID = DEFAULT_STA_SSID;
+                STA_PASS = DEFAULT_STA_PASS;
+                Serial.printf("[CONFIG] No WiFi credentials found in NVS, using firmware default (SSID: %s).\n",
+                              STA_SSID.c_str());
             }
 
             String temp_broker;

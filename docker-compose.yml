@@ -113,6 +113,8 @@ services:
         condition: service_healthy
       mushroom-influxdb:
         condition: service_healthy
+      mushroom-mqtt:
+        condition: service_healthy
     networks:
       - mushroom-network
     volumes:

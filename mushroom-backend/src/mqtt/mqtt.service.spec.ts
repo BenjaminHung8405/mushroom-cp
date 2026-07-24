@@ -386,7 +386,13 @@ describe('MqttService', () => {
         Buffer.from(JSON.stringify({ foo: 'bar' })),
       );
 
-      expect(nextTelemetrySpy).not.toHaveBeenCalled();
+      expect(nextTelemetrySpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceId: 'device-1',
+          temp_air: null,
+          humidity_air: null,
+        }),
+      );
       done();
     });
 

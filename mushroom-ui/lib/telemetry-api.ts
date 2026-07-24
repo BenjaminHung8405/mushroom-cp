@@ -68,7 +68,9 @@ export async function fetchTelemetrySnapshot(
   deviceId: string,
 ): Promise<TelemetrySnapshot | null> {
   try {
-    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry`)
+    const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/telemetry`, {
+      cache: 'no-store',
+    })
     if (!res.ok) return null
     return (await res.json()) as TelemetrySnapshot
   } catch {

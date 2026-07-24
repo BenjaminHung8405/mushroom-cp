@@ -19,6 +19,8 @@ for raw_line in root_env_file.read_text(encoding="utf-8").splitlines():
 
 mqtt_broker = values.get("MQTT_BROKER_URL")
 mqtt_port = values.get("MQTT_PORT")
+wifi_ssid = values.get("WIFI_SSID", "")
+wifi_password = values.get("WIFI_PASSWORD", "")
 tenant = values.get("IOT_TENANT", "mushroom")
 bootstrap_user = values.get("MQTT_BOOTSTRAP_USER", "provision_node")
 bootstrap_secret = values.get("MQTT_BOOTSTRAP_SECRET")
@@ -38,6 +40,8 @@ if not bootstrap_secret:
 
 for value_name, value in {
     "MQTT_BROKER_URL": mqtt_broker,
+    "WIFI_SSID": wifi_ssid,
+    "WIFI_PASSWORD": wifi_password,
     "MQTT_BOOTSTRAP_USER": bootstrap_user,
     "MQTT_BOOTSTRAP_SECRET": bootstrap_secret,
 }.items():
@@ -47,6 +51,8 @@ for value_name, value in {
 env.Append(CPPDEFINES=[
     ("DEFAULT_MQTT_BROKER_URL", '\\"{}\\"'.format(mqtt_broker)),
     ("DEFAULT_MQTT_PORT_VALUE", mqtt_port),
+    ("DEFAULT_WIFI_SSID", '\\"{}\\"'.format(wifi_ssid)),
+    ("DEFAULT_WIFI_PASSWORD", '\\"{}\\"'.format(wifi_password)),
     ("IOT_TENANT", '\\"{}\\"'.format(tenant)),
     ("BOOTSTRAP_USERNAME", '\\"{}\\"'.format(bootstrap_user)),
     ("BOOTSTRAP_PASSWORD", '\\"{}\\"'.format(bootstrap_secret)),

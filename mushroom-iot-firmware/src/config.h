@@ -56,6 +56,12 @@ namespace config
 #ifndef DEFAULT_MQTT_PORT_VALUE
 #define DEFAULT_MQTT_PORT_VALUE 1883
 #endif
+#ifndef DEFAULT_WIFI_SSID
+#define DEFAULT_WIFI_SSID ""
+#endif
+#ifndef DEFAULT_WIFI_PASSWORD
+#define DEFAULT_WIFI_PASSWORD ""
+#endif
 #ifndef IOT_TENANT
 #define IOT_TENANT "test_tenant"
 #endif
@@ -100,7 +106,9 @@ namespace config
         constexpr const char *KEY_ELAPSED_SEC = "elapsed_sec";
         constexpr const char *KEY_BOOT_COUNT = "boot_count";
 
-        // WiFi Station (STA) credentials - Động, khởi tạo dạng chuỗi trống, bắt buộc đọc từ NVS
+        // WiFi Station (STA) credentials. NVS values override firmware defaults.
+        constexpr const char *DEFAULT_STA_SSID = DEFAULT_WIFI_SSID;
+        constexpr const char *DEFAULT_STA_PASS = DEFAULT_WIFI_PASSWORD;
         extern String STA_SSID;
         extern String STA_PASS;
 

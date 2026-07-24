@@ -8,6 +8,7 @@
 #include "config.h"
 #include "core/config_manager.h"
 #include "core/serial_mutex.h"
+#include "core/sensors.h"
 #include "core/storage.h"
 #include "core/offline_storage.h"
 #include "core/crop_profile_storage.h"
@@ -33,6 +34,7 @@ constexpr unsigned long MAX_RECONNECT_BACKOFF_MS = 60000;
 constexpr size_t UUID_LEN = 36;
 constexpr unsigned long BOOTSTRAP_RESPONSE_TIMEOUT_MS = 15000;
 constexpr uint8_t MAX_BOOTSTRAP_CLAIMS = 3;
+constexpr unsigned long MQTT_HEARTBEAT_INTERVAL_MS = 60000;
 
 const char* tuningStatusName(storage::TuningResult result)
 {
@@ -237,7 +239,15 @@ void MqttManager::configurePubSubClient(const String& client_id)
         return;
     }
 #ifndef UNIT_TEST
-    wifi_client_.setTimeout(2);
+#if defined(MQTT_TRANSPORT_TLS) && MQTT_TRANSPORT_TLS
+#ifndef MQTT_TLS_ROOT_CA
+#error "MQTT_TLS_ROOT_CA must contain a trusted PEM CA when MQTT_TRANSPORT_TLS is enabled"
+#endif
+    wifi_client_.setCACert(MQTT_TLS_ROOT_CA);
+#endif
+    // ESP32 WiFiClient::setTimeout() takes seconds, not milliseconds.
+    wifi_client_.setTimeout(MQTT_SOCKET_TIMEOUT);
+    client_.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
 #endif
     client_.setKeepAlive(60);
     client_.setServer(config::network::MQTT_BROKER_VAL.c_str(), config::network::MQTT_PORT_VAL);
@@ -315,6 +325,11 @@ void MqttManager::maintainLoop()
     if (client_.connected()) {
         client_.loop();
         state_ = MqttState::CONNECTED;
+        const unsigned long now = millis();
+        if (provisioned_ && now - last_heartbeat_ms_ >= MQTT_HEARTBEAT_INTERVAL_MS) {
+            publishHeartbeat();
+            last_heartbeat_ms_ = now;
+        }
         if (!provisioned_ && provision_state_ == ProvisionState::CLAIMING &&
             millis() - claim_started_at_ >= BOOTSTRAP_RESPONSE_TIMEOUT_MS) {
             Serial.println("[MQTT] Bootstrap claim timed out.");
@@ -344,8 +359,14 @@ void MqttManager::tryReconnect()
     }
 #endif
     last_connect_attempt_ = millis();
+    ++connect_attempts_;
     state_ = MqttState::CONNECTING;
     if (!doConnect()) {
+        ++consecutive_failures_;
+        last_mqtt_error_ = client_.state();
+        Serial.printf("[MQTT] WARN: Connect failed (state=%d, attempt=%lu, consecutive=%lu).\n",
+                      last_mqtt_error_, static_cast<unsigned long>(connect_attempts_),
+                      static_cast<unsigned long>(consecutive_failures_));
         state_ = MqttState::DISCONNECTED;
         current_reconnect_backoff_ = std::min(
             current_reconnect_backoff_ * 2 + (millis() % 501UL),
@@ -360,6 +381,7 @@ void MqttManager::tryReconnect()
 
 bool MqttManager::doConnect()
 {
+    const unsigned long started_ms = millis();
     const bool bootstrap = !provisioned_;
     const String client_id = bootstrap ? bootstrap_mac_ : device_id_;
     const char* username = bootstrap ? config::network::BOOTSTRAP_USER
@@ -373,10 +395,14 @@ bool MqttManager::doConnect()
         : client_.connect(client_id.c_str(), username, password,
                           lwt_topic.c_str(), MQTT_QOS, true, lwt_payload.c_str());
     if (!connected) {
-        Serial.printf("[MQTT] Connect failed (state=%d).\n", client_.state());
         return false;
     }
 
+    last_connect_latency_ms_ = millis() - started_ms;
+    ++successful_connects_;
+    if (successful_connects_ > 1) ++reconnect_count_;
+    consecutive_failures_ = 0;
+    last_mqtt_error_ = MQTT_CONNECTED;
     state_ = MqttState::CONNECTED;
     current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
     subscribePerLifecycle();
@@ -395,6 +421,9 @@ bool MqttManager::doConnect()
         current_reconnect_backoff_ = MIN_RECONNECT_BACKOFF_MS;
         publishStatus(true);
         publishProvisioningAnnounce(); // best effort metadata; never gates active lifecycle
+        publishConnectionEvent("CONNECTED", "NONE");
+        publishHeartbeat();
+        last_heartbeat_ms_ = millis();
         send_sync_burst(); // queued data is synced before the next normal telemetry interval
         Serial.printf("[MQTT] Connected as %s (ACTIVE).\n", device_id_.c_str());
     }
@@ -542,6 +571,83 @@ bool MqttManager::publishStatus(bool is_online)
                            payload.length(), true);
 }
 
+const char* MqttManager::transportName() const
+{
+#if defined(MQTT_TRANSPORT_TLS) && MQTT_TRANSPORT_TLS
+    return "tls";
+#else
+    return "plain";
+#endif
+}
+
+const char* MqttManager::connectFailureReason(int state) const
+{
+    if (state == MQTT_CONNECTION_TIMEOUT) return "CONNACK_TIMEOUT";
+    if (state == MQTT_CONNECT_FAILED) return "TCP_CONNECT_FAILED";
+    if (state == MQTT_CONNECTION_LOST) return "CONNECTION_LOST";
+    if (state == MQTT_CONNECT_BAD_CREDENTIALS || state == MQTT_CONNECT_UNAUTHORIZED) return "AUTH_REJECTED";
+    return "CONFIG_ERROR";
+}
+
+bool MqttManager::publishConnectionEvent(const char* event, const char* reason)
+{
+    if (!client_.connected() || !provisioned_) return false;
+    StaticJsonDocument<384> doc;
+    doc["schema_version"] = 1;
+    doc["device_id"] = device_id_;
+    doc["event"] = event;
+    doc["transport"] = transportName();
+    doc["mqtt_state"] = last_mqtt_error_;
+    doc["attempt"] = connect_attempts_;
+    doc["consecutive_failures"] = consecutive_failures_;
+    doc["connect_latency_ms"] = last_connect_latency_ms_;
+    doc["uptime_sec"] = millis() / 1000UL;
+#ifndef UNIT_TEST
+    doc["rssi_dbm"] = WiFi.RSSI();
+#else
+    doc["rssi_dbm"] = nullptr;
+#endif
+    doc["free_heap_bytes"] = freeHeapBytes();
+    doc["reason"] = reason;
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/connection";
+    return client_.publish(topic.c_str(), reinterpret_cast<const uint8_t*>(payload.c_str()),
+                           payload.length(), false);
+}
+
+bool MqttManager::publishHeartbeat()
+{
+    if (!client_.connected() || !provisioned_) return false;
+    StaticJsonDocument<512> doc;
+    doc["schema_version"] = 1;
+    doc["device_id"] = device_id_;
+    doc["transport"] = transportName();
+    doc["uptime_sec"] = millis() / 1000UL;
+    doc["free_heap_bytes"] = freeHeapBytes();
+#ifndef UNIT_TEST
+    doc["rssi_dbm"] = WiFi.RSSI();
+#else
+    doc["rssi_dbm"] = nullptr;
+#endif
+    JsonObject mqtt = doc.createNestedObject("mqtt");
+    mqtt["connect_attempts"] = connect_attempts_;
+    mqtt["successful_connects"] = successful_connects_;
+    mqtt["reconnect_count"] = reconnect_count_;
+    mqtt["consecutive_failures"] = consecutive_failures_;
+    mqtt["last_error"] = last_mqtt_error_;
+    mqtt["last_connect_latency_ms"] = last_connect_latency_ms_;
+    JsonObject sht30 = doc.createNestedObject("sensor").createNestedObject("sht30");
+    sht30["healthy"] = sensors::get_last_error_sht30() == sensors::SensorError::SUCCESS;
+    sht30["last_error"] = static_cast<uint8_t>(sensors::get_last_error_sht30());
+    sht30["consecutive_failures"] = sensors::get_sht30_consecutive_failures();
+    sht30["last_success_uptime_sec"] = sensors::get_sht30_last_success_uptime_sec();
+    String payload;
+    serializeJson(doc, payload);
+    const String topic = tenant_ + "/esp32/" + device_id_ + "/up/heartbeat";
+    return client_.publish(topic.c_str(), payload.c_str(), false);
+}
+
 String MqttManager::resolveLwtTopic() const
 {
     return tenant_ + "/esp32/" + device_id_ + "/status";
@@ -655,6 +761,18 @@ void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& te
     JsonObject metadata = root.createNestedObject("metadata");
     metadata["free_heap_bytes"] = freeHeapBytes();
     metadata["wifi_reconnect_count"] = 0;
+    JsonObject mqtt = metadata.createNestedObject("mqtt");
+    mqtt["connect_attempts"] = connect_attempts_;
+    mqtt["successful_connects"] = successful_connects_;
+    mqtt["reconnect_count"] = reconnect_count_;
+    mqtt["consecutive_failures"] = consecutive_failures_;
+    mqtt["last_error"] = last_mqtt_error_;
+    mqtt["last_connect_latency_ms"] = last_connect_latency_ms_;
+    JsonObject sht30 = metadata.createNestedObject("sensor").createNestedObject("sht30");
+    sht30["healthy"] = sensors::get_last_error_sht30() == sensors::SensorError::SUCCESS;
+    sht30["last_error"] = static_cast<uint8_t>(sensors::get_last_error_sht30());
+    sht30["consecutive_failures"] = sensors::get_sht30_consecutive_failures();
+    sht30["last_success_uptime_sec"] = sensors::get_sht30_last_success_uptime_sec();
 }
 
 void MqttManager::dispatchCommand(JsonObject root)

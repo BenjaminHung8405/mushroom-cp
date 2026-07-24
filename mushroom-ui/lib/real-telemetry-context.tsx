@@ -73,6 +73,8 @@ interface RealTelemetryContextType {
   deviceStatus: DeviceStatus
   lastTelemetryAt: string | null
   monitoredDeviceId: string | null
+  /** Immediately refetch the selected device's authoritative telemetry snapshot. */
+  refreshTelemetry: () => Promise<void>
 }
 
 const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>(
@@ -81,6 +83,8 @@ const RealTelemetryContext = createContext<RealTelemetryContextType | undefined>
 
 export function RealTelemetryProvider({ children }: { children: React.ReactNode }) {
   const { selectedDeviceId } = useSelectedDevice()
+  const selectedDeviceIdRef = useRef(selectedDeviceId)
+  selectedDeviceIdRef.current = selectedDeviceId
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const prevSnapshotRef = useRef<TelemetrySnapshot | null>(null)
 
@@ -101,6 +105,17 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const [lwtStatus, setLwtStatus] = useState<LwtStatus>('unknown')
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('UNKNOWN')
 
+  const refreshTelemetry = useCallback(async () => {
+    const requestedDeviceId = selectedDeviceId
+    if (!requestedDeviceId) return
+    const nextSnapshot = await fetchTelemetrySnapshot(requestedDeviceId)
+    // Do not let a slow refresh for the previously selected device overwrite
+    // the state that belongs to the device currently visible in the UI.
+    if (nextSnapshot && selectedDeviceIdRef.current === requestedDeviceId) {
+      applySnapshot(nextSnapshot)
+    }
+  }, [selectedDeviceId, applySnapshot])
+
 
   // Reset device-scoped state whenever the dashboard selection changes.
   useEffect(() => {
@@ -114,17 +129,13 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!selectedDeviceId) return
 
-    let cancelled = false
-    fetchTelemetrySnapshot(selectedDeviceId).then((snap) => {
-      if (!cancelled && snap) applySnapshot(snap)
-    })
+    void refreshTelemetry()
     const unsubscribe = subscribeTelemetryStream(selectedDeviceId, applySnapshot)
 
     return () => {
-      cancelled = true
       unsubscribe()
     }
-  }, [selectedDeviceId, applySnapshot])
+  }, [selectedDeviceId, refreshTelemetry, applySnapshot])
 
   // SSE is the primary real-time transport. Polling is a deliberately small
   // fallback for deployments where an ingress/proxy drops or buffers SSE; it
@@ -132,14 +143,9 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!selectedDeviceId) return
 
-    const refresh = () => {
-      fetchTelemetrySnapshot(selectedDeviceId).then((snap) => {
-        if (snap) applySnapshot(snap)
-      })
-    }
-    const timer = setInterval(refresh, SNAPSHOT_REFRESH_MS)
+    const timer = setInterval(() => void refreshTelemetry(), SNAPSHOT_REFRESH_MS)
     return () => clearInterval(timer)
-  }, [selectedDeviceId, applySnapshot])
+  }, [selectedDeviceId, refreshTelemetry])
 
   // LWT status SSE — writes only to lwtStatus; also records when online began.
   useEffect(() => {
@@ -253,6 +259,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
         deviceStatus,
         lastTelemetryAt,
         monitoredDeviceId: selectedDeviceId,
+        refreshTelemetry,
       }}
     >
       {children}

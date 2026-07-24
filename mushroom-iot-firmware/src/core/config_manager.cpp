@@ -41,7 +41,10 @@ void ConfigManager::init() {
     lock();
     StorageManager& storage = StorageManager::get_instance();
 
-    storage.load_wifi_credentials(_ssid, _pass);
+    if (!storage.load_wifi_credentials(_ssid, _pass)) {
+        _ssid = config::network::DEFAULT_STA_SSID;
+        _pass = config::network::DEFAULT_STA_PASS;
+    }
     if (!storage.load_mqtt_config(_mqtt_broker, _mqtt_port, _mqtt_user, _mqtt_pass)) {
         _mqtt_broker = config::network::DEFAULT_MQTT_BROKER;
         _mqtt_port = config::network::DEFAULT_MQTT_PORT;

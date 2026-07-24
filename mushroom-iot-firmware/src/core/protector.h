@@ -36,6 +36,8 @@ public:
         relay_control::RelayStatePod& relay_states
     );
 
+    bool isChannelLocked(AppChannel ch, uint32_t now) const;
+
     void reset();
 };
 

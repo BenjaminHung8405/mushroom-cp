@@ -99,6 +99,7 @@ interface BatchContextType {
   getHumiditySetpoint: (day: number) => number
   getIsLightActive: (day: number) => boolean
   activeBatchId: string | null
+  activeBatchSyncVersion: number
   syncFromActiveBatch: (batch: ActiveBatch | null) => void
   customProfiles: Record<string, any>
   saveAsNewProfile: (name: string) => void
@@ -174,6 +175,7 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState('Tối ưu mùa khô')
   const [totalCropDays, setTotalCropDays] = useState(21)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
+  const [activeBatchSyncVersion, setActiveBatchSyncVersion] = useState(0)
   const [customProfiles, setCustomProfiles] = useState<Record<string, ProfilePreset>>({})
 
   // Load custom profiles from localStorage
@@ -191,6 +193,7 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
   const syncFromActiveBatch = useCallback((batch: ActiveBatch | null) => {
     if (!batch) {
       setActiveBatchId(null)
+      setActiveBatchSyncVersion((version) => version + 1)
       return
     }
 
@@ -217,6 +220,7 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
 
     setTemperatureCheckpoints(tempCps)
     setHumidityCheckpoints(humCps)
+    setActiveBatchSyncVersion((version) => version + 1)
   }, [])
 
   const [temperatureCheckpoints, setTemperatureCheckpoints] = useState<Checkpoint[]>([
@@ -406,6 +410,7 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
         getHumiditySetpoint,
         getIsLightActive,
         activeBatchId,
+        activeBatchSyncVersion,
         syncFromActiveBatch,
         customProfiles,
         saveAsNewProfile,

@@ -88,29 +88,36 @@ function ActuatorStatusRow({
   )
 }
 
-interface StandardActuatorsControlProps {
-  fanActive?: EdgeState
-  lampStageActive?: EdgeState
-  lampStage2Active?: EdgeState
-  heaterWaterActive?: EdgeState
-  mistActive?: EdgeState
-  blackoutActive?: EdgeState
-  readOnly?: boolean
+interface PendingRelayAction {
+  actuator: 'fan' | 'lamp' | 'mist'
+  target: boolean
 }
 
-export function StandardActuatorsControl({
-  fanActive = null,
-  lampStageActive = null,
-  lampStage2Active = null,
-  heaterWaterActive = null,
-  mistActive = null,
-  blackoutActive = null,
-}: StandardActuatorsControlProps) {
-  const { monitoredDeviceId, humidityCurrent, temperatureCurrent, operatingMode, snapshot, mistAck, fanAck, lampAck, deviceStatus, lastTelemetryAt } = useRealTelemetry()
+export function StandardActuatorsControl() {
+  // Read the source of truth directly. Passing relay values through the page
+  // creates an unnecessary render hop and made this control easy to wire to a
+  // stale source in other dashboard layouts.
+  const {
+    monitoredDeviceId,
+    humidityCurrent,
+    temperatureCurrent,
+    operatingMode,
+    snapshot,
+    mistAck,
+    fanAck,
+    lampAck,
+    deviceStatus,
+    lastTelemetryAt,
+    fanActive,
+    lampStageActive,
+    mistActive,
+    middayBlackoutActive: blackoutActive,
+    refreshTelemetry,
+  } = useRealTelemetry()
   const cropDayInt = snapshot?.cropDayInt ?? 0
   const [showManualConfirm, setShowManualConfirm] = useState(false)
-  const [modePending, setModePending] = useState(false)
-  const [actionPending, setActionPending] = useState<string | null>(null)
+  const [modePending, setModePending] = useState<'AI' | 'MANUAL' | null>(null)
+  const [actionPending, setActionPending] = useState<PendingRelayAction | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
@@ -119,38 +126,92 @@ export function StandardActuatorsControl({
     return () => window.clearTimeout(timer)
   }, [toast])
 
+  const pendingRelayHasApplied = actionPending !== null && (
+    (actionPending.actuator === 'fan' && fanActive === actionPending.target) ||
+    (actionPending.actuator === 'lamp' && lampStageActive === actionPending.target) ||
+    (actionPending.actuator === 'mist' && mistActive === actionPending.target)
+  )
+
+  // SSE remains the preferred confirmation channel. This short, scoped polling
+  // loop makes command feedback resilient to deployments that buffer an SSE
+  // event, without requiring the user to reload the entire dashboard.
+  useEffect(() => {
+    if (!actionPending) return
+    if (pendingRelayHasApplied) {
+      setActionPending(null)
+      return
+    }
+
+    const poll = window.setInterval(() => void refreshTelemetry(), 1_500)
+    const timeout = window.setTimeout(() => {
+      setActionPending(null)
+      setToast({ message: 'Thiết bị chưa xác nhận trạng thái relay. Hãy kiểm tra kết nối ESP32.', type: 'error' })
+    }, 15_000)
+    return () => {
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+    }
+  }, [actionPending, pendingRelayHasApplied, refreshTelemetry])
+
+  useEffect(() => {
+    if (!modePending) return
+    if (operatingMode === modePending) {
+      setModePending(null)
+      return
+    }
+
+    const poll = window.setInterval(() => void refreshTelemetry(), 1_500)
+    const timeout = window.setTimeout(() => {
+      setModePending(null)
+      setToast({ message: 'Thiết bị chưa xác nhận chế độ vận hành mới.', type: 'error' })
+    }, 15_000)
+    return () => {
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+    }
+  }, [modePending, operatingMode, refreshTelemetry])
+
   const setOperatingMode = async (mode: 'AI' | 'MANUAL') => {
     if (!monitoredDeviceId) {
       setToast({ message: 'Chưa chọn thiết bị để thay đổi chế độ.', type: 'error' })
       return
     }
-    setModePending(true)
+    setModePending(mode)
     const result = await postSetOperatingMode(monitoredDeviceId, mode)
-    setModePending(false)
     if (result.success) {
       setShowManualConfirm(false)
+      await refreshTelemetry()
       setToast({ message: mode === 'MANUAL' ? 'Đã gửi lệnh tắt AI. Các relay sẽ dừng trước khi điều khiển thủ công.' : 'Đã gửi lệnh khôi phục điều khiển AI.', type: 'success' })
     } else {
+      setModePending(null)
       setToast({ message: result.message, type: 'error' })
     }
   }
 
   const applyAction = async (actuator: 'fan' | 'lamp' | 'mist', state: EdgeState) => {
     if (!monitoredDeviceId || state === null || operatingMode === null || controlsBlocked) return
-    setActionPending(actuator)
-    const result = await postActuatorOverride(monitoredDeviceId, actuator, !state)
-    setActionPending(null)
-    setToast({ message: result.success ? 'Đã gửi lệnh; chờ firmware xác nhận trạng thái relay.' : result.message, type: result.success ? 'success' : 'error' })
+    const target = !state
+    setActionPending({ actuator, target })
+    const result = await postActuatorOverride(monitoredDeviceId, actuator, target)
+    if (!result.success) {
+      setActionPending(null)
+      setToast({ message: result.message, type: 'error' })
+      return
+    }
+
+    await refreshTelemetry()
+    setToast({ message: 'Đã gửi lệnh; đang chờ ESP32 xác nhận trạng thái relay.', type: 'success' })
   }
 
   const startAll = async () => {
     if (!monitoredDeviceId || operatingMode === null || controlsBlocked) return
-    setActionPending('all')
+    setActionPending({ actuator: 'fan', target: true })
     const requests: Promise<{ success: boolean; message: string }>[] = []
     if (fanActive === false) requests.push(postActuatorOverride(monitoredDeviceId, 'fan', true))
     if (lampStageActive === false && cropDayInt <= 8) requests.push(postActuatorOverride(monitoredDeviceId, 'lamp', true))
     if (mistActive === false && blackoutActive !== true && humidityCurrent !== null && humidityCurrent < 90) requests.push(postActuatorOverride(monitoredDeviceId, 'mist', true))
     const results = await Promise.all(requests)
+    await refreshTelemetry()
     setActionPending(null)
     setToast({ message: results.every((item) => item.success) ? 'Đã gửi lệnh khởi động thiết bị khả dụng.' : 'Một số thiết bị không thể khởi động do giới hạn an toàn.', type: results.every((item) => item.success) ? 'success' : 'error' })
   }
@@ -210,8 +271,8 @@ export function StandardActuatorsControl({
           <div className="font-bold text-foreground">{isFuzzyOff ? '🔌 Fuzzy Logic: OFF' : '● Fuzzy Logic: ON'}</div>
           <div className="mt-0.5 text-muted-foreground">{isFuzzyOff ? 'Lệnh manual được giữ; Safety Protector vẫn có quyền ép bật/tắt, giới hạn 3 phút và cooldown.' : 'Fuzzy tạo output nền; lệnh manual đảo relay 30 giây rồi trả quyền cho Fuzzy. Safety Protector luôn có quyền chặn.'}</div>
           <div className="mt-2 flex gap-2">
-            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending === 'all' ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
-            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending || controlsBlocked} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
+            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
+            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending !== null || controlsBlocked} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{modePending ? 'Đang chuyển...' : fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
           </div>
         </div>
       </div>
@@ -223,9 +284,9 @@ export function StandardActuatorsControl({
       )}
 
       <div className="space-y-3">
-        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending === 'fan'} telemetryDetails={relayTelemetryDetails('relay_2')} onAction={() => void applyAction('fan', fanActive)} />
-        <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending === 'lamp'} telemetryDetails={relayTelemetryDetails('relay_4')} onAction={() => void applyAction('lamp', lampStageActive)} />
-        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
+        <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending?.actuator === 'fan'} telemetryDetails={relayTelemetryDetails('relay_2')} onAction={() => void applyAction('fan', fanActive)} />
+        <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending?.actuator === 'lamp'} telemetryDetails={relayTelemetryDetails('relay_4')} onAction={() => void applyAction('lamp', lampStageActive)} />
+        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending?.actuator === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
       </div>
 
       {showManualConfirm && (
@@ -235,7 +296,7 @@ export function StandardActuatorsControl({
             <p className="mt-2 text-sm text-slate-400">Fuzzy sẽ dừng tạo output nền. Relay giữ trạng thái hiện tại; lệnh manual sẽ được giữ cho đến lệnh mới. Safety Protector vẫn luôn có quyền ép bật/tắt để bảo vệ thiết bị và nấm.</p>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowManualConfirm(false)} className="rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Quay lại</button>
-              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending || controlsBlocked} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
+              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending !== null || controlsBlocked} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
             </div>
           </div>
         </div>

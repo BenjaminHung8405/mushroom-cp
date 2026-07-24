@@ -57,6 +57,10 @@ namespace sensors
      * @brief Lấy mã lỗi cuối cùng của cảm biến SHT30.
      */
     SensorError get_last_error_sht30();
+    /** Number of failed SHT30 reads since the last successful sample. */
+    uint32_t get_sht30_consecutive_failures();
+    /** Uptime in seconds of the last valid sample; zero if none exists. */
+    uint32_t get_sht30_last_success_uptime_sec();
 
     /**
      * @brief Giả lập trạng thái phần cứng của SHT30 (Fault Injection).

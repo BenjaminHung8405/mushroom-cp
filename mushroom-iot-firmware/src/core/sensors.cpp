@@ -21,6 +21,36 @@ namespace sensors
     // Lưu mã lỗi cuối cùng của SHT30
     static SensorError sht30_last_error = SensorError::SUCCESS;
     static volatile bool sht30_has_valid_read = false;
+    static uint32_t sht30_consecutive_failures = 0;
+    static uint32_t sht30_last_success_uptime_sec = 0;
+    static unsigned long sht30_last_error_log_ms = 0;
+    static SensorError sht30_last_logged_error = SensorError::SUCCESS;
+
+    static void recordSht30Failure(SensorError error, const char* message)
+    {
+        sht30_has_valid_read = false;
+        sht30_last_error = error;
+        ++sht30_consecutive_failures;
+        const unsigned long now = millis();
+        if (error != sht30_last_logged_error || now - sht30_last_error_log_ms >= 60000UL) {
+            Serial.printf("[SENSORS] WARN: %s (failures=%lu)\n", message,
+                          static_cast<unsigned long>(sht30_consecutive_failures));
+            sht30_last_error_log_ms = now;
+            sht30_last_logged_error = error;
+        }
+    }
+
+    static void recordSht30Success()
+    {
+        if (sht30_consecutive_failures > 0) {
+            Serial.println("[SENSORS] INFO: SHT30 recovered.");
+        }
+        sht30_consecutive_failures = 0;
+        sht30_last_error = SensorError::SUCCESS;
+        sht30_last_logged_error = SensorError::SUCCESS;
+        sht30_last_success_uptime_sec = millis() / 1000UL;
+        sht30_has_valid_read = true;
+    }
 
     // SHT30 defog heater state — heater biases temp UP / RH DOWN (finite, not NAN).
     // Control loops must hold last outputs for heater ON + cool-down.
@@ -95,11 +125,9 @@ namespace sensors
 
         if (!sht30_healthy)
         {
-            sht30_has_valid_read = false;
-            sht30_last_error = SensorError::ERR_DISCONNECTED;
+            recordSht30Failure(SensorError::ERR_DISCONNECTED, "SHT30 sensor disconnected or faulty");
             temp = NAN;
             hum = NAN;
-            Serial.println("[SENSORS] ERROR: SHT30 sensor disconnected or faulty!");
             return false;
         }
 
@@ -109,7 +137,7 @@ namespace sensors
 
         if (std::isnan(temp) || std::isnan(hum))
         {
-            sht30_last_error = SensorError::ERR_CRC_MISMATCH;
+            recordSht30Failure(SensorError::ERR_CRC_MISMATCH, "SHT30 returned invalid reading");
             temp = NAN;
             hum = NAN;
             return false;
@@ -181,8 +209,7 @@ namespace sensors
             return false;
         }
 
-        sht30_last_error = SensorError::SUCCESS;
-        sht30_has_valid_read = true;
+        recordSht30Success();
         return true;
     }
 
@@ -230,6 +257,9 @@ namespace sensors
     {
         return sht30_last_error;
     }
+
+    uint32_t get_sht30_consecutive_failures() { return sht30_consecutive_failures; }
+    uint32_t get_sht30_last_success_uptime_sec() { return sht30_last_success_uptime_sec; }
 
     void set_simulated_health_sht30(bool healthy)
     {

@@ -502,9 +502,9 @@ namespace wifi
 #endif
 
         // Đọc cấu hình WiFi STA từ NVS thông qua cấu hình hệ thống
-        bool has_config = config::network::load_runtime_config();
+        config::network::load_runtime_config();
 
-        if (has_config && !config::network::STA_SSID.isEmpty())
+        if (!config::network::STA_SSID.isEmpty())
         {
             // Credentialed devices boot STA-only. Captive portal is a fallback,
             // never a parallel listener on port 80.
@@ -520,7 +520,7 @@ namespace wifi
         }
         else
         {
-            Serial.println("[WIFI] No WiFi credentials found in NVS. Activating Captive Portal...");
+            Serial.println("[WIFI] No WiFi credentials configured. Activating Captive Portal...");
             start_softap(false);
         }
 

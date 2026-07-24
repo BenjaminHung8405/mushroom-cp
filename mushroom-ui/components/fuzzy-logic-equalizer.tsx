@@ -6,6 +6,11 @@ import { useBatch, Checkpoint, DayTrack } from '@/lib/batch-context'
 import { useSelectedDevice } from '@/lib/selected-device-context'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { LightTimelineBlock } from '@/lib/types'
+import {
+  createBatchEditBaseline,
+  hasBatchEditChanges,
+  type BatchEditBaseline,
+} from '@/lib/batch-dirty'
 import { AlertCircle, Lightbulb, Lock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -691,35 +696,32 @@ export function FuzzyLogicEqualizer() {
     spawnRunningEndDay,
     totalCropDays,
     activeBatchId,
+    activeBatchSyncVersion,
     saveAsNewProfile,
   } = useBatch()
   const { selectedDeviceId } = useSelectedDevice()
   const { middayBlackoutActive } = useRealTelemetry()
 
-  const [initialCheckpoints, setInitialCheckpoints] = useState<{
-    temperature: Checkpoint[]
-    humidity: Checkpoint[]
-    light: DayTrack[]
-  } | null>(null)
+  const [editBaseline, setEditBaseline] = useState<BatchEditBaseline | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
-  // Reset initial checkpoints when active batch ID changes
+  // A baseline is created only after BatchContext finishes applying an API batch.
+  // The sync version prevents default or intermediate context state from becoming
+  // the saved reference used by the dirty-check.
   useEffect(() => {
-    setInitialCheckpoints(null)
-  }, [activeBatchId])
-
-  // Synchronize initial checkpoints from Context state on first load
-  useEffect(() => {
-    if (activeBatchId && !initialCheckpoints) {
-      setInitialCheckpoints({
-        temperature: [...temperatureCheckpoints],
-        humidity: [...humidityCheckpoints],
-        light: [...lightDayStates],
-      })
+    if (!activeBatchId) {
+      setEditBaseline(null)
+      return
     }
-  }, [activeBatchId, temperatureCheckpoints, humidityCheckpoints, lightDayStates, initialCheckpoints])
+
+    setEditBaseline(createBatchEditBaseline(activeBatchId, {
+      temperature: temperatureCheckpoints,
+      humidity: humidityCheckpoints,
+      light: lightDayStates,
+    }))
+  }, [activeBatchId, activeBatchSyncVersion])
 
   // Automatically dismiss toast after 3 seconds
   useEffect(() => {
@@ -730,38 +732,12 @@ export function FuzzyLogicEqualizer() {
   }, [toast])
 
   const isDirty = useMemo(() => {
-    if (!initialCheckpoints) return false
-
-    // Compare temperatureCheckpoints length and values
-    if (temperatureCheckpoints.length !== initialCheckpoints.temperature.length) return true
-    for (let i = 0; i < temperatureCheckpoints.length; i++) {
-      if (
-        temperatureCheckpoints[i].day !== initialCheckpoints.temperature[i].day ||
-        temperatureCheckpoints[i].value !== initialCheckpoints.temperature[i].value
-      ) {
-        return true
-      }
-    }
-
-    // Compare humidityCheckpoints length and values
-    if (humidityCheckpoints.length !== initialCheckpoints.humidity.length) return true
-    for (let i = 0; i < humidityCheckpoints.length; i++) {
-      if (
-        humidityCheckpoints[i].day !== initialCheckpoints.humidity[i].day ||
-        humidityCheckpoints[i].value !== initialCheckpoints.humidity[i].value
-      ) {
-        return true
-      }
-    }
-
-    if (lightDayStates.length !== initialCheckpoints.light.length) return true
-    for (let i = 0; i < lightDayStates.length; i++) {
-      if (lightDayStates[i].day !== initialCheckpoints.light[i].day ||
-          lightDayStates[i].active !== initialCheckpoints.light[i].active) return true
-    }
-
-    return false
-  }, [temperatureCheckpoints, humidityCheckpoints, lightDayStates, initialCheckpoints])
+    return hasBatchEditChanges(editBaseline, activeBatchId, {
+      temperature: temperatureCheckpoints,
+      humidity: humidityCheckpoints,
+      light: lightDayStates,
+    })
+  }, [activeBatchId, editBaseline, temperatureCheckpoints, humidityCheckpoints, lightDayStates])
 
   const handleSaveChanges = async () => {
     if (!activeBatchId || isSaving || !isDirty) return
@@ -786,13 +762,12 @@ export function FuzzyLogicEqualizer() {
         status,
       })))
 
-      setInitialCheckpoints({
-        temperature: [...temperatureCheckpoints],
-        humidity: [...humidityCheckpoints],
-        light: [...lightDayStates],
-      })
-
       if (!selectedDeviceId) {
+        setEditBaseline(createBatchEditBaseline(activeBatchId, {
+          temperature: temperatureCheckpoints,
+          humidity: humidityCheckpoints,
+          light: lightDayStates,
+        }))
         setToast({ message: 'Đã lưu checkpoints và lịch bật đèn. Hãy chọn thiết bị để đồng bộ crop profile.', type: 'success' })
         return
       }
@@ -817,6 +792,11 @@ export function FuzzyLogicEqualizer() {
         lightSchedule: lightBlocks.map(({ startDay, endDay, status }) => ({ startDay, endDay, status })),
       })
       if (!sync.success) throw new Error(sync.message)
+      setEditBaseline(createBatchEditBaseline(activeBatchId, {
+        temperature: temperatureCheckpoints,
+        humidity: humidityCheckpoints,
+        light: lightDayStates,
+      }))
       setToast({ message: 'Đã lưu. Đang đồng bộ profile xuống thiết bị; chờ ACK và telemetry xác nhận.', type: 'success' })
     } catch (err) {
       setToast({
@@ -864,7 +844,18 @@ export function FuzzyLogicEqualizer() {
   }, [lightDayStates])
 
   const handleLightStatesChange = (newStates: DayTrack[]) => {
-    setLightDayStates(newStates)
+    const activeByDay = new Map(newStates.map((state) => [state.day, state.active]))
+    const currentByDay = new Map(lightDayStates.map((state) => [state.day, state.active]))
+
+    // Store one fresh object for every sequential crop day, even if a caller
+    // supplies an incomplete or reordered track during a drag interaction.
+    setLightDayStates(Array.from({ length: totalCropDays }, (_, index) => {
+      const day = index + 1
+      return {
+        day,
+        active: activeByDay.get(day) ?? currentByDay.get(day) ?? false,
+      }
+    }))
   }
 
 

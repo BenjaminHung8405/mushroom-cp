@@ -161,4 +161,10 @@ void SystemProtector::update(
     }
 }
 
+bool SystemProtector::isChannelLocked(AppChannel ch, uint32_t now) const {
+    size_t idx = static_cast<size_t>(ch);
+    if (idx >= states.size()) return false;
+    return isLockActive(now, states[idx].lock_until_ms);
+}
+
 } // namespace protector

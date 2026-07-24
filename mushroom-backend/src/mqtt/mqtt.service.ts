@@ -159,6 +159,8 @@ import { AppConfigService } from '../config/config.service';
 type UplinkFeature =
   | 'status'
   | 'telemetry'
+  | 'connection'
+  | 'heartbeat'
   | 'provisioning_announce'
   | 'command_ack'
   | 'manual_ack'
@@ -269,6 +271,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `${this.tenant}/esp32/+/up/provisioning/announce`,
       `${this.tenant}/esp32/+/up/command/ack`,
       `${this.tenant}/esp32/+/up/sync-burst`,
+      `${this.tenant}/esp32/+/up/connection`,
+      `${this.tenant}/esp32/+/up/heartbeat`,
       getTuningReportedPattern(this.tenant),
       `${this.tenant}/provision/request`,
     ];
@@ -320,8 +324,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const data = JSON.parse(payload.toString()) as Record<string, unknown>;
       if (!data || Array.isArray(data))
         throw new Error('payload must be an object');
+      // Connection events update liveness without requiring sensor readings.
       if (parsedTopic.feature === 'status') {
         this.handleStatus(record, data, receivedAt);
+      } else if (parsedTopic.feature === 'connection') {
+        this.handleConnectionEvent(record, data, receivedAt);
+      } else if (parsedTopic.feature === 'heartbeat') {
+        this.handleHeartbeat(record, data, receivedAt);
       } else if (parsedTopic.feature === 'telemetry') {
         this.handleTelemetry(record, data, receivedAt);
       } else if (parsedTopic.feature === 'provisioning_announce') {
@@ -453,6 +462,64 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
 
+  private handleConnectionEvent(
+    record: import('../device/device-registry.service').DeviceRecord,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): void {
+    const event = data.event;
+    if (typeof event !== 'string' || !event) return;
+    const isValid =
+      event === 'CONNECTED' || event === 'CONNECT_FAILED' || event === 'DISCONNECTED';
+    if (!isValid) {
+      this.logger.warn(`Dropped unknown connection event '${event}' from '${record.deviceId}'.`);
+      return;
+    }
+    const reason = typeof data.reason === 'string' ? data.reason : null;
+    const latencyMs =
+      typeof data.connect_latency_ms === 'number' && data.connect_latency_ms >= 0
+        ? data.connect_latency_ms
+        : null;
+    void this.registry.touchLastSeen(record.deviceId, receivedAt);
+    this.logger.log(
+      `[HEALTH] ${record.deviceId} ${event}` +
+        (reason ? ` (${reason})` : '') +
+        (latencyMs != null ? ` [${latencyMs}ms]` : ''),
+    );
+    // A CONNECTED or DISCONNECTED event directly affects MQTT online/offline state.
+    if (event === 'DISCONNECTED') {
+      const healthEvent = this.deviceHealth?.handleLwtStatus(
+        record,
+        'offline',
+        receivedAt,
+      );
+      if (healthEvent) this.deviceStateCache.set(record.deviceId, healthEvent);
+      return;
+    }
+    // CONNECTED event updates liveness even if SHT30 telemetry is degraded/null.
+    if (event === 'CONNECTED') {
+      const healthEvent = this.deviceHealth?.handleHeartbeatReceived(record, receivedAt);
+      if (healthEvent) this.deviceStateCache.set(record.deviceId, healthEvent);
+    }
+  }
+
+  private handleHeartbeat(
+    record: import('../device/device-registry.service').DeviceRecord,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): void {
+    const transport = typeof data.transport === 'string' ? data.transport : null;
+    const isTransportValid = transport === 'plain' || transport === 'tls';
+    if (!isTransportValid) return;
+    // Heartbeat alone keeps the device alive; it does not override last telemetry timestamp.
+    void this.registry.touchLastSeen(record.deviceId, receivedAt);
+    const healthEvent = this.deviceHealth?.handleHeartbeatReceived(record, receivedAt);
+    if (healthEvent) this.deviceStateCache.set(record.deviceId, healthEvent);
+    void this.logger.log(
+      `[HEARTBEAT] ${record.deviceId} transport=${transport}`,
+    );
+  }
+
   private handleTelemetry(
     record: import('../device/device-registry.service').DeviceRecord,
     data: Record<string, unknown>,
@@ -483,26 +550,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       receivedAt,
       timestamp: receivedAt.toISOString(),
     };
-    if (event.temp_air === null && event.humidity_air === null) {
-      const describe = (value: unknown) =>
-        value === undefined
-          ? 'missing'
-          : value === null
-            ? 'null'
-            : Array.isArray(value)
-              ? 'array'
-              : typeof value;
-      this.logger.warn(
-        `Dropped telemetry without finite SHT readings from '${deviceId}' ` +
-          `(temperature_celsius=${describe(readings?.temperature_celsius)}, humidity_percent=${describe(readings?.humidity_percent)}).`,
-      );
-      return;
-    }
+    if (event.temp_air === null && event.humidity_air === null)
+      this.logger.warn(`Telemetry from '${deviceId}' has no finite SHT readings.`);
     this.telemetry$.next(event);
-    const healthEvent = this.deviceHealth?.handleTelemetryReceived(
-      record,
-      receivedAt,
-    );
+    const healthEvent = event.temp_air === null && event.humidity_air === null
+      ? this.deviceHealth?.handleHeartbeatReceived(record, receivedAt)
+      : this.deviceHealth?.handleTelemetryReceived(record, receivedAt);
     if (healthEvent) this.deviceStateCache.set(deviceId, healthEvent);
     this.confirmAppliedFromTelemetry(
       deviceId,
@@ -704,6 +757,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return null;
     if (parts.length === 5 && parts[4] === 'telemetry')
       return { deviceId: parts[2], feature: 'telemetry' };
+    if (parts.length === 5 && parts[4] === 'connection')
+      return { deviceId: parts[2], feature: 'connection' };
+    if (parts.length === 5 && parts[4] === 'heartbeat')
+      return { deviceId: parts[2], feature: 'heartbeat' };
     if (parts.length === 5 && parts[4] === 'sync-burst')
       return { deviceId: parts[2], feature: 'sync_burst' };
     if (

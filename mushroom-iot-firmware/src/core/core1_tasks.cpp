@@ -567,11 +567,20 @@ void applyManualControlEvent(
     bool fuzzyEnabled,
     manual::ManualLatchArray& manualLatch,
     const TelemetryData& telemetry,
-    const Trajectory::SetpointPod& setpoints)
+    const Trajectory::SetpointPod& setpoints,
+    const protector::SystemProtector& protector)
 {
     const relay_control::RtcTimePod rtcTime = readRtcTimeFailSafe();
-    const ManualDecision decision = manual::evaluateSafetyGate(
+    ManualDecision decision = manual::evaluateSafetyGate(
         request, telemetry, setpoints, rtcTime, getCurrentCropDay());
+
+    if (decision == ManualDecision::Accepted && request.intent == AppIntent::FORCE_ON) {
+        if (protector.isChannelLocked(request.channel, now)) {
+            if (request.channel == AppChannel::LAMP) decision = ManualDecision::RejectedTemp;
+            else if (request.channel == AppChannel::MIST) decision = ManualDecision::RejectedHumi;
+            else decision = ManualDecision::RejectedLocked;
+        }
+    }
 
     ManualAck ack{};
     ack.channel = request.channel;
@@ -641,7 +650,8 @@ void drainControlEvents(
     uint32_t now,
     const TelemetryData& telemetry,
     const Trajectory::SetpointPod& setpoints,
-    manual::ManualLatchArray& manualLatch)
+    manual::ManualLatchArray& manualLatch,
+    const protector::SystemProtector& protector)
 {
     if (g_control_event_queue == nullptr) return;
 
@@ -651,8 +661,8 @@ void drainControlEvents(
             applyOperatingModeControlEvent(event, now, manualLatch);
         } else if (event.type == ControlEventType::ManualRequest) {
             const bool fuzzyEnabled = config::GLOBAL_OPERATING_MODE == config::OperatingMode::AI &&
-                                      config::FUZZY_CONTROL_ENABLED;
-            applyManualControlEvent(event.manual, now, fuzzyEnabled, manualLatch, telemetry, setpoints);
+                                       config::FUZZY_CONTROL_ENABLED;
+            applyManualControlEvent(event.manual, now, fuzzyEnabled, manualLatch, telemetry, setpoints, protector);
         }
     }
 }
@@ -820,9 +830,11 @@ static void runControlPipelineStep(
     const AdaptiveTuner::GainsPod gains = AdaptiveTuner::updateGains(
         tunerState, errorTemp, errorHumid, dtSeconds);
 
+    static protector::SystemProtector systemProtector;
+
     // All cross-core commands are applied by this Core-1-owned FIFO before
     // constructing the tick's base demand or entering SystemProtector.
-    drainControlEvents(now, telemetry, setpoints, manualLatch);
+    drainControlEvents(now, telemetry, setpoints, manualLatch, systemProtector);
 
     const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
 
@@ -901,7 +913,6 @@ static void runControlPipelineStep(
     relay_control::applyDirectOutputs(outputs, s_activeTuning, relayState);
 
     // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
-    static protector::SystemProtector systemProtector;
     systemProtector.update(
         now,
         fuzzyEnabled,

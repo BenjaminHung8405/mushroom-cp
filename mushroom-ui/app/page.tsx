@@ -160,15 +160,7 @@ const cfgSync = configSync
       </div>
 
       <div className="col-span-1 md:col-span-2 lg:col-span-2">
-        <StandardActuatorsControl
-          fanActive={fanActive}
-          lampStageActive={lampStageActive}
-          lampStage2Active={lampStage2Active}
-          heaterWaterActive={heaterWaterActive}
-          mistActive={mistActive}
-          blackoutActive={middayBlackoutActive}
-          readOnly
-        />
+        <StandardActuatorsControl />
       </div>
 
       <OfflineMonitoringDashboard />

@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #ifndef UNIT_TEST
 #include <WiFi.h>
+#if defined(MQTT_TRANSPORT_TLS) && MQTT_TRANSPORT_TLS
+#include <WiFiClientSecure.h>
+#endif
 #endif
 #include <ArduinoJson.h>
 #ifdef UNIT_TEST
@@ -208,7 +211,11 @@ private:
 
     // State
 #ifndef UNIT_TEST
+#if defined(MQTT_TRANSPORT_TLS) && MQTT_TRANSPORT_TLS
+    WiFiClientSecure wifi_client_;
+#else
     WiFiClient wifi_client_;
+#endif
     PubSubClientQos1 client_{wifi_client_};
 #else
     WiFiClient wifi_client_;
@@ -237,6 +244,18 @@ private:
     unsigned long last_connect_attempt_ = 0;
     unsigned long current_reconnect_backoff_ = 1000;
     unsigned long last_telemetry_due_ = 0;
+    unsigned long last_heartbeat_ms_ = 0;
+    uint32_t connect_attempts_ = 0;
+    uint32_t successful_connects_ = 0;
+    uint32_t reconnect_count_ = 0;
+    uint32_t consecutive_failures_ = 0;
+    int last_mqtt_error_ = 0;
+    unsigned long last_connect_latency_ms_ = 0;
+
+    const char* transportName() const;
+    const char* connectFailureReason(int state) const;
+    bool publishConnectionEvent(const char* event, const char* reason);
+    bool publishHeartbeat();
 
     // Outbox buffer for QoS-1 reported tuning updates
     struct PendingReportedTuning {
