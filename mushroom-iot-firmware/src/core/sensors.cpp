@@ -83,9 +83,9 @@ namespace sensors
         Wire.setClock(50000);
         
 #if defined(ESP32)
-        Wire.setTimeOut(3); // 3ms timeout corresponding to 3000us
+        Wire.setTimeOut(25); // 3ms timeout corresponding to 3000us
 #else
-        Wire.setWireTimeout(3000, true);
+        Wire.setWireTimeout(25000, true);
 #endif
         
         sht30.heater(false);
