@@ -127,6 +127,7 @@ void buildFullPayload(const TelemetryData& current, JsonObject& root)
     PersistedCropProfile activeProfile{};
     bool hasProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
     root["profile_version"] = hasProfile ? activeProfile.schema_version : 0;
+    root["profile_storage_version"] = hasProfile ? activeProfile.storage_version : 0;
     root["profile_source"] = hasProfile ? "NVS" : "Default";
     root["offline_safe_mode"] = (conf == TimeConfidence::Uncertain);
 
@@ -139,6 +140,20 @@ void buildFullPayload(const TelemetryData& current, JsonObject& root)
         }
     }
     root["crop_day"] = day;
+    if (hasProfile && day >= 1.0f) {
+        const uint16_t cropDay = static_cast<uint16_t>(day);
+        bool lightScheduleActive = false;
+        for (uint16_t i = 0; i < activeProfile.light_schedule_count; ++i) {
+            const LightScheduleBlock& block = activeProfile.light_schedule[i];
+            if (cropDay >= block.start_day && cropDay <= block.end_day) {
+                lightScheduleActive = block.status == 1U;
+                break;
+            }
+        }
+        root["light_schedule_active"] = lightScheduleActive;
+    } else {
+        root["light_schedule_active"] = nullptr;
+    }
 
     addActuatorPayload(current.actuators, root);
 }
@@ -205,4 +220,3 @@ String buildDeltaPayload(const TelemetryData& current, const TelemetryData& last
 }
 
 } // namespace Telemetry
-

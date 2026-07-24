@@ -817,6 +817,7 @@ void MqttManager::executeCropProfileCommand(
     PersistedCropProfile profile{};
     profile.magic = 0x43524F50; // CROP
     profile.schema_version = source["schema_version"] | 0U;
+    profile.storage_version = CROP_PROFILE_STORAGE_VERSION;
     profile.crop_start_epoch_s = source["crop_start_epoch_s"] | 0LL;
     profile.total_crop_days = source["total_crop_days"] | 0U;
     const JsonArray checkpoints = source["checkpoints"].as<JsonArray>();
@@ -842,6 +843,41 @@ void MqttManager::executeCropProfileCommand(
         profile.checkpoints[i].crop_day = checkpoint["crop_day"] | 0U;
         profile.checkpoints[i].temp_target_c = checkpoint["temp_target_c"] | NAN;
         profile.checkpoints[i].humidity_target_rh = checkpoint["humidity_target_rh"] | NAN;
+    }
+    const JsonVariant lightScheduleVariant = source["light_schedule"];
+    if (lightScheduleVariant.isNull()) {
+        profile.light_schedule_count = profile.total_crop_days <= 8 ? 1 : 2;
+        profile.light_schedule[0] = {1, static_cast<uint16_t>(min<uint16_t>(8, profile.total_crop_days)), 1, 0};
+        if (profile.total_crop_days > 8) {
+            profile.light_schedule[1] = {9, profile.total_crop_days, 0, 0};
+        }
+    } else {
+        const JsonArray lightSchedule = lightScheduleVariant.as<JsonArray>();
+        if (lightSchedule.isNull() || lightSchedule.size() == 0 ||
+            lightSchedule.size() > MAX_LIGHT_SCHEDULE_BLOCKS) {
+            publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                             "crop_profile", revision, 0, "PROFILE_INVALID",
+                             "light_schedule must contain 1 to MAX_LIGHT_SCHEDULE_BLOCKS entries");
+            return;
+        }
+        profile.light_schedule_count = static_cast<uint16_t>(lightSchedule.size());
+        for (uint16_t i = 0; i < profile.light_schedule_count; ++i) {
+            const JsonObject block = lightSchedule[i].as<JsonObject>();
+            const char* status = block["status"] | "";
+            if (block.isNull() || !block.containsKey("start_day") || !block.containsKey("end_day") ||
+                (strcmp(status, "ON") != 0 && strcmp(status, "OFF") != 0)) {
+                publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,
+                                 "crop_profile", revision, 0, "PROFILE_INVALID",
+                                 "every light_schedule block requires start_day, end_day, and ON/OFF status");
+                return;
+            }
+            profile.light_schedule[i] = {
+                static_cast<uint16_t>(block["start_day"] | 0U),
+                static_cast<uint16_t>(block["end_day"] | 0U),
+                static_cast<uint8_t>(strcmp(status, "ON") == 0 ? 1U : 0U),
+                0,
+            };
+        }
     }
     if (!storage::CropProfileValidator::validate(profile)) {
         publishConfigAck(command_id.c_str(), "FAILED", millis() - started_ms,

@@ -7,6 +7,8 @@ import { ActiveBatchResponseDto } from '../dto/active-batch-response.dto';
 import { UpdateCheckpointsDto } from '../dto/update-checkpoints.dto';
 import { CurveCheckpoint } from '../entities/curve-checkpoint.entity';
 import { CheckpointOwnerGuard } from '../guards/checkpoint-owner.guard';
+import { UpdateLightScheduleDto } from '../dto/update-light-schedule.dto';
+import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
 
 import { BatchIdParamsDto, HouseIdParamsDto } from '../dto/batch.params.dto';
 
@@ -49,5 +51,20 @@ export class BatchController {
       params.id,
       updateCheckpointsDto,
     );
+  }
+
+  @Get(':id/light-schedule')
+  async getLightSchedule(
+    @Param() params: BatchIdParamsDto,
+  ): Promise<LightScheduleBlock[]> {
+    return this.batchService.getBatchLightSchedule(params.id);
+  }
+
+  @Put(':id/light-schedule')
+  async updateLightSchedule(
+    @Param() params: BatchIdParamsDto,
+    @Body() dto: UpdateLightScheduleDto,
+  ): Promise<LightScheduleBlock[]> {
+    return this.batchService.updateBatchLightSchedule(params.id, dto.blocks);
   }
 }

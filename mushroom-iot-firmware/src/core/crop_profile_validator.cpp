@@ -8,11 +8,20 @@ bool CropProfileValidator::validate(const PersistedCropProfile &profile) {
         return false;
     }
 
+    if (profile.storage_version != CROP_PROFILE_STORAGE_VERSION) {
+        return false;
+    }
+
     if (profile.checkpoint_count == 0 || profile.checkpoint_count > MAX_CROP_CHECKPOINTS) {
         return false;
     }
 
     if (profile.total_crop_days == 0) {
+        return false;
+    }
+
+    if (profile.light_schedule_count == 0 ||
+        profile.light_schedule_count > MAX_LIGHT_SCHEDULE_BLOCKS) {
         return false;
     }
 
@@ -43,6 +52,23 @@ bool CropProfileValidator::validate(const PersistedCropProfile &profile) {
         if (!std::isfinite(cp.humidity_target_rh) || cp.humidity_target_rh < 30.0f || cp.humidity_target_rh > 95.0f) {
             return false;
         }
+    }
+
+    uint16_t expected_start = 1;
+    uint8_t previous_status = 2;
+    for (uint16_t i = 0; i < profile.light_schedule_count; ++i) {
+        const auto& block = profile.light_schedule[i];
+        if (block.status > 1 || block.start_day != expected_start ||
+            block.start_day > block.end_day || block.end_day > profile.total_crop_days ||
+            block.status == previous_status) {
+            return false;
+        }
+        expected_start = block.end_day + 1;
+        previous_status = block.status;
+    }
+
+    if (expected_start != profile.total_crop_days + 1) {
+        return false;
     }
 
     return true;

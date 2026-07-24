@@ -155,6 +155,8 @@ struct ManualAck {
 } __attribute__((aligned(4)));
 
 constexpr uint16_t MAX_CROP_CHECKPOINTS = 10;
+constexpr uint16_t CROP_PROFILE_STORAGE_VERSION = 2;
+constexpr uint8_t MAX_LIGHT_SCHEDULE_BLOCKS = 7;
 
 
 
@@ -164,15 +166,30 @@ struct CropCheckpoint {
     float humidity_target_rh;
 } __attribute__((aligned(4)));
 
+struct LightScheduleBlock {
+    uint16_t start_day;
+    uint16_t end_day;
+    uint8_t status; // 0 = OFF, 1 = ON
+    uint8_t reserved;
+} __attribute__((aligned(4)));
+
 struct PersistedCropProfile {
     uint32_t magic;
     uint16_t schema_version;
+    uint16_t storage_version;
     uint16_t checkpoint_count; // 1..MAX_CROP_CHECKPOINTS, tối đa 10
+    uint16_t light_schedule_count;
     int64_t crop_start_epoch_s;
     uint16_t total_crop_days;
+    uint16_t reserved;
     CropCheckpoint checkpoints[MAX_CROP_CHECKPOINTS];
+    LightScheduleBlock light_schedule[MAX_LIGHT_SCHEDULE_BLOCKS];
     uint32_t crc32;
 } __attribute__((aligned(4)));
+
+static_assert(alignof(CropCheckpoint) == 4, "CropCheckpoint layout changed");
+static_assert(alignof(LightScheduleBlock) == 4, "LightScheduleBlock layout changed");
+static_assert(alignof(PersistedCropProfile) == 4, "PersistedCropProfile layout changed");
 
 struct PersistedTimeState {
     int64_t last_trusted_epoch_s;

@@ -12,6 +12,7 @@
 #include "core/manual_control.h"
 #include "core/protector.h"
 #include "core/crop_profile_storage.h"
+#include "core/light_schedule.h"
 #include "core/time_confidence.h"
 #include "core/offline_storage.h"
 #include "network/mqtt_manager.h"
@@ -852,8 +853,12 @@ static void runControlPipelineStep(
         };
     }
 
+    const uint16_t cropDay = getCurrentCropDay();
+    if (hasActiveProfile && !schedule::isLampAllowedBySchedule(cropDay, activeProfile)) {
+        outputs.HLamp = 0.0f;
+    }
+
     // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
-    uint16_t cropDay = getCurrentCropDay();
     const relay_control::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
 
     manual::ManualLatchArray prevLatch = manualLatch;

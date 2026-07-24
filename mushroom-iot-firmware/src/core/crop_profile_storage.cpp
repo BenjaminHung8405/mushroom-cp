@@ -3,8 +3,77 @@
 #include "config.h"
 #include <iostream>
 #include <cstddef>
+#include <cstring>
 
 namespace storage {
+
+namespace {
+
+constexpr uint32_t CROP_PROFILE_MAGIC = 0x43524F50;
+constexpr const char* CROP_PROFILE_KEY = "crop_profile";
+
+struct LegacyPersistedCropProfileV1 {
+    uint32_t magic;
+    uint16_t schema_version;
+    uint16_t checkpoint_count;
+    int64_t crop_start_epoch_s;
+    uint16_t total_crop_days;
+    CropCheckpoint checkpoints[MAX_CROP_CHECKPOINTS];
+    uint32_t crc32;
+} __attribute__((aligned(4)));
+
+static_assert(alignof(LegacyPersistedCropProfileV1) == 4, "Legacy profile layout changed");
+static_assert(offsetof(LegacyPersistedCropProfileV1, crc32) + sizeof(uint32_t) ==
+              sizeof(LegacyPersistedCropProfileV1), "Legacy CRC must remain at blob end");
+static_assert(offsetof(PersistedCropProfile, crc32) + sizeof(uint32_t) ==
+              sizeof(PersistedCropProfile), "Profile CRC must remain at blob end");
+
+bool isValidV2Profile(const PersistedCropProfile& profile) {
+    if (profile.magic != CROP_PROFILE_MAGIC ||
+        profile.storage_version != CROP_PROFILE_STORAGE_VERSION) {
+        return false;
+    }
+    const uint32_t calculated = CropProfileStorage::calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&profile), offsetof(PersistedCropProfile, crc32));
+    return calculated == profile.crc32;
+}
+
+bool isValidLegacyProfile(const LegacyPersistedCropProfileV1& profile) {
+    if (profile.magic != CROP_PROFILE_MAGIC) return false;
+    const uint32_t calculated = CropProfileStorage::calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&profile), offsetof(LegacyPersistedCropProfileV1, crc32));
+    return calculated == profile.crc32;
+}
+
+void setDefaultLightSchedule(PersistedCropProfile& profile) {
+    profile.light_schedule_count = profile.total_crop_days <= 8 ? 1 : 2;
+    profile.light_schedule[0] = {
+        1,
+        static_cast<uint16_t>(profile.total_crop_days <= 8 ? profile.total_crop_days : 8),
+        1,
+        0,
+    };
+    if (profile.total_crop_days > 8) {
+        profile.light_schedule[1] = {9, profile.total_crop_days, 0, 0};
+    }
+}
+
+bool writeProfileV2(const PersistedCropProfile& profile) {
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+    const size_t written = prefs.putBytes(CROP_PROFILE_KEY, &profile, sizeof(profile));
+    prefs.end();
+    if (written != sizeof(profile)) return false;
+
+    Preferences verifyPrefs;
+    if (!verifyPrefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+    PersistedCropProfile verified{};
+    const size_t read = verifyPrefs.getBytes(CROP_PROFILE_KEY, &verified, sizeof(verified));
+    verifyPrefs.end();
+    return read == sizeof(verified) && isValidV2Profile(verified);
+}
+
+} // namespace
 
 CropProfileStorage& CropProfileStorage::getInstance() {
     static CropProfileStorage instance;
@@ -36,22 +105,8 @@ uint32_t CropProfileStorage::calculateCRC32(const uint8_t *data, size_t length) 
 }
 
 bool CropProfileStorage::saveProfile(const PersistedCropProfile &profile) {
-    // Check if same profile is already saved to limit flash wear
-    PersistedCropProfile current;
-    if (loadProfile(current)) {
-        if (current.crc32 == profile.crc32 && current.magic == profile.magic) {
-            return true; // Already saved
-        }
-    }
-
-    Preferences prefs;
-    if (!prefs.begin(config::network::NVS_NAMESPACE, false)) {
-        return false;
-    }
-
-    size_t written = prefs.putBytes("crop_profile", &profile, sizeof(profile));
-    prefs.end();
-    return (written == sizeof(profile));
+    if (!isValidV2Profile(profile)) return false;
+    return writeProfileV2(profile);
 }
 
 bool CropProfileStorage::loadProfile(PersistedCropProfile &profile) {
@@ -59,25 +114,53 @@ bool CropProfileStorage::loadProfile(PersistedCropProfile &profile) {
     if (!prefs.begin(config::network::NVS_NAMESPACE, true)) {
         return false;
     }
+    const size_t storedLength = prefs.getBytesLength(CROP_PROFILE_KEY);
+    if (storedLength == 0) {
+        prefs.end();
+        return false;
+    }
 
-    size_t read = prefs.getBytes("crop_profile", &profile, sizeof(profile));
+    if (storedLength == sizeof(PersistedCropProfile)) {
+        PersistedCropProfile loaded{};
+        const size_t read = prefs.getBytes(CROP_PROFILE_KEY, &loaded, sizeof(loaded));
+        prefs.end();
+        if (read != sizeof(loaded) || !isValidV2Profile(loaded)) return false;
+        profile = loaded;
+        return true;
+    }
+
+    if (storedLength != sizeof(LegacyPersistedCropProfileV1)) {
+        Serial.printf("[NVS] Unsupported crop profile blob length: %u\n", static_cast<unsigned>(storedLength));
+        prefs.end();
+        return false;
+    }
+
+    LegacyPersistedCropProfileV1 legacy{};
+    const size_t read = prefs.getBytes(CROP_PROFILE_KEY, &legacy, sizeof(legacy));
     prefs.end();
-
-    if (read != sizeof(profile)) {
+    if (read != sizeof(legacy) || !isValidLegacyProfile(legacy)) {
+        Serial.println("[NVS] Legacy crop profile failed integrity verification; refusing migration.");
         return false;
     }
 
-    // Verify magic
-    if (profile.magic != 0x43524F50) { // 'C','R','O','P'
+    PersistedCropProfile migrated{};
+    migrated.magic = legacy.magic;
+    migrated.schema_version = legacy.schema_version;
+    migrated.storage_version = CROP_PROFILE_STORAGE_VERSION;
+    migrated.checkpoint_count = legacy.checkpoint_count;
+    migrated.crop_start_epoch_s = legacy.crop_start_epoch_s;
+    migrated.total_crop_days = legacy.total_crop_days;
+    std::memcpy(migrated.checkpoints, legacy.checkpoints, sizeof(migrated.checkpoints));
+    setDefaultLightSchedule(migrated);
+    migrated.crc32 = calculateCRC32(
+        reinterpret_cast<const uint8_t*>(&migrated), offsetof(PersistedCropProfile, crc32));
+    if (!writeProfileV2(migrated)) {
+        Serial.println("[NVS] Failed to durably rewrite migrated crop profile.");
         return false;
     }
-
-    // Verify CRC
-    uint32_t calculated = calculateCRC32(reinterpret_cast<const uint8_t*>(&profile), sizeof(profile) - sizeof(uint32_t));
-    if (calculated != profile.crc32) {
-        return false;
-    }
-
+    Serial.printf("[NVS] Migrated crop profile V1 (%u bytes) to V2 (%u bytes).\n",
+                  static_cast<unsigned>(sizeof(legacy)), static_cast<unsigned>(sizeof(migrated)));
+    profile = migrated;
     return true;
 }
 

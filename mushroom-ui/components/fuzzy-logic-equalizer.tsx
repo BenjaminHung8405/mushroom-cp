@@ -10,6 +10,7 @@ import { AlertCircle, Lightbulb, Lock, Loader2, CheckCircle2, XCircle } from 'lu
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   updateBatchCheckpoints,
+  updateBatchLightSchedule,
   type CheckpointInput,
 } from '@/lib/batch-api'
 import { postApplyCropProfile } from '@/lib/telemetry-api'
@@ -698,6 +699,7 @@ export function FuzzyLogicEqualizer() {
   const [initialCheckpoints, setInitialCheckpoints] = useState<{
     temperature: Checkpoint[]
     humidity: Checkpoint[]
+    light: DayTrack[]
   } | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -714,9 +716,10 @@ export function FuzzyLogicEqualizer() {
       setInitialCheckpoints({
         temperature: [...temperatureCheckpoints],
         humidity: [...humidityCheckpoints],
+        light: [...lightDayStates],
       })
     }
-  }, [activeBatchId, temperatureCheckpoints, humidityCheckpoints, initialCheckpoints])
+  }, [activeBatchId, temperatureCheckpoints, humidityCheckpoints, lightDayStates, initialCheckpoints])
 
   // Automatically dismiss toast after 3 seconds
   useEffect(() => {
@@ -751,8 +754,14 @@ export function FuzzyLogicEqualizer() {
       }
     }
 
+    if (lightDayStates.length !== initialCheckpoints.light.length) return true
+    for (let i = 0; i < lightDayStates.length; i++) {
+      if (lightDayStates[i].day !== initialCheckpoints.light[i].day ||
+          lightDayStates[i].active !== initialCheckpoints.light[i].active) return true
+    }
+
     return false
-  }, [temperatureCheckpoints, humidityCheckpoints, initialCheckpoints])
+  }, [temperatureCheckpoints, humidityCheckpoints, lightDayStates, initialCheckpoints])
 
   const handleSaveChanges = async () => {
     if (!activeBatchId || isSaving || !isDirty) return
@@ -771,14 +780,20 @@ export function FuzzyLogicEqualizer() {
       const allCheckpoints = [...tempInputs, ...humInputs]
 
       await updateBatchCheckpoints(activeBatchId, allCheckpoints)
+      await updateBatchLightSchedule(activeBatchId, lightBlocks.map(({ startDay, endDay, status }) => ({
+        startDay,
+        endDay,
+        status,
+      })))
 
       setInitialCheckpoints({
         temperature: [...temperatureCheckpoints],
         humidity: [...humidityCheckpoints],
+        light: [...lightDayStates],
       })
 
       if (!selectedDeviceId) {
-        setToast({ message: 'Đã lưu checkpoints. Hãy chọn thiết bị để đồng bộ crop profile.', type: 'success' })
+        setToast({ message: 'Đã lưu checkpoints và lịch bật đèn. Hãy chọn thiết bị để đồng bộ crop profile.', type: 'success' })
         return
       }
 
@@ -799,12 +814,13 @@ export function FuzzyLogicEqualizer() {
         cropStartEpochSec: Math.floor(Date.now() / 1000),
         totalCropDays,
         checkpoints: checkpoints as Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>,
+        lightSchedule: lightBlocks.map(({ startDay, endDay, status }) => ({ startDay, endDay, status })),
       })
       if (!sync.success) throw new Error(sync.message)
       setToast({ message: 'Đã lưu. Đang đồng bộ profile xuống thiết bị; chờ ACK và telemetry xác nhận.', type: 'success' })
     } catch (err) {
       setToast({
-        message: err instanceof Error ? err.message : 'Không thể lưu thay đổi checkpoints.',
+        message: err instanceof Error ? err.message : 'Không thể lưu thay đổi cấu hình vụ.',
         type: 'error',
       })
     } finally {

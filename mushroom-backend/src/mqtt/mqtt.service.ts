@@ -96,6 +96,7 @@ export interface CropProfileCommand {
   cropStartEpochSec: number;
   totalCropDays: number;
   checkpoints: Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>;
+  lightSchedule?: Array<{ startDay: number; endDay: number; status: 'ON' | 'OFF' }>;
 }
 
 export interface CommandAckEvent {
@@ -673,6 +674,25 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
       previousDay = point.cropDay;
     }
+    if (profile.lightSchedule) {
+      if (profile.lightSchedule.length < 1 || profile.lightSchedule.length > 7) {
+        throw new Error('Light schedule must contain 1–7 blocks.');
+      }
+      let expectedStart = 1;
+      let previousStatus: 'ON' | 'OFF' | null = null;
+      for (const block of profile.lightSchedule) {
+        if (!Number.isInteger(block.startDay) || !Number.isInteger(block.endDay) ||
+            block.startDay !== expectedStart || block.startDay > block.endDay ||
+            block.endDay > profile.totalCropDays || block.status === previousStatus) {
+          throw new Error('Light schedule blocks must be contiguous, in range, and alternate status.');
+        }
+        expectedStart = block.endDay + 1;
+        previousStatus = block.status;
+      }
+      if (expectedStart !== profile.totalCropDays + 1) {
+        throw new Error('Light schedule must cover all crop days.');
+      }
+    }
     return this.dispatchConfigCommand(deviceId, 'crop_profile', revision, {
       $schema: 'https://iot.acme.com/schema/v1/command',
       command_id: randomUUID(), device_id: deviceId, issued_by: 'ui-profile-sync',
@@ -683,6 +703,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         total_crop_days: profile.totalCropDays,
         checkpoints: profile.checkpoints.map((point) => ({ crop_day: point.cropDay,
           temp_target_c: point.temperatureCelsius, humidity_target_rh: point.humidityPercent })),
+        ...(profile.lightSchedule ? { light_schedule: profile.lightSchedule.map((block) => ({
+          start_day: block.startDay, end_day: block.endDay, status: block.status,
+        })) } : {}),
       } },
     });
   }

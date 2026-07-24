@@ -14,6 +14,12 @@ export interface CheckpointResponse {
   targetValue: number
 }
 
+export interface LightScheduleBlock {
+  startDay: number
+  endDay: number
+  status: 'ON' | 'OFF'
+}
+
 export interface ActiveBatch {
   id: string
   houseId: string
@@ -25,6 +31,7 @@ export interface ActiveBatch {
   cropDay: number
   crop_day: number
   checkpoints: CheckpointResponse[]
+  lightSchedule: LightScheduleBlock[]
 }
 
 export interface CreateBatchInput {
@@ -160,5 +167,28 @@ export async function updateBatchCheckpoints(
   } catch (cause) {
     if (cause instanceof Error) throw cause
     throw new Error('Không thể cập nhật checkpoints.')
+  }
+}
+
+export async function updateBatchLightSchedule(
+  batchId: string,
+  blocks: LightScheduleBlock[],
+): Promise<LightScheduleBlock[]> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE}/batches/${encodeURIComponent(batchId)}/light-schedule`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blocks }),
+      },
+    )
+    if (!response.ok) throw new Error(await getErrorMessage(response))
+    const data = await safeJson<LightScheduleBlock[]>(response)
+    if (!data) throw new Error('Backend trả về dữ liệu rỗng khi cập nhật lịch bật đèn.')
+    return data
+  } catch (cause) {
+    if (cause instanceof Error) throw cause
+    throw new Error('Không thể cập nhật lịch bật đèn.')
   }
 }

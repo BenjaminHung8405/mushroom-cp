@@ -198,12 +198,12 @@ export function BatchProvider({ children }: { children: React.ReactNode }) {
     setProfileName(batch.profileName)
     setTotalCropDays(batch.totalCropDays)
 
-    setLightDayStates(
-      Array.from({ length: batch.totalCropDays }, (_, i) => ({
-        day: i + 1,
-        active: i < batch.spawnRunningEndDay,
-      }))
-    )
+    const lightSchedule = batch.lightSchedule ?? []
+    setLightDayStates(Array.from({ length: batch.totalCropDays }, (_, i) => {
+      const day = i + 1
+      const block = lightSchedule.find((item) => day >= item.startDay && day <= item.endDay)
+      return { day, active: block ? block.status === 'ON' : day <= batch.spawnRunningEndDay }
+    }))
 
     const tempCps = (batch.checkpoints || [])
       .filter((cp) => cp.metricType === 'TEMPERATURE')

@@ -126,6 +126,19 @@ export class CropProfileCheckpointDto {
   humidityPercent: number;
 }
 
+export class CropProfileLightScheduleBlockDto {
+  @IsInt()
+  @Min(1)
+  startDay: number;
+
+  @IsInt()
+  @Min(1)
+  endDay: number;
+
+  @IsIn(['ON', 'OFF'])
+  status: 'ON' | 'OFF';
+}
+
 export class ApplyCropProfileDto {
   @IsNumber()
   cropStartEpochSec: number;
@@ -138,6 +151,11 @@ export class ApplyCropProfileDto {
   @ValidateNested({ each: true })
   @Type(() => CropProfileCheckpointDto)
   checkpoints: CropProfileCheckpointDto[];
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CropProfileLightScheduleBlockDto)
+  lightSchedule?: CropProfileLightScheduleBlockDto[];
 
   @IsOptional()
   @IsInt()

@@ -235,6 +235,7 @@ export async function postApplyCropProfile(
     cropStartEpochSec: number
     totalCropDays: number
     checkpoints: Array<{ cropDay: number; temperatureCelsius: number; humidityPercent: number }>
+    lightSchedule: Array<{ startDay: number; endDay: number; status: 'ON' | 'OFF' }>
     configRevision?: number
   },
 ): Promise<{ success: boolean; message: string }> {
