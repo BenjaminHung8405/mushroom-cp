@@ -134,22 +134,31 @@ static void handleTelemetryScan(unsigned long now, const TelemetryData& last_kno
 
 static void logStackWatermark(unsigned long now)
 {
-    // Hiding periodic stack watermark prints to avoid serial console spam during connection testing
-    /*
     static unsigned long last_stack_log = 0;
-    if (now - last_stack_log >= 5000)
+    if (now - last_stack_log >= 300000UL)
     {
         last_stack_log = now;
+#ifndef UNIT_TEST
         ScopedSerialLock guard(SerialLock::get_instance());
-        #ifndef UNIT_TEST
-        UBaseType_t high_water = uxTaskGetStackHighWaterMark(nullptr);
-        Serial.printf("[CORE0_TASK] Stack High Water Mark: %u words\n",
-                      static_cast<unsigned int>(high_water));
-        #else
-        Serial.println("[CORE0_TASK] Stack High Water Mark: 4096 words");
-        #endif
+        const auto logTaskWatermark = [now](const char* task_name,
+                                            TaskHandle_t task_handle,
+                                            uint32_t configured_bytes) {
+            if (task_handle == nullptr) return;
+            const uint32_t minimum_free_bytes = static_cast<uint32_t>(
+                uxTaskGetStackHighWaterMark(task_handle) * sizeof(StackType_t));
+            Serial.printf("[%s] stack configured=%luB min_free=%luB uptime=%lus%s\n",
+                          task_name,
+                          static_cast<unsigned long>(configured_bytes),
+                          static_cast<unsigned long>(minimum_free_bytes),
+                          static_cast<unsigned long>(now / 1000UL),
+                          minimum_free_bytes < 1024UL ? " WARNING_LOW" : "");
+        };
+        logTaskWatermark("ENCODER", hTaskEncoder, 6144UL);
+        logTaskWatermark("CABINET_BTNS", hTaskCabinetButtons, 4096UL);
+#else
+        (void)now;
+#endif
     }
-    */
 }
 
 static void delayCore0Task()
@@ -260,6 +269,10 @@ void taskCore0Communication(void* /*pvParameters*/)
 
         // 3. Maintain HTTP local Webserver based on WiFi state
         processWebServer();
+
+        // 3b. Encoder-triggered NVS writes happen outside TaskEncoder. They
+        // are rare and run after network/web processing to preserve its order.
+        processHardwareOverridePersistence();
 
         // 4. Drain telemetry queue from Core 1
         drainTelemetryQueue(last_known_telemetry);

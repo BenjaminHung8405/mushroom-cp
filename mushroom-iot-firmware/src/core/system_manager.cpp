@@ -8,10 +8,15 @@
 
 #include <Arduino.h>
 #include <time.h>
+#ifndef UNIT_TEST
+#include <esp_timer.h>
+#endif
 
 #ifndef UNIT_TEST
 TaskHandle_t hTaskCore1Control = nullptr;
 TaskHandle_t hTaskHWButton = nullptr;
+TaskHandle_t hTaskEncoder = nullptr;
+TaskHandle_t hTaskCabinetButtons = nullptr;
 #endif
 
 // Telemetry samples are produced every 5 s; depth of 4 is enough for Core 0 to
@@ -26,6 +31,9 @@ static constexpr UBaseType_t CORE1_TASK_PRIORITY = 2;
 // Stack budgets (bytes). Core 0 runs HTTP and MQTT networking.
 static constexpr uint32_t CORE0_STACK_BYTES = 8192;
 static constexpr uint32_t CORE1_STACK_BYTES = 4096;
+static constexpr uint32_t ENCODER_STACK_BYTES = 6144;
+static constexpr uint32_t CABINET_BUTTONS_STACK_BYTES = 4096;
+static constexpr uint32_t NVS_SLOW_OPERATION_WARN_MS = 50;
 
 namespace {
 volatile uint32_t g_baseline_config_revision = 0;
@@ -85,6 +93,30 @@ void initQueues()
     {
         Serial.printf("[MAIN] xOverrideQueue created (depth=1, item=%u bytes).\n",
                       static_cast<unsigned>(sizeof(ControlSetpointCommand)));
+    }
+
+    xHardwareOverridePersistenceRequestQueue =
+        xQueueCreate(1, sizeof(HardwareOverridePersistenceRequest));
+    if (xHardwareOverridePersistenceRequestQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create hardware override persistence request queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] hardware override persistence request queue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(HardwareOverridePersistenceRequest)));
+    }
+
+    xHardwareOverridePersistenceResultQueue =
+        xQueueCreate(1, sizeof(HardwareOverridePersistenceResult));
+    if (xHardwareOverridePersistenceResultQueue == nullptr)
+    {
+        Serial.println("[MAIN] FATAL: Failed to create hardware override persistence result queue!");
+    }
+    else
+    {
+        Serial.printf("[MAIN] hardware override persistence result queue created (depth=1, item=%u bytes).\n",
+                      static_cast<unsigned>(sizeof(HardwareOverridePersistenceResult)));
     }
 
     xActuatorOverrideQueue = xQueueCreate(1, sizeof(ActuatorOverrideCommand));
@@ -263,10 +295,10 @@ void createCoreTasks()
         BaseType_t result = xTaskCreatePinnedToCore(
             taskEncoderInput,
             "TaskEncoder",
-            2048,
+            ENCODER_STACK_BYTES,
             nullptr,
             CORE0_TASK_PRIORITY,
-            nullptr,
+            &hTaskEncoder,
             0
         );
         if (result != pdPASS)
@@ -298,15 +330,16 @@ void createCoreTasks()
         }
     }
 
-    // Create Cabinet Buttons Task (Core 0, Priority 1) — Track D
+    // Cabinet button events log formatted messages and synchronize with the
+    // shared-state mutex; give them headroom beyond the former 2 KB stack.
     {
         BaseType_t result = xTaskCreatePinnedToCore(
             taskCabinetButtons,      // Task function
             "TaskCabinetBtns",       // Name of task
-            2048,                    // Stack size in bytes
+            CABINET_BUTTONS_STACK_BYTES,
             nullptr,                 // Parameter to pass
             1,                       // Task priority (Priority 1)
-            nullptr,                 // Task handle
+            &hTaskCabinetButtons,
             0                        // Pin to Core 0
         );
 
@@ -323,6 +356,52 @@ void createCoreTasks()
 #else
     Serial.println("[MAIN] Unit testing mode: Skip creating FreeRTOS tasks.");
 #endif
+}
+
+void processHardwareOverridePersistence()
+{
+    if (xHardwareOverridePersistenceRequestQueue == nullptr ||
+        xHardwareOverridePersistenceResultQueue == nullptr) {
+        return;
+    }
+
+    HardwareOverridePersistenceRequest request{};
+    if (xQueueReceive(xHardwareOverridePersistenceRequestQueue, &request, 0) != pdTRUE) {
+        return;
+    }
+
+#ifndef UNIT_TEST
+    const int64_t started_us = esp_timer_get_time();
+#else
+    const unsigned long started_ms = millis();
+#endif
+
+    bool success = false;
+    if (request.operation == HardwareOverridePersistenceOperation::Save) {
+        const storage::HardwareOverrideSnapshot snapshot = {
+            request.temp_target, request.humidity_target, true};
+        success = storage::StorageManager::get_instance().save_hardware_override(snapshot);
+    } else {
+        success = storage::StorageManager::get_instance().clear_hardware_override();
+    }
+
+#ifndef UNIT_TEST
+    const uint32_t latency_ms = static_cast<uint32_t>((esp_timer_get_time() - started_us) / 1000LL);
+#else
+    const uint32_t latency_ms = static_cast<uint32_t>(millis() - started_ms);
+#endif
+
+    if (latency_ms > NVS_SLOW_OPERATION_WARN_MS) {
+        Serial.printf("[NVS] WARN: Hardware override %s blocked for %lu ms.\n",
+                      request.operation == HardwareOverridePersistenceOperation::Save ? "save" : "clear",
+                      static_cast<unsigned long>(latency_ms));
+    }
+
+    const HardwareOverridePersistenceResult result = {
+        request.sequence, request.operation, success, {0, 0, 0}, latency_ms};
+    if (xQueueOverwrite(xHardwareOverridePersistenceResultQueue, &result) != pdTRUE) {
+        Serial.println("[NVS] ERROR: Failed to publish hardware override persistence result.");
+    }
 }
 
 void hydrateSetpointsFromNVS()
@@ -434,4 +513,3 @@ void hydrateSetpointsFromNVS()
         Serial.println("[MAIN] ERROR: g_tuning_config_queue is null during hydration!");
     }
 }
-

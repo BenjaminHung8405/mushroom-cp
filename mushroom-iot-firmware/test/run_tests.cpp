@@ -3482,8 +3482,20 @@ int main() {
         if (xOverrideQueue == nullptr) {
             xOverrideQueue = xQueueCreate(1, sizeof(ControlSetpointCommand));
         }
+        if (xHardwareOverridePersistenceRequestQueue == nullptr) {
+            xHardwareOverridePersistenceRequestQueue =
+                xQueueCreate(1, sizeof(HardwareOverridePersistenceRequest));
+        }
+        if (xHardwareOverridePersistenceResultQueue == nullptr) {
+            xHardwareOverridePersistenceResultQueue =
+                xQueueCreate(1, sizeof(HardwareOverridePersistenceResult));
+        }
         ControlSetpointCommand discarded;
         while (xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE) {}
+        HardwareOverridePersistenceRequest discardedRequest;
+        while (xQueueReceive(xHardwareOverridePersistenceRequestQueue, &discardedRequest, 0) == pdTRUE) {}
+        HardwareOverridePersistenceResult discardedResult;
+        while (xQueueReceive(xHardwareOverridePersistenceResultQueue, &discardedResult, 0) == pdTRUE) {}
 
         mock_pin_values[config::pins::PIN_ENCODER_CLK] = HIGH;
         mock_pin_values[config::pins::PIN_ENCODER_DT] = HIGH;
@@ -3533,20 +3545,37 @@ int main() {
         encoder::process(906UL);
         assert(std::fabs(encoder::getState().humidity_target - 89.0f) < 0.01f);
 
-        // Long press in edit mode persists and queues the override.
+        // Long press in edit mode requests persistence but must not perform NVS
+        // I/O or apply a runtime override from the encoder task.
         mock_pin_values[config::pins::PIN_ENCODER_SW] = LOW;
         encoder::process(1000UL);
         encoder::process(1030UL);
         encoder::process(4030UL);
         storage::HardwareOverrideSnapshot saved;
+        assert(storage.load_hardware_override(saved) == false);
+        assert(encoder::getState().persistence_pending == true);
+        assert(encoder::getState().persistence_state == encoder::PersistenceState::PendingSave);
+        assert(uxQueueMessagesWaiting(xOverrideQueue) == 0);
+        HardwareOverridePersistenceRequest saveRequest;
+        assert(xQueueReceive(xHardwareOverridePersistenceRequestQueue, &saveRequest, 0) == pdTRUE);
+        assert(saveRequest.operation == HardwareOverridePersistenceOperation::Save);
+        assert(std::fabs(saveRequest.temp_target - 24.0f) < 0.01f);
+        assert(std::fabs(saveRequest.humidity_target - 89.0f) < 0.01f);
+        assert(xQueueOverwrite(xHardwareOverridePersistenceRequestQueue, &saveRequest) == pdTRUE);
+        processHardwareOverridePersistence();
         assert(storage.load_hardware_override(saved) == true);
         assert(saved.active == true);
-        assert(std::fabs(saved.temp_target - 24.0f) < 0.01f);
-        assert(std::fabs(saved.humidity_target - 89.0f) < 0.01f);
+        encoder::process(4050UL);
+        assert(encoder::getState().persistence_state == encoder::PersistenceState::Active);
         assert(xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE);
         assert(discarded.active == true);
 
-        // Long press in monitor mode clears the persisted override and queues inactive.
+        // A stale result cannot override the next pending operation.
+        const HardwareOverridePersistenceResult stale = {
+            saveRequest.sequence, HardwareOverridePersistenceOperation::Save, true, {0, 0, 0}, 0};
+        assert(xQueueOverwrite(xHardwareOverridePersistenceResultQueue, &stale) == pdTRUE);
+
+        // Long press in monitor mode asynchronously clears the persisted override.
         mock_pin_values[config::pins::PIN_ENCODER_SW] = HIGH;
         encoder::process(4060UL);
         encoder::process(4090UL);
@@ -3554,7 +3583,17 @@ int main() {
         encoder::process(5000UL);
         encoder::process(5030UL);
         encoder::process(8030UL);
+        assert(encoder::getState().persistence_pending == true);
+        assert(encoder::getState().persistence_state == encoder::PersistenceState::PendingClear);
+        assert(storage.load_hardware_override(saved) == true);
+        HardwareOverridePersistenceRequest clearRequest;
+        assert(xQueueReceive(xHardwareOverridePersistenceRequestQueue, &clearRequest, 0) == pdTRUE);
+        assert(clearRequest.operation == HardwareOverridePersistenceOperation::Clear);
+        assert(xQueueOverwrite(xHardwareOverridePersistenceRequestQueue, &clearRequest) == pdTRUE);
+        processHardwareOverridePersistence();
+        encoder::process(8050UL);
         assert(storage.load_hardware_override(saved) == false);
+        assert(encoder::getState().persistence_state == encoder::PersistenceState::Idle);
         assert(xQueueReceive(xOverrideQueue, &discarded, 0) == pdTRUE);
         assert(discarded.active == false);
     }

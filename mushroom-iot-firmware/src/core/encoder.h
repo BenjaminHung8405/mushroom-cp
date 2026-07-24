@@ -10,12 +10,24 @@ enum class EditField : uint8_t {
     Humidity
 };
 
+enum class PersistenceState : uint8_t {
+    Idle,
+    Editing,
+    PendingSave,
+    PendingClear,
+    Active,
+    PersistenceError,
+};
+
 struct EncoderState {
     float temp_target;
     float humidity_target;
     bool override_active;
     bool editing;
     EditField field;
+    bool persistence_pending;
+    uint32_t persistent_sequence;
+    PersistenceState persistence_state;
 } __attribute__((aligned(4)));
 
 void init();

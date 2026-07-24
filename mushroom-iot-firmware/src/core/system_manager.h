@@ -36,6 +36,8 @@ extern volatile bool shared_forceFullPublish;
 extern SemaphoreHandle_t xTelemetryMutex;
 extern TaskHandle_t hTaskCore1Control;
 extern TaskHandle_t hTaskHWButton;
+extern TaskHandle_t hTaskEncoder;
+extern TaskHandle_t hTaskCabinetButtons;
 #endif
 
 // Safe helper functions for thread-safe access to shared_forceFullPublish.
@@ -116,6 +118,28 @@ void taskHardwareButton(void* pvParameters);
  */
 void taskEncoderInput(void* pvParameters);
 
+enum class HardwareOverridePersistenceOperation : uint8_t {
+    Save,
+    Clear,
+};
+
+/** POD request from the encoder input task to the Core-0 NVS worker. */
+struct HardwareOverridePersistenceRequest {
+    uint32_t sequence;
+    HardwareOverridePersistenceOperation operation;
+    float temp_target;
+    float humidity_target;
+} __attribute__((aligned(4)));
+
+/** POD result returned after Core 0 has durably handled an encoder request. */
+struct HardwareOverridePersistenceResult {
+    uint32_t sequence;
+    HardwareOverridePersistenceOperation operation;
+    bool success;
+    uint8_t padding[3];
+    uint32_t latency_ms;
+} __attribute__((aligned(4)));
+
 #ifndef UNIT_TEST
 /**
  * @brief FreeRTOS task on Core 0 that processes physical cabinet buttons with Shift-Register debounce.
@@ -155,6 +179,15 @@ extern QueueHandle_t xBaselineQueue;
  * Created during setup(); destroyed on shutdown.
  */
 extern QueueHandle_t xOverrideQueue;
+
+/** Latest hardware-override persistence request (encoder -> Core 0). */
+extern QueueHandle_t xHardwareOverridePersistenceRequestQueue;
+
+/** Latest hardware-override persistence result (Core 0 -> encoder). */
+extern QueueHandle_t xHardwareOverridePersistenceResultQueue;
+
+/** Executes at most one encoder persistence request on Core 0. */
+void processHardwareOverridePersistence();
 
 /**
  * @brief Handle for the FreeRTOS queue carrying manual actuator overrides from Core 0 to Core 1.
@@ -202,4 +235,3 @@ void initQueues();
 void initSemaphores();
 void createCoreTasks();
 void hydrateSetpointsFromNVS();
-

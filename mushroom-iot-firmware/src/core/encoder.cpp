@@ -1,7 +1,6 @@
 #include "core/encoder.h"
 #include "config.h"
 #include "core/system_manager.h"
-#include "core/storage.h"
 #include <cmath>
 
 #ifndef UNIT_TEST
@@ -16,6 +15,7 @@ constexpr unsigned long EDGE_REJECT_MS = 2UL;
 constexpr unsigned long SWITCH_DEBOUNCE_MS = 30UL;
 constexpr unsigned long DOUBLE_CLICK_MS = 300UL;
 constexpr unsigned long LONG_PRESS_MS = 3000UL;
+constexpr unsigned long PERSISTENCE_RESULT_TIMEOUT_MS = 1000UL;
 constexpr unsigned long POLL_INTERVAL_MS = 20UL;
 constexpr float MIN_TEMP = 20.0f;
 constexpr float MAX_TEMP = 40.0f;
@@ -27,7 +27,7 @@ constexpr float HUMIDITY_STEP = 1.0f;
 portMUX_TYPE encoder_mux = portMUX_INITIALIZER_UNLOCKED;
 int8_t pending_rotation = 0;
 unsigned long last_edge_ms = 0;
-EncoderState state = {24.0f, 90.0f, false, false, EditField::Temperature};
+EncoderState state = {24.0f, 90.0f, false, false, EditField::Temperature, false, 0, PersistenceState::Idle};
 bool initialized = false;
 bool raw_button_pressed = false;
 bool stable_button_pressed = false;
@@ -36,6 +36,10 @@ bool pending_click = false;
 unsigned long raw_changed_ms = 0;
 unsigned long press_started_ms = 0;
 unsigned long first_click_ms = 0;
+unsigned long persistence_requested_ms = 0;
+uint32_t next_persistence_sequence = 1;
+HardwareOverridePersistenceOperation pending_operation = HardwareOverridePersistenceOperation::Save;
+bool persistence_timed_out = false;
 
 float clamp(float value, float lower, float upper)
 {
@@ -52,22 +56,69 @@ void queueOverride(bool active)
     xQueueOverwrite(xOverrideQueue, &command);
 }
 
-void persistOverride()
+bool requestPersistence(HardwareOverridePersistenceOperation operation, unsigned long now)
 {
-    const storage::HardwareOverrideSnapshot snapshot = {
-        state.temp_target, state.humidity_target, true};
-    if (storage::StorageManager::get_instance().save_hardware_override(snapshot)) {
-        state.override_active = true;
-        queueOverride(true);
+    if (state.persistence_pending || xHardwareOverridePersistenceRequestQueue == nullptr) {
+        return false;
     }
+
+    const uint32_t sequence = next_persistence_sequence++;
+    const HardwareOverridePersistenceRequest request = {
+        sequence, operation, state.temp_target, state.humidity_target};
+    if (xQueueOverwrite(xHardwareOverridePersistenceRequestQueue, &request) != pdTRUE) {
+        return false;
+    }
+
+    state.persistence_pending = true;
+    state.persistent_sequence = sequence;
+    state.persistence_state = operation == HardwareOverridePersistenceOperation::Save
+        ? PersistenceState::PendingSave
+        : PersistenceState::PendingClear;
+    persistence_requested_ms = now;
+    pending_operation = operation;
+    persistence_timed_out = false;
+    return true;
 }
 
-void clearOverride()
+void processPersistenceResult(unsigned long now)
 {
-    storage::StorageManager::get_instance().clear_hardware_override();
-    state.override_active = false;
-    state.editing = false;
-    queueOverride(false);
+    if (xHardwareOverridePersistenceResultQueue != nullptr) {
+        HardwareOverridePersistenceResult result{};
+        while (xQueueReceive(xHardwareOverridePersistenceResultQueue, &result, 0) == pdTRUE) {
+            if (!state.persistence_pending || result.sequence != state.persistent_sequence ||
+                result.operation != pending_operation) {
+                continue;
+            }
+
+            state.persistence_pending = false;
+            persistence_timed_out = false;
+            if (!result.success) {
+                state.persistence_state = PersistenceState::PersistenceError;
+                return;
+            }
+
+            if (result.operation == HardwareOverridePersistenceOperation::Save) {
+                state.override_active = true;
+                state.editing = false;
+                state.persistence_state = PersistenceState::Active;
+                queueOverride(true);
+            } else {
+                state.override_active = false;
+                state.editing = false;
+                state.persistence_state = PersistenceState::Idle;
+                queueOverride(false);
+            }
+            return;
+        }
+    }
+
+    // This is a UI timeout, not cancellation: keep the request pending so a
+    // delayed successful NVS result still reconciles runtime with persistence.
+    if (state.persistence_pending && !persistence_timed_out &&
+        now - persistence_requested_ms >= PERSISTENCE_RESULT_TIMEOUT_MS) {
+        persistence_timed_out = true;
+        state.persistence_state = PersistenceState::PersistenceError;
+    }
 }
 
 void applyRotation(int8_t rotation)
@@ -106,6 +157,7 @@ void handleShortClick(unsigned long now)
             initializeEditBufferFromEffectiveTarget();
             state.editing = true;
             state.field = EditField::Temperature;
+            state.persistence_state = PersistenceState::Editing;
         }
         return;
     }
@@ -128,13 +180,17 @@ void processButton(unsigned long now)
             handleShortClick(now);
         }
     }
-    if (stable_button_pressed && !long_press_handled && now - press_started_ms >= LONG_PRESS_MS) {
+    if (stable_button_pressed && !long_press_handled && !state.persistence_pending &&
+        now - press_started_ms >= LONG_PRESS_MS) {
         long_press_handled = true;
         if (state.editing) {
-            persistOverride();
-            state.editing = false;
+            if (!requestPersistence(HardwareOverridePersistenceOperation::Save, now)) {
+                state.persistence_state = PersistenceState::PersistenceError;
+            }
         } else if (state.override_active) {
-            clearOverride();
+            if (!requestPersistence(HardwareOverridePersistenceOperation::Clear, now)) {
+                state.persistence_state = PersistenceState::PersistenceError;
+            }
         }
     }
     if (pending_click && now - first_click_ms > DOUBLE_CLICK_MS) {
@@ -190,6 +246,7 @@ void process(unsigned long now)
     portEXIT_CRITICAL(&encoder_mux);
     applyRotation(rotation);
     processButton(now);
+    processPersistenceResult(now);
 }
 
 EncoderState getState()
@@ -218,7 +275,7 @@ void resetForTest()
 {
     pending_rotation = 0;
     last_edge_ms = 0;
-    state = {24.0f, 90.0f, false, false, EditField::Temperature};
+    state = {24.0f, 90.0f, false, false, EditField::Temperature, false, 0, PersistenceState::Idle};
     initialized = false;
     raw_button_pressed = false;
     stable_button_pressed = false;
@@ -227,6 +284,10 @@ void resetForTest()
     raw_changed_ms = 0;
     press_started_ms = 0;
     first_click_ms = 0;
+    persistence_requested_ms = 0;
+    next_persistence_sequence = 1;
+    pending_operation = HardwareOverridePersistenceOperation::Save;
+    persistence_timed_out = false;
 }
 
 } // namespace encoder

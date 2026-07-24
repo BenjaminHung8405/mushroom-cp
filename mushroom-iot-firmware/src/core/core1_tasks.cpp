@@ -37,6 +37,8 @@
 QueueHandle_t xTelemetryQueue = nullptr;
 QueueHandle_t xBaselineQueue  = nullptr;
 QueueHandle_t xOverrideQueue  = nullptr;
+QueueHandle_t xHardwareOverridePersistenceRequestQueue = nullptr;
+QueueHandle_t xHardwareOverridePersistenceResultQueue = nullptr;
 QueueHandle_t xActuatorOverrideQueue = nullptr;
 QueueHandle_t g_control_event_queue = nullptr;
 QueueHandle_t g_manual_request_queue = nullptr; // deprecated compatibility only
