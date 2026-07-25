@@ -1,3 +1,16 @@
+## [2026-07-25T14:55:45+07:00] - Track H (H3): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25 14:52–14:55 (+07:00)
+- **Task ID:** H3
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/analytics/services/control-analytics.service.ts` (tạo mới)
+  - `mushroom-backend/src/analytics/services/control-analytics.service.spec.ts` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Implement `ControlAnalyticsService.getKpiForDevice()` truy vấn measurement `kpi_metrics_1h` từ bucket `INFLUXDB_ANALYTICS_BUCKET`, giới hạn rolling window 1–168 giờ và escape cả bucket/device ID trước khi đưa vào Flux. KPI được cộng dồn theo tổng `sum_squared_error_*` và `sample_count` trước khi tính RMSE; switch/hour, Lamp duty, average ON duration, overshoot/undershoot duration và coverage được tính từ tổng duration/sample tương ứng. Revision chỉ được trả khi toàn bộ rows có cùng một revision; thiếu hoặc mixed revision bật `dataQualityWarning`. Không có row hợp lệ trả `null`; lỗi InfluxDB fail-closed bằng `ServiceUnavailableException`.
+- **Tự kiểm tra:** Unit test H3 PASS — 5 tests; backend regression `npm test -- --runInBand` PASS — 31 suites / 234 tests; `npm run build` PASS; `npx tsc --noEmit -p tsconfig.build.json` PASS; `git diff --check` PASS. Test bao phủ công thức RMSE weighted, coverage/duty/duration, Flux escaping chống injection, no-data, mixed revision và query failure. Các log ERROR/WARN trong Jest là fixture fault-path được kỳ vọng.
+
 ## [2026-07-25T14:51:25+07:00] - Track H (H2): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-25 14:51 (+0700)
