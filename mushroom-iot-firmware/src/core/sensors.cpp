@@ -199,6 +199,15 @@ namespace sensors
         temp = sht30.readTemperature();
         hum = sht30.readHumidity();
 
+        // Lọc nhiễu điện từ (EMI) thoáng qua do đóng cắt rơ-le hoặc chập chờn dây tín hiệu.
+        // Nếu lần 1 bị NaN, chờ 15ms và đọc lại lần 2 ngay lập tức trước khi ghi nhận lỗi.
+        if (std::isnan(temp) || std::isnan(hum))
+        {
+            delay(15);
+            temp = sht30.readTemperature();
+            hum = sht30.readHumidity();
+        }
+
         if (std::isnan(temp) || std::isnan(hum))
         {
             recordSht30Failure(SensorError::ERR_CRC_MISMATCH, "SHT30 returned invalid reading");
