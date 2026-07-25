@@ -244,11 +244,16 @@ TuningResult TuningConfigManager::persistThenDispatch(const DynamicTuningParams&
 
 TuningResult TuningConfigManager::recordNoChangeReceipt(const DynamicTuningParams& incoming,
                                                          TuningReason& reason) {
-    if (_storage == nullptr || !_storage->saveDurableReceipt(incoming.command_id)) {
+    // A semantic no-change still advances the desired revision. Persist the
+    // complete canonical snapshot in the two-slot CRC envelope so a reboot
+    // reports the acknowledged revision during retained-command replay. This
+    // deliberately does not hand anything to Core 1 because the four control
+    // parameters are unchanged.
+    if (_storage == nullptr || !_storage->saveTuningParams(incoming)) {
         reason = TuningReason::NVS_WRITE_ERROR;
         return TuningResult::REJECTED;
     }
-    _active_params.revision = incoming.revision;
+    _active_params = incoming;
     std::strncpy(_last_no_change_command_id, incoming.command_id,
                  sizeof(_last_no_change_command_id) - 1);
     _last_no_change_command_id[sizeof(_last_no_change_command_id) - 1] = '\0';

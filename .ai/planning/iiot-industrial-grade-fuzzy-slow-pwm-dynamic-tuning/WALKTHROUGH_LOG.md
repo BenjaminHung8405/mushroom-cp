@@ -1,3 +1,47 @@
+## [2026-07-25T14:19:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 3)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-25T14:05–14:19 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 3).
+- **File đã sửa:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp`
+  - `mushroom-iot-firmware/test/run_tests.cpp`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA (dựa trên feedback lần từ chối gần nhất):**
+  - **[Critical] Durable revision cho semantic-equal no-change command:**
+    - Root cause: `recordNoChangeReceipt()` chỉ gọi `saveDurableReceipt(incoming.command_id)` và gán `_active_params.revision = incoming.revision` trong RAM. Hai-slot NVS giữ nguyên revision cũ. Sau reboot, `init()` hydrate từ hai-slot NVS và trả revision cũ; retained replay dẫn tới `REVISION_MISMATCH` / livelock.
+    - Invariant được chọn: **persist full two-slot CRC envelope** khi nhận semantic-equal command với revision cao hơn, nhưng không enqueue Core 1 (vì 4 tham số điều khiển không đổi). Cụ thể: `saveTuningParams(incoming)` thay thế `saveDurableReceipt(incoming.command_id)`, đồng thời `_active_params = incoming` (không chỉ cập nhật revision). Sau reboot, `loadTuningParams()` đọc đúng record mới nhất từ hai-slot và trả đúng revision N+1.
+    - QoS-1 duplicate cùng UUID bị chặn bởi `isDuplicateInNvs()` hoặc `_last_no_change_command_id` / `_active_params.command_id` — không phát sinh flash write thêm.
+    - Stale retained command với revision nhỏ hơn revision hiện tại bị fence bởi `STALE_REVISION`, không gây write hay Core-1 handoff.
+  - **Cập nhật regression firmware (Case 8):**
+    - NVS write count thay đổi từ `+1` (chỉ receipt) sang `+2` (two-slot pending + ready).
+    - `active.command_id` sau no-change giờ phản ánh đúng UUID command incoming (`...266`) thay vì UUID cũ.
+    - `rebooted.revision == 2` (không còn `== 1`) và `rebooted.command_id == ...266`.
+    - Old retained command (revision 1 < 2) bị `REJECTED/STALE_REVISION` thay vì `DUPLICATE_UUID`.
+  - **Bổ sung E2E regression backend (service spec):**
+    - Test mới: active revision N=1 → desired semantic-equal N+1=2 → simulated reboot retained replay → QoS-1 duplicate. Assert: `IN_SYNC` đúng một lần, `reportedRevision == 2`, `enqueueRetainedClear` đúng một lần, không `REVISION_MISMATCH`, không Core-1 handoff, SSE đúng một lần, QoS-1 duplicate không tạo transition/audit thêm.
+- **Xác minh:**
+  - `./run_tests_mac` (**PASS** — tất cả test suites xanh).
+  - `npm test -- --runInBand` (**29 suites / 225 tests PASS**).
+  - `npx tsc --noEmit -p tsconfig.build.json` (**PASS**).
+  - `git diff --check` (**PASS**).
+
+---
+
+## [2026-07-25T14:00:00+07:00] - Security/Architecture QA Review: REJECTED (Track F: F1–F10)
+
+- **Kết quả:** **Từ chối duyệt** Track F. Toàn bộ F1–F10 đã được trả về trạng thái `[ ] In Progress` trong `PROGRESS.md`; không task nào được chuyển `[x] Done`.
+- **Phạm vi:** Rà soát source Track F và bản sửa gần nhất `807f8918`, đối chiếu `README.md` §§1.1, 3.1, 3.3–3.6 cùng yêu cầu F1–F10 trong `PROGRESS.md`. Bỏ qua phạm vi commit theo chỉ thị.
+- **Lỗi chặn phát hành:**
+  1. **[Critical] F5/F6/F10 — Revision của command semantic-equal không durable, vì vậy retained replay sau reboot bị false `REVISION_MISMATCH`/livelock.** `mushroom-iot-firmware/src/core/tuning_config_manager.cpp:245-259` chỉ gọi `saveDurableReceipt(incoming.command_id)` rồi đặt `_active_params.revision = incoming.revision` trong RAM tại `:251`. NVS two-slot vẫn chứa revision cũ; sau reboot `init()` nạp lại record cũ tại `:59-61`. Regression hiện tại tự xác nhận lỗi này: `mushroom-iot-firmware/test/run_tests.cpp:1311-1314` mong revision quay về `1` sau khi command semantic-equal revision `2` đã được ACK. Khi retained command revision `2` được replay, firmware report `revision=1`; backend so sánh strict ở `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:261-263` và durable state bị chuyển `REJECTED/REVISION_MISMATCH`, retained desired không được clear. Điều này vi phạm durable desired/reported shadow, QoS-1/reconnect và mục tiêu offline reconnect của README §1.1.4.
+     - **Chỉ thị bắt buộc:** chọn và triển khai một invariant durable duy nhất. Khuyến nghị: khi semantic-equal với revision cao hơn, persist envelope/metadata revision + command id bằng two-slot CRC (vẫn không enqueue Core 1 và không flash write cho cùng UUID duplicate); sau reboot hydrate phải report revision mới. Nếu cần tránh write config envelope, mở rộng receipt thành CRC record chứa revision + canonical effective snapshot rồi hydrate/recover đúng revision; không được giữ revision chỉ trong RAM. Bổ sung regression E2E: active revision N → desired semantic-equal N+1 → reboot → retained replay/QoS-1 duplicate. Assert ACK reports N+1, backend kết thúc `IN_SYNC` đúng một lần, retained clear đúng một lần, không `REVISION_MISMATCH`, không Core-1 handoff và số flash write đúng theo invariant.
+- **Đánh giá checklist:** Không phát hiện hard-code secret/credential mới trong source đang rà soát; parsing ACK MQTT fail-closed cho UUID/device/reason/revision, controller chặn pagination malformed/overflow, SQL dùng parameter binding và không thấy N+1 query trong ACK/history. Controller/service đã tách các khối transaction chính; không phát hiện hàm mới vượt ngưỡng 50 dòng cần chặn riêng. Tuy nhiên lỗi durability nêu trên đủ mức Critical và chặn nghiệm thu.
+- **Xác minh QA:** `cd mushroom-backend && npm test -- --runInBand` **PASS** — 29 suites / 224 tests. Kết quả không bao phủ đầy đủ retained replay sau reboot nêu trên. Working tree trước khi cập nhật trạng thái QA sạch.
+
+---
+
 ## [2026-07-25T13:55:52+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-25T13:55:52+07:00

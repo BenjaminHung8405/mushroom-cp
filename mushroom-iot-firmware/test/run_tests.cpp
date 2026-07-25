@@ -1286,13 +1286,13 @@ int main() {
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::DUPLICATE);
             assert(reason == storage::TuningReason::NO_CHANGE);
-            // saveDurableReceipt() writes one tune_rcpt entry; config slots unchanged.
-            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 1);
+            // saveTuningParams() writes 2 NVS records (pending + ready) in two-slot CRC envelope; no Core-1 handoff.
+            assert(Preferences::mock_put_bytes_count == nvs_write_count_before + 2);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
 
             DynamicTuningParams active = tuner.getActiveParams();
             assert(active.revision == 2);
-            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
+            assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
 
@@ -1302,16 +1302,16 @@ int main() {
             assert(Preferences::mock_put_bytes_count == writes_before_session_redelivery);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
 
-            // After reboot, init() loads the durable receipt from NVS.
+            // After reboot, init() loads the durable config envelope (revision 2) from NVS.
             // Post-reboot redelivery of command B must return DUPLICATE_UUID
             // (not NO_CHANGE) — no NVS write, no Core-1 handoff.
             // This satisfies PLAN.md:332 and sprint_1.md:74.
             tuner.resetForTest();
             assert(tuner.init() == true);
             const DynamicTuningParams rebooted = tuner.getActiveParams();
-            assert(rebooted.revision == 1);
+            assert(rebooted.revision == 2);
             assert(std::strcmp(rebooted.command_id,
-                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
+                               "a0d33b2e-9d2a-43a9-8de6-bf10d3215266") == 0);
             assert(std::abs(rebooted.lamp_gain_scale - 1.1f) < 0.0001f);
             assert(std::abs(rebooted.mist_gain_scale - 0.9f) < 0.0001f);
             assert(std::abs(rebooted.mist_on_threshold - 0.28f) < 0.0001f);
@@ -1331,15 +1331,14 @@ int main() {
             assert(std::abs(after_redelivery.mist_on_threshold - rebooted.mist_on_threshold) < 0.0001f);
             assert(std::abs(after_redelivery.mist_off_threshold - rebooted.mist_off_threshold) < 0.0001f);
 
-            // The effective command remains a durable receipt. Replaying it
-            // must not roll back config or enqueue Core 1.
+            // Old retained command (revision 1 < 2) is fenced by STALE_REVISION; no NVS write.
             StaticJsonDocument<512> old_retained;
             old_retained.set(doc);
             old_retained["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
             old_retained["revision"] = 1;
             const size_t writes_before_old_replay = Preferences::mock_put_bytes_count;
-            assert(tuner.processCommand(old_retained.as<JsonVariant>(), reason) == storage::TuningResult::DUPLICATE);
-            assert(reason == storage::TuningReason::DUPLICATE_UUID);
+            assert(tuner.processCommand(old_retained.as<JsonVariant>(), reason) == storage::TuningResult::REJECTED);
+            assert(reason == storage::TuningReason::STALE_REVISION);
             assert(Preferences::mock_put_bytes_count == writes_before_old_replay);
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
             const DynamicTuningParams after_old_replay = tuner.getActiveParams();
@@ -1909,7 +1908,7 @@ int main() {
             assert(result == storage::TuningResult::ACCEPTED);
 
             // Now send a semantically identical command with a DIFFERENT command_id.
-            // This should trigger recordNoChangeReceipt() which calls saveDurableReceipt().
+            // This should trigger recordNoChangeReceipt() which persists the two-slot envelope.
             StaticJsonDocument<512> doc2;
             doc2["schema_version"] = 1;
             doc2["command_id"] = "c5555555-1234-1234-1234-123456789013";
@@ -1921,7 +1920,7 @@ int main() {
             config2["mist_on_threshold"] = 0.25f;
             config2["mist_off_threshold"] = 0.15f;
 
-            // This should try to save receipt, fail due to our corrupt hook, and return REJECTED
+            // This should try to save the envelope, fail due to our corrupt hook, and return REJECTED.
             storage::TuningReason reason2 = storage::TuningReason::OK;
             storage::TuningResult result2 = tuner.processCommand(doc2.as<JsonVariant>(), reason2);
 
@@ -1930,7 +1929,7 @@ int main() {
             assert(result2 == storage::TuningResult::REJECTED);
             assert(reason2 == storage::TuningReason::NVS_WRITE_ERROR);
 
-            // With hook removed, it should succeed this time (it will call saveDurableReceipt which succeeds, so it returns DUPLICATE/NO_CHANGE)
+            // With hook removed, it should persist and return DUPLICATE/NO_CHANGE.
             storage::TuningReason reason3 = storage::TuningReason::OK;
             storage::TuningResult result3 = tuner.processCommand(doc2.as<JsonVariant>(), reason3);
             assert(result3 == storage::TuningResult::DUPLICATE);

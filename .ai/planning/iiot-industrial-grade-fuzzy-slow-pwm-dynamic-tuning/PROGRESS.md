@@ -75,16 +75,16 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** commit chứa 614 PostgreSQL runtime/data files nhị phân ngoài phạm vi; phải loại bỏ hoàn toàn khỏi thay đổi. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** không duyệt Track F cho đến khi xóa artifact DB ngoài phạm vi và chạy lại regression migration. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** terminal REJECTED phải fail-closed với `persisted === false` và reason code allow-list/bounded. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** reason code không bounded hiện có thể làm lỗi ghi DB và mất ACK terminal. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** không được persist REJECTED giả mạo (`persisted: true`) hoặc reason code không thuộc contract. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** validate `persisted === false`, reason enum/bounds trước khi route terminal REJECTED. |
+| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** no-change revision chỉ cập nhật RAM, mất sau reboot và gây `REVISION_MISMATCH`; phải persist/recover revision theo một invariant durable. |
+| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và chạy lại regression migration/E2E. |
+| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** durable shadow phải giữ được revision đã ACK qua reboot khi config semantic-equal. |
+| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục và kiểm chứng ACK no-change sau reboot không bị false rejection. |
+| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** firmware phải report đúng revision durable sau reconnect để không ghi `REVISION_MISMATCH` giả. |
+| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** command semantic-equal revision mới phải có invariant bền vững, không tạo retained replay/livelock. |
+| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
+| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
+| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** retained replay sau reboot phải report revision canonical, không false reject. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 

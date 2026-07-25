@@ -215,6 +215,52 @@ describe('TuningConfigurationService hardening', () => {
     expect(mqtt.clearTuningDesired).not.toHaveBeenCalled();
   });
 
+  it('accepts the durable no-change revision after reboot/replay exactly once without a revision mismatch', async () => {
+    const noChangeCommandId = '12345678-1234-1234-1234-1234567890ac';
+    const pending = {
+      id: 'config-no-change', deviceId, commandId: noChangeCommandId, revision: 2,
+      status: SyncStatus.PENDING, config, retainedClearPending: false,
+      createdAt: new Date(), updatedAt: new Date(),
+    } as DeviceTuningConfiguration;
+    const manager = {
+      findOne: jest.fn()
+        .mockResolvedValueOnce(pending) // row lock for retained replay ACK
+        .mockResolvedValueOnce(pending) // latest revision lookup
+        .mockResolvedValueOnce(null) // prior IN_SYNC snapshot lookup
+        .mockResolvedValueOnce(pending) // row lock for QoS-1 duplicate
+        .mockResolvedValueOnce(pending), // latest revision lookup for QoS-1 duplicate
+      save: jest.fn().mockResolvedValue(pending),
+      create: jest.fn((_entity: unknown, value: unknown) => value),
+    };
+    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    const events: unknown[] = [];
+    service.tuningSync$.subscribe((event) => events.push(event));
+    const replayAck: TuningReportedEvent = {
+      deviceId,
+      commandId: noChangeCommandId,
+      status: 'DUPLICATE',
+      persisted: true,
+      reasonCode: null,
+      reportedConfig: config,
+      revision: 2,
+      receivedAt: new Date(),
+    };
+
+    // Firmware has rebooted and replayed retained desired; its two-slot
+    // envelope reports the no-change revision rather than the prior revision.
+    await expect(service.handleReportedAck(replayAck)).resolves.toEqual({ updated: true, isLatest: true });
+    await expect(service.handleReportedAck(replayAck)).resolves.toEqual({ updated: false, isLatest: true });
+
+    expect(pending.status).toBe(SyncStatus.IN_SYNC);
+    expect(pending.rejectionReason).toBeNull();
+    expect(pending.reportedRevision).toBe(2);
+    expect(manager.create).toHaveBeenCalledTimes(1);
+    expect(events).toHaveLength(1);
+    expect(outbox.enqueueRetainedClear).toHaveBeenCalledTimes(1);
+    expect(outbox.enqueueRetainedClear).toHaveBeenCalledWith(manager, pending);
+    expect(mqtt.clearTuningDesired).not.toHaveBeenCalled();
+  });
+
   it('ignores malformed ACKs whose reported_config violates the v1 contract', async () => {
     dataSource.transaction.mockImplementation(async () => undefined);
     const bogus = { ...config, mist_off_threshold: config.mist_on_threshold };
