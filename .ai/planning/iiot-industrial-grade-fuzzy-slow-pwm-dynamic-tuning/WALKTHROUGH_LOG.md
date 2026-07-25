@@ -1,3 +1,17 @@
+## [2026-07-25T14:51:25+07:00] - Track H (H2): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25 14:51 (+0700)
+- **Task ID:** H2
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/analytics/interfaces/tuning-advisory.interface.ts` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Định nghĩa `TuningAdvisory` theo contract v1 với ruleset version, snapshot cấu hình hiện tại/đề xuất, `delta` tối thiểu, rules kích hoạt, confidence, expected benefit, KPI snapshot và cờ yêu cầu observation window. Tái sử dụng `TuningConfigSnapshot` canonical để schema advisory luôn khớp payload tuning firmware/backend. Khai báo `RecommendationResult` thành discriminated union theo `status` cho đầy đủ bốn kết quả `ADVISORY`, `INSUFFICIENT_DATA`, `NO_SUGGESTION`, `CONFLICT`, tránh suy diễn từ trường nullable và buộc caller xử lý từng outcome.
+- **Tự kiểm tra:** `npx tsc --noEmit -p tsconfig.build.json` PASS; `npm test -- --runInBand` PASS — 30 suites / 229 tests; `git diff --check` PASS. Các log ERROR/WARN trong Jest là fixture fault-path được kỳ vọng.
+
+---
+
 ## [2026-07-25T14:47:55+07:00] - Track H (H1): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-25 14:46–14:48 (+07:00)
