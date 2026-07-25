@@ -5,9 +5,7 @@ describe('ControlAnalyticsService', () => {
   const queryApi = { collectRows: jest.fn() };
   const influxDbService = { getQueryApi: jest.fn(() => queryApi) };
   const configService = {
-    get: jest.fn((key: string) =>
-      key === 'INFLUXDB_ANALYTICS_BUCKET' ? 'analytics_bucket' : undefined,
-    ),
+    get: jest.fn(defaultConfigValue),
   };
   const service = new ControlAnalyticsService(
     influxDbService as never,
@@ -17,6 +15,7 @@ describe('ControlAnalyticsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    configService.get.mockImplementation(defaultConfigValue);
   });
 
   describe('checkCoverageGate', () => {
@@ -155,7 +154,84 @@ describe('ControlAnalyticsService', () => {
       ServiceUnavailableException,
     );
   });
+
+  describe('checkDeviceOnline', () => {
+    it('returns true when the latest telemetry is strictly within five minutes', async () => {
+      queryApi.collectRows.mockResolvedValue([
+        { _time: '2026-07-25T11:56:00.000Z' },
+      ]);
+
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(true);
+      const flux = queryApi.collectRows.mock.calls[0][0] as string;
+      expect(flux).toContain('bucket: "raw_bucket"');
+      expect(flux).toContain('device_id"] == "device-1"');
+      expect(flux).toContain('controller_history');
+      expect(flux).toContain('limit(n: 1)');
+    });
+
+    it('returns false at the five-minute boundary', async () => {
+      queryApi.collectRows.mockResolvedValue([
+        { _time: '2026-07-25T11:55:00.000Z' },
+      ]);
+
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+    });
+
+    it('returns false for missing, malformed, or future telemetry', async () => {
+      queryApi.collectRows.mockResolvedValue([]);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+
+      queryApi.collectRows.mockResolvedValue([{ _time: 'not-a-date' }]);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+
+      queryApi.collectRows.mockResolvedValue([
+        { _time: '2026-07-25T12:01:00.000Z' },
+      ]);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+    });
+
+    it('fails closed for query errors, missing configuration, and invalid input', async () => {
+      queryApi.collectRows.mockRejectedValue(new Error('Influx unavailable'));
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+
+      influxDbService.getQueryApi.mockImplementation(() => {
+        throw new Error('Influx initialization failed');
+      });
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+
+      influxDbService.getQueryApi.mockReturnValue(queryApi);
+      configService.get.mockReturnValue(undefined);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+
+      configService.get.mockImplementation((key: string) =>
+        key === 'INFLUXDB_BUCKET' ? 'raw_bucket' : 'analytics_bucket',
+      );
+      await expect(service.checkDeviceOnline('  ', now)).resolves.toBe(false);
+      await expect(
+        service.checkDeviceOnline('device-1', new Date('invalid')),
+      ).resolves.toBe(false);
+    });
+
+    it('escapes device and bucket values in the liveness query', async () => {
+      configService.get.mockImplementation((key: string) =>
+        key === 'INFLUXDB_BUCKET' ? 'raw\\"bucket' : 'analytics_bucket',
+      );
+      queryApi.collectRows.mockResolvedValue([]);
+      const deviceId = 'device\\"-1';
+
+      await expect(service.checkDeviceOnline(deviceId, now)).resolves.toBe(false);
+      const flux = queryApi.collectRows.mock.calls[0][0] as string;
+      expect(flux).toContain('bucket: "raw\\\\\\"bucket"');
+      expect(flux).toContain(`device_id"] == "${escapeFluxString(deviceId)}"`);
+    });
+  });
 });
+
+function defaultConfigValue(key: string): string | undefined {
+  if (key === 'INFLUXDB_ANALYTICS_BUCKET') return 'analytics_bucket';
+  if (key === 'INFLUXDB_BUCKET') return 'raw_bucket';
+  return undefined;
+}
 
 function hourlyRow(overrides: Record<string, unknown> = {}) {
   return {

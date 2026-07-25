@@ -1,3 +1,18 @@
+## [2026-07-25T15:03:53+07:00] - Track H (H5): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25 15:00–15:04 (+07:00)
+- **Task ID:** H5
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/analytics/services/control-analytics.service.ts` (sửa)
+  - `mushroom-backend/src/analytics/services/control-analytics.service.spec.ts` (sửa)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Bổ sung `checkDeviceOnline(deviceId)` fail-closed, truy vấn bản ghi telemetry `controller_history` mới nhất của thiết bị trong raw bucket cấu hình `INFLUXDB_BUCKET`. Query giới hạn trong cửa sổ 5 phút, sort giảm dần và `limit(1)`; bucket/device ID được escape trước khi đưa vào Flux. Chỉ trả online khi timestamp hợp lệ, không ở tương lai và strict lớn hơn ngưỡng `now - 5 minutes`; không có telemetry, thiếu cấu hình/API hay mọi lỗi query/khởi tạo đều trả offline.
+- **Tự kiểm tra:** Unit test analytics PASS — 15 tests, bao phủ online, ngưỡng đúng 5 phút, telemetry vắng/malformed/future, lỗi query/API, cấu hình thiếu và Flux escaping. `npm test -- --runInBand` PASS — 31 suites / 244 tests; `npm run build` PASS; `npx tsc --noEmit -p tsconfig.build.json` PASS; `git diff --check` PASS. Các log ERROR/WARN trong Jest full regression là fixture fault-path được kỳ vọng.
+
+---
+
 ## [2026-07-25T14:59:16+07:00] - Track H (H4): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-25 14:57–14:59 (+07:00)

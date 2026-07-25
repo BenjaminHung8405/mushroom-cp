@@ -9,6 +9,7 @@ const SECONDS_PER_HOUR = 3_600;
 const MAX_WINDOW_HOURS = 168;
 const MIN_COVERAGE_PERCENT = 80;
 const MIN_TRUSTED_SAMPLES = 100;
+const DEVICE_ONLINE_WINDOW_MS = 5 * 60 * 1_000;
 
 export type CoverageGateFailureReason =
   | 'COVERAGE_BELOW_80_PERCENT'
@@ -56,6 +57,30 @@ export class ControlAnalyticsService {
     }
 
     return { allowed: true };
+  }
+
+  /** Returns false for missing telemetry or any unavailable liveness dependency. */
+  async checkDeviceOnline(
+    deviceId: string,
+    now = new Date(),
+  ): Promise<boolean> {
+    if (typeof deviceId !== 'string' || !deviceId.trim() || Number.isNaN(now.getTime())) {
+      return false;
+    }
+
+    try {
+      const queryApi = this.influxDbService.getQueryApi();
+      const rawBucket = this.configService.get('INFLUXDB_BUCKET')?.trim();
+      if (!queryApi || !rawBucket) return false;
+
+      const cutoff = new Date(now.getTime() - DEVICE_ONLINE_WINDOW_MS);
+      const flux = buildDeviceLastSeenQuery(deviceId, rawBucket, cutoff, now);
+      const rows = await queryApi.collectRows<Record<string, unknown>>(flux);
+      const lastSeen = parseTelemetryTimestamp(rows[0]?._time);
+      return lastSeen !== null && lastSeen > cutoff && lastSeen <= now;
+    } catch {
+      return false;
+    }
   }
 
   /** Returns rolling, sample-weighted KPI data or null when no valid data exists. */
@@ -223,6 +248,21 @@ function buildKpiQuery(
   |> pivot(rowKey: ["_time", "device_id", "control_source", "config_revision"], columnKey: ["_field"], valueColumn: "_value")`;
 }
 
+function buildDeviceLastSeenQuery(
+  deviceId: string,
+  rawBucket: string,
+  windowStart: Date,
+  windowEnd: Date,
+): string {
+  return `from(bucket: "${escapeFluxString(rawBucket)}")
+  |> range(start: time(v: "${windowStart.toISOString()}"), stop: time(v: "${windowEnd.toISOString()}"))
+  |> filter(fn: (r) => r["_measurement"] == "controller_history")
+  |> filter(fn: (r) => r["device_id"] == "${escapeFluxString(deviceId)}")
+  |> keep(columns: ["_time"])
+  |> sort(columns: ["_time"], desc: true)
+  |> limit(n: 1)`;
+}
+
 export function escapeFluxString(value: string): string {
   return value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"');
 }
@@ -254,4 +294,9 @@ function parseRevision(value: unknown): number | null {
         ? Number(value)
         : Number.NaN;
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseTelemetryTimestamp(value: unknown): Date | null {
+  const timestamp = value instanceof Date ? new Date(value.getTime()) : new Date(String(value));
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp;
 }
