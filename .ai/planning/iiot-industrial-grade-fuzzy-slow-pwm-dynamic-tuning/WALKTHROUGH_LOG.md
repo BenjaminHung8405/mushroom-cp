@@ -1,3 +1,22 @@
+## [2026-07-25T17:30:00+07:00] - Track H (H1–H5): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-25 17:20–17:30 (+07:00)
+- **Task ID:** H1, H2, H3, H4, H5
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/analytics/services/control-analytics.service.ts`
+  - `mushroom-backend/src/analytics/services/control-analytics.service.spec.ts`
+  - `mushroom-backend/package.json`
+  - `mushroom-backend/scripts/check-lint-baseline.mjs`
+  - `mushroom-backend/.lint-baseline.json`
+  - `.github/workflows/backend-quality.yml`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:** Đã phân rã `toHourlyKpiRow()` thành các helper parse, validate và build đều dưới 50 dòng, giữ nguyên invariant sample/duration/hard-bound và semantics all-or-nothing. `toFiniteNumber()` nay chỉ nhận `number` finite; bổ sung regression test row hợp lệ + metric numeric string bị reject và không đi qua coverage gate. Đã thêm `.lint-baseline.json` cùng script kiểm chứng chính xác debt legacy; `lint:all` vẫn báo lỗi và trả non-zero minh bạch, changed/added TypeScript vẫn bắt buộc qua lint không mutation, CI không dùng `--fix`.
+- **Tự kiểm tra:** `npm run typecheck` PASS; `npm run lint` PASS; Analytics unit test 32/32 PASS; toàn bộ backend test 261/261 PASS; `npm run lint:baseline` PASS; `npm run lint:all` tiếp tục FAIL đúng policy do 513 lỗi/16 cảnh báo legacy; `git diff --check` PASS.
+
+---
+
 ## [2026-07-25T17:18:00+07:00] - Track H (H1–H5): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-25 17:01–17:18 (+07:00)

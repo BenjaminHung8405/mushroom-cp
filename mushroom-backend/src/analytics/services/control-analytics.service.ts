@@ -37,6 +37,19 @@ interface HourlyKpiRow {
   dataQualityWarning: boolean;
 }
 
+interface HourlyNumericValues {
+  sampleCount: number;
+  tempSquaredError: number;
+  humidSquaredError: number;
+  mistSwitchCount: number;
+  lampOnDurationSec: number;
+  lampSessionCount: number;
+  overshootDurationSec: number;
+  undershootDurationSec: number;
+  expectedSamples: number;
+  validSamples: number;
+}
+
 interface KpiTotal {
   sampleCount: number;
   tempSquaredError: number;
@@ -266,21 +279,34 @@ function emptyKpiTotal(): KpiTotal {
 }
 
 function toHourlyKpiRow(row: Record<string, unknown>): HourlyKpiRow | null {
-  const requiredValues = [
-    row.sample_count,
-    row.sum_squared_error_temp,
-    row.sum_squared_error_humid,
-    row.mist_switch_count,
-    row.lamp_on_duration_s,
-    row.lamp_session_count,
-    row.overshoot_temp_duration_s,
-    row.undershoot_temp_duration_s,
-    row.expected_samples,
-    row.valid_samples,
-  ].map(toFiniteNumber);
-  if (!requiredValues.every(isNonNegativeFiniteNumber)) return null;
+  const values = parseHourlyNumericValues(row);
+  if (values === null || !validateHourlyKpiValues(values)) return null;
 
-  const [
+  return buildHourlyKpiRow(values, row);
+}
+
+function parseHourlyNumericValues(
+  row: Record<string, unknown>,
+): HourlyNumericValues | null {
+  const values = {
+    sampleCount: toFiniteNumber(row.sample_count),
+    tempSquaredError: toFiniteNumber(row.sum_squared_error_temp),
+    humidSquaredError: toFiniteNumber(row.sum_squared_error_humid),
+    mistSwitchCount: toFiniteNumber(row.mist_switch_count),
+    lampOnDurationSec: toFiniteNumber(row.lamp_on_duration_s),
+    lampSessionCount: toFiniteNumber(row.lamp_session_count),
+    overshootDurationSec: toFiniteNumber(row.overshoot_temp_duration_s),
+    undershootDurationSec: toFiniteNumber(row.undershoot_temp_duration_s),
+    expectedSamples: toFiniteNumber(row.expected_samples),
+    validSamples: toFiniteNumber(row.valid_samples),
+  };
+  return Object.values(values).every(isNonNegativeFiniteNumber)
+    ? (values as HourlyNumericValues)
+    : null;
+}
+
+function validateHourlyKpiValues(values: HourlyNumericValues): boolean {
+  const {
     sampleCount,
     tempSquaredError,
     humidSquaredError,
@@ -291,7 +317,7 @@ function toHourlyKpiRow(row: Record<string, unknown>): HourlyKpiRow | null {
     undershootDurationSec,
     expectedSamples,
     validSamples,
-  ] = requiredValues;
+  } = values;
   if (
     !Number.isInteger(sampleCount) ||
     !Number.isInteger(mistSwitchCount) ||
@@ -312,21 +338,19 @@ function toHourlyKpiRow(row: Record<string, unknown>): HourlyKpiRow | null {
     tempSquaredError > MAX_SAFE_METRIC ||
     humidSquaredError > MAX_SAFE_METRIC
   ) {
-    return null;
+    return false;
   }
 
+  return true;
+}
+
+function buildHourlyKpiRow(
+  values: HourlyNumericValues,
+  row: Record<string, unknown>,
+): HourlyKpiRow {
   const revision = parseRevision(row.config_revision);
   return {
-    sampleCount,
-    tempSquaredError,
-    humidSquaredError,
-    mistSwitchCount,
-    lampOnDurationSec,
-    lampSessionCount,
-    overshootDurationSec,
-    undershootDurationSec,
-    expectedSamples,
-    validSamples,
+    ...values,
     configRevision: revision,
     dataQualityWarning:
       revision === null ||
@@ -396,10 +420,7 @@ function isNonNegativeFiniteNumber(value: unknown): value is number {
 }
 
 function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function parseRevision(value: unknown): number | null {

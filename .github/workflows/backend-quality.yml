@@ -28,4 +28,6 @@ jobs:
         env:
           LINT_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
         run: pnpm run lint
+      - name: Verify reviewed legacy lint-debt baseline
+        run: pnpm run lint:baseline
       - run: pnpm test -- --runInBand

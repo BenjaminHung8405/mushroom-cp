@@ -1,0 +1,353 @@
+{
+  "policy": "Legacy lint debt is recorded for visibility and is not an exemption for changed files.",
+  "generatedAt": "2026-07-25",
+  "enforcement": {
+    "changedTypeScript": "npm run lint must pass for every changed or untracked TypeScript file.",
+    "allTypeScript": "npm run lint:all reports the full repository and remains non-green until legacy debt is fixed.",
+    "autofix": "Forbidden in checks and CI."
+  },
+  "totals": {
+    "files": 37,
+    "errors": 513,
+    "warnings": 16
+  },
+  "legacyAllowlist": [
+    {
+      "path": "src/batch/controllers/batch.controller.spec.ts",
+      "errors": 1,
+      "warnings": 1,
+      "rules": {
+        "@typescript-eslint/no-unsafe-argument": 1,
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/batch/dto/update-checkpoints.dto.spec.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/batch/guards/checkpoint-owner.guard.ts",
+      "errors": 3,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 2,
+        "@typescript-eslint/no-unsafe-member-access": 1
+      }
+    },
+    {
+      "path": "src/batch/services/batch.service.spec.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unused-vars": 1
+      }
+    },
+    {
+      "path": "src/batch/services/batch.service.ts",
+      "errors": 2,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-enum-comparison": 2
+      }
+    },
+    {
+      "path": "src/config/config.service.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-member-access": 1
+      }
+    },
+    {
+      "path": "src/database/database.service.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/database/migrations/1720656000004-remove-thermal-shock-batch-config.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unused-vars": 1
+      }
+    },
+    {
+      "path": "src/database/migrations/1720656000008-harden-tuning-shadow.ts",
+      "errors": 4,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 4
+      }
+    },
+    {
+      "path": "src/database/migrations/1720656000009-create-tuning-mqtt-outbox.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 1
+      }
+    },
+    {
+      "path": "src/database/migrations/1720656000010-add-reported-tuning-shadow.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 1
+      }
+    },
+    {
+      "path": "src/database/migrations/tuning-shadow-migrations.integration.spec.ts",
+      "errors": 35,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 32,
+        "@typescript-eslint/no-unsafe-return": 1,
+        "@typescript-eslint/no-unsafe-member-access": 2
+      }
+    },
+    {
+      "path": "src/device-health/device-health.service.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 1
+      }
+    },
+    {
+      "path": "src/device/device-registry.service.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/require-await": 1
+      }
+    },
+    {
+      "path": "src/device/device.controller.spec.ts",
+      "errors": 1,
+      "warnings": 2,
+      "rules": {
+        "@typescript-eslint/no-unused-vars": 1,
+        "@typescript-eslint/no-unsafe-argument": 2
+      }
+    },
+    {
+      "path": "src/influx/influx.module.spec.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/influx/services/control-history-influx-writer.service.spec.ts",
+      "errors": 29,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 6,
+        "@typescript-eslint/no-unsafe-member-access": 18,
+        "@typescript-eslint/no-unsafe-call": 5
+      }
+    },
+    {
+      "path": "src/influx/services/control-history-influx-writer.service.ts",
+      "errors": 4,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-member-access": 4
+      }
+    },
+    {
+      "path": "src/influx/services/influx-task-provisioner.service.spec.ts",
+      "errors": 17,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unnecessary-type-assertion": 2,
+        "@typescript-eslint/no-base-to-string": 2,
+        "prettier/prettier": 12,
+        "@typescript-eslint/require-await": 1
+      }
+    },
+    {
+      "path": "src/influx/services/influx-task-provisioner.service.ts",
+      "errors": 7,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 6,
+        "no-control-regex": 1
+      }
+    },
+    {
+      "path": "src/mqtt-auth/acl.tuning.spec.ts",
+      "errors": 0,
+      "warnings": 1,
+      "rules": {
+        "@typescript-eslint/no-unsafe-argument": 1
+      }
+    },
+    {
+      "path": "src/mqtt-auth/mqtt-auth.service.spec.ts",
+      "errors": 0,
+      "warnings": 2,
+      "rules": {
+        "@typescript-eslint/no-unsafe-argument": 2
+      }
+    },
+    {
+      "path": "src/mqtt/constants/mqtt-topics.const.spec.ts",
+      "errors": 2,
+      "warnings": 2,
+      "rules": {
+        "@typescript-eslint/no-unsafe-argument": 2,
+        "@typescript-eslint/no-require-imports": 1,
+        "@typescript-eslint/no-unsafe-member-access": 1
+      }
+    },
+    {
+      "path": "src/mqtt/mqtt.service.spec.ts",
+      "errors": 24,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unused-vars": 1,
+        "@typescript-eslint/no-unsafe-return": 4,
+        "@typescript-eslint/no-unsafe-member-access": 11,
+        "@typescript-eslint/no-unsafe-call": 4,
+        "@typescript-eslint/unbound-method": 2,
+        "prettier/prettier": 1,
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/mqtt/mqtt.service.ts",
+      "errors": 25,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 23,
+        "@typescript-eslint/restrict-template-expressions": 1,
+        "@typescript-eslint/no-unused-vars": 1
+      }
+    },
+    {
+      "path": "src/offline-sync/offline-sync.controller.spec.ts",
+      "errors": 1,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/unbound-method": 1
+      }
+    },
+    {
+      "path": "src/offline-sync/offline-sync.service.spec.ts",
+      "errors": 7,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unsafe-return": 2,
+        "@typescript-eslint/no-unsafe-member-access": 3,
+        "@typescript-eslint/no-unsafe-call": 2
+      }
+    },
+    {
+      "path": "src/telemetry/services/telemetry.service.spec.ts",
+      "errors": 19,
+      "warnings": 0,
+      "rules": {
+        "@typescript-eslint/no-unused-vars": 1,
+        "@typescript-eslint/require-await": 1,
+        "@typescript-eslint/no-unsafe-return": 1,
+        "@typescript-eslint/no-unsafe-call": 6,
+        "@typescript-eslint/no-unsafe-member-access": 9,
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/tuning/controllers/tuning.controller.spec.ts",
+      "errors": 13,
+      "warnings": 8,
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": 2,
+        "prettier/prettier": 10,
+        "@typescript-eslint/no-unsafe-argument": 8,
+        "@typescript-eslint/unbound-method": 1
+      }
+    },
+    {
+      "path": "src/tuning/controllers/tuning.controller.ts",
+      "errors": 8,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 8
+      }
+    },
+    {
+      "path": "src/tuning/guards/tuning-principal.guard.ts",
+      "errors": 12,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 11,
+        "@typescript-eslint/no-unnecessary-type-assertion": 1
+      }
+    },
+    {
+      "path": "src/tuning/services/tuning-configuration.service.spec.ts",
+      "errors": 107,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 78,
+        "@typescript-eslint/require-await": 10,
+        "@typescript-eslint/no-unsafe-return": 9,
+        "@typescript-eslint/no-unsafe-call": 9,
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/tuning/services/tuning-configuration.service.ts",
+      "errors": 80,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 80
+      }
+    },
+    {
+      "path": "src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts",
+      "errors": 55,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 34,
+        "@typescript-eslint/require-await": 8,
+        "@typescript-eslint/no-unsafe-return": 6,
+        "@typescript-eslint/no-unsafe-call": 6,
+        "@typescript-eslint/no-unsafe-assignment": 1
+      }
+    },
+    {
+      "path": "src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts",
+      "errors": 40,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 40
+      }
+    },
+    {
+      "path": "src/tuning/tuning.module.spec.ts",
+      "errors": 5,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 2,
+        "@typescript-eslint/no-unsafe-assignment": 3
+      }
+    },
+    {
+      "path": "src/tuning/tuning.module.ts",
+      "errors": 2,
+      "warnings": 0,
+      "rules": {
+        "prettier/prettier": 2
+      }
+    }
+  ]
+}

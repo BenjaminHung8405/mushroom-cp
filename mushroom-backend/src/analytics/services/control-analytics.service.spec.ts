@@ -227,6 +227,18 @@ describe('ControlAnalyticsService', () => {
     ).resolves.toBeNull();
   });
 
+  it('rejects the whole response when a numeric metric is a string', async () => {
+    queryApi.collectRows.mockResolvedValue([
+      hourlyRow(),
+      hourlyRow({ expected_samples: '720' }),
+    ]);
+
+    const kpi = await service.getKpiForDevice('device-1', 24, now);
+
+    expect(kpi).toBeNull();
+    expect(kpi === null ? null : service.checkCoverageGate(kpi)).toBeNull();
+  });
+
   it.each([
     { sample_count: 13, valid_samples: 12, expected_samples: 12 },
     { sample_count: 13, valid_samples: 13, expected_samples: 12 },
