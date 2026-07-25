@@ -13,16 +13,16 @@ export class CreateBatchDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  houseId: string;
+  houseId!: string;
 
   @IsString()
   @IsNotEmpty()
-  profileName: string;
+  profileName!: string;
 
   @IsInt()
   @Min(10)
   @Max(45)
-  totalCropDays: number;
+  totalCropDays!: number;
 
   @IsOptional()
   @IsInt()

@@ -8,7 +8,7 @@ export class RequestTokenDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  clientId: string;
+  clientId!: string;
 
   @IsOptional()
   @IsString()

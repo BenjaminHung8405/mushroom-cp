@@ -4,44 +4,44 @@ import { MetricType } from './update-checkpoints.dto';
 
 export class LightScheduleBlockResponseDto {
   @Expose()
-  startDay: number;
+  startDay!: number;
 
   @Expose()
-  endDay: number;
+  endDay!: number;
 
   @Expose()
-  status: 'ON' | 'OFF';
+  status!: 'ON' | 'OFF';
 }
 
 export class CheckpointResponseDto {
   @Expose()
-  id: string;
+  id!: string;
 
   @Expose()
-  batchId: string;
+  batchId!: string;
 
   @Expose()
-  metricType: MetricType;
+  metricType!: MetricType;
 
   @Expose()
-  cropDay: number;
+  cropDay!: number;
 
   @Expose()
-  targetValue: number;
+  targetValue!: number;
 }
 
 export class ActiveBatchResponseDto extends CropBatch {
   @Expose()
-  cropDay: number;
+  cropDay!: number;
 
   @Expose()
-  crop_day: number;
+  crop_day!: number;
 
   @Expose()
   @Type(() => CheckpointResponseDto)
-  checkpoints: CheckpointResponseDto[];
+  checkpoints!: CheckpointResponseDto[];
 
   @Expose()
   @Type(() => LightScheduleBlockResponseDto)
-  lightSchedule: LightScheduleBlockResponseDto[];
+  lightSchedule!: LightScheduleBlockResponseDto[];
 }

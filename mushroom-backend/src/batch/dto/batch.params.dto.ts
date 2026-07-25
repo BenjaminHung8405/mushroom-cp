@@ -6,7 +6,7 @@ export class BatchIdParamsDto {
     message: 'id must be alphanumeric with underscores or hyphens',
   })
   @MaxLength(50)
-  id: string;
+  id!: string;
 }
 
 export class HouseIdParamsDto {
@@ -15,5 +15,5 @@ export class HouseIdParamsDto {
     message: 'houseId must be alphanumeric with underscores or hyphens',
   })
   @MaxLength(50)
-  houseId: string;
+  houseId!: string;
 }

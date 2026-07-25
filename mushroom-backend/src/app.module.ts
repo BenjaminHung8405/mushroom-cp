@@ -12,6 +12,7 @@ import { OfflineSyncModule } from './offline-sync/offline-sync.module';
 import { InfluxModule } from './influx/influx.module';
 import { AppConfigModule } from './config/config.module';
 import { TuningModule } from './tuning/tuning.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { TuningModule } from './tuning/tuning.module';
     OfflineSyncModule,
     InfluxModule,
     TuningModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

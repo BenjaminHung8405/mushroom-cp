@@ -17,30 +17,30 @@ import {
 @Index('idx_tuning_audit_device_created', ['deviceId', 'createdAt'])
 export class TuningAuditLog {
   @PrimaryColumn({ type: 'uuid' })
-  id: string;
+  id!: string;
 
   @Column({ name: 'configuration_id', type: 'uuid' })
-  configurationId: string;
+  configurationId!: string;
 
   @ManyToOne(() => DeviceTuningConfiguration, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'configuration_id' })
   configuration?: DeviceTuningConfiguration;
 
   @Column({ name: 'device_id', type: 'varchar', length: 50 })
-  deviceId: string;
+  deviceId!: string;
 
   @ManyToOne(() => Device, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'device_id' })
   device?: Device;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  actor: string | null;
+  actor!: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  source: string | null;
+  source!: string | null;
 
   @Column({ type: 'varchar', length: 50 })
-  action: string;
+  action!: string;
 
   @Column({
     name: 'ruleset_version',
@@ -48,23 +48,23 @@ export class TuningAuditLog {
     length: 20,
     nullable: true,
   })
-  rulesetVersion: string | null;
+  rulesetVersion!: string | null;
 
   @Column({ name: 'kpi_snapshot', type: 'jsonb', nullable: true })
-  kpiSnapshot: Record<string, unknown> | null;
+  kpiSnapshot!: Record<string, unknown> | null;
 
   @Column({ name: 'config_before', type: 'jsonb', nullable: true })
-  configBefore: TuningConfigSnapshot | null;
+  configBefore!: TuningConfigSnapshot | null;
 
   @Column({ name: 'config_after', type: 'jsonb', nullable: true })
-  configAfter: TuningConfigSnapshot | null;
+  configAfter!: TuningConfigSnapshot | null;
 
   @Column({ type: 'text', nullable: true })
-  reason: string | null;
+  reason!: string | null;
 
   @Column({ type: 'varchar', length: 20 })
-  result: string;
+  result!: string;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 }

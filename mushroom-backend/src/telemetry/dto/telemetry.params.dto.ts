@@ -14,17 +14,17 @@ export class DeviceIdParamsDto {
     message: 'id must be alphanumeric with underscores or hyphens',
   })
   @MaxLength(50)
-  id: string;
+  id!: string;
 }
 
 export class TelemetryHistoryQueryDto {
   @IsNotEmpty()
   @IsISO8601({ strict: true })
-  from: string;
+  from!: string;
 
   @IsNotEmpty()
   @IsISO8601({ strict: true })
-  to: string;
+  to!: string;
 
   /**
    * Optional TimescaleDB interval. Server may coerce to a coarser bucket

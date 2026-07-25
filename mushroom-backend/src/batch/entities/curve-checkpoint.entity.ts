@@ -13,27 +13,27 @@ import { CropBatch } from './crop-batch.entity';
 @Index('idx_checkpoints_batch', ['batchId', 'metricType'])
 export class CurveCheckpoint {
   @PrimaryGeneratedColumn({ type: 'bigint' })
-  id: string;
+  id!: string;
 
   @Column({ name: 'profile_id', type: 'varchar', length: 50, nullable: true })
-  profileId: string | null;
+  profileId!: string | null;
 
   @ManyToOne(() => GrowthProfile, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'profile_id' })
-  profile: GrowthProfile | null;
+  profile!: GrowthProfile | null;
 
   @Column({ name: 'batch_id', type: 'varchar', length: 50, nullable: true })
-  batchId: string | null;
+  batchId!: string | null;
 
   @ManyToOne(() => CropBatch, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'batch_id' })
-  batch: CropBatch | null;
+  batch!: CropBatch | null;
 
   @Column({ name: 'metric_type', type: 'varchar', length: 20 })
-  metricType: 'TEMPERATURE' | 'HUMIDITY';
+  metricType!: 'TEMPERATURE' | 'HUMIDITY';
 
   @Column({ name: 'crop_day', type: 'integer' })
-  cropDay: number;
+  cropDay!: number;
 
   @Column('numeric', {
     name: 'target_value',
@@ -44,5 +44,5 @@ export class CurveCheckpoint {
       from: (v: string) => (v != null ? parseFloat(v) : null),
     },
   })
-  targetValue: number;
+  targetValue!: number;
 }

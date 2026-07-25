@@ -14,15 +14,15 @@ export class LightScheduleBlockDto {
   @IsInt()
   @Min(1)
   @Max(45)
-  startDay: number;
+  startDay!: number;
 
   @IsInt()
   @Min(1)
   @Max(45)
-  endDay: number;
+  endDay!: number;
 
   @IsIn(['ON', 'OFF'])
-  status: 'ON' | 'OFF';
+  status!: 'ON' | 'OFF';
 }
 
 export class UpdateLightScheduleDto {
@@ -31,5 +31,5 @@ export class UpdateLightScheduleDto {
   @ArrayMaxSize(7)
   @ValidateNested({ each: true })
   @Type(() => LightScheduleBlockDto)
-  blocks: LightScheduleBlockDto[];
+  blocks!: LightScheduleBlockDto[];
 }

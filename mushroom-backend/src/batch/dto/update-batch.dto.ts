@@ -5,5 +5,5 @@ export class UpdateBatchDto {
   @IsEnum(['COMPLETED', 'ABORTED'], {
     message: 'status must be either COMPLETED or ABORTED',
   })
-  status: 'COMPLETED' | 'ABORTED';
+  status!: 'COMPLETED' | 'ABORTED';
 }

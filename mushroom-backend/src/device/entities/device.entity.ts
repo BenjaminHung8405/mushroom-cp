@@ -16,17 +16,17 @@ import { MushroomHouse } from '../../batch/entities/mushroom-house.entity';
 @Entity('devices')
 export class Device {
   @PrimaryColumn({ name: 'device_id', type: 'varchar', length: 50 })
-  deviceId: string;
+  deviceId!: string;
 
   @Column({ name: 'house_id', type: 'varchar', length: 50 })
-  houseId: string;
+  houseId!: string;
 
   @ManyToOne(() => MushroomHouse, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'house_id' })
   house?: MushroomHouse;
 
   @Column({ name: 'enabled', type: 'boolean', default: true })
-  enabled: boolean;
+  enabled!: boolean;
 
   @Column({
     name: 'display_name',
@@ -34,20 +34,20 @@ export class Device {
     length: 100,
     nullable: true,
   })
-  displayName: string | null;
+  displayName!: string | null;
 
   @Column({ name: 'mqtt_username', type: 'varchar', length: 50, unique: true })
-  mqttUsername: string;
+  mqttUsername!: string;
 
   @Column({ name: 'token', type: 'varchar', length: 64, nullable: true })
-  token: string | null;
+  token!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
-  lastSeenAt: Date | null;
+  lastSeenAt!: Date | null;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

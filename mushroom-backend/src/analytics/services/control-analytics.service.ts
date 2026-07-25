@@ -10,15 +10,17 @@ const MAX_WINDOW_HOURS = 168;
 const MIN_COVERAGE_PERCENT = 80;
 const MIN_TRUSTED_SAMPLES = 100;
 const DEVICE_ONLINE_WINDOW_MS = 5 * 60 * 1_000;
+const SAMPLES_PER_HOUR = 720;
+const MAX_SAFE_METRIC = Number.MAX_SAFE_INTEGER;
 
 export type CoverageGateFailureReason =
   | 'COVERAGE_BELOW_80_PERCENT'
   | 'INSUFFICIENT_TRUSTED_SAMPLES'
-  | 'CONFIG_REVISION_UNAVAILABLE';
+  | 'CONFIG_REVISION_UNAVAILABLE'
+  | 'INVALID_KPI_DATA';
 
 export type CoverageGateResult =
-  | { allowed: true }
-  | { allowed: false; reason: CoverageGateFailureReason };
+  { allowed: true } | { allowed: false; reason: CoverageGateFailureReason };
 
 interface HourlyKpiRow {
   sampleCount: number;
@@ -35,6 +37,20 @@ interface HourlyKpiRow {
   dataQualityWarning: boolean;
 }
 
+interface KpiTotal {
+  sampleCount: number;
+  tempSquaredError: number;
+  humidSquaredError: number;
+  mistSwitchCount: number;
+  lampOnDurationSec: number;
+  lampSessionCount: number;
+  overshootDurationSec: number;
+  undershootDurationSec: number;
+  expectedSamples: number;
+  validSamples: number;
+  dataQualityWarning: boolean;
+}
+
 @Injectable()
 export class ControlAnalyticsService {
   constructor(
@@ -44,6 +60,10 @@ export class ControlAnalyticsService {
 
   /** Blocks recommendation generation until the KPI window is trustworthy. */
   checkCoverageGate(kpi: KpiMetrics): CoverageGateResult {
+    if (!isValidKpi(kpi)) {
+      return { allowed: false, reason: 'INVALID_KPI_DATA' };
+    }
+
     if (kpi.dataCoveragePercent < MIN_COVERAGE_PERCENT) {
       return { allowed: false, reason: 'COVERAGE_BELOW_80_PERCENT' };
     }
@@ -64,7 +84,11 @@ export class ControlAnalyticsService {
     deviceId: string,
     now = new Date(),
   ): Promise<boolean> {
-    if (typeof deviceId !== 'string' || !deviceId.trim() || Number.isNaN(now.getTime())) {
+    if (
+      typeof deviceId !== 'string' ||
+      !deviceId.trim() ||
+      Number.isNaN(now.getTime())
+    ) {
       return false;
     }
 
@@ -101,9 +125,12 @@ export class ControlAnalyticsService {
       );
     }
 
-    const windowStart = new Date(now.getTime() - windowHours * SECONDS_PER_HOUR * 1_000);
+    const windowStart = new Date(
+      now.getTime() - windowHours * SECONDS_PER_HOUR * 1_000,
+    );
     const flux = buildKpiQuery(deviceId, analyticsBucket, windowStart, now);
     const rows = await queryKpiRows(queryApi, flux);
+    if (rows === null) return null;
     return aggregateKpiRows(deviceId, rows, windowStart, now, windowHours);
   }
 }
@@ -111,12 +138,18 @@ export class ControlAnalyticsService {
 async function queryKpiRows(
   queryApi: QueryApi,
   flux: string,
-): Promise<HourlyKpiRow[]> {
+): Promise<HourlyKpiRow[] | null> {
   try {
     const rawRows = await queryApi.collectRows<Record<string, unknown>>(flux);
-    return rawRows
-      .map(toHourlyKpiRow)
-      .filter((row): row is HourlyKpiRow => row !== null);
+    const rows: HourlyKpiRow[] = [];
+    for (const rawRow of rawRows) {
+      const row = toHourlyKpiRow(rawRow);
+      // A mixed valid/corrupt response is not trustworthy. Do not silently
+      // discard corrupt hourly rows and derive a recommendation from a subset.
+      if (row === null) return null;
+      rows.push(row);
+    }
+    return rows;
   } catch {
     throw new ServiceUnavailableException('InfluxDB analytics query failed');
   }
@@ -131,35 +164,67 @@ function aggregateKpiRows(
 ): KpiMetrics | null {
   if (rows.length === 0) return null;
 
-  const total = rows.reduce(
-    (accumulator, row) => ({
-      sampleCount: accumulator.sampleCount + row.sampleCount,
-      tempSquaredError: accumulator.tempSquaredError + row.tempSquaredError,
-      humidSquaredError: accumulator.humidSquaredError + row.humidSquaredError,
-      mistSwitchCount: accumulator.mistSwitchCount + row.mistSwitchCount,
-      lampOnDurationSec: accumulator.lampOnDurationSec + row.lampOnDurationSec,
-      lampSessionCount: accumulator.lampSessionCount + row.lampSessionCount,
-      overshootDurationSec:
-        accumulator.overshootDurationSec + row.overshootDurationSec,
-      undershootDurationSec:
-        accumulator.undershootDurationSec + row.undershootDurationSec,
-      expectedSamples: accumulator.expectedSamples + row.expectedSamples,
-      validSamples: accumulator.validSamples + row.validSamples,
-      dataQualityWarning:
-        accumulator.dataQualityWarning || row.dataQualityWarning,
-    }),
-    emptyKpiTotal(),
-  );
-  if (total.sampleCount === 0 || total.expectedSamples === 0) return null;
+  const total = accumulateKpiRows(rows);
+  if (total === null || !validateKpiWindowTotals(total, windowHours)) {
+    return null;
+  }
 
-  const revisions = new Set(
-    rows.flatMap((row) => (row.configRevision === null ? [] : [row.configRevision])),
+  return buildKpiMetrics(
+    deviceId,
+    windowStart,
+    windowEnd,
+    windowHours,
+    total,
+    resolveConfigRevision(rows),
   );
-  const configRevision =
-    revisions.size === 1 && rows.every((row) => row.configRevision !== null)
-      ? [...revisions][0]
-      : null;
+}
 
+function accumulateKpiRows(rows: HourlyKpiRow[]): KpiTotal | null {
+  const total = emptyKpiTotal();
+  for (const row of rows) {
+    if (!addKpiRow(total, row)) return null;
+  }
+  return total;
+}
+
+function validateKpiWindowTotals(
+  total: KpiTotal,
+  windowHours: number,
+): boolean {
+  const expectedWindowSamples = windowHours * SAMPLES_PER_HOUR;
+  const maxWindowDurationSec = windowHours * SECONDS_PER_HOUR;
+  return (
+    total.sampleCount > 0 &&
+    total.expectedSamples > 0 &&
+    total.sampleCount <= total.validSamples &&
+    total.sampleCount <= total.expectedSamples &&
+    total.expectedSamples <= expectedWindowSamples &&
+    total.validSamples <= total.expectedSamples &&
+    total.validSamples <= expectedWindowSamples &&
+    total.lampOnDurationSec <= maxWindowDurationSec &&
+    total.overshootDurationSec <= maxWindowDurationSec &&
+    total.undershootDurationSec <= maxWindowDurationSec
+  );
+}
+
+function resolveConfigRevision(rows: HourlyKpiRow[]): number | null {
+  const revisions = new Set<number>();
+  for (const row of rows) {
+    if (row.configRevision === null) return null;
+    revisions.add(row.configRevision);
+  }
+  return revisions.size === 1 ? [...revisions][0] : null;
+}
+
+function buildKpiMetrics(
+  deviceId: string,
+  windowStart: Date,
+  windowEnd: Date,
+  windowHours: number,
+  total: KpiTotal,
+  configRevision: number | null,
+): KpiMetrics {
+  const expectedWindowSamples = windowHours * SAMPLES_PER_HOUR;
   return {
     deviceId,
     windowStart,
@@ -177,14 +242,14 @@ function aggregateKpiRows(
         : total.lampOnDurationSec / total.lampSessionCount,
     overshootDurationSec: total.overshootDurationSec,
     undershootDurationSec: total.undershootDurationSec,
-    dataCoveragePercent: (total.validSamples / total.expectedSamples) * 100,
+    dataCoveragePercent: (total.validSamples / expectedWindowSamples) * 100,
     sampleCount: total.sampleCount,
     configRevision,
     dataQualityWarning: total.dataQualityWarning || configRevision === null,
   };
 }
 
-function emptyKpiTotal() {
+function emptyKpiTotal(): KpiTotal {
   return {
     sampleCount: 0,
     tempSquaredError: 0,
@@ -215,18 +280,53 @@ function toHourlyKpiRow(row: Record<string, unknown>): HourlyKpiRow | null {
   ].map(toFiniteNumber);
   if (!requiredValues.every(isNonNegativeFiniteNumber)) return null;
 
+  const [
+    sampleCount,
+    tempSquaredError,
+    humidSquaredError,
+    mistSwitchCount,
+    lampOnDurationSec,
+    lampSessionCount,
+    overshootDurationSec,
+    undershootDurationSec,
+    expectedSamples,
+    validSamples,
+  ] = requiredValues;
+  if (
+    !Number.isInteger(sampleCount) ||
+    !Number.isInteger(mistSwitchCount) ||
+    !Number.isInteger(lampSessionCount) ||
+    !Number.isInteger(expectedSamples) ||
+    !Number.isInteger(validSamples) ||
+    sampleCount > SAMPLES_PER_HOUR ||
+    sampleCount > validSamples ||
+    sampleCount > expectedSamples ||
+    expectedSamples < 1 ||
+    expectedSamples > SAMPLES_PER_HOUR ||
+    validSamples > expectedSamples ||
+    mistSwitchCount > sampleCount ||
+    lampSessionCount > sampleCount ||
+    lampOnDurationSec > SECONDS_PER_HOUR ||
+    overshootDurationSec > SECONDS_PER_HOUR ||
+    undershootDurationSec > SECONDS_PER_HOUR ||
+    tempSquaredError > MAX_SAFE_METRIC ||
+    humidSquaredError > MAX_SAFE_METRIC
+  ) {
+    return null;
+  }
+
   const revision = parseRevision(row.config_revision);
   return {
-    sampleCount: requiredValues[0],
-    tempSquaredError: requiredValues[1],
-    humidSquaredError: requiredValues[2],
-    mistSwitchCount: requiredValues[3],
-    lampOnDurationSec: requiredValues[4],
-    lampSessionCount: requiredValues[5],
-    overshootDurationSec: requiredValues[6],
-    undershootDurationSec: requiredValues[7],
-    expectedSamples: requiredValues[8],
-    validSamples: requiredValues[9],
+    sampleCount,
+    tempSquaredError,
+    humidSquaredError,
+    mistSwitchCount,
+    lampOnDurationSec,
+    lampSessionCount,
+    overshootDurationSec,
+    undershootDurationSec,
+    expectedSamples,
+    validSamples,
     configRevision: revision,
     dataQualityWarning:
       revision === null ||
@@ -267,16 +367,32 @@ export function escapeFluxString(value: string): string {
   return value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"');
 }
 
-function validateKpiQuery(deviceId: string, windowHours: number, now: Date): void {
+function validateKpiQuery(
+  deviceId: string,
+  windowHours: number,
+  now: Date,
+): void {
   if (!deviceId.trim()) throw new TypeError('deviceId must not be empty');
-  if (!Number.isInteger(windowHours) || windowHours < 1 || windowHours > MAX_WINDOW_HOURS) {
-    throw new RangeError(`windowHours must be an integer between 1 and ${MAX_WINDOW_HOURS}`);
+  if (
+    !Number.isInteger(windowHours) ||
+    windowHours < 1 ||
+    windowHours > MAX_WINDOW_HOURS
+  ) {
+    throw new RangeError(
+      `windowHours must be an integer between 1 and ${MAX_WINDOW_HOURS}`,
+    );
   }
-  if (Number.isNaN(now.getTime())) throw new TypeError('now must be a valid date');
+  if (Number.isNaN(now.getTime()))
+    throw new TypeError('now must be a valid date');
 }
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= MAX_SAFE_METRIC
+  );
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -297,6 +413,58 @@ function parseRevision(value: unknown): number | null {
 }
 
 function parseTelemetryTimestamp(value: unknown): Date | null {
-  const timestamp = value instanceof Date ? new Date(value.getTime()) : new Date(String(value));
+  const timestamp =
+    value instanceof Date ? new Date(value.getTime()) : new Date(String(value));
   return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+}
+
+function addKpiRow(total: KpiTotal, row: HourlyKpiRow): boolean {
+  const numericKeys: Array<keyof Omit<KpiTotal, 'dataQualityWarning'>> = [
+    'sampleCount',
+    'tempSquaredError',
+    'humidSquaredError',
+    'mistSwitchCount',
+    'lampOnDurationSec',
+    'lampSessionCount',
+    'overshootDurationSec',
+    'undershootDurationSec',
+    'expectedSamples',
+    'validSamples',
+  ];
+  for (const key of numericKeys) {
+    const next = total[key] + row[key];
+    if (!Number.isFinite(next) || next > MAX_SAFE_METRIC) return false;
+    total[key] = next;
+  }
+  total.dataQualityWarning ||= row.dataQualityWarning;
+  return total.validSamples <= total.expectedSamples;
+}
+
+function isValidKpi(kpi: KpiMetrics): boolean {
+  return (
+    typeof kpi.deviceId === 'string' &&
+    kpi.deviceId.trim().length > 0 &&
+    kpi.windowStart instanceof Date &&
+    kpi.windowEnd instanceof Date &&
+    Number.isFinite(kpi.windowStart.getTime()) &&
+    Number.isFinite(kpi.windowEnd.getTime()) &&
+    kpi.windowEnd.getTime() > kpi.windowStart.getTime() &&
+    isNonNegativeFiniteNumber(kpi.tempRmse) &&
+    isNonNegativeFiniteNumber(kpi.humidRmse) &&
+    isNonNegativeFiniteNumber(kpi.mistSwitchCountPerHour) &&
+    isNonNegativeFiniteNumber(kpi.lampAvgOnDurationSec) &&
+    isNonNegativeFiniteNumber(kpi.overshootDurationSec) &&
+    isNonNegativeFiniteNumber(kpi.undershootDurationSec) &&
+    Number.isFinite(kpi.lampDutyCyclePercent) &&
+    kpi.lampDutyCyclePercent >= 0 &&
+    kpi.lampDutyCyclePercent <= 100 &&
+    Number.isFinite(kpi.dataCoveragePercent) &&
+    kpi.dataCoveragePercent >= 0 &&
+    kpi.dataCoveragePercent <= 100 &&
+    Number.isSafeInteger(kpi.sampleCount) &&
+    kpi.sampleCount >= 0 &&
+    typeof kpi.dataQualityWarning === 'boolean' &&
+    (kpi.configRevision === null ||
+      (Number.isSafeInteger(kpi.configRevision) && kpi.configRevision >= 0))
+  );
 }

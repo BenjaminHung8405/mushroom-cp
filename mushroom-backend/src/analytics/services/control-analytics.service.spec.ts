@@ -1,15 +1,32 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { ControlAnalyticsService, escapeFluxString } from './control-analytics.service';
+import { Module } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { QueryApi } from '@influxdata/influxdb-client';
+import { AnalyticsModule } from '../analytics.module';
+import { ConfigService } from '../../influx/services/config.service';
+import { InfluxDbService } from '../../influx/services/influx-db.service';
+import { InfluxModule } from '../../influx/influx.module';
+import {
+  ControlAnalyticsService,
+  escapeFluxString,
+} from './control-analytics.service';
 
 describe('ControlAnalyticsService', () => {
-  const queryApi = { collectRows: jest.fn() };
-  const influxDbService = { getQueryApi: jest.fn(() => queryApi) };
+  const collectRows = jest.fn<Promise<FluxRow[]>, [string]>();
+  const queryApi = {
+    collectRows,
+  };
+  const influxDbService = {
+    getQueryApi: jest.fn<QueryApi | null, []>(
+      () => queryApi as unknown as QueryApi,
+    ),
+  };
   const configService = {
-    get: jest.fn(defaultConfigValue),
+    get: jest.fn<string | undefined, [string]>(defaultConfigValue),
   };
   const service = new ControlAnalyticsService(
-    influxDbService as never,
-    configService as never,
+    influxDbService as unknown as InfluxDbService,
+    configService,
   );
   const now = new Date('2026-07-25T12:00:00.000Z');
 
@@ -63,8 +80,45 @@ describe('ControlAnalyticsService', () => {
     });
 
     it('allows a complete KPI window', () => {
-      expect(service.checkCoverageGate(kpiForGate())).toEqual({ allowed: true });
+      expect(service.checkCoverageGate(kpiForGate())).toEqual({
+        allowed: true,
+      });
     });
+
+    it.each([
+      { dataCoveragePercent: Number.NaN },
+      { dataCoveragePercent: 100.01 },
+      { tempRmse: Number.POSITIVE_INFINITY },
+      { sampleCount: 1.5 },
+    ])('fails closed for malformed KPI values: %o', (overrides) => {
+      expect(service.checkCoverageGate(kpiForGate(overrides))).toEqual({
+        allowed: false,
+        reason: 'INVALID_KPI_DATA',
+      });
+    });
+  });
+
+  it('resolves ControlAnalyticsService through the Nest AnalyticsModule', async () => {
+    @Module({
+      providers: [
+        { provide: InfluxDbService, useValue: influxDbService },
+        { provide: ConfigService, useValue: configService },
+      ],
+      exports: [InfluxDbService, ConfigService],
+    })
+    class MockInfluxModule {}
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AnalyticsModule],
+    })
+      .overrideModule(InfluxModule)
+      .useModule(MockInfluxModule)
+      .compile();
+
+    expect(moduleRef.get(ControlAnalyticsService)).toBeInstanceOf(
+      ControlAnalyticsService,
+    );
+    await moduleRef.close();
   });
 
   it('aggregates rolling KPI using total squared error and total samples', async () => {
@@ -104,13 +158,13 @@ describe('ControlAnalyticsService', () => {
       lampAvgOnDurationSec: 1_080,
       overshootDurationSec: 10,
       undershootDurationSec: 10,
-      dataCoveragePercent: (400 / 480) * 100,
+      dataCoveragePercent: (400 / (2 * 720)) * 100,
       sampleCount: 400,
       configRevision: 7,
       dataQualityWarning: false,
     });
 
-    const flux = queryApi.collectRows.mock.calls[0][0] as string;
+    const flux = latestFluxQuery(collectRows);
     expect(flux).toContain('bucket: "analytics_bucket"');
     expect(flux).toContain('device_id"] == "device-1"');
     expect(flux).not.toContain('aggregateWindow');
@@ -120,9 +174,11 @@ describe('ControlAnalyticsService', () => {
     queryApi.collectRows.mockResolvedValue([]);
     const deviceId = 'device\\"-1';
 
-    await expect(service.getKpiForDevice(deviceId, 24, now)).resolves.toBeNull();
+    await expect(
+      service.getKpiForDevice(deviceId, 24, now),
+    ).resolves.toBeNull();
 
-    const flux = queryApi.collectRows.mock.calls[0][0] as string;
+    const flux = latestFluxQuery(collectRows);
     expect(flux).toContain(`device_id"] == "${escapeFluxString(deviceId)}"`);
     expect(flux).not.toContain(deviceId);
   });
@@ -132,7 +188,71 @@ describe('ControlAnalyticsService', () => {
       { sample_count: 0, expected_samples: 0 },
     ]);
 
-    await expect(service.getKpiForDevice('device-1', 24, now)).resolves.toBeNull();
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).resolves.toBeNull();
+  });
+
+  it('counts missing hourly KPI rows against the complete rolling window', async () => {
+    queryApi.collectRows.mockResolvedValue([
+      hourlyRow({
+        sample_count: 720,
+        sum_squared_error_temp: 720,
+        sum_squared_error_humid: 720,
+        mist_switch_count: 0,
+        lamp_on_duration_s: 0,
+        lamp_session_count: 0,
+        expected_samples: 720,
+        valid_samples: 720,
+      }),
+    ]);
+
+    const kpi = await service.getKpiForDevice('device-1', 24, now);
+
+    expect(kpi?.dataCoveragePercent).toBeCloseTo((720 / (24 * 720)) * 100);
+    expect(service.checkCoverageGate(kpi!)).toEqual({
+      allowed: false,
+      reason: 'COVERAGE_BELOW_80_PERCENT',
+    });
+  });
+
+  it('rejects the whole response when any hourly KPI row is malformed', async () => {
+    queryApi.collectRows.mockResolvedValue([
+      hourlyRow(),
+      hourlyRow({ valid_samples: 721, expected_samples: 720 }),
+    ]);
+
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    { sample_count: 13, valid_samples: 12, expected_samples: 12 },
+    { sample_count: 13, valid_samples: 13, expected_samples: 12 },
+    { sample_count: 0, valid_samples: 0, expected_samples: 0 },
+    { sample_count: Number.MAX_VALUE },
+    { sum_squared_error_temp: Number.MAX_VALUE },
+    { sample_count: 721 },
+    { expected_samples: 720, valid_samples: 721 },
+    { lamp_on_duration_s: 3_601 },
+  ])('rejects malformed hourly KPI rows: %o', async (overrides) => {
+    queryApi.collectRows.mockResolvedValue([hourlyRow(overrides)]);
+
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects totals that would overflow during rolling accumulation', async () => {
+    queryApi.collectRows.mockResolvedValue([
+      hourlyRow({ sum_squared_error_temp: Number.MAX_SAFE_INTEGER }),
+      hourlyRow({ sum_squared_error_temp: Number.MAX_SAFE_INTEGER }),
+    ]);
+
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).resolves.toBeNull();
   });
 
   it('marks revision ambiguous when rows contain different revisions', async () => {
@@ -141,7 +261,9 @@ describe('ControlAnalyticsService', () => {
       hourlyRow({ config_revision: '8' }),
     ]);
 
-    await expect(service.getKpiForDevice('device-1', 24, now)).resolves.toMatchObject({
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).resolves.toMatchObject({
       configRevision: null,
       dataQualityWarning: true,
     });
@@ -150,9 +272,9 @@ describe('ControlAnalyticsService', () => {
   it('fails closed when Influx query fails', async () => {
     queryApi.collectRows.mockRejectedValue(new Error('Influx unavailable'));
 
-    await expect(service.getKpiForDevice('device-1', 24, now)).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(
+      service.getKpiForDevice('device-1', 24, now),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   describe('checkDeviceOnline', () => {
@@ -161,8 +283,10 @@ describe('ControlAnalyticsService', () => {
         { _time: '2026-07-25T11:56:00.000Z' },
       ]);
 
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(true);
-      const flux = queryApi.collectRows.mock.calls[0][0] as string;
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        true,
+      );
+      const flux = latestFluxQuery(collectRows);
       expect(flux).toContain('bucket: "raw_bucket"');
       expect(flux).toContain('device_id"] == "device-1"');
       expect(flux).toContain('controller_history');
@@ -174,34 +298,48 @@ describe('ControlAnalyticsService', () => {
         { _time: '2026-07-25T11:55:00.000Z' },
       ]);
 
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
     });
 
     it('returns false for missing, malformed, or future telemetry', async () => {
       queryApi.collectRows.mockResolvedValue([]);
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
 
       queryApi.collectRows.mockResolvedValue([{ _time: 'not-a-date' }]);
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
 
       queryApi.collectRows.mockResolvedValue([
         { _time: '2026-07-25T12:01:00.000Z' },
       ]);
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
     });
 
     it('fails closed for query errors, missing configuration, and invalid input', async () => {
       queryApi.collectRows.mockRejectedValue(new Error('Influx unavailable'));
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
 
       influxDbService.getQueryApi.mockImplementation(() => {
         throw new Error('Influx initialization failed');
       });
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
 
       influxDbService.getQueryApi.mockReturnValue(queryApi);
       configService.get.mockReturnValue(undefined);
-      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', now)).resolves.toBe(
+        false,
+      );
 
       configService.get.mockImplementation((key: string) =>
         key === 'INFLUXDB_BUCKET' ? 'raw_bucket' : 'analytics_bucket',
@@ -219,8 +357,10 @@ describe('ControlAnalyticsService', () => {
       queryApi.collectRows.mockResolvedValue([]);
       const deviceId = 'device\\"-1';
 
-      await expect(service.checkDeviceOnline(deviceId, now)).resolves.toBe(false);
-      const flux = queryApi.collectRows.mock.calls[0][0] as string;
+      await expect(service.checkDeviceOnline(deviceId, now)).resolves.toBe(
+        false,
+      );
+      const flux = latestFluxQuery(collectRows);
       expect(flux).toContain('bucket: "raw\\\\\\"bucket"');
       expect(flux).toContain(`device_id"] == "${escapeFluxString(deviceId)}"`);
     });
@@ -233,7 +373,21 @@ function defaultConfigValue(key: string): string | undefined {
   return undefined;
 }
 
-function hourlyRow(overrides: Record<string, unknown> = {}) {
+type FluxRow = Record<string, unknown>;
+type FluxCollectRowsMock = jest.Mock<Promise<FluxRow[]>, [string]>;
+
+function latestFluxQuery(collectRows: FluxCollectRowsMock): string {
+  const [call] = collectRows.mock.calls;
+  const [flux] = call ?? [];
+  if (typeof flux !== 'string') {
+    throw new Error('Expected collectRows to be called with a Flux query');
+  }
+  return flux;
+}
+
+function hourlyRow(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     sample_count: 10,
     sum_squared_error_temp: 10,
@@ -250,7 +404,11 @@ function hourlyRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function kpiForGate(overrides: Partial<import('../interfaces/kpi-metrics.interface').KpiMetrics> = {}) {
+function kpiForGate(
+  overrides: Partial<
+    import('../interfaces/kpi-metrics.interface').KpiMetrics
+  > = {},
+) {
   return {
     deviceId: 'device-1',
     windowStart: new Date('2026-07-25T00:00:00.000Z'),

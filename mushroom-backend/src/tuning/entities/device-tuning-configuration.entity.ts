@@ -25,59 +25,68 @@ export interface TuningConfigSnapshot {
 @Entity('device_tuning_configurations')
 export class DeviceTuningConfiguration {
   @PrimaryColumn({ type: 'uuid' })
-  id: string;
+  id!: string;
 
   @Column({ name: 'device_id', type: 'varchar', length: 50 })
-  deviceId: string;
+  deviceId!: string;
 
   @ManyToOne(() => Device, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'device_id' })
   device?: Device;
 
   @Column({ name: 'command_id', type: 'varchar', length: 36 })
-  commandId: string;
+  commandId!: string;
 
   @Column({ type: 'integer' })
-  revision: number;
+  revision!: number;
 
   @Column({
     type: 'varchar',
     length: 20,
     default: SyncStatus.PENDING,
   })
-  status: SyncStatus;
+  status!: SyncStatus;
 
   @Column({ type: 'jsonb' })
-  config: TuningConfigSnapshot;
+  config!: TuningConfigSnapshot;
 
   /** Immutable effective snapshot returned by the Edge for this command. */
   @Column({ name: 'reported_config', type: 'jsonb', nullable: true })
-  reportedConfig: TuningConfigSnapshot | null;
+  reportedConfig!: TuningConfigSnapshot | null;
 
   @Column({ name: 'reported_revision', type: 'integer', nullable: true })
-  reportedRevision: number | null;
+  reportedRevision!: number | null;
 
   @Column({ name: 'applied_at', type: 'timestamptz', nullable: true })
-  appliedAt: Date | null;
+  appliedAt!: Date | null;
 
-  @Column({ name: 'rejection_reason', type: 'varchar', length: 64, nullable: true })
-  rejectionReason: string | null;
+  @Column({
+    name: 'rejection_reason',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  rejectionReason!: string | null;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
-  publishedAt: Date | null;
+  publishedAt!: Date | null;
 
   @Column({ name: 'retained_clear_pending', type: 'boolean', default: false })
-  retainedClearPending: boolean;
+  retainedClearPending!: boolean;
 
   @Column({ name: 'retained_clear_attempts', type: 'integer', default: 0 })
-  retainedClearAttempts: number;
+  retainedClearAttempts!: number;
 
-  @Column({ name: 'retained_clear_next_at', type: 'timestamptz', nullable: true })
-  retainedClearNextAt: Date | null;
+  @Column({
+    name: 'retained_clear_next_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  retainedClearNextAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

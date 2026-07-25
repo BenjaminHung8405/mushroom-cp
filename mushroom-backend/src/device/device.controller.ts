@@ -60,7 +60,7 @@ export function isBlackoutActive(minutesSinceMidnight: number): boolean {
 export class DeviceParamsDto {
   @IsString()
   @Matches(/^[a-zA-Z0-9_-]+$/)
-  id: string;
+  id!: string;
 }
 
 /**
@@ -117,60 +117,60 @@ export class DeviceSetpointDto {
 export class ActuatorOverrideDto {
   @IsString()
   @IsIn(['fan', 'heater_air', 'mist', 'lamp', 'lamp_stage'])
-  actuator: 'fan' | 'heater_air' | 'mist' | 'lamp' | 'lamp_stage';
+  actuator!: 'fan' | 'heater_air' | 'mist' | 'lamp' | 'lamp_stage';
 
   @IsOptional()
   @IsBoolean()
-  state: boolean | null;
+  state!: boolean | null;
 }
 
 /** DTO for validating a global operating-mode command. */
 export class OperatingModeDto {
   @IsIn(['AI', 'MANUAL'])
-  mode: 'AI' | 'MANUAL';
+  mode!: 'AI' | 'MANUAL';
 }
 
 export class CropProfileCheckpointDto {
   @IsInt()
   @Min(1)
-  cropDay: number;
+  cropDay!: number;
 
   @IsNumber()
   @Min(15)
   @Max(45)
-  temperatureCelsius: number;
+  temperatureCelsius!: number;
 
   @IsNumber()
   @Min(50)
   @Max(100)
-  humidityPercent: number;
+  humidityPercent!: number;
 }
 
 export class CropProfileLightScheduleBlockDto {
   @IsInt()
   @Min(1)
-  startDay: number;
+  startDay!: number;
 
   @IsInt()
   @Min(1)
-  endDay: number;
+  endDay!: number;
 
   @IsIn(['ON', 'OFF'])
-  status: 'ON' | 'OFF';
+  status!: 'ON' | 'OFF';
 }
 
 export class ApplyCropProfileDto {
   @IsNumber()
-  cropStartEpochSec: number;
+  cropStartEpochSec!: number;
 
   @IsInt()
   @Min(1)
   @Max(365)
-  totalCropDays: number;
+  totalCropDays!: number;
 
   @ValidateNested({ each: true })
   @Type(() => CropProfileCheckpointDto)
-  checkpoints: CropProfileCheckpointDto[];
+  checkpoints!: CropProfileCheckpointDto[];
 
   @IsOptional()
   @ValidateNested({ each: true })
@@ -398,7 +398,7 @@ export class DeviceController {
       )
         throw err;
       this.logger.warn(
-        `Batch validation failed for ${params.id}: ${err?.message ?? 'unknown'}`,
+        `Batch validation failed for ${params.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -424,10 +424,7 @@ export class DeviceController {
     }
 
     // 2. Validate biological guardrails (Server-side defense)
-    if (
-      (actuator === 'mist' || actuator === 'heater_air') &&
-      state === true
-    ) {
+    if ((actuator === 'mist' || actuator === 'heater_air') && state === true) {
       const timezone = 'Asia/Ho_Chi_Minh';
       const localTime = toZonedTime(new Date(), timezone);
       const hour = localTime.getHours();
@@ -469,7 +466,7 @@ export class DeviceController {
           throw err;
         }
         this.logger.warn(
-          `Failed to check active batch for heater-air guard: ${err.message}`,
+          `Failed to check active batch for heater-air guard: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

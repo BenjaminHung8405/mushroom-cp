@@ -18,22 +18,22 @@ export class CheckpointDto {
   @IsEnum(MetricType, {
     message: 'metricType must be either TEMPERATURE or HUMIDITY',
   })
-  metricType: MetricType;
+  metricType!: MetricType;
 
   @IsInt()
   @Min(1)
   @Max(45)
-  cropDay: number;
+  cropDay!: number;
 
   @IsNumber()
   @Min(0)
   @Max(100)
-  targetValue: number;
+  targetValue!: number;
 }
 
 export class UpdateCheckpointsDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CheckpointDto)
-  checkpoints: CheckpointDto[];
+  checkpoints!: CheckpointDto[];
 }
