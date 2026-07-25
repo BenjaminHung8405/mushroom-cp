@@ -60,6 +60,67 @@ namespace sensors
 
 #ifndef UNIT_TEST
     static Adafruit_SHT31 sht30 = Adafruit_SHT31();
+
+    // Số lần fail liên tiếp trước khi kích hoạt I2C bus recovery.
+    // Chọn 5 để tránh recovery quá thường xuyên (mỗi ~25s ở interval 5s).
+    static constexpr uint32_t I2C_RECOVERY_THRESHOLD = 5;
+
+    /**
+     * @brief Khôi phục I2C bus bị stuck bằng bit-bang 9 clock cycles + Wire reinit.
+     * Được gọi khi SHT30 fail liên tiếp đạt ngưỡng I2C_RECOVERY_THRESHOLD.
+     * Sau khi reinit, gọi lại sht30.begin() để đồng bộ lại driver.
+     * @return true nếu SHT30 respond lại sau recovery, false nếu vẫn mất kết nối.
+     */
+    static bool attemptI2CBusRecovery()
+    {
+        Serial.println("[SENSORS] INFO: Attempting I2C bus recovery (bit-bang 9 clocks)...");
+
+        // Bit-bang 9 clock cycles để giải phóng SDA bị stuck LOW.
+        // Theo I2C spec, slave sẽ release SDA sau tối đa 9 clock cycles.
+        const uint8_t sda = config::pins::PIN_I2C_SDA;
+        const uint8_t scl = config::pins::PIN_I2C_SCL;
+
+        pinMode(scl, OUTPUT);
+        pinMode(sda, INPUT_PULLUP);
+
+        for (int i = 0; i < 9; ++i)
+        {
+            digitalWrite(scl, HIGH);
+            delayMicroseconds(10); // ~50kHz half-period
+            digitalWrite(scl, LOW);
+            delayMicroseconds(10);
+        }
+
+        // STOP condition: SCL HIGH, SDA LOW→HIGH
+        digitalWrite(scl, HIGH);
+        delayMicroseconds(5);
+        pinMode(sda, OUTPUT);
+        digitalWrite(sda, LOW);
+        delayMicroseconds(5);
+        digitalWrite(sda, HIGH);
+        delayMicroseconds(5);
+
+        // Reinitialize Wire và SHT30 driver
+        Wire.end();
+        delayMicroseconds(500);
+        Wire.setPins(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL);
+        Wire.begin();
+        Wire.setClock(50000);
+        Wire.setTimeOut(200); // 200ms — đủ cho SHT30 trong môi trường độ ẩm cao
+        sht30.heater(false);
+
+        // Kiểm tra SHT30 có ACK lại không
+        const bool recovered = sht30.begin(0x44);
+        if (recovered)
+        {
+            Serial.println("[SENSORS] INFO: I2C bus recovery SUCCESS — SHT30 is back online.");
+        }
+        else
+        {
+            Serial.println("[SENSORS] ERROR: I2C bus recovery FAILED — SHT30 still not responding. Hardware issue suspected.");
+        }
+        return recovered;
+    }
 #endif
 
     bool init_sensors_placeholder()
@@ -83,9 +144,12 @@ namespace sensors
         Wire.setClock(50000);
         
 #if defined(ESP32)
-        Wire.setTimeOut(25); // 3ms timeout corresponding to 3000us
+        // 200ms timeout — đủ cho SHT30 cần 15ms đo + overhead clock stretch
+        // trong môi trường độ ẩm cao (>80%RH). Commit af700287 đặt sai 25ms
+        // gây timeout sớm → ERR_CRC_MISMATCH liên tiếp.
+        Wire.setTimeOut(200);
 #else
-        Wire.setWireTimeout(25000, true);
+        Wire.setWireTimeout(200000, true); // 200ms tính bằng microseconds trên non-ESP32
 #endif
         
         sht30.heater(false);
@@ -138,6 +202,20 @@ namespace sensors
         if (std::isnan(temp) || std::isnan(hum))
         {
             recordSht30Failure(SensorError::ERR_CRC_MISMATCH, "SHT30 returned invalid reading");
+
+            // Khi failures đạt ngưỡng, thử recover I2C bus bị stuck.
+            // Nếu recovery thất bại, đánh dấu sensor là hardware fault.
+            if (sht30_consecutive_failures % I2C_RECOVERY_THRESHOLD == 0)
+            {
+                const bool recovered = attemptI2CBusRecovery();
+                if (!recovered)
+                {
+                    sht30_healthy = false;
+                    sht30_last_error = SensorError::ERR_DISCONNECTED;
+                    Serial.println("[SENSORS] ERROR: Marking SHT30 as hardware-faulted after failed recovery.");
+                }
+            }
+
             temp = NAN;
             hum = NAN;
             return false;
@@ -276,11 +354,19 @@ namespace sensors
         return sht30_has_valid_read;
     }
 
+    bool is_sht30_hw_faulted()
+    {
+        // sht30_healthy bị set false chỉ bởi attemptI2CBusRecovery() khi recovery thất bại,
+        // hoặc khi sht30.begin() lúc init thất bại. Cả hai trường hợp đều là HW fault.
+        return !sht30_healthy;
+    }
+
 #ifdef UNIT_TEST
     void reset_sensors_initialized_for_test()
     {
         sensors_initialized = false;
         sht30_has_valid_read = false;
+        sht30_healthy = true; // reset về trạng thái healthy để test độc lập
     }
 #endif
 

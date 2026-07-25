@@ -74,6 +74,12 @@ namespace sensors
      */
     bool is_sht30_defogging();
 
+    /**
+     * @brief True nếu SHT30 đã được đánh dấu là hardware fault sau khi I2C bus
+     * recovery thất bại. Khi đây là true → cần ra thực địa kiểm tra phần cứng.
+     */
+    bool is_sht30_hw_faulted();
+
 #ifdef UNIT_TEST
     /**
      * @brief Reset initialization flag for unit tests.
