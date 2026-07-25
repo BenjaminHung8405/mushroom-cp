@@ -58,7 +58,7 @@ export interface ActuatorSystemState {
     forcedLockout: boolean; // Safety lock flag during the advanced fruiting stages
   };
   // System Protection Safeguard State
-  middayMistingBlackoutActive: boolean; // True when forced lock blocks misting between 11:00 AM and 1:30 PM
+  middayMistingBlackoutActive: boolean; // True when edge lock blocks Mist and HWat from 08:00–16:00 or 18:00–06:00 ICT
 }
 
 /**

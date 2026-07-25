@@ -70,9 +70,9 @@ Giao diện hiển thị trực quan và đồng bộ hóa trạng thái hoạt 
 
 Để đối phó với điều kiện thời tiết khắc nghiệt của khu vực miền Tây, phần mềm tích hợp các cơ chế bảo vệ đặc thù:
 
-### A. Khóa bảo vệ tránh sốc nhiệt giữa trưa (Midday Thermal Shock Protection)
-*   **Bối cảnh nghiệp vụ**: Vào những giờ nắng nóng cực điểm (từ 11:00 AM đến 13:30 PM), việc kích hoạt phun sương nước lạnh đột ngột sẽ tạo ra cú sốc nhiệt cực lớn đối với nấm rơm, làm hỏng tơ nấm.
-*   **Quy tắc phần mềm**: Tự động kích hoạt **Khóa sương (Misting Blackout)** trong khung giờ **11:00 AM - 13:30 PM**. Toàn bộ tính năng phun sương tự động sẽ bị vô hiệu hóa, và trên màn hình Dashboard xuất hiện huy hiệu bảo vệ nổi bật: **"Midday Thermal Guard Active" (Khóa sốc nhiệt đang bật)**.
+### A. Khóa bảo vệ sinh học theo lịch (Scheduled Biological Protection)
+*   **Bối cảnh nghiệp vụ**: Việc kích hoạt phun sương nước lạnh hoặc thanh nhiệt nước ngoài các vùng an toàn có thể tạo biến động vi khí hậu đột ngột, ảnh hưởng bất lợi đến nấm rơm.
+*   **Quy tắc phần mềm**: Tự động kích hoạt **Blackout Mist/HWat** trong hai khung giờ **08:00–16:00** và **18:00–06:00 hôm sau** (Asia/Ho_Chi_Minh, bao gồm cả phút biên). Hai vùng hoạt động an toàn là **06:01–07:59** và **16:01–17:59**; Dashboard hiển thị huy hiệu bảo vệ khi ESP32 áp dụng khóa.
 
 ### B. Sao lưu telemetry và duy trì dữ liệu khi mất kết nối (SD Card Backup & Cloud Sync)
 *   **Nghiệp vụ**: Các nút IoT truy vấn cảm biến và lưu trực tiếp dữ liệu lịch sử vào thẻ nhớ SD cục bộ định kỳ **5 phút một lần** để bảo vệ dữ liệu khi mất mạng Internet/Wifi.

@@ -936,6 +936,7 @@ static void runControlPipelineStep(
     // cannot accidentally bypass blackout rules.
     if (relay_control::isSafetyBlackoutActive(rtcTime)) {
         relayState.mist_active = false;
+        relayState.hwat_active = false;
     }
 
     // Apply the final protected binary states to the physical active-LOW relays.

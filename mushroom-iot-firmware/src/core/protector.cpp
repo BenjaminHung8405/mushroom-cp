@@ -58,7 +58,7 @@ void SystemProtector::update(
     bool fuzzy_enabled,
     float temp_air,
     float humidity_air,
-    bool mist_blackout_active,
+    bool scheduled_blackout_active,
     manual::ManualLatchArray& manual_latches,
     relay_control::RelayStatePod& relay_states
 ) {
@@ -79,10 +79,10 @@ void SystemProtector::update(
         AppChannel ch = static_cast<AppChannel>(i);
         ChannelProtectorState& state = states[i];
 
-        // Priority 1: The time-confidence/midday interlock is non-bypassable.
+        // Priority 1: The time-confidence/scheduled interlock is non-bypassable.
         // It is evaluated before all protector rules so a low-humidity rule
-        // cannot re-enable Mist during the blackout window.
-        if (ch == AppChannel::MIST && mist_blackout_active) {
+        // cannot re-enable Mist or HWat during the blackout window.
+        if ((ch == AppChannel::MIST || ch == AppChannel::HWAT) && scheduled_blackout_active) {
             set_channel_state(relay_states, ch, false);
             clearManualLatch(manual_latches[i]);
             state.is_on = false;

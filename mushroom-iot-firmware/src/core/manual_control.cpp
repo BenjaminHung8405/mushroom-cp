@@ -59,6 +59,9 @@ ManualDecision evaluateSafetyGate(
         return ManualDecision::Accepted;
     }
     else if (request.channel == AppChannel::HWAT) {
+        if (relay_control::isSafetyBlackoutActive(rtcTime)) {
+            return ManualDecision::RejectedBlackout;
+        }
         return ManualDecision::Accepted;
     }
 
@@ -127,6 +130,13 @@ void autoClearOnSensorViolation(
         latch[mistIdx].active = false;
         latch[mistIdx].forced_state = AppIntent::AUTO;
         latch[mistIdx].expires_ms = 0;
+    }
+
+    const size_t hwatIdx = static_cast<size_t>(AppChannel::HWAT);
+    if (latch[hwatIdx].active && mistBlackout) {
+        latch[hwatIdx].active = false;
+        latch[hwatIdx].forced_state = AppIntent::AUTO;
+        latch[hwatIdx].expires_ms = 0;
     }
 
 

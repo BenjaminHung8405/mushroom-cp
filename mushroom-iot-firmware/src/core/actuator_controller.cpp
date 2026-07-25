@@ -157,8 +157,10 @@ namespace actuators
 namespace relay_control {
 namespace {
 
-constexpr uint16_t MIDDAY_BLACKOUT_START_MINUTE = 11U * 60U;
-constexpr uint16_t MIDDAY_BLACKOUT_END_MINUTE = 13U * 60U + 30U;
+constexpr uint16_t DAY_BLACKOUT_START_MIN = 8U * 60U;
+constexpr uint16_t DAY_BLACKOUT_END_MIN = 16U * 60U;
+constexpr uint16_t NIGHT_BLACKOUT_START_MIN = 18U * 60U;
+constexpr uint16_t NIGHT_BLACKOUT_END_MIN = 6U * 60U;
 // Temperature demand reaches 1.0 at a 4°C deficit. This 0.25/0.15
 // hysteresis starts heating at about 1.0°C below target and stops near 0.6°C.
 constexpr float FUZZY_ON_THRESHOLD = 0.25f;
@@ -166,13 +168,6 @@ constexpr float FUZZY_OFF_THRESHOLD = 0.15f;
 
 bool isValidRtcTime(const RtcTimePod& rtcTime) {
     return rtcTime.valid && rtcTime.hour < 24U && rtcTime.minute < 60U;
-}
-
-bool isMiddayBlackout(const RtcTimePod& rtcTime) {
-    const uint16_t minuteOfDay =
-        static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
-    return minuteOfDay >= MIDDAY_BLACKOUT_START_MINUTE &&
-           minuteOfDay <= MIDDAY_BLACKOUT_END_MINUTE;
 }
 
 void writeRelayIfChanged(uint8_t pin, bool& state, bool active) {
@@ -185,14 +180,26 @@ void writeRelayIfChanged(uint8_t pin, bool& state, bool active) {
 
 } // namespace
 
+bool isScheduledBlackout(const RtcTimePod& rtcTime) {
+    const uint16_t minuteOfDay =
+        static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
+    const bool isDayBlackout =
+        minuteOfDay >= DAY_BLACKOUT_START_MIN && minuteOfDay <= DAY_BLACKOUT_END_MIN;
+    const bool isNightBlackout =
+        minuteOfDay >= NIGHT_BLACKOUT_START_MIN || minuteOfDay <= NIGHT_BLACKOUT_END_MIN;
+
+    return isDayBlackout || isNightBlackout;
+}
+
 bool isSafetyBlackoutActive(const RtcTimePod& rtcTime) {
-    return !time_conf::isTimeUsable() || !isValidRtcTime(rtcTime) || isMiddayBlackout(rtcTime);
+    return !time_conf::isTimeUsable() || !isValidRtcTime(rtcTime) || isScheduledBlackout(rtcTime);
 }
 
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod& outputs,
     const RtcTimePod& rtcTime) {
     if (isSafetyBlackoutActive(rtcTime)) {
+        outputs.HWat = 0.0f;
         outputs.Mist = 0.0f;
     }
 }

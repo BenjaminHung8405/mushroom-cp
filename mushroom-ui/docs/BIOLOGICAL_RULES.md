@@ -66,10 +66,10 @@
 
 Beyond the macroeconomic 21-day profile adjustments, the dashboard software core must enforce micro-safeguards to protect the delicate mushroom ecosystem from local daily weather extremes.
 
-### A. Midday Thermal Shock Protection Window (Blackout Zone)
+### A. Scheduled Biological Protection Windows (Blackout Zones)
 
-- [cite_start]**Biological Context**: During peak ambient heat intervals in the western provinces (such as An Giang, Dong Thap, and Can Tho), triggering high-intensity cold-water misting introduces extreme, sudden microclimatic temperature drops[cite: 5, 15]. [cite_start]This shifts mushrooms rapidly out of their optimal range, inducing severe thermal shock[cite: 15].
-- [cite_start]**Software Rule**: The actuator dashboard and equalizer profiles must visually flag or programmatically enforce a **Misting Blackout Window between 11:00 AM and 1:30 PM**[cite: 15]. [cite_start]During this automated interval, automatic misting functions are locked out, and a protective shield badge labeled "Midday Thermal Guard Active" must appear on screen[cite: 15].
+- [cite_start]**Biological Context**: Triggering high-intensity cold-water misting or water heating outside the approved operating windows can introduce abrupt microclimatic changes that harm the mushroom crop[cite: 5, 15].
+- [cite_start]**Software Rule**: The dashboard and equalizer must visually flag the edge-authoritative blackout windows **08:00–16:00** and **18:00–06:00** (Asia/Ho_Chi_Minh). Both Mist and HWat are locked during these inclusive windows; safe zones are 06:01–07:59 and 16:01–17:59.
 
 ---
 

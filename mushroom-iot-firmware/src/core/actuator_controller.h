@@ -54,10 +54,13 @@ struct RelayStatePod {
     bool fan_active;
 } __attribute__((aligned(4)));
 
-/** True when the edge must enforce the non-bypassable Mist safety interlock. */
+/** True when the local RTC time falls within either scheduled blackout window. */
+bool isScheduledBlackout(const RtcTimePod &rtcTime);
+
+/** True when the edge must enforce the non-bypassable Mist/HWat safety interlock. */
 bool isSafetyBlackoutActive(const RtcTimePod &rtcTime);
 
-/** Forces Mist OFF when the safety interlock is active. */
+/** Forces Mist and HWat OFF when the safety interlock is active. */
 void hardwareProtectionOverride(
     FuzzyController::ArbitratedOutputsPod &outputs,
     const RtcTimePod &rtcTime);

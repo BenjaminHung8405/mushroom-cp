@@ -33,6 +33,26 @@ import { DeviceRegistryService } from './device-registry.service';
 import { BatchService } from '../batch/services/batch.service';
 
 /**
+ * Kiểm tra xem minutesSinceMidnight có nằm trong cửa sổ blackout không.
+ * Window 1 (ban ngày): [480, 960] — 08:00 → 16:00 (linear)
+ * Window 2 (ban đêm): [1080, 1439] U [0, 360] — 18:00 → 06:00 (wrap-around midnight)
+ * Cả hai đầu đều inclusive (ví dụ: 06:00 vẫn blackout, 06:01 safe).
+ */
+export function isBlackoutActive(minutesSinceMidnight: number): boolean {
+  const DAY_START = 8 * 60; // 480 — 08:00
+  const DAY_END = 16 * 60; // 960 — 16:00
+  const NIGHT_START = 18 * 60; // 1080 — 18:00
+  const NIGHT_END = 6 * 60; // 360 — 06:00
+
+  const isDayBlackout =
+    minutesSinceMidnight >= DAY_START && minutesSinceMidnight <= DAY_END;
+  const isNightBlackout =
+    minutesSinceMidnight >= NIGHT_START || minutesSinceMidnight <= NIGHT_END;
+
+  return isDayBlackout || isNightBlackout;
+}
+
+/**
  * DTO for validating the device ID route parameter.
  * Restricts the ID to alphanumeric characters, underscores, and hyphens
  * to prevent special character injections or path traversal.
@@ -404,23 +424,20 @@ export class DeviceController {
     }
 
     // 2. Validate biological guardrails (Server-side defense)
-    if (actuator === 'mist' && state === true) {
-      // Check Midday Blackout Window (11:00 AM - 1:30 PM local Vietnam time)
+    if (
+      (actuator === 'mist' || actuator === 'heater_air') &&
+      state === true
+    ) {
       const timezone = 'Asia/Ho_Chi_Minh';
       const localTime = toZonedTime(new Date(), timezone);
       const hour = localTime.getHours();
       const minute = localTime.getMinutes();
 
       const minutesSinceMidnight = hour * 60 + minute;
-      const startBlackout = 11 * 60; // 11:00
-      const endBlackout = 13 * 60 + 30; // 13:30
 
-      if (
-        minutesSinceMidnight >= startBlackout &&
-        minutesSinceMidnight <= endBlackout
-      ) {
+      if (isBlackoutActive(minutesSinceMidnight)) {
         throw new BadRequestException(
-          `Không thể bật máy tạo ẩm thủ công trong khung giờ bảo vệ sốc nhiệt (11:00 - 13:30).`,
+          `Không thể bật máy tạo ẩm hoặc thanh nhiệt nước trong khung giờ bảo vệ sinh học (08:00–16:00 hoặc 18:00–06:00).`,
         );
       }
     }

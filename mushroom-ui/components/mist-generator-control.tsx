@@ -73,7 +73,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
   }
 
   const getMotorStateLabel = (state: MotorState): string => {
-    if (isBlackoutActive) return 'Đã khóa TẮT (Khóa nhiệt độ)'
+    if (isBlackoutActive) return 'Đã khóa TẮT (Bảo vệ sinh học)'
     switch (state) {
       case 'idle':
         return 'Đang chờ'
@@ -118,7 +118,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           </div>
         </div>
 
-        {/* Midday Thermal Guard Shield Badge */}
+        {/* Scheduled biological blackout shield badge */}
         {isBlackoutActive && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)] animate-pulse">
             <Shield className="w-4 h-4" />
@@ -233,7 +233,7 @@ export function MistGeneratorControl({ pwmDutyCycle = 0 }: MistGeneratorControlP
           {isBlackoutActive ? (
             <span className="text-red-400 font-medium flex items-center gap-1">
               <Lock className="w-3.5 h-3.5" />
-              ESP32 đang áp dụng Blackout an toàn 11:00–13:30.
+              ESP32 đang áp dụng Blackout an toàn 08:00–16:00 hoặc 18:00–06:00.
             </span>
           ) : blackoutUnknown ? (
             'Chưa xác minh trạng thái Blackout từ ESP32.'

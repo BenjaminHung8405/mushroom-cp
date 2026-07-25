@@ -137,7 +137,7 @@ export function SimulationControlPanel() {
         />
         <div className="flex justify-between text-[9px] text-slate-500 mt-1">
           <span>12:00 AM</span>
-          <span className="text-amber-500/70">11:00 AM - 1:30 PM (Khóa tưới)</span>
+          <span className="text-amber-500/70">08:00–16:00, 18:00–06:00 (Khóa Mist/HWat)</span>
           <span>11:50 PM</span>
         </div>
       </div>

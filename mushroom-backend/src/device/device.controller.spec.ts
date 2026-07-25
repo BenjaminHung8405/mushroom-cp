@@ -6,7 +6,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { DeviceController } from './device.controller';
+import { DeviceController, isBlackoutActive } from './device.controller';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
 import { BatchService } from '../batch/services/batch.service';
@@ -16,6 +16,22 @@ describe('DeviceController', () => {
   let mqttService: jest.Mocked<MqttService>;
   let deviceRegistryService: jest.Mocked<DeviceRegistryService>;
   let batchService: jest.Mocked<BatchService>;
+
+  describe('isBlackoutActive', () => {
+    it.each([
+      [0, true],
+      [360, true],
+      [361, false],
+      [479, false],
+      [480, true],
+      [960, true],
+      [961, false],
+      [1079, false],
+      [1080, true],
+    ])('returns %s for minute %i', (minute, expected) => {
+      expect(isBlackoutActive(minute)).toBe(expected);
+    });
+  });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -162,44 +178,66 @@ describe('DeviceController', () => {
       );
     });
 
-    it('should block mist ON during midday blackout window', async () => {
-      deviceRegistryService.get.mockReturnValue(mockDevice);
+    it.each([
+      ['mist', '08:00', '2026-07-14T08:00:00+07:00'],
+      ['mist', '12:00', '2026-07-14T12:00:00+07:00'],
+      ['mist', '18:00', '2026-07-14T18:00:00+07:00'],
+      ['mist', '03:00', '2026-07-14T03:00:00+07:00'],
+      ['heater_air', '08:00', '2026-07-14T08:00:00+07:00'],
+      ['heater_air', '12:00', '2026-07-14T12:00:00+07:00'],
+      ['heater_air', '18:00', '2026-07-14T18:00:00+07:00'],
+      ['heater_air', '03:00', '2026-07-14T03:00:00+07:00'],
+    ] as const)(
+      'should block %s ON at %s during a blackout window',
+      async (actuator, _label, isoTime) => {
+        deviceRegistryService.get.mockReturnValue(mockDevice);
+        jest.useFakeTimers().setSystemTime(new Date(isoTime));
 
-      // Mock date to 12:00 PM (Blackout active)
-      const mockDate = new Date('2026-07-14T12:00:00+07:00');
-      jest.useFakeTimers().setSystemTime(mockDate);
+        try {
+          await expect(
+            controller.publishActuatorOverride(
+              { id: 'esp32_01' },
+              { actuator, state: true },
+            ),
+          ).rejects.toThrow(BadRequestException);
+        } finally {
+          jest.useRealTimers();
+        }
+      },
+    );
 
-      await expect(
-        controller.publishActuatorOverride(
-          { id: 'esp32_01' },
-          { actuator: 'mist', state: true },
-        ),
-      ).rejects.toThrow(BadRequestException);
+    it.each([
+      ['mist', '06:01', '2026-07-14T06:01:00+07:00'],
+      ['mist', '07:30', '2026-07-14T07:30:00+07:00'],
+      ['mist', '16:01', '2026-07-14T16:01:00+07:00'],
+      ['mist', '17:30', '2026-07-14T17:30:00+07:00'],
+      ['heater_air', '06:01', '2026-07-14T06:01:00+07:00'],
+      ['heater_air', '07:30', '2026-07-14T07:30:00+07:00'],
+      ['heater_air', '16:01', '2026-07-14T16:01:00+07:00'],
+      ['heater_air', '17:30', '2026-07-14T17:30:00+07:00'],
+    ] as const)(
+      'should allow %s ON at %s in a safe zone',
+      async (actuator, _label, isoTime) => {
+        deviceRegistryService.get.mockReturnValue(mockDevice);
+        jest.useFakeTimers().setSystemTime(new Date(isoTime));
 
-      jest.useRealTimers();
-    });
+        try {
+          const result = await controller.publishActuatorOverride(
+            { id: 'esp32_01' },
+            { actuator, state: true },
+          );
 
-    it('should allow mist ON outside midday blackout window', async () => {
-      deviceRegistryService.get.mockReturnValue(mockDevice);
-
-      // Mock date to 3:00 PM (Outside blackout)
-      const mockDate = new Date('2026-07-14T15:00:00+07:00');
-      jest.useFakeTimers().setSystemTime(mockDate);
-
-      const result = await controller.publishActuatorOverride(
-        { id: 'esp32_01' },
-        { actuator: 'mist', state: true },
-      );
-
-      expect(result.message).toContain('đã được gửi đi');
-      expect(mqttService.dispatchActuatorOverride).toHaveBeenCalledWith(
-        'esp32_01',
-        'mist',
-        true,
-      );
-
-      jest.useRealTimers();
-    });
+          expect(result.message).toContain('đã được gửi đi');
+          expect(mqttService.dispatchActuatorOverride).toHaveBeenCalledWith(
+            'esp32_01',
+            actuator,
+            true,
+          );
+        } finally {
+          jest.useRealTimers();
+        }
+      },
+    );
 
     it('should block heater_air ON when cropDay > 8', async () => {
       deviceRegistryService.get.mockReturnValue(mockDevice);
@@ -228,6 +266,7 @@ describe('DeviceController', () => {
 
     it('should allow heater_air ON when cropDay <= 8', async () => {
       deviceRegistryService.get.mockReturnValue(mockDevice);
+      jest.useFakeTimers().setSystemTime(new Date('2026-07-14T07:30:00+07:00'));
 
       // Batch started 2 days ago
       const startDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -243,17 +282,21 @@ describe('DeviceController', () => {
         endedAt: null,
       } as any);
 
-      const result = await controller.publishActuatorOverride(
-        { id: 'esp32_01' },
-        { actuator: 'heater_air', state: true },
-      );
+      try {
+        const result = await controller.publishActuatorOverride(
+          { id: 'esp32_01' },
+          { actuator: 'heater_air', state: true },
+        );
 
-      expect(result.message).toContain('đã được gửi đi');
-      expect(mqttService.dispatchActuatorOverride).toHaveBeenCalledWith(
-        'esp32_01',
-        'heater_air',
-        true,
-      );
+        expect(result.message).toContain('đã được gửi đi');
+        expect(mqttService.dispatchActuatorOverride).toHaveBeenCalledWith(
+          'esp32_01',
+          'heater_air',
+          true,
+        );
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });

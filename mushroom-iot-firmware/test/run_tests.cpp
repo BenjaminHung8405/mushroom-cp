@@ -2906,23 +2906,41 @@ int main() {
         defaultTuning.mist_on_threshold = 0.25f;
         defaultTuning.mist_off_threshold = 0.15f;
 
-        // The biosafety blackout cannot be bypassed by fuzzy/manual demand.
+        // The dual-window biosafety blackout cannot be bypassed by fuzzy/manual demand.
         time_conf::setTimeConfidence(TimeConfidence::Trusted);
-        ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 10U, 59U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 11U, 0U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
-        protectedOut.HWat = 1.0f;
-        protectedOut.Mist = 1.0f;
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 30U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
-        protectedOut.HWat = 1.0f;
-        protectedOut.Mist = 1.0f;
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{true, 13U, 31U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f);
-        relay_control::hardwareProtectionOverride(protectedOut, RtcTimePod{false, 0U, 0U});
-        assert(protectedOut.HWat == 1.0f && protectedOut.Mist == 0.0f);
+        struct BlackoutCase {
+            uint8_t hour;
+            uint8_t minute;
+            bool expected;
+        };
+        const BlackoutCase blackoutCases[] = {
+            {7U, 59U, false}, {8U, 0U, true}, {12U, 0U, true},
+            {16U, 0U, true}, {16U, 1U, false}, {17U, 0U, false},
+            {17U, 59U, false}, {18U, 0U, true}, {23U, 59U, true},
+            {0U, 0U, true}, {3U, 0U, true}, {6U, 0U, true},
+            {6U, 1U, false},
+        };
+        for (const BlackoutCase& testCase : blackoutCases) {
+            const RtcTimePod rtcTime{true, testCase.hour, testCase.minute};
+            assert(relay_control::isScheduledBlackout(rtcTime) == testCase.expected);
+            assert(relay_control::isSafetyBlackoutActive(rtcTime) == testCase.expected);
+
+            ArbitratedOutputsPod protectedOut = {0.4f, 1.0f, 1.0f, 0.6f};
+            relay_control::hardwareProtectionOverride(protectedOut, rtcTime);
+            assert((protectedOut.HWat == 0.0f && protectedOut.Mist == 0.0f) == testCase.expected);
+            assert((protectedOut.HWat == 1.0f && protectedOut.Mist == 1.0f) == !testCase.expected);
+        }
+
+        ArbitratedOutputsPod invalidRtcOut = {0.4f, 1.0f, 1.0f, 0.6f};
+        relay_control::hardwareProtectionOverride(invalidRtcOut, RtcTimePod{false, 0U, 0U});
+        assert(invalidRtcOut.HWat == 0.0f && invalidRtcOut.Mist == 0.0f);
+        assert(relay_control::isSafetyBlackoutActive(RtcTimePod{true, 24U, 0U}) == true);
+
+        time_conf::setTimeConfidence(TimeConfidence::Uncertain);
+        ArbitratedOutputsPod untrustedTimeOut = {0.4f, 1.0f, 1.0f, 0.6f};
+        relay_control::hardwareProtectionOverride(untrustedTimeOut, RtcTimePod{true, 7U, 0U});
+        assert(untrustedTimeOut.HWat == 0.0f && untrustedTimeOut.Mist == 0.0f);
+        time_conf::setTimeConfidence(TimeConfidence::Trusted);
 
         // Table-driven pure hysteresis contract, including both threshold
         // boundaries, hold band, and fail-safe invalid inputs.
@@ -3781,8 +3799,8 @@ int main() {
 
         relay_control::RtcTimePod rtcTime = {};
         rtcTime.valid = true;
-        rtcTime.hour = 8;
-        rtcTime.minute = 0;
+        rtcTime.hour = 7;
+        rtcTime.minute = 30;
 
         uint16_t cropDay = 5;
 
@@ -3810,18 +3828,18 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
-        // Blackout only gates Mist; HWAT remains independently controllable.
+        // Blackout gates both Mist and HWat, clearing active latches.
         {
             relay_control::RtcTimePod blackoutTime{true, 12U, 0U};
             ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL };
             assert(manual::evaluateSafetyGate(hwatReq, telemetry, setpoints, blackoutTime, cropDay) ==
-                   ManualDecision::Accepted);
+                   ManualDecision::RejectedBlackout);
             manual::ManualLatchArray latch{};
             latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_OFF, 0U};
             latch[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
             manual::autoClearOnSensorViolation(latch, telemetry, setpoints, blackoutTime);
             assert(!latch[static_cast<size_t>(AppChannel::MIST)].active);
-            assert(latch[static_cast<size_t>(AppChannel::HWAT)].active);
+            assert(!latch[static_cast<size_t>(AppChannel::HWAT)].active);
         }
 
         // S2-G4: Test gate Lamp block khi temp >= setpoint target
@@ -4556,17 +4574,17 @@ int main() {
         sys_protector.update(1000UL, true, 28.0f, 70.0f, false, latches, states);
         assert(states.lamp_active == true);
 
-        // Midday/fail-safe blackout runs before bio bounds: low humidity cannot
-        // re-enable Mist, and its manual latch is released while HWAT is untouched.
+        // Scheduled/fail-safe blackout runs before bio bounds: low humidity cannot
+        // re-enable Mist or HWat, and both manual latches are released.
         states.mist_active = true;
         states.hwat_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 0U};
         latches[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
         sys_protector.update(1500UL, true, 30.0f, 64.0f, true, latches, states);
         assert(states.mist_active == false);
-        assert(states.hwat_active == true);
+        assert(states.hwat_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
-        assert(latches[static_cast<size_t>(AppChannel::HWAT)].active == true);
+        assert(latches[static_cast<size_t>(AppChannel::HWAT)].active == false);
 
         // Under-humidity (64% <= HmBOT) -> Mist is forced ON outside blackout
         states.mist_active = false;

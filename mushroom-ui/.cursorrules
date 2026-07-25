@@ -58,7 +58,7 @@ All component states, profile actions, and properties must comply with the schem
 
 - [cite_start]**Movable Mist Generator Control**: Must display travel states for a 6-viss ultrasonic mist generator running on a reversible rail motor[cite: 7, 16, 17]. [cite_start]Include UI states for: "Moving Forward", "Moving Backward", and "End-Limit Switches Activated"[cite: 16, 18]. [cite_start]Provide a progress track representing the physical position (0-100% travel) on the rails[cite: 17].
 - [cite_start]**Heating Lamps Widget**: Render with clear tooltips indicating they are primarily active during the first 7-8 days (spawn-running phase) and disabled during fruiting.
-- [cite_start]**Midday Blackout Indicator**: Visually flag or implement UI rule warnings that automated misting operations are restricted between 11:00 AM and 1:30 PM to avoid thermal shock to the mushroom crops[cite: 15].
+- [cite_start]**Scheduled Blackout Indicator**: Visually flag or implement UI rule warnings that Mist and HWat are restricted from 08:00–16:00 and 18:00–06:00 ICT; the edge safety interlock remains authoritative[cite: 15].
 
 ### C. Hardware Health Status Bar
 
