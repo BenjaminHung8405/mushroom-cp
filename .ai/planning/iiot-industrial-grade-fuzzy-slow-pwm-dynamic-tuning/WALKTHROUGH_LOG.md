@@ -1,3 +1,34 @@
+## [2026-07-25T14:42:00+07:00] - Track G (G1): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-25T14:39–14:42 (+07:00)
+- **Task ID:** G1
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/influx/tasks/kpi-hourly.flux`
+  - `mushroom-backend/src/influx/services/influx-task-provisioner.service.ts`
+  - `mushroom-backend/src/influx/services/influx-task-provisioner.service.spec.ts`
+  - `mushroom-backend/src/influx/influx.module.ts`
+  - `mushroom-backend/nest-cli.json`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:** Đã triển khai `InfluxTaskProvisionerService` chạy ở `onApplicationBootstrap()`, đọc và validate `INFLUXDB_URL`, `INFLUXDB_TOKEN`, `INFLUXDB_ORG`, `INFLUXDB_BUCKET` và `INFLUXDB_ANALYTICS_BUCKET`; compile template bằng Flux string literal đã escape trước khi gọi Tasks API. Provisioner idempotent: task active thì bỏ qua, inactive thì re-enable, chưa có thì create; thiếu bucket fail-closed trước API call. Flux không còn identifier môi trường chưa được định nghĩa hoặc analytics bucket hard-code. Cùng một reduce nay cộng `overshoot_temp_duration_s` và `undershoot_temp_duration_s` theo tick 5 giây, chỉ khi lệch target lớn hơn 0.5°C; ngưỡng bằng đúng 0.5°C không bị tính.
+- **Tự kiểm tra:** `npm test -- --runInBand` PASS — 30 suites / 229 tests; `npx tsc --noEmit -p tsconfig.build.json` PASS; regression provision kiểm tra bucket đổi tên/escape, active-disabled-create lifecycle, fail-closed và duration threshold.
+
+---
+
+## [2026-07-25T14:45:00+07:00] - Security/Architecture QA Review: REJECTED (Track G, G1)
+
+- **Kết quả:** **Từ chối duyệt** G1. Task G1 đã được chuyển từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`; không được chuyển sang `[x] Done`.
+- **Phạm vi:** Rà soát `mushroom-backend/src/influx/tasks/kpi-hourly.flux` và đối chiếu `README.md`, `PLAN.md`, `sprint_2.md` cùng yêu cầu G1 trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **[Critical] G1 — Source bucket không phải Flux hợp lệ/runtime-safe.** `kpi-hourly.flux:10` dùng `from(bucket: INFLUXDB_BUCKET)`, nhưng Flux task không tự resolve biến môi trường của NestJS/Docker thành identifier Flux. Repository chưa có `InfluxTaskProvisionerService` để substitute một giá trị đã validate trước khi provision task; vì vậy task không thể chạy đúng từ file hiện tại và có nguy cơ fail khi parse/execute. **Chỉ thị:** triển khai provisioner theo G2 hoặc cơ chế compile template tương đương: đọc `INFLUXDB_BUCKET` từ `ConfigService`, validate non-empty/bounded, escape thành Flux string literal trước khi tạo task; thêm test compile/provision chứng minh task dùng đúng bucket và fail-closed khi thiếu cấu hình.
+  2. **[High] G1 — Hard-code sai kiến trúc bucket analytics.** `kpi-hourly.flux:113` ghi thẳng `"mushroom_analytics"`, trong khi `PLAN.md:166` yêu cầu `INFLUXDB_ANALYTICS_BUCKET` là cấu hình environment và không được giả định tên bucket runtime. **Chỉ thị:** provision cả source và destination bucket từ cấu hình đã validate, không interpolate raw; thêm regression khi analytics bucket đổi tên.
+  3. **[High] G1 — Thiếu KPI fields bắt buộc.** Script không tính/ghi `overshoot_temp_duration_s` và `undershoot_temp_duration_s`, dù chúng là output bắt buộc tại `sprint_2.md:76-77`, schema output tại `sprint_2.md:86-87`, và là KPI v1 tại `PLAN.md:178`. Vì vậy downstream `ControlAnalyticsService` không thể cung cấp đầy đủ `overshootDurationSec`/`undershootDurationSec`. **Chỉ thị:** trong cùng một reduce, cộng duration theo tick 5 giây cho `temperature_c > temp_target + 0.5` và `temperature_c < temp_target - 0.5`; ghi cả hai field với tên contract thống nhất và bổ sung test dữ liệu vượt/ngưỡng/không vượt.
+- **Checklist:** Chưa phát hiện SQL injection, secret hard-code hoặc vòng lặp lồng nhau trong file Flux. Tuy nhiên các lỗi trên là lỗi contract/runtime, nên kết quả không thể là LGTM.
+- **Xác minh:** Đã kiểm tra schema writer hiện tại (`controller_history` có target, relay, revision và quality) và các contract Sprint 2; chưa có integration harness Flux/provisioner để chứng minh task compile/deploy thành công.
+
+---
+
 ## [2026-07-25T14:34:03+07:00] - Track G (G1): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-25T14:30–14:34 (+07:00)
