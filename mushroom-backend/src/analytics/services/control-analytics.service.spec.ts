@@ -19,6 +19,55 @@ describe('ControlAnalyticsService', () => {
     jest.clearAllMocks();
   });
 
+  describe('checkCoverageGate', () => {
+    it('blocks coverage below 80 percent before evaluating other gates', () => {
+      expect(
+        service.checkCoverageGate(kpiForGate({ dataCoveragePercent: 79.99 })),
+      ).toEqual({
+        allowed: false,
+        reason: 'COVERAGE_BELOW_80_PERCENT',
+      });
+    });
+
+    it('blocks mixed quality with fewer than 100 trusted samples', () => {
+      expect(
+        service.checkCoverageGate(
+          kpiForGate({
+            dataQualityWarning: true,
+            sampleCount: 99,
+          }),
+        ),
+      ).toEqual({
+        allowed: false,
+        reason: 'INSUFFICIENT_TRUSTED_SAMPLES',
+      });
+    });
+
+    it('allows mixed quality when at least 100 trusted samples are available', () => {
+      expect(
+        service.checkCoverageGate(
+          kpiForGate({
+            dataQualityWarning: true,
+            sampleCount: 100,
+          }),
+        ),
+      ).toEqual({ allowed: true });
+    });
+
+    it('blocks a KPI without an unambiguous config revision', () => {
+      expect(
+        service.checkCoverageGate(kpiForGate({ configRevision: null })),
+      ).toEqual({
+        allowed: false,
+        reason: 'CONFIG_REVISION_UNAVAILABLE',
+      });
+    });
+
+    it('allows a complete KPI window', () => {
+      expect(service.checkCoverageGate(kpiForGate())).toEqual({ allowed: true });
+    });
+  });
+
   it('aggregates rolling KPI using total squared error and total samples', async () => {
     queryApi.collectRows.mockResolvedValue([
       hourlyRow({
@@ -121,6 +170,26 @@ function hourlyRow(overrides: Record<string, unknown> = {}) {
     expected_samples: 12,
     valid_samples: 10,
     config_revision: '1',
+    ...overrides,
+  };
+}
+
+function kpiForGate(overrides: Partial<import('../interfaces/kpi-metrics.interface').KpiMetrics> = {}) {
+  return {
+    deviceId: 'device-1',
+    windowStart: new Date('2026-07-25T00:00:00.000Z'),
+    windowEnd: new Date('2026-07-25T24:00:00.000Z'),
+    tempRmse: 1,
+    humidRmse: 2,
+    mistSwitchCountPerHour: 1,
+    lampDutyCyclePercent: 40,
+    lampAvgOnDurationSec: 120,
+    overshootDurationSec: 0,
+    undershootDurationSec: 0,
+    dataCoveragePercent: 100,
+    sampleCount: 720,
+    configRevision: 1,
+    dataQualityWarning: false,
     ...overrides,
   };
 }

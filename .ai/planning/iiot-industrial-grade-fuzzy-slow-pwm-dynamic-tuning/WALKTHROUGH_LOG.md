@@ -1,3 +1,16 @@
+## [2026-07-25T14:59:16+07:00] - Track H (H4): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25 14:57–14:59 (+07:00)
+- **Task ID:** H4
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/analytics/services/control-analytics.service.ts` (sửa)
+  - `mushroom-backend/src/analytics/services/control-analytics.service.spec.ts` (sửa)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Bổ sung `checkCoverageGate()` với `CoverageGateResult` discriminated union để caller chỉ chạy recommender khi `allowed: true`. Gate fail-closed theo thứ tự xác định: coverage dưới 80% trả `COVERAGE_BELOW_80_PERCENT`; KPI mixed-quality với dưới 100 trusted samples trả `INSUFFICIENT_TRUSTED_SAMPLES`; thiếu revision đơn trị trả `CONFIG_REVISION_UNAVAILABLE`. Không có nhánh fail nào cho phép advisory tiếp tục chạy.
+- **Tự kiểm tra:** Unit test analytics PASS — 10 tests, bao phủ từng gate, ngưỡng 80%/100 samples, thứ tự ưu tiên và pass path. Backend regression `npm test -- --runInBand` PASS — 31 suites / 239 tests; `npm run build` PASS; `npx tsc --noEmit -p tsconfig.build.json` PASS; `git diff --check` PASS. Các log ERROR/WARN trong Jest là fixture fault-path được kỳ vọng.
+
 ## [2026-07-25T14:55:45+07:00] - Track H (H3): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-25 14:52–14:55 (+07:00)

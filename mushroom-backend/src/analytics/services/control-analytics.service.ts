@@ -7,6 +7,17 @@ import type { KpiMetrics } from '../interfaces/kpi-metrics.interface';
 const HOURS_PER_DAY = 24;
 const SECONDS_PER_HOUR = 3_600;
 const MAX_WINDOW_HOURS = 168;
+const MIN_COVERAGE_PERCENT = 80;
+const MIN_TRUSTED_SAMPLES = 100;
+
+export type CoverageGateFailureReason =
+  | 'COVERAGE_BELOW_80_PERCENT'
+  | 'INSUFFICIENT_TRUSTED_SAMPLES'
+  | 'CONFIG_REVISION_UNAVAILABLE';
+
+export type CoverageGateResult =
+  | { allowed: true }
+  | { allowed: false; reason: CoverageGateFailureReason };
 
 interface HourlyKpiRow {
   sampleCount: number;
@@ -29,6 +40,23 @@ export class ControlAnalyticsService {
     private readonly influxDbService: InfluxDbService,
     private readonly configService: ConfigService,
   ) {}
+
+  /** Blocks recommendation generation until the KPI window is trustworthy. */
+  checkCoverageGate(kpi: KpiMetrics): CoverageGateResult {
+    if (kpi.dataCoveragePercent < MIN_COVERAGE_PERCENT) {
+      return { allowed: false, reason: 'COVERAGE_BELOW_80_PERCENT' };
+    }
+
+    if (kpi.dataQualityWarning && kpi.sampleCount < MIN_TRUSTED_SAMPLES) {
+      return { allowed: false, reason: 'INSUFFICIENT_TRUSTED_SAMPLES' };
+    }
+
+    if (kpi.configRevision === null) {
+      return { allowed: false, reason: 'CONFIG_REVISION_UNAVAILABLE' };
+    }
+
+    return { allowed: true };
+  }
 
   /** Returns rolling, sample-weighted KPI data or null when no valid data exists. */
   async getKpiForDevice(
