@@ -33,10 +33,11 @@ import {
   MIST_OFF_THRESHOLD_MIN,
   MIST_ON_THRESHOLD_MAX,
   MIST_ON_THRESHOLD_MIN,
+  isTuningRejectionReasonCode,
 } from '../constants/tuning-contract.constants';
 import { TuningMqttOutboxDispatcher } from './tuning-mqtt-outbox-dispatcher.service';
 
-const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Identity derived from a verified JWT; never accept this data from a DTO. */
 export interface TuningPrincipal {
@@ -238,7 +239,11 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
 
   private isValidAck(ack: TuningReportedEvent): boolean {
     if (!ack || typeof ack.deviceId !== 'string' || !ack.deviceId.trim() || ack.deviceId.length > 50 || typeof ack.commandId !== 'string' || !COMMAND_ID_PATTERN.test(ack.commandId) || !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(ack.status) || typeof ack.persisted !== 'boolean') return false;
-    if (ack.status === 'REJECTED') return typeof ack.reasonCode === 'string' && ack.reasonCode.trim().length > 0 && ack.reportedConfig === null && ack.revision === null;
+    if (ack.status === 'REJECTED') {
+      return ack.persisted === false &&
+        isTuningRejectionReasonCode(ack.reasonCode) &&
+        ack.reportedConfig === null && ack.revision === null;
+    }
     if (ack.reasonCode !== null || ack.revision === null || !Number.isSafeInteger(ack.revision) || ack.revision < 0 || !ack.reportedConfig) return false;
     try { this.validateSnapshot(ack.reportedConfig); return true; } catch { return false; }
   }

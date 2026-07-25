@@ -246,9 +246,43 @@ describe('MqttService', () => {
             status: 'REJECTED',
             persisted: false,
             reason_code: 'INVALID_SCHEMA',
+            reported_config: null,
+            revision: null,
           }),
         ),
       );
+    });
+
+    it('drops malformed terminal REJECTED ACKs before emitting or touching liveness', () => {
+      const next = jest.spyOn(service.tuningReported$, 'next');
+      const rejected = {
+        device_id: 'device-1',
+        command_id: '11111111-1111-1111-1111-111111111111',
+        status: 'REJECTED',
+        persisted: false,
+        reason_code: 'INVALID_SCHEMA',
+        reported_config: null,
+        revision: null,
+      };
+      const invalidPayloads = [
+        { ...rejected, persisted: true },
+        { ...rejected, reason_code: ' UNKNOWN_REASON ' },
+        { ...rejected, reason_code: '   ' },
+        { ...rejected, reason_code: 'A'.repeat(65) },
+        { ...rejected, command_id: '11111111-1111-1111-1111-11111111111z' },
+        { ...rejected, command_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'.toUpperCase() },
+        { ...rejected, device_id: 'another-device' },
+      ];
+
+      for (const payload of invalidPayloads) {
+        messageCallback(
+          'mushroom/esp32/device-1/up/tuning/reported',
+          Buffer.from(JSON.stringify(payload)),
+        );
+      }
+
+      expect(next).not.toHaveBeenCalled();
+      expect(registry.touchLastSeen).not.toHaveBeenCalled();
     });
 
     it('should drop telemetry from disabled device', (done) => {

@@ -93,14 +93,21 @@ bool publishTuningReported(TuningReportedMqttClient& client, bool provisioned,
         ? tuningReasonCode(reason)
         : nullptr;
 
-    JsonObject config = document.createNestedObject("reported_config");
-    config["lamp_gain_scale"] = effective.lamp_gain_scale;
-    config["mist_gain_scale"] = effective.mist_gain_scale;
-    config["mist_on_threshold"] = effective.mist_on_threshold;
-    config["mist_off_threshold"] = effective.mist_off_threshold;
-    // The backend accepts IN_SYNC only after it canonical-compares this exact
-    // persisted effective revision and configuration against desired.
-    document["revision"] = effective.revision;
+    if (result == storage::TuningResult::REJECTED) {
+        // A reject has no accepted durable state to attest. Keeping these
+        // fields explicitly null makes the terminal-ACK contract unambiguous.
+        document["reported_config"] = nullptr;
+        document["revision"] = nullptr;
+    } else {
+        JsonObject config = document.createNestedObject("reported_config");
+        config["lamp_gain_scale"] = effective.lamp_gain_scale;
+        config["mist_gain_scale"] = effective.mist_gain_scale;
+        config["mist_on_threshold"] = effective.mist_on_threshold;
+        config["mist_off_threshold"] = effective.mist_off_threshold;
+        // The backend accepts IN_SYNC only after it canonical-compares this exact
+        // persisted effective revision and configuration against desired.
+        document["revision"] = effective.revision;
+    }
     document["persisted"] = result != storage::TuningResult::REJECTED;
     document["reported_at"] = nullptr;
 

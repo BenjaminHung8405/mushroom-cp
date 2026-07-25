@@ -35,8 +35,12 @@ import {
   MIST_OFF_THRESHOLD_MIN,
   MIST_ON_THRESHOLD_MAX,
   MIST_ON_THRESHOLD_MIN,
+  isTuningRejectionReasonCode,
 } from '../tuning/constants/tuning-contract.constants';
 import type { TuningConfigSnapshot } from '../tuning/entities/device-tuning-configuration.entity';
+
+const CANONICAL_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -688,7 +692,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const status = data.status;
     const persisted = data.persisted;
     if (
-      !commandId ||
+      !CANONICAL_UUID_PATTERN.test(commandId) ||
       !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(String(status)) ||
       typeof persisted !== 'boolean'
     ) {
@@ -701,28 +705,36 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    const reasonCode =
-      typeof data.reason_code === 'string' && data.reason_code.trim()
-        ? data.reason_code
-        : null;
-    if ((status === 'REJECTED') !== (reasonCode !== null)) {
-      this.logger.warn(
-        `Dropped tuning ACK with invalid reason_code for '${deviceId}'.`,
-      );
-      return;
-    }
     if (status === 'REJECTED') {
+      if (
+        persisted !== false ||
+        !isTuningRejectionReasonCode(data.reason_code) ||
+        data.reported_config !== null ||
+        data.revision !== null
+      ) {
+        this.logger.warn(
+          `Dropped malformed terminal tuning rejection from '${deviceId}'.`,
+        );
+        return;
+      }
       this.tuningReported$.next({
         deviceId,
         commandId,
         status,
-        reasonCode,
+        reasonCode: data.reason_code,
         persisted,
         reportedConfig: null,
         revision: null,
         receivedAt,
       });
       void this.registry.touchLastSeen(deviceId, receivedAt);
+      return;
+    }
+
+    if (data.reason_code !== null && data.reason_code !== undefined) {
+      this.logger.warn(
+        `Dropped tuning ACK with invalid reason_code for '${deviceId}'.`,
+      );
       return;
     }
 
@@ -738,7 +750,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       deviceId,
       commandId,
       status: status as TuningReportedEvent['status'],
-      reasonCode,
+      reasonCode: null,
       persisted,
       reportedConfig,
       revision,

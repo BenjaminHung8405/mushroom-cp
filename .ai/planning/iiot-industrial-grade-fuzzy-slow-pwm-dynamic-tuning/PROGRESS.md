@@ -75,16 +75,16 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | Đã khắc phục FK targeting chính xác và thêm CI gate PostgreSQL integration test. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | Đã dùng constraint name định danh `fk_tuning_audit_*` và loại bỏ DROP FK ngoài phạm vi. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | Type guard cho phép `reportedConfig`/`revision` nullable khi status là `REJECTED`. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | Migration hardening không còn đụng tới foreign key extension ngoài phạm vi tuning. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | Hỗ trợ terminal REJECTED ACK; tách helper và giữ SSE sau DB commit. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | Đã rà soát đồng bộ với terminal ACK handling và outbox persistence. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | Đã rà soát đồng bộ với latest revision ordering. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | Đã rà soát đồng bộ với audit logs history. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | Đã rà soát đồng bộ với outbox dispatcher và MQTT routing. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | Terminal REJECTED yêu cầu identity/UUID/reason/persisted, không buộc reportedConfig/revision; đã có regression route service/audit/SSE. |
+| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** commit chứa 614 PostgreSQL runtime/data files nhị phân ngoài phạm vi; phải loại bỏ hoàn toàn khỏi thay đổi. |
+| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** không duyệt Track F cho đến khi xóa artifact DB ngoài phạm vi và chạy lại regression migration. |
+| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** terminal REJECTED phải fail-closed với `persisted === false` và reason code allow-list/bounded. |
+| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** reason code không bounded hiện có thể làm lỗi ghi DB và mất ACK terminal. |
+| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** không được persist REJECTED giả mạo (`persisted: true`) hoặc reason code không thuộc contract. |
+| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
+| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
+| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
+| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ xử lý các lỗi chặn Track F và QA regression lại. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** validate `persisted === false`, reason enum/bounds trước khi route terminal REJECTED. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 

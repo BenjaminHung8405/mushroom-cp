@@ -125,6 +125,38 @@ describe('TuningConfigurationService hardening', () => {
     expect(outbox.enqueueRetainedClear).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['persisted true', { persisted: true }],
+    ['unknown reason', { reasonCode: 'UNKNOWN_REASON' }],
+    ['whitespace reason', { reasonCode: '   ' }],
+    ['oversized reason', { reasonCode: 'A'.repeat(65) }],
+    ['non-canonical UUID', { commandId: commandId.toUpperCase() }],
+    ['invalid UUID', { commandId: 'not-a-uuid' }],
+    ['non-null reported config', { reportedConfig: config }],
+    ['non-null revision', { revision: 1 }],
+  ])('drops terminal REJECTED ACK with %s before transaction, audit, SSE, or retained-clear', async (_case, override) => {
+    const emitted: unknown[] = [];
+    service.tuningSync$.subscribe((event) => emitted.push(event));
+
+    const result = await service.handleReportedAck({
+      deviceId,
+      commandId,
+      status: 'REJECTED',
+      persisted: false,
+      reasonCode: 'INVALID_SCHEMA',
+      reportedConfig: null,
+      revision: null,
+      receivedAt: new Date(),
+      ...override,
+    });
+
+    expect(result).toEqual({ updated: false, isLatest: false });
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(emitted).toHaveLength(0);
+    expect(outbox.enqueueRetainedClear).not.toHaveBeenCalled();
+    expect(outbox.dispatchDue).not.toHaveBeenCalled();
+  });
+
   it('routes the same terminal REJECTED ACK from the MQTT event stream to durable state, audit, and SSE', async () => {
     const pending = { id: 'config-1', deviceId, commandId, revision: 1, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
     const manager = {
