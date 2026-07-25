@@ -75,16 +75,16 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** no-change revision chỉ cập nhật RAM, mất sau reboot và gây `REVISION_MISMATCH`; phải persist/recover revision theo một invariant durable. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và chạy lại regression migration/E2E. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** durable shadow phải giữ được revision đã ACK qua reboot khi config semantic-equal. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục và kiểm chứng ACK no-change sau reboot không bị false rejection. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** firmware phải report đúng revision durable sau reconnect để không ghi `REVISION_MISMATCH` giả. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** command semantic-equal revision mới phải có invariant bền vững, không tạo retained replay/livelock. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** chờ khắc phục contract durable no-change và QA regression lại. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | **QA REJECTED 2026-07-25:** retained replay sau reboot phải report revision canonical, không false reject. |
+| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Durable shadow migration verified; unique (device_id, command_id) & (device_id, revision), preflight abort on duplicates, rollback idempotent. |
+| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Audit migration verified; ON DELETE RESTRICT; migration 0008 target-drops chỉ đúng 2 FK tuning; FK unrelated extension không bị xoá. |
+| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Entity khớp TypeORM contract; hỗ trợ `reportedConfig`, `reportedRevision`, `appliedAt`, `rejectionReason` durable. |
+| F4 | Khai báo entity `TuningAuditLog`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Audit entity append-only, `onDelete: RESTRICT` ở cả entity lẫn migration. |
+| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Fail-closed type-guard theo status; REJECTED chỉ cần identity/UUID/persisted===false/reason enum; ACCEPTED/DUPLICATE bắt buộc revision + canonical snapshot; SSE chỉ phát sau DB commit. |
+| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Transactional outbox pattern; supersede undelivered desired revision cũ; idempotent commandId; no retained replay livelock. |
+| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** JWT/ownership check; query order revision DESC. |
+| F8 | Implement `getTuningHistory()` với phân trang. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Pagination fail-closed; HTTP 400 trước repo với NaN/số âm/0/overflow. |
+| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** DI wiring clean; không có circular dependency ngoài forwardRef(MqttService) đã kiểm. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Fail-closed parse; REJECTED tách guard riêng; device_id/topic identity khớp; durable routing đến service. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 

@@ -1,3 +1,21 @@
+## [2026-07-25T14:30:00+07:00] - Security/Architecture QA Review: APPROVED (LGTM - Track F: F1–F10)
+
+- **Kết quả:** **LGTM (Looks Good To Me)**. Thông qua kiểm toán toàn bộ Track F (F1–F10). Tất cả các task F1 đến F10 được chuyển sang trạng thái `[x] Done` trong `PROGRESS.md`.
+- **Phạm vi kiểm tra:** Rà soát source Track F ở `mushroom-iot-firmware` và `mushroom-backend`; đối chiếu với `README.md` v2.2 (kiến trúc, conventions, durability) và yêu cầu F1–F10 trong `PROGRESS.md`.
+- **Đánh giá checklist:**
+  1. **Kiến trúc & conventions:** Layer Controller/Service/Outbox/Entity (backend) và Core/Storage/Network (firmware) tách đúng trách nhiệm; helper `loadLockedCommand`, `transitionReportedAck`, `persistAuditAndOutbox` giữ transaction rõ ràng. Không thấy DRY violation, method mới vượt 50 dòng, hoặc dependency layer sai.
+  2. **Bảo mật:** Không có secret/credential hard-code; migration integration dùng `TUNING_MIGRATION_DATABASE_URL`. Pagination fail-closed trước repository. MQTT/service type-guard reject ACK giả: UUID canonical, topic/device identity, `persisted === false`, `reported_config`/`revision === null`, reason allow-list bounded. SQL dùng binding; JWT/house ownership được kiểm trước read/write.
+  3. **Logic & edge cases:** `recordNoChangeReceipt()` nay persist full canonical snapshot/revision/UUID qua two-slot CRC bằng `saveTuningParams(incoming)`. Sau reboot revision N+1 được hydrate đúng; retained revision cũ bị `STALE_REVISION`; duplicate QoS-1 UUID không write flash hay handoff Core 1. Backend E2E regression xác nhận retained replay về `IN_SYNC` đúng một lần, không `REVISION_MISMATCH`.
+  4. **Tối ưu:** Advisory transaction lock, transactional outbox và DB due-query/index tránh race, head-of-line blocking và N+1 query. Không phát hiện nested loop không cần thiết.
+- **Xác minh:**
+  - `mushroom-iot-firmware ./run_tests_mac`: **PASS**.
+  - `mushroom-backend npm test -- --runInBand`: **29 suites / 225 tests PASS**.
+  - `mushroom-backend npx tsc --noEmit -p tsconfig.build.json`: **PASS**.
+  - Regression migration PostgreSQL thật được ghi nhận **3 tests PASS** (clean up/down, duplicate preflight, upgrade/FK unrelated); integration suite fail khi thiếu URL.
+  - `git diff --check`: **PASS**. Artifact planning là UTF-8.
+
+---
+
 ## [2026-07-25T14:19:00+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 3)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-25T14:05–14:19 (+07:00)
