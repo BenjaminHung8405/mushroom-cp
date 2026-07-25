@@ -1,13 +1,12 @@
-// INFLUXDB_BUCKET is supplied by InfluxTaskProvisionerService at provisioning
-// time. Keeping it as a Flux identifier prevents the source bucket from being
-// coupled to a deployment-specific name.
+// Bucket placeholders are replaced with escaped Flux string literals by
+// InfluxTaskProvisionerService before this script is sent to InfluxDB.
 option task = {name: "kpi_hourly_aggregation", every: 1h, offset: 5m}
 
 sampleIntervalSeconds = 5.0
 expectedSamplesPerHour = 720.0
 
 data =
-    from(bucket: INFLUXDB_BUCKET)
+    from(bucket: "__INFLUXDB_BUCKET__")
         |> range(start: -1h)
         |> filter(fn: (r) => r._measurement == "controller_history")
         |> filter(fn: (r) => r.data_quality == "good")
@@ -58,6 +57,8 @@ data
             mist_on_duration_s: 0.0,
             lamp_on_duration_s: 0.0,
             lamp_session_count: 0.0,
+            overshoot_temp_duration_s: 0.0,
+            undershoot_temp_duration_s: 0.0,
             previous_mist_on: false,
             previous_lamp_on: false,
             has_previous_state: false,
@@ -91,6 +92,16 @@ data
                                 not accumulator.previous_lamp_on and r.lamp_state
                             then 1.0
                             else 0.0),
+                overshoot_temp_duration_s:
+                    accumulator.overshoot_temp_duration_s +
+                        (if float(v: r.temperature_c) > float(v: r.temp_target) + 0.5
+                        then sampleIntervalSeconds
+                        else 0.0),
+                undershoot_temp_duration_s:
+                    accumulator.undershoot_temp_duration_s +
+                        (if float(v: r.temperature_c) < float(v: r.temp_target) - 0.5
+                        then sampleIntervalSeconds
+                        else 0.0),
                 previous_mist_on: r.mist_state,
                 previous_lamp_on: r.lamp_state,
                 has_previous_state: true,
@@ -110,7 +121,7 @@ data
             }),
     )
     |> to(
-        bucket: "mushroom_analytics",
+        bucket: "__INFLUXDB_ANALYTICS_BUCKET__",
         measurement: "kpi_metrics_1h",
         tagColumns: ["device_id", "control_source", "config_revision"],
         fieldFn: (r) =>
@@ -123,6 +134,8 @@ data
                 lamp_on_duration_s: r.lamp_on_duration_s,
                 lamp_session_count: r.lamp_session_count,
                 lamp_avg_on_duration_s: r.lamp_avg_on_duration_s,
+                overshoot_temp_duration_s: r.overshoot_temp_duration_s,
+                undershoot_temp_duration_s: r.undershoot_temp_duration_s,
                 expected_samples: r.expected_samples,
                 valid_samples: r.valid_samples,
                 data_coverage_percent: r.data_coverage_percent,
