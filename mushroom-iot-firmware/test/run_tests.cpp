@@ -1291,7 +1291,7 @@ int main() {
             assert(xQueueReceive(g_tuning_config_queue, &queued, 0) == pdFALSE);
 
             DynamicTuningParams active = tuner.getActiveParams();
-            assert(active.revision == 1);
+            assert(active.revision == 2);
             assert(std::strcmp(active.command_id, "a0d33b2e-9d2a-43a9-8de6-bf10d3215264") == 0);
             // Float parameters remain correct
             assert(std::abs(active.lamp_gain_scale - 1.1f) < 0.0001f);
@@ -1451,6 +1451,14 @@ int main() {
 
         // Case 12: NVS write fail in recordNoChangeReceipt (Fail-closed)
         {
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                prefs.remove("tune_s0");
+                prefs.remove("tune_s1");
+                prefs.remove("tune_rcpt");
+                prefs.end();
+            }
             tuner.resetForTest();
             assert(tuner.init() == true);
 
@@ -3743,6 +3751,7 @@ int main() {
         encoder::process(500UL);
         encoder::process(530UL);
         encoder::process(3530UL);
+        processHardwareOverridePersistence();
         storage::HardwareOverrideSnapshot persistedOverride;
         assert(storage.load_hardware_override(persistedOverride) == true);
         assert(std::fabs(persistedOverride.temp_target - 31.5f) < 0.001f);
@@ -3977,9 +3986,12 @@ int main() {
             PersistedCropProfile validProf{};
             validProf.magic = 0x43524F50;
             validProf.schema_version = 1;
+            validProf.storage_version = 2;
             validProf.checkpoint_count = 3;
             validProf.crop_start_epoch_s = 1000;
             validProf.total_crop_days = 10;
+            validProf.light_schedule_count = 1;
+            validProf.light_schedule[0] = {1, 10, 1, 0};
 
             validProf.checkpoints[0] = {1, 24.0f, 85.0f};
             validProf.checkpoints[1] = {5, 22.0f, 88.0f};
@@ -4029,7 +4041,12 @@ int main() {
             // 5. CRC rejection / corruption test
             PersistedCropProfile corruptProf = validProf;
             corruptProf.crc32 ^= 0x12345678; // Invalidate CRC
-            assert(cps.saveProfile(corruptProf) == true); // Save succeeds because saveProfile doesn't validate internal CRC itself on write
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                assert(prefs.putBytes("crop_profile", &corruptProf, sizeof(corruptProf)) == sizeof(corruptProf));
+                prefs.end();
+            }
             PersistedCropProfile loadedCorrupt{};
             assert(cps.loadProfile(loadedCorrupt) == false); // Load fails because of CRC mismatch
 
@@ -4162,8 +4179,12 @@ int main() {
 
             // 1. test_interpolate_between_checkpoints
             PersistedCropProfile prof{};
+            prof.magic = 0x43524F50;
+            prof.storage_version = 2;
             prof.checkpoint_count = 3;
             prof.total_crop_days = 10;
+            prof.light_schedule_count = 1;
+            prof.light_schedule[0] = {1, 10, 1, 0};
             prof.checkpoints[0] = {1, 20.0f, 50.0f};
             prof.checkpoints[1] = {5, 24.0f, 70.0f};
             prof.checkpoints[2] = {10, 30.0f, 90.0f};
@@ -4206,7 +4227,12 @@ int main() {
             corruptProf.magic = 0x43524F50;
             corruptProf.crc32 = 0x12345678; // Invalid CRC
             storage::CropProfileStorage& cps = storage::CropProfileStorage::getInstance();
-            assert(cps.saveProfile(corruptProf) == true);
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                assert(prefs.putBytes("crop_profile", &corruptProf, sizeof(corruptProf)) == sizeof(corruptProf));
+                prefs.end();
+            }
             PersistedCropProfile loadedCorrupt{};
             assert(cps.loadProfile(loadedCorrupt) == false);
 
@@ -4251,26 +4277,32 @@ int main() {
         ota::init();
         ota::init();
 
-        String url = "";
-        assert(ota::check_ota_trigger(url) == false);
-        assert(url == "");
+        ota::OtaRequest req;
+        assert(ota::check_ota_trigger(req) == false);
+        assert(req.url == "");
 
-        ota::request_ota_update("");
-        assert(ota::check_ota_trigger(url) == false);
+        ota::OtaRequest emptyReq{};
+        ota::request_ota_update(emptyReq);
+        assert(ota::check_ota_trigger(req) == false);
 
-        ota::request_ota_update("https://example.com/firmware.bin");
-        assert(ota::check_ota_trigger(url) == true);
-        assert(url == "https://example.com/firmware.bin");
+        ota::OtaRequest validReq{};
+        validReq.command_id = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
+        validReq.url = "http://example.com/firmware.bin";
+        validReq.sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        validReq.size = 1024;
+        ota::request_ota_update(validReq);
+        assert(ota::check_ota_trigger(req) == true);
+        assert(req.url == "http://example.com/firmware.bin");
 
-        url = "";
-        assert(ota::check_ota_trigger(url) == false);
+        req = ota::OtaRequest{};
+        assert(ota::check_ota_trigger(req) == false);
 
         // OTA is not exposed by the V3 device command envelope. A legacy
         // payload must be rejected rather than scheduling a firmware update.
         char cmd_topic[] = "test_tenant/esp32/mushroom_s3_unittest/down/command";
         std::string ota_payload = "{\"cmd\":\"ota_update\",\"url\":\"https://example.com/ota-update.bin\"}";
         PubSubClient::mock_callback(cmd_topic, (uint8_t*)ota_payload.c_str(), ota_payload.length());
-        assert(ota::check_ota_trigger(url) == false);
+        assert(ota::check_ota_trigger(req) == false);
     }
 
     // 39. Test Fuzzy Control Enable/Disable Configuration and Physical Button Overrides

@@ -35,6 +35,7 @@ void run_all_tests()
 
     const DynamicTuningParams before = tuning.getActiveParams();
     const auto assertDeferredWithoutMutation = [&](const char* payload, size_t length) {
+        manager.resetOutboxForTest();
         mqtt::NetworkMessage message{};
         message.type = mqtt::CommandType::TUNING_DESIRED;
         message.payload_length = length;

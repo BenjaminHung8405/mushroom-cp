@@ -14,6 +14,26 @@
 #define LOW 0x00
 #define HIGH 0x01
 
+#define MQTT_CONNECTION_TIMEOUT     -4
+#define MQTT_CONNECTION_LOST        -3
+#define MQTT_CONNECT_FAILED         -2
+#define MQTT_DISCONNECTED           -1
+#define MQTT_CONNECTED               0
+#define MQTT_CONNECT_BAD_PROTOCOL    1
+#define MQTT_CONNECT_BAD_CLIENT_ID   2
+#define MQTT_CONNECT_UNAVAILABLE     3
+#define MQTT_CONNECT_BAD_CREDENTIALS 4
+#define MQTT_CONNECT_UNAUTHORIZED    5
+
+template<typename T>
+const T& min(const T& a, const T& b) {
+    return (a < b) ? a : b;
+}
+template<typename T>
+const T& max(const T& a, const T& b) {
+    return (a > b) ? a : b;
+}
+
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
 #endif
@@ -55,6 +75,15 @@ public:
     const char* c_str() const { return _str.c_str(); }
     size_t length() const { return _str.length(); }
     bool isEmpty() const { return _str.empty(); }
+    bool startsWith(const char* prefix) const {
+        if (!prefix) return false;
+        size_t prefix_len = strlen(prefix);
+        if (_str.length() < prefix_len) return false;
+        return _str.compare(0, prefix_len, prefix) == 0;
+    }
+    bool startsWith(const String& prefix) const {
+        return startsWith(prefix.c_str());
+    }
     bool endsWith(const char* suffix) const {
         if (!suffix) return false;
         size_t suffix_len = strlen(suffix);
@@ -334,6 +363,12 @@ public:
         mock_last_published_topic = topic ? topic : "";
         mock_last_published_payload = payload ? payload : "";
         mock_last_published_retained = false;
+        return mock_publish_result;
+    }
+    bool publish(const char* topic, const char* payload, bool retained) {
+        mock_last_published_topic = topic ? topic : "";
+        mock_last_published_payload = payload ? payload : "";
+        mock_last_published_retained = retained;
         return mock_publish_result;
     }
     bool publish(const char* topic, const uint8_t* payload, unsigned int plength, bool retained) {

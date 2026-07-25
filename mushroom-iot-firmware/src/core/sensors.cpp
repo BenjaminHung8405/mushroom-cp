@@ -25,6 +25,10 @@ namespace sensors
     static uint32_t sht30_last_success_uptime_sec = 0;
     static unsigned long sht30_last_error_log_ms = 0;
     static SensorError sht30_last_logged_error = SensorError::SUCCESS;
+    static bool sht30_diag_mist_active = false;
+    static bool sht30_diag_fan_active = false;
+    static bool sht30_diag_lamp_active = false;
+    static bool sht30_diag_hwat_active = false;
 
     static void recordSht30Failure(SensorError error, const char* message)
     {
@@ -35,6 +39,11 @@ namespace sensors
         if (error != sht30_last_logged_error || now - sht30_last_error_log_ms >= 60000UL) {
             Serial.printf("[SENSORS] WARN: %s (failures=%lu)\n", message,
                           static_cast<unsigned long>(sht30_consecutive_failures));
+            Serial.printf("[SENSORS] DIAG: relay state at SHT30 failure: mist=%d fan=%d lamp=%d hwat=%d\n",
+                          static_cast<int>(sht30_diag_mist_active),
+                          static_cast<int>(sht30_diag_fan_active),
+                          static_cast<int>(sht30_diag_lamp_active),
+                          static_cast<int>(sht30_diag_hwat_active));
             sht30_last_error_log_ms = now;
             sht30_last_logged_error = error;
         }
@@ -116,6 +125,9 @@ namespace sensors
         const bool recovered = sht30.begin(0x44);
         if (recovered)
         {
+            // Give the SHT30 time to settle after I2C-driver reinitialization
+            // before the next scheduled measurement starts.
+            delay(2);
             Serial.println("[SENSORS] INFO: I2C bus recovery SUCCESS — SHT30 is back online.");
         }
         else
@@ -203,10 +215,11 @@ namespace sensors
         hum = sht30.readHumidity();
 
         // Lọc nhiễu điện từ (EMI) thoáng qua do đóng cắt rơ-le hoặc chập chờn dây tín hiệu.
-        // Nếu lần 1 bị NaN, chờ 15ms và đọc lại lần 2 ngay lập tức trước khi ghi nhận lỗi.
+        // Wait 50 ms before retrying: this exceeds a high-repeatability conversion
+        // and lets a relay-switching transient settle before beginning a new read.
         if (std::isnan(temp) || std::isnan(hum))
         {
-            delay(15);
+            delay(50);
             temp = sht30.readTemperature();
             hum = sht30.readHumidity();
         }
@@ -339,6 +352,15 @@ namespace sensors
         data.co2_level = scd_co2; // NAN — omitted from MQTT publish by isnan() guard
 
         return success;
+    }
+
+    void set_sht30_relay_diagnostic_state(bool mist_active, bool fan_active,
+                                          bool lamp_active, bool hwat_active)
+    {
+        sht30_diag_mist_active = mist_active;
+        sht30_diag_fan_active = fan_active;
+        sht30_diag_lamp_active = lamp_active;
+        sht30_diag_hwat_active = hwat_active;
     }
 
     // --- API bổ sung cho fault injection và kiểm toán SHT30 ---

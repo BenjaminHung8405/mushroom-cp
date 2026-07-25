@@ -768,8 +768,16 @@ static void runControlPipelineStep(
     const unsigned long now = millis();
     static bool lastSensorReadOk = true;
     bool newSensorRead = false;
+    // Keep I2C sampling at the beginning of the control tick. Physical relay
+    // writes deliberately occur only after the measurement and control pipeline
+    // have completed, reducing exposure of SDA/SCL to relay switching noise.
     if (lastSensorMs == 0U || (now - lastSensorMs) >= SENSOR_READ_INTERVAL_MS)
     {
+        sensors::set_sht30_relay_diagnostic_state(
+            relayState.mist_active,
+            relayState.fan_active,
+            relayState.lamp_active,
+            relayState.hwat_active);
         lastSensorReadOk = sensors::read_all_telemetry(telemetry);
         newSensorRead = true;
     }

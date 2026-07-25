@@ -164,23 +164,40 @@ TuningReason TuningConfigManager::validateAndParse(const JsonVariant& doc, Dynam
 
 TuningReason TuningConfigManager::validateCommandEnvelope(const JsonVariant& doc, const char*& command_id,
                                                            uint32_t& revision) {
-    if (!_validateSchemaVersion(doc)) return TuningReason::INVALID_SCHEMA;
-    if (!_validateDeviceId(doc)) return TuningReason::INVALID_DEVICE_ID;
+    if (!_validateSchemaVersion(doc)) {
+        Serial.println("[TUNING] DEBUG: _validateSchemaVersion failed");
+        return TuningReason::INVALID_SCHEMA;
+    }
+    if (!_validateDeviceId(doc)) {
+        Serial.println("[TUNING] DEBUG: _validateDeviceId failed");
+        return TuningReason::INVALID_DEVICE_ID;
+    }
     JsonVariant command = doc["command_id"];
-    if (command.isNull() || !command.is<const char*>()) return TuningReason::INVALID_UUID;
+    if (command.isNull() || !command.is<const char*>()) {
+        Serial.println("[TUNING] DEBUG: command_id invalid");
+        return TuningReason::INVALID_UUID;
+    }
     command_id = command.as<const char*>();
-    if (!_validateCommandIdFormat(command_id)) return TuningReason::INVALID_UUID;
+    if (!_validateCommandIdFormat(command_id)) {
+        Serial.println("[TUNING] DEBUG: _validateCommandIdFormat failed");
+        return TuningReason::INVALID_UUID;
+    }
     const JsonVariant value = doc["revision"];
-    if (value.isNull() || value.is<const char*>() || value.is<bool>() || value.is<float>() || value.is<double>()) {
+    if (value.isNull() || value.is<const char*>() || value.is<bool>()) {
+        Serial.println("[TUNING] DEBUG: revision isNull/char/bool failed");
         return TuningReason::INVALID_SCHEMA;
     }
     if (value.is<int>() || value.is<long>() || value.is<long long>() ||
         value.is<unsigned int>() || value.is<unsigned long>() || value.is<unsigned long long>()) {
         const int64_t rev = value.as<int64_t>();
-        if (rev < 0 || rev > 4294967295LL) return TuningReason::INVALID_SCHEMA;
+        if (rev < 0 || rev > 4294967295LL) {
+            Serial.printf("[TUNING] DEBUG: revision bounds check failed: %lld\n", static_cast<long long>(rev));
+            return TuningReason::INVALID_SCHEMA;
+        }
         revision = static_cast<uint32_t>(rev);
         return TuningReason::OK;
     }
+    Serial.println("[TUNING] DEBUG: revision is not integer");
     return TuningReason::INVALID_SCHEMA;
 }
 
@@ -231,6 +248,7 @@ TuningResult TuningConfigManager::recordNoChangeReceipt(const DynamicTuningParam
         reason = TuningReason::NVS_WRITE_ERROR;
         return TuningResult::REJECTED;
     }
+    _active_params.revision = incoming.revision;
     std::strncpy(_last_no_change_command_id, incoming.command_id,
                  sizeof(_last_no_change_command_id) - 1);
     _last_no_change_command_id[sizeof(_last_no_change_command_id) - 1] = '\0';

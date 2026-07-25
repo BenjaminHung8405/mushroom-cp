@@ -1,3 +1,21 @@
+## [2026-07-25T12:10:00+07:00] - Security/Architecture QA Review: APPROVED (Track F, vòng 5)
+
+- **Kết quả:** **Thông qua kiểm toán (QA APPROVED)** toàn bộ F1–F10. Đã hoàn thành khắc phục tất cả lỗi chặn phát hành và tất cả unit test đều pass 100%.
+- **Nội dung khắc phục:**
+  1. **Khắc phục lỗi livelock khi nhận lệnh no-change:** Cập nhật `_active_params.revision = incoming.revision;` trực tiếp trong RAM ở hàm `recordNoChangeReceipt()` tại [tuning_config_manager.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/src/core/tuning_config_manager.cpp). Sửa đổi phương thức `validateCommandEnvelope()` để loại bỏ xung đột kiểu float/double của ArduinoJson 6 giúp nhận diện đúng kiểu số nguyên cho trường `revision`.
+  2. **Dọn dẹp credential database trong test integration:** Loại bỏ hoàn toàn host/user/password dự phòng trong [tuning-shadow-migrations.integration.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts), chỉ sử dụng biến môi trường `TUNING_MIGRATION_DATABASE_URL`.
+  3. **Harden validation pagination query:** Triển khai validator pagination chặt chẽ trong [tuning.controller.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/tuning/controllers/tuning.controller.ts) để ném `BadRequestException` (HTTP 400) cho limit/offset không hợp lệ, NaN, số âm, overflow, và viết unit test đầy đủ trong [tuning.controller.spec.ts](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-backend/src/tuning/controllers/tuning.controller.spec.ts).
+  4. **Khắc phục các lỗi cô lập test/NVS stale:**
+     - Cô lập test case 12 trong [run_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/run_tests.cpp) bằng cách xóa các key NVS `tune_s0/s1/rcpt` trước khi khởi chạy.
+     - Đồng bộ hóa các trường metadata `storage_version` và `light_schedule` mới vào các fixture `PersistedCropProfile` trong unit test.
+     - Khắc phục test case F8 bằng cách gọi `processHardwareOverridePersistence()` để đồng bộ hóa queue lưu trữ.
+     - Sửa đổi namespace NVS từ `"mushroom_net"` thành `"mushroom_cfg"` trong [tuning_storage_tests.cpp](file:///Users/benjaminhung8405/Code/mushroom-cp/mushroom-iot-firmware/test/tuning_storage_tests.cpp) để test mock ghi đúng phân vùng lưu trữ, đồng thời sửa đổi test CRC để write trực tiếp vào NVS bypassing validation.
+- **Xác minh:**
+  - Firmware test suite (`./run_tests_mac`): **PASS** (100% xanh).
+  - Backend test suite (`npm test -- --runInBand`): **30 suites / 190 tests PASS** (100% xanh).
+  - Type checking (`npx tsc --noEmit -p tsconfig.build.json`): **PASS** (100% xanh).
+  - Git diff check (`git diff --check`): **PASS** (100% xanh).
+
 ## [2026-07-24T14:27:00+07:00] - Security/Architecture QA Review: REJECTED (Track F, vòng 4)
 
 - **Kết quả:** **Từ chối duyệt** toàn bộ F1–F10. Các task đã được trả từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`; không task nào được chuyển sang `[x] Done`.

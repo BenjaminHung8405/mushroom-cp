@@ -48,6 +48,13 @@ namespace sensors
      */
     bool read_all_telemetry(TelemetryData &data);
 
+    /**
+     * @brief Cập nhật snapshot relay để chẩn đoán khi một I2C read bị lỗi.
+     * Snapshot này không điều khiển relay và chỉ được in cùng log lỗi SHT30.
+     */
+    void set_sht30_relay_diagnostic_state(bool mist_active, bool fan_active,
+                                          bool lamp_active, bool hwat_active);
+
     /** True after at least one successful SHT30 sample in this boot session. */
     bool has_valid_sht30_read();
 

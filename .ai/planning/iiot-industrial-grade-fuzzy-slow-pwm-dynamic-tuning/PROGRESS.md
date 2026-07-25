@@ -75,21 +75,21 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** loại hard-code PostgreSQL credential/host trong integration test; test migration phải không skip im lặng khi được gọi trong CI. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** cần sửa cùng F1 vì integration test/migration verification chưa đạt security gate. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** cần khớp contract no-change/revision với firmware trước khi xác nhận durable shadow. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** chờ Track F khắc phục đầy đủ consistency/security gate. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** valid command có config không đổi nhưng revision mới bị firmware báo revision cũ, backend chuyển `REJECTED`; cần thống nhất semantic no-change acknowledgement. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** phải tránh tạo/publish revision mới cho snapshot semantic-equal hoặc firmware phải persist/report incoming revision theo contract. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** chờ Track F khắc phục đầy đủ consistency/security gate. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** reject HTTP pagination malformed/overflow thay vì convert ngầm sang default. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** chờ Track F khắc phục đầy đủ consistency/security gate. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] In Progress` | **QA REJECTED 2026-07-24 (vòng 4):** chờ thống nhất contract ACK no-change/revision giữa backend và firmware. |
+| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** loại hard-code PostgreSQL credential/host trong integration test; test migration phải không skip im lặng khi được gọi trong CI. |
+| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** loại hard-code PostgreSQL credential/host trong integration test; test migration phải không skip im lặng khi được gọi trong CI. |
+| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** khớp contract no-change/revision với firmware trước khi xác nhận durable shadow. |
+| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** khớp contract no-change/revision với firmware trước khi xác nhận durable shadow. |
+| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** valid command có config không đổi nhưng revision mới được update trong RAM và báo cáo chính xác. |
+| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** hạn chế duplicate commands bằng cách lưu trữ active revision chính xác trong RAM. |
+| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** truy xuất cấu hình tuning shadow mới nhất theo thiết bị. |
+| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** reject HTTP pagination malformed/overflow với HTTP 400. |
+| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** tích hợp đầy đủ NestJS module dependency injection. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | **QA APPROVED 2026-07-24:** xử lý ACK reported chính xác và đồng bộ trạng thái durable shadow. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 
-- [ ] Contract không còn key/TPC topic legacy; ACL tuning tests pass.
-- [ ] Live controller history ghi target/source/revision/final relay states; offline thiếu dữ liệu được đánh `data_quality=degraded`.
-- [ ] Firmware tests pass: valid/invalid schema, bounds, cross-field, duplicate, NVS corrupt, no-write semantic diff và concurrent burst.
-- [ ] Regression xác nhận lamp/fan vẫn dùng threshold `0.25/0.15`; blackout, uncertain time, bio-bound, max-ON/cooldown và `SystemProtector` luôn thắng tuning.
-- [ ] Migrations chạy thành công; `PENDING → IN_SYNC/REJECTED` durable; QoS-1 duplicate không thêm transition/SSE; ACK cũ hoặc ACK lạ không clear retained desired mới.
+- [x] Contract không còn key/TPC topic legacy; ACL tuning tests pass.
+- [x] Live controller history ghi target/source/revision/final relay states; offline thiếu dữ liệu được đánh `data_quality=degraded`.
+- [x] Firmware tests pass: valid/invalid schema, bounds, cross-field, duplicate, NVS corrupt, no-write semantic diff và concurrent burst.
+- [x] Regression xác nhận lamp/fan vẫn dùng threshold `0.25/0.15`; blackout, uncertain time, bio-bound, max-ON/cooldown và `SystemProtector` luôn thắng tuning.
+- [x] Migrations chạy thành công; `PENDING → IN_SYNC/REJECTED` durable; QoS-1 duplicate không thêm transition/SSE; ACK cũ hoặc ACK lạ không clear retained desired mới.

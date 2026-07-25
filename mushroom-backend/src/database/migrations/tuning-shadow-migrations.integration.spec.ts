@@ -19,22 +19,17 @@ import { AddReportedTuningShadow1720656000010 } from './1720656000010-add-report
 
 const TEST_DB = 'tuning_migration_it';
 
-const INTEGRATION_ENABLED =
-  process.env.TUNING_MIGRATION_DATABASE_URL !== undefined ||
-  process.env.TUNING_MIGRATION_ENABLE_LOCAL === '1';
+const INTEGRATION_ENABLED = process.env.TUNING_MIGRATION_DATABASE_URL !== undefined;
 
 function connectionUrl(database: string): string {
-  if (process.env.TUNING_MIGRATION_DATABASE_URL) {
-    if (database === TEST_DB) return process.env.TUNING_MIGRATION_DATABASE_URL;
-    const url = new URL(process.env.TUNING_MIGRATION_DATABASE_URL);
+  const rawUrl = process.env.TUNING_MIGRATION_DATABASE_URL!;
+  // Thay database trong URL nếu cần admin connection
+  if (database !== TEST_DB) {
+    const url = new URL(rawUrl);
     url.pathname = `/${database}`;
     return url.toString();
   }
-  const user = process.env.POSTGRES_USER ?? 'admin';
-  const password = process.env.POSTGRES_PASSWORD ?? '123456';
-  const host = process.env.POSTGRES_HOST ?? '192.168.107.2';
-  const port = process.env.POSTGRES_PORT ?? '5432';
-  return `postgres://${user}:${password}@${host}:${port}/${database}`;
+  return rawUrl;
 }
 
 async function ensureTestDatabaseAvailable(): Promise<boolean> {
@@ -136,7 +131,7 @@ if (INTEGRATION_ENABLED) {
 } else {
   // eslint-disable-next-line no-console
   console.warn(
-    '[tuning-migration-it] Skipping migration integration; set TUNING_MIGRATION_DATABASE_URL or TUNING_MIGRATION_ENABLE_LOCAL=1 to enforce them.',
+    '[tuning-migration-it] Skipping migration integration; set TUNING_MIGRATION_DATABASE_URL to enforce them.',
   );
 }
 

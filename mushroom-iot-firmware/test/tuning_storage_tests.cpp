@@ -58,7 +58,7 @@ void run_all_tests() {
 
     // 2. CRC-valid NVS envelope with a malformed UUID is fail-closed.
     {
-        Preferences::_global_storage["mushroom_net"].clear();
+        Preferences::_global_storage["mushroom_cfg"].clear();
         tuner.resetForTest();
         tuner.init();
         const DynamicTuningParams active_before = tuner.getActiveParams();
@@ -73,7 +73,7 @@ void run_all_tests() {
         valid_params.mist_off_threshold = 0.16f;
         assert(nvs_storage.saveTuningParams(valid_params));
 
-        auto& global_nvs = Preferences::_global_storage["mushroom_net"];
+        auto& global_nvs = Preferences::_global_storage["mushroom_cfg"];
         storage::TuningNvsRecord record{};
         std::memcpy(&record, global_nvs["tune_s0"].data(), sizeof(record));
 
@@ -81,6 +81,13 @@ void run_all_tests() {
         std::strcpy(record.params.command_id, "z4444444-1234-1234-1234-123456789010");
         record.crc32 = calculateRecordCrcForTest(record);
         global_nvs["tune_s0"] = std::string(reinterpret_cast<const char*>(&record), sizeof(record));
+
+        // Also corrupt tune_s1 so no valid fallback is left in NVS.
+        storage::TuningNvsRecord record1{};
+        std::memcpy(&record1, global_nvs["tune_s1"].data(), sizeof(record1));
+        std::strcpy(record1.params.command_id, "z4444444-1234-1234-1234-123456789010");
+        record1.crc32 = calculateRecordCrcForTest(record1);
+        global_nvs["tune_s1"] = std::string(reinterpret_cast<const char*>(&record1), sizeof(record1));
 
         DynamicTuningParams loaded = active_before;
         assert(nvs_storage.loadTuningParams(loaded) == false);

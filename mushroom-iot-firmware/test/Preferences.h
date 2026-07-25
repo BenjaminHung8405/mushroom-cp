@@ -104,9 +104,28 @@ public:
             auto key_it = ns_it->second.find(key);
             if (key_it != ns_it->second.end()) {
                 const std::string& stored = key_it->second;
+                if (std::strcmp(key, "hw_ovr") == 0) {
+                    std::printf("[DEBUG] getBytes key=%s stored_len=%zu expected_len=%zu bytes: ", key, stored.size(), len);
+                    for (size_t i = 0; i < stored.size(); ++i) {
+                        std::printf("%02X ", (uint8_t)stored[i]);
+                    }
+                    std::printf("\n");
+                }
                 size_t to_copy = (stored.size() < len) ? stored.size() : len;
                 memcpy(buf, stored.data(), to_copy);
                 return to_copy;
+            }
+        }
+        return 0;
+    }
+
+    size_t getBytesLength(const char* key) {
+        if (!_opened) return 0;
+        auto ns_it = _global_storage.find(_current_namespace);
+        if (ns_it != _global_storage.end()) {
+            auto key_it = ns_it->second.find(key);
+            if (key_it != ns_it->second.end()) {
+                return key_it->second.size();
             }
         }
         return 0;
