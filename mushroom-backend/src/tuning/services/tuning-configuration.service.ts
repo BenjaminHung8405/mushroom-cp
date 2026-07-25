@@ -161,29 +161,14 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     let event: TuningSyncEvent | null = null;
     try {
       await this.dataSource.transaction(async (manager) => {
-        const config = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, commandId: ack.commandId }, lock: { mode: 'pessimistic_write' } });
+        const config = await this.loadLockedCommand(manager, ack);
         if (!config) { this.logger.warn(`SECURITY: unknown tuning ACK device='${ack.deviceId}' command='${ack.commandId}'.`); return; }
         const latest = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId }, order: { revision: 'DESC' } });
         result.isLatest = latest?.id === config.id;
         if (config.status !== SyncStatus.PENDING) return;
-        const rejectionReason = this.ackRejectionReason(ack, config);
-        // The status is evidence only if it matches the exact durable effective state.
-        const accepted = rejectionReason === null;
-        config.status = accepted ? SyncStatus.IN_SYNC : SyncStatus.REJECTED;
-        config.reportedConfig = { ...ack.reportedConfig };
-        config.reportedRevision = ack.revision;
-        config.appliedAt = accepted ? ack.receivedAt : null;
-        config.rejectionReason = rejectionReason;
-        if (accepted && result.isLatest) {
-          config.retainedClearPending = true;
-          config.retainedClearAttempts = 0;
-          config.retainedClearNextAt = new Date();
-          await this.outboxDispatcher.enqueueRetainedClear(manager, config);
-        }
-        config.updatedAt = new Date();
-        await manager.save(DeviceTuningConfiguration, config);
+        const accepted = await this.transitionReportedAck(manager, config, ack, result.isLatest);
         const before = await manager.findOne(DeviceTuningConfiguration, { where: { deviceId: ack.deviceId, status: SyncStatus.IN_SYNC, revision: LessThan(config.revision) }, order: { revision: 'DESC' } });
-        await this.writeAudit(manager, config, 'device', 'mqtt', accepted ? 'SYNC_ACCEPTED' : 'SYNC_REJECTED', before?.reportedConfig ?? before?.config ?? null, config.reportedConfig, rejectionReason ?? ack.reasonCode, accepted ? 'SUCCESS' : 'FAILED');
+        await this.persistAuditAndOutbox(manager, config, ack, accepted, before?.reportedConfig ?? before?.config ?? null, result.isLatest);
         result.updated = true;
         event = this.toEvent(config);
       });
@@ -221,8 +206,40 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     await manager.save(TuningAuditLog, manager.create(TuningAuditLog, { id: crypto.randomUUID(), configurationId: config.id, deviceId: config.deviceId, actor, source, action, rulesetVersion: null, kpiSnapshot: null, configBefore: before, configAfter: after, reason, result }));
   }
 
+  private async loadLockedCommand(manager: EntityManager, ack: TuningReportedEvent): Promise<DeviceTuningConfiguration | null> {
+    return manager.findOne(DeviceTuningConfiguration, {
+      where: { deviceId: ack.deviceId, commandId: ack.commandId },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
+  private async transitionReportedAck(manager: EntityManager, config: DeviceTuningConfiguration, ack: TuningReportedEvent, isLatest: boolean): Promise<boolean> {
+    const rejectionReason = this.ackRejectionReason(ack, config);
+    const accepted = rejectionReason === null;
+    config.status = accepted ? SyncStatus.IN_SYNC : SyncStatus.REJECTED;
+    config.reportedConfig = ack.reportedConfig ? { ...ack.reportedConfig } : null;
+    config.reportedRevision = ack.revision;
+    config.appliedAt = accepted ? ack.receivedAt : null;
+    config.rejectionReason = rejectionReason;
+    if (accepted && isLatest) {
+      config.retainedClearPending = true;
+      config.retainedClearAttempts = 0;
+      config.retainedClearNextAt = new Date();
+    }
+    config.updatedAt = new Date();
+    await manager.save(DeviceTuningConfiguration, config);
+    return accepted;
+  }
+
+  private async persistAuditAndOutbox(manager: EntityManager, config: DeviceTuningConfiguration, ack: TuningReportedEvent, accepted: boolean, before: TuningConfigSnapshot | null, isLatest: boolean): Promise<void> {
+    if (accepted && isLatest) await this.outboxDispatcher.enqueueRetainedClear(manager, config);
+    await this.writeAudit(manager, config, 'device', 'mqtt', accepted ? 'SYNC_ACCEPTED' : 'SYNC_REJECTED', before, config.reportedConfig, config.rejectionReason ?? ack.reasonCode, accepted ? 'SUCCESS' : 'FAILED');
+  }
+
   private isValidAck(ack: TuningReportedEvent): boolean {
-    if (!ack || typeof ack.deviceId !== 'string' || !ack.deviceId.trim() || ack.deviceId.length > 50 || typeof ack.commandId !== 'string' || !COMMAND_ID_PATTERN.test(ack.commandId) || !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(ack.status) || typeof ack.persisted !== 'boolean' || !Number.isSafeInteger(ack.revision) || ack.revision < 0) return false;
+    if (!ack || typeof ack.deviceId !== 'string' || !ack.deviceId.trim() || ack.deviceId.length > 50 || typeof ack.commandId !== 'string' || !COMMAND_ID_PATTERN.test(ack.commandId) || !['ACCEPTED', 'DUPLICATE', 'REJECTED'].includes(ack.status) || typeof ack.persisted !== 'boolean') return false;
+    if (ack.status === 'REJECTED') return typeof ack.reasonCode === 'string' && ack.reasonCode.trim().length > 0 && ack.reportedConfig === null && ack.revision === null;
+    if (ack.reasonCode !== null || ack.revision === null || !Number.isSafeInteger(ack.revision) || ack.revision < 0 || !ack.reportedConfig) return false;
     try { this.validateSnapshot(ack.reportedConfig); return true; } catch { return false; }
   }
   private validDeviceId(value: string): string { if (typeof value !== 'string' || !value.trim() || value.length > 50) throw new BadRequestException('deviceId is required and must be under 50 characters.'); return value.trim(); }
@@ -238,7 +255,7 @@ export class TuningConfigurationService implements OnModuleInit, OnModuleDestroy
     if (ack.status === 'REJECTED') return ack.reasonCode ?? 'EDGE_REJECTED';
     if (!ack.persisted) return 'PERSISTENCE_NOT_CONFIRMED';
     if (ack.revision !== config.revision) return 'REVISION_MISMATCH';
-    return this.sameSnapshot(config.config, ack.reportedConfig) ? null : 'CANONICAL_MISMATCH';
+    return ack.reportedConfig && this.sameSnapshot(config.config, ack.reportedConfig) ? null : 'CANONICAL_MISMATCH';
   }
   private isUniqueViolation(error: unknown): boolean { return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === '23505'; }
   private errorMessage(error: unknown): string { return error instanceof Error ? error.message : 'Unknown error'; }

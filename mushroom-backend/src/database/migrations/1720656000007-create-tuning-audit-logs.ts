@@ -7,8 +7,8 @@ export class CreateTuningAuditLogs1720656000007 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS tuning_audit_logs (
         id UUID PRIMARY KEY,
-        configuration_id UUID NOT NULL REFERENCES device_tuning_configurations(id) ON DELETE CASCADE,
-        device_id VARCHAR(50) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+        configuration_id UUID NOT NULL,
+        device_id VARCHAR(50) NOT NULL,
         actor VARCHAR(100),
         source VARCHAR(50),
         action VARCHAR(50) NOT NULL,
@@ -18,7 +18,11 @@ export class CreateTuningAuditLogs1720656000007 implements MigrationInterface {
         config_after JSONB,
         reason TEXT,
         result VARCHAR(20) NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT fk_tuning_audit_configuration
+          FOREIGN KEY (configuration_id) REFERENCES device_tuning_configurations(id) ON DELETE CASCADE,
+        CONSTRAINT fk_tuning_audit_device
+          FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
       )
     `);
 

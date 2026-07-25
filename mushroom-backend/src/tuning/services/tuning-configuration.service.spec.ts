@@ -83,6 +83,77 @@ describe('TuningConfigurationService hardening', () => {
     expect(mqtt.clearTuningDesired).not.toHaveBeenCalled();
   });
 
+  it('persists a terminal REJECTED ACK and emits SSE after the transaction commits', async () => {
+    const pending = { id: 'config-1', deviceId, commandId, revision: 1, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(pending).mockResolvedValueOnce(null),
+      save: jest.fn().mockResolvedValue(pending),
+      create: jest.fn((_entity: unknown, value: unknown) => value),
+    };
+    let committed = false;
+    dataSource.transaction.mockImplementation(async (callback) => {
+      const result = await callback(manager);
+      committed = true;
+      return result;
+    });
+    const events: unknown[] = [];
+    service.tuningSync$.subscribe((event) => {
+      expect(committed).toBe(true);
+      events.push(event);
+    });
+
+    const result = await service.handleReportedAck({
+      deviceId,
+      commandId,
+      status: 'REJECTED',
+      persisted: false,
+      reasonCode: 'INVALID_SCHEMA',
+      reportedConfig: null,
+      revision: null,
+      receivedAt: new Date(),
+    });
+
+    expect(result).toEqual({ updated: true, isLatest: true });
+    expect(pending.status).toBe(SyncStatus.REJECTED);
+    expect(pending.rejectionReason).toBe('INVALID_SCHEMA');
+    expect(pending.reportedConfig).toBeNull();
+    expect(pending.reportedRevision).toBeNull();
+    expect(manager.create).toHaveBeenCalledWith(TuningAuditLog, expect.objectContaining({
+      action: 'SYNC_REJECTED', reason: 'INVALID_SCHEMA', result: 'FAILED',
+    }));
+    expect(events).toHaveLength(1);
+    expect(outbox.enqueueRetainedClear).not.toHaveBeenCalled();
+  });
+
+  it('routes the same terminal REJECTED ACK from the MQTT event stream to durable state, audit, and SSE', async () => {
+    const pending = { id: 'config-1', deviceId, commandId, revision: 1, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(pending).mockResolvedValueOnce(null),
+      save: jest.fn().mockResolvedValue(pending),
+      create: jest.fn((_entity: unknown, value: unknown) => value),
+    };
+    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    const events: unknown[] = [];
+    service.tuningSync$.subscribe((event) => events.push(event));
+    service.onModuleInit();
+
+    mqtt.tuningReported$.next({
+      deviceId,
+      commandId,
+      status: 'REJECTED',
+      persisted: false,
+      reasonCode: 'INVALID_SCHEMA',
+      reportedConfig: null,
+      revision: null,
+      receivedAt: new Date(),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(pending.status).toBe(SyncStatus.REJECTED);
+    expect(manager.create).toHaveBeenCalledWith(TuningAuditLog, expect.objectContaining({ action: 'SYNC_REJECTED' }));
+    expect(events).toHaveLength(1);
+  });
+
   it('rejects an accepted ACK whose revision or canonical config mismatches the desired', async () => {
     const pending = { id: 'config-1', deviceId, commandId, revision: 2, status: SyncStatus.PENDING, config, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() } as DeviceTuningConfiguration;
     const manager = { findOne: jest.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(pending).mockResolvedValueOnce(null), save: jest.fn().mockResolvedValue(pending), create: jest.fn((_entity: unknown, value: unknown) => value) };

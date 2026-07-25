@@ -147,10 +147,13 @@ export interface TuningReportedEvent {
   status: 'ACCEPTED' | 'DUPLICATE' | 'REJECTED';
   reasonCode: string | null;
   persisted: boolean;
-  /** Canonical v1 effective configuration asserted by the Edge. */
-  reportedConfig: TuningConfigSnapshot;
-  /** Exact persisted effective revision asserted by the Edge. */
-  revision: number;
+  /**
+   * Canonical v1 effective configuration asserted by the Edge. A terminal
+   * REJECTED acknowledgement is intentionally allowed to omit this evidence.
+   */
+  reportedConfig: TuningConfigSnapshot | null;
+  /** Exact persisted effective revision asserted by the Edge when accepted. */
+  revision: number | null;
   receivedAt: Date;
 }
 
@@ -699,13 +702,30 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const reasonCode =
-      typeof data.reason_code === 'string' ? data.reason_code : null;
+      typeof data.reason_code === 'string' && data.reason_code.trim()
+        ? data.reason_code
+        : null;
     if ((status === 'REJECTED') !== (reasonCode !== null)) {
       this.logger.warn(
         `Dropped tuning ACK with invalid reason_code for '${deviceId}'.`,
       );
       return;
     }
+    if (status === 'REJECTED') {
+      this.tuningReported$.next({
+        deviceId,
+        commandId,
+        status,
+        reasonCode,
+        persisted,
+        reportedConfig: null,
+        revision: null,
+        receivedAt,
+      });
+      void this.registry.touchLastSeen(deviceId, receivedAt);
+      return;
+    }
+
     const reportedConfig = this.parseTuningSnapshot(data.reported_config);
     const revision = this.nonNegativeInteger(data.revision);
     if (!reportedConfig || revision === null) {

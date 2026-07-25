@@ -75,16 +75,16 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** migration integration hiện bị skip khi CI không cấu hình URL; đồng thời migration hardening có thể xóa FK không thuộc tuning. Khắc phục toàn bộ lỗi blocking trước khi nộp lại. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** migration integration hiện bị skip khi CI không cấu hình URL; đồng thời migration hardening có thể xóa FK không thuộc tuning. Khắc phục toàn bộ lỗi blocking trước khi nộp lại. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** reported ACK chưa enforce đúng contract terminal `REJECTED`; khắc phục validation/state transition end-to-end. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** audit migration/hardening chưa an toàn với FK ngoài phạm vi tuning. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** backend nhận `REJECTED` nhưng vẫn bắt buộc reported config/revision hợp lệ, làm mất terminal reject ACK; phải sửa contract và regression. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** cần rà soát lại sau khi sửa luồng terminal ACK/migration gate. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** cần rà soát lại sau khi sửa lỗi blocking Track F. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** cần rà soát lại sau khi sửa lỗi blocking Track F. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** cần rà soát lại sau khi sửa lỗi blocking Track F. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] In Progress` | **QA REJECTED 2026-07-25:** MqttService drop terminal reject ACK trước khi route service; phải sửa contract và regression. |
+| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[ ] QA Review` | Đã khắc phục FK targeting chính xác và thêm CI gate PostgreSQL integration test. |
+| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[ ] QA Review` | Đã dùng constraint name định danh `fk_tuning_audit_*` và loại bỏ DROP FK ngoài phạm vi. |
+| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[ ] QA Review` | Type guard cho phép `reportedConfig`/`revision` nullable khi status là `REJECTED`. |
+| F4 | Khai báo entity `TuningAuditLog`. | `[ ] QA Review` | Migration hardening không còn đụng tới foreign key extension ngoài phạm vi tuning. |
+| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[ ] QA Review` | Hỗ trợ terminal REJECTED ACK; tách helper và giữ SSE sau DB commit. |
+| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[ ] QA Review` | Đã rà soát đồng bộ với terminal ACK handling và outbox persistence. |
+| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[ ] QA Review` | Đã rà soát đồng bộ với latest revision ordering. |
+| F8 | Implement `getTuningHistory()` với phân trang. | `[ ] QA Review` | Đã rà soát đồng bộ với audit logs history. |
+| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[ ] QA Review` | Đã rà soát đồng bộ với outbox dispatcher và MQTT routing. |
+| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[ ] QA Review` | Terminal REJECTED yêu cầu identity/UUID/reason/persisted, không buộc reportedConfig/revision; đã có regression route service/audit/SSE. |
 
 ## Cổng QA bắt buộc trước khi chuyển Sprint 2
 

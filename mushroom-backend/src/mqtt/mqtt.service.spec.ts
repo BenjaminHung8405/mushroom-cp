@@ -224,6 +224,33 @@ describe('MqttService', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
+    it('routes a terminal REJECTED tuning ACK without canonical persistence evidence', (done) => {
+      service.tuningReported$.subscribe((event) => {
+        expect(event).toMatchObject({
+          deviceId: 'device-1',
+          commandId: '11111111-1111-1111-1111-111111111111',
+          status: 'REJECTED',
+          persisted: false,
+          reasonCode: 'INVALID_SCHEMA',
+          reportedConfig: null,
+          revision: null,
+        });
+        done();
+      });
+      messageCallback(
+        'mushroom/esp32/device-1/up/tuning/reported',
+        Buffer.from(
+          JSON.stringify({
+            device_id: 'device-1',
+            command_id: '11111111-1111-1111-1111-111111111111',
+            status: 'REJECTED',
+            persisted: false,
+            reason_code: 'INVALID_SCHEMA',
+          }),
+        ),
+      );
+    });
+
     it('should drop telemetry from disabled device', (done) => {
       registry.getEnabled.mockReturnValue(undefined); // disabled returns undefined
       const nextTelemetrySpy = jest.spyOn(service.telemetry$, 'next');

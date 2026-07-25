@@ -1587,3 +1587,30 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   3. **F1/F2 — “integration test không skip im lặng” chưa được đáp ứng:** `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts:15-17, 120-145` ghi rõ `describe.skip` khi thiếu `TUNING_MIGRATION_DATABASE_URL`; lệnh test QA vừa chạy có **3 skipped tests**. Không có CI workflow/configuration nào trong thay đổi này chứng minh biến bắt buộc được set, nên migration clean/upgrade/rollback có thể hoàn toàn không chạy mà CI vẫn xanh. Điều này trực tiếp trái Note bắt buộc F1/F2. **Chỉ thị:** tách suite DB integration thành command/CI job bắt buộc, fail ngay khi `TUNING_MIGRATION_DATABASE_URL` không tồn tại hoặc DB không truy cập được; bỏ cơ chế `describe.skip` cho job đó. Unit test mặc định có thể không gọi suite integration, nhưng pipeline bắt buộc phải gọi command integration fail-closed. Cập nhật workflow/script, và chứng minh bằng output không có skipped test trong job migration.
 - **Nợ kỹ thuật cần xử lý cùng lần sửa này:** `src/tuning/services/tuning-configuration.service.ts:120-155` và `158-196` dài trên 50 dòng, trộn transaction, authorization, state transition, persistence/audit và outbox dispatch. Sau khi sửa lỗi ACK, tách helpers có trách nhiệm đơn (`loadLockedCommand`, `transitionReportedAck`, `persistAuditAndOutbox`) để test boundary/race rõ ràng; không thay đổi semantics transaction/SSE-after-commit.
 - **Bảo mật/hiệu năng đã kiểm:** Không thấy secret/credential mới hard-code trong code Track F, SQL mới dùng parameter binding cho device lock và không phát hiện N+1 DB query trong flow ACK/history. Controller reject pagination malformed/overflow trước DB. Các điểm này không bù được lỗi durability/DDL ở trên.
+## [2026-07-25T13:42:12+07:00] - Track F (F1–F10): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-25 13:22–13:42 (+07:00)
+- **Task ID:** F1, F2, F3, F4, F5, F6, F7, F8, F9, F10
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa/thêm:**
+  - `mushroom-backend/src/mqtt/mqtt.service.ts`
+  - `mushroom-backend/src/mqtt/mqtt.service.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/database/migrations/1720656000007-create-tuning-audit-logs.ts`
+  - `mushroom-backend/src/database/migrations/1720656000008-harden-tuning-shadow.ts`
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts`
+  - `mushroom-backend/package.json`
+  - `.github/workflows/tuning-migrations.yml` [NEW]
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình khắc phục QA:**
+  - Phân tách type guard theo status: `REJECTED` chỉ cần identity, UUID, `persisted` và `reason_code`; không còn bắt buộc `reported_config`/`revision`. `ACCEPTED` và `DUPLICATE` vẫn bắt buộc persistence evidence, revision và canonical config v1.
+  - Duy trì transition/audit trong transaction và SSE chỉ phát sau commit. Tách `handleReportedAck()` thành `loadLockedCommand`, `transitionReportedAck`, `persistAuditAndOutbox`; thêm regression MQTT → durable `REJECTED` state → audit → SSE.
+  - Hardening migration giờ chỉ xác định/drop đúng hai FK tuning theo cột và bảng đích; migration `0007` dùng tên constraint ổn định. PostgreSQL integration test xác nhận FK CASCADE unrelated của extension vẫn tồn tại.
+  - Bỏ hoàn toàn đường `describe.skip`: integration suite fail khi thiếu URL hoặc PostgreSQL unreachable; thêm `test:migrations:integration` và GitHub Actions PostgreSQL gate bắt buộc.
+- **Xác minh:**
+  - `npm test -- --runInBand`: **29 suites / 215 tests PASS** (migration integration được tách thành release gate riêng, không skip).
+  - `npm run test:migrations:integration` với PostgreSQL thật: **1 suite / 3 tests PASS** (clean up/down, duplicate preflight, upgrade và FK unrelated preservation).
+  - `npx tsc --noEmit -p tsconfig.build.json`: **PASS**.
+  - `git diff --check`: **PASS**.

@@ -61,13 +61,31 @@ export class HardenTuningShadow1720656000008 implements MigrationInterface {
       DO $$
       DECLARE constraint_name text;
       BEGIN
-        FOR constraint_name IN
-          SELECT conname FROM pg_constraint
-          WHERE conrelid = 'tuning_audit_logs'::regclass AND contype = 'f'
-            AND confdeltype = 'c'
-        LOOP
+        -- Only replace the two historical tuning FKs. Never enumerate every
+        -- CASCADE FK on this table: extensions may own unrelated constraints.
+        SELECT conname INTO constraint_name
+        FROM pg_constraint
+        WHERE conrelid = 'tuning_audit_logs'::regclass
+          AND contype = 'f' AND confdeltype = 'c'
+          AND conkey = ARRAY[
+            (SELECT attnum FROM pg_attribute WHERE attrelid = 'tuning_audit_logs'::regclass AND attname = 'configuration_id' AND NOT attisdropped)
+          ]
+          AND confrelid = 'device_tuning_configurations'::regclass;
+        IF constraint_name IS NOT NULL THEN
           EXECUTE format('ALTER TABLE tuning_audit_logs DROP CONSTRAINT %I', constraint_name);
-        END LOOP;
+        END IF;
+
+        SELECT conname INTO constraint_name
+        FROM pg_constraint
+        WHERE conrelid = 'tuning_audit_logs'::regclass
+          AND contype = 'f' AND confdeltype = 'c'
+          AND conkey = ARRAY[
+            (SELECT attnum FROM pg_attribute WHERE attrelid = 'tuning_audit_logs'::regclass AND attname = 'device_id' AND NOT attisdropped)
+          ]
+          AND confrelid = 'devices'::regclass;
+        IF constraint_name IS NOT NULL THEN
+          EXECUTE format('ALTER TABLE tuning_audit_logs DROP CONSTRAINT %I', constraint_name);
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_tuning_audit_configuration') THEN
           ALTER TABLE tuning_audit_logs ADD CONSTRAINT fk_tuning_audit_configuration
             FOREIGN KEY (configuration_id) REFERENCES device_tuning_configurations(id) ON DELETE RESTRICT;
@@ -81,11 +99,8 @@ export class HardenTuningShadow1720656000008 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      ALTER TABLE tuning_audit_logs
-        DROP CONSTRAINT IF EXISTS fk_tuning_audit_configuration,
-        DROP CONSTRAINT IF EXISTS fk_tuning_audit_device
-    `);
+    await queryRunner.query(`ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_configuration`);
+    await queryRunner.query(`ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_device`);
     await queryRunner.query(`
       ALTER TABLE tuning_audit_logs
         ADD CONSTRAINT fk_tuning_audit_configuration

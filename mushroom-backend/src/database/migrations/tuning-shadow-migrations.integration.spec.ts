@@ -7,23 +7,17 @@ import { CreateTuningMqttOutbox1720656000009 } from './1720656000009-create-tuni
 import { AddReportedTuningShadow1720656000010 } from './1720656000010-add-reported-tuning-shadow';
 
 /**
- * Real PostgreSQL integration test for Track-F migrations. Requires either:
- *  - TUNING_MIGRATION_DATABASE_URL, or
- *  - the local docker-compose Postgres exposed as `mushroom_db` with the
- *    superuser configured through .env (defaults to POSTGRES_USER/PASSWORD).
- *
- * When the database is unreachable, the test skips gracefully so unit runs
- * still succeed. CI must set TUNING_MIGRATION_DATABASE_URL to enforce the
- * migrations.
+ * Real PostgreSQL integration test for Track-F migrations. This is a release
+ * gate: TUNING_MIGRATION_DATABASE_URL must be supplied by the dedicated CI job.
  */
 
 const TEST_DB = 'tuning_migration_it';
 
-const INTEGRATION_ENABLED = process.env.TUNING_MIGRATION_DATABASE_URL !== undefined;
-
 function connectionUrl(database: string): string {
-  const rawUrl = process.env.TUNING_MIGRATION_DATABASE_URL!;
-  // Thay database trong URL nếu cần admin connection
+  const rawUrl = process.env.TUNING_MIGRATION_DATABASE_URL;
+  if (!rawUrl) {
+    throw new Error('[tuning-migration-it] TUNING_MIGRATION_DATABASE_URL is required.');
+  }
   if (database !== TEST_DB) {
     const url = new URL(rawUrl);
     url.pathname = `/${database}`;
@@ -32,12 +26,12 @@ function connectionUrl(database: string): string {
   return rawUrl;
 }
 
-async function ensureTestDatabaseAvailable(): Promise<boolean> {
+async function ensureTestDatabaseAvailable(): Promise<void> {
   const adminClient = new Client({ connectionString: connectionUrl('postgres') });
   try {
     await adminClient.connect();
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    throw new Error(`[tuning-migration-it] PostgreSQL is unreachable: ${error instanceof Error ? error.message : 'unknown error'}`);
   }
   try {
     const existing = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DB]);
@@ -47,7 +41,6 @@ async function ensureTestDatabaseAvailable(): Promise<boolean> {
   } finally {
     await adminClient.end();
   }
-  return true;
 }
 
 async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
@@ -117,31 +110,11 @@ const migrations = () => [
   new AddReportedTuningShadow1720656000010(),
 ];
 
-let available = INTEGRATION_ENABLED;
+beforeAll(async () => {
+  await ensureTestDatabaseAvailable();
+}, 30_000);
 
-if (INTEGRATION_ENABLED) {
-  beforeAll(async () => {
-    available = await ensureTestDatabaseAvailable();
-    if (!available) {
-      throw new Error(
-        '[tuning-migration-it] Integration was requested but PostgreSQL is unreachable. Check TUNING_MIGRATION_DATABASE_URL or the local mushroom_db container.',
-      );
-    }
-  }, 30_000);
-} else {
-  // eslint-disable-next-line no-console
-  console.warn(
-    '[tuning-migration-it] Skipping migration integration; set TUNING_MIGRATION_DATABASE_URL to enforce them.',
-  );
-}
-
-describe('tuning shadow migrations (integration)', () => {
-  it('resolves the runtime environment', () => {
-    expect(true).toBe(true);
-  });
-});
-
-(INTEGRATION_ENABLED ? describe : describe.skip)('tuning shadow migrations — clean install and rollback', () => {
+describe('tuning shadow migrations — clean install and rollback', () => {
   it('creates every Track-F object on up() and rolls back without drift on down()', async () => {
     await withClient(async (client) => {
       await resetPublicSchema(client);
@@ -168,7 +141,7 @@ describe('tuning shadow migrations (integration)', () => {
   }, 60_000);
 });
 
-(INTEGRATION_ENABLED ? describe : describe.skip)('tuning shadow migrations — upgrade from historical data', () => {
+describe('tuning shadow migrations — upgrade from historical data', () => {
   it('aborts before DDL when duplicates would break UNIQUE constraints', async () => {
     await withClient(async (client) => {
       await resetPublicSchema(client);
@@ -210,6 +183,14 @@ describe('tuning shadow migrations (integration)', () => {
       ];
       for (const migration of legacy) await migration.up(runner);
 
+      await client.query('CREATE TABLE tuning_audit_extensions (id UUID PRIMARY KEY)');
+      await client.query('ALTER TABLE tuning_audit_logs ADD COLUMN extension_id UUID');
+      await client.query(`
+        ALTER TABLE tuning_audit_logs
+          ADD CONSTRAINT fk_tuning_audit_unrelated_extension
+          FOREIGN KEY (extension_id) REFERENCES tuning_audit_extensions(id) ON DELETE CASCADE
+      `);
+
       const snapshot = { lamp_gain_scale: 1, mist_gain_scale: 1, mist_on_threshold: 0.25, mist_off_threshold: 0.15 };
       await client.query(
         `INSERT INTO device_tuning_configurations(id, device_id, command_id, revision, status, config)
@@ -224,6 +205,8 @@ describe('tuning shadow migrations (integration)', () => {
       expect(await constraintExists(client, 'uq_device_tuning_configs_device_command')).toBe(true);
       expect(await indexExists(client, 'idx_device_tuning_configs_device_revision')).toBe(true);
       expect(await fkOnDelete(client, 'fk_tuning_audit_device')).toBe('r');
+      expect(await constraintExists(client, 'fk_tuning_audit_unrelated_extension')).toBe(true);
+      expect(await fkOnDelete(client, 'fk_tuning_audit_unrelated_extension')).toBe('c');
 
       await new AddReportedTuningShadow1720656000010().down(runner);
       await new CreateTuningMqttOutbox1720656000009().down(runner);
