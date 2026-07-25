@@ -1,3 +1,17 @@
+## [2026-07-25T14:47:55+07:00] - Track H (H1): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25 14:46–14:48 (+07:00)
+- **Task ID:** H1
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/analytics/interfaces/kpi-metrics.interface.ts` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Định nghĩa `KpiMetrics` interface v1 với đầy đủ identity thiết bị, `windowStart`/`windowEnd`, rolling temperature/humidity RMSE, metric switching/duty/duration, coverage, sample count, `configRevision: number | null` và `dataQualityWarning`. Giữ revision nullable và cờ chất lượng để downstream không làm rơi hoặc suy diễn dữ liệu thiếu/mixed-quality. Interface không dùng `any` và không thêm logic/side effect.
+- **Tự kiểm tra:** `npx tsc --noEmit -p tsconfig.build.json` PASS; `npm test -- --runInBand` PASS — 30 suites / 229 tests; `git diff --check` PASS.
+
+---
+
 ## [2026-07-25T14:42:00+07:00] - Track G (G1): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-25T14:39–14:42 (+07:00)
@@ -1747,4 +1761,3 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
 - **Lỗi chặn phát hành:**
   1. **F5/F10 — Terminal `REJECTED` chưa fail-closed theo contract:** `mushroom-backend/src/mqtt/mqtt.service.ts:704-724` và `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:240-242` chỉ kiểm tra `persisted` là boolean và `reason_code` là string không rỗng. Vì vậy ACK `REJECTED` với `persisted: true` vẫn chuyển command `PENDING → REJECTED`, trái contract firmware (`persisted=false` khi rejected) và ghi nhận một terminal ACK giả mạo. Đồng thời reason code tùy ý/không giới hạn độ dài đi qua `rejection_reason VARCHAR(64)` tại entity/migration, có thể làm transaction lỗi và khiến terminal ACK không durable. **Chỉ thị:** cho nhánh `REJECTED` chỉ chấp nhận chính xác `persisted === false`; reason phải là enum allow-list đồng bộ `tuningReasonCode()` của firmware (ít nhất `INVALID_SCHEMA`, `DEVICE_MISMATCH`, `INVALID_UUID`, `OUT_OF_RANGE`, `CROSS_FIELD_INVALID`, `PERSISTENCE_FAILED`, `CONTROL_QUEUE_UNAVAILABLE`, `STALE_REVISION`) và giới hạn tối đa 64 ký tự trước DB. Reject/drop fail-closed mọi reason lạ, whitespace-only, oversize, `persisted: true`, UUID/device/topic sai. Bổ sung regression ở MQTT route và service cho từng lớp reject; assert không transaction, không audit, không SSE, không clear retained với input bị drop.
   2. **F1–F10 — Commit chứa artifact PostgreSQL runtime/binary ngoài phạm vi và làm dirty workspace:** `83d45189` thay đổi **614** file dưới `data/mushroom_postgres_data/` (PostgreSQL data directory, WAL/control/table heap), trong khi walkthrough không khai báo chúng là deliverable. Các file này là generated/runtime state, không deterministic, có thể chứa dữ liệu vận hành/PII/credential hash và không thể review source/audit. Sau khi chạy test integration, workspace cũng bị thay đổi hàng loạt file DB nhị phân. **Chỉ thị:** dùng `git restore --source=HEAD^ -- data/mushroom_postgres_data` (hoặc amend/revert tương đương) để loại toàn bộ artifact khỏi commit; ngừng version-control runtime DB directory và cấu hình ignore/volume phù hợp trong thay đổi riêng có migration rõ ràng. Không commit output test/database. Chạy lại `git status --short` để chứng minh sạch ngoài các file source/planning chủ đích.
-- **Kiểm tra đã thực hiện:** `pnpm test` **PASS** (29 suites, 215 tests), `npx tsc --noEmit -p tsconfig.build.json` **PASS**, `git diff --check HEAD^ HEAD` **PASS**. Migration integration command có CI gate fail-closed và không còn `describe.skip`, nhưng không thể xác minh local trong phiên này vì `TUNING_MIGRATION_DATABASE_URL` không được cấu hình. Các kết quả xanh không bù được hai lỗi chặn nêu trên.
