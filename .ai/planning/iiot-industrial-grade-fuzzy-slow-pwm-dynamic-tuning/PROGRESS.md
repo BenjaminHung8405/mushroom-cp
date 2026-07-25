@@ -1,14 +1,14 @@
-# PROGRESS — IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning
+# PROGRESS — IIoT Industrial-Grade Direct-Relay Fuzzy Dynamic Tuning — Sprint 2
 
 ## Started
 
-- **Thời điểm:** 2026-07-21 10:19:34 +07 (+0700)
+- **Thời điểm:** 2026-07-25 14:27:44 +07 (+0700)
 - **Execution Agent:** Gemini
 
 ## Reference Plan
 
 - **Thư mục kế hoạch:** `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/`
-- **File sprint đang tham chiếu:** `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/sprint_1.md`
+- **File sprint đang tham chiếu:** `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/sprint_2.md`
 
 ## Addition Plan
 
@@ -21,75 +21,67 @@
 - `[ ] QA Review`: Code đã viết xong, đang chờ rà soát chất lượng.
 - `[x] Done`: Đã qua vòng review nghiêm ngặt và được duyệt.
 
-## Track A — Contract & Infrastructure (Ngày 1)
+## Track G — Influx Task & KPI Provisioning (Ngày 8–9)
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| A1 | Định nghĩa constants cho MQTT tuning desired/reported và pattern subscribe; tenant lấy từ `IOT_TENANT`. | `[x] Done` | **QA APPROVED 2026-07-24:** Shared tenant validation fail-closed, giới hạn 50 ký tự trước khi inject vào MQTT/ACL. |
-| A2 | Bổ sung kiểm tra ACL publish/read tuning cho HTTP MQTT auth backend. | `[x] Done` | Áp dụng **deny-by-default** và **least privilege**. Backend superuser mới được publish desired; device chỉ read desired và publish reported của chính nó. Không dựa vào `mosquitto.acl` vì runtime dùng HTTP ACL. |
-| A3 | Viết fixture `acl.tuning.spec.ts`: backend publish desired OK; device publish desired deny; device publish reported device khác deny; device read desired của mình OK. | `[x] Done` | Test là security regression bắt buộc; thêm cả assert không có wildcard vượt tenant/device. Không giảm coverage của `MqttAuthService`; test phải độc lập với credential thật. |
-| A4 | Search và xóa/deprecate mọi key legacy `lamp_pwm_cycle_s`, `lamp_min_on_s`, `ke_temp`, `ku_lamp` trong backend và firmware interfaces. | `[x] Done` | Không đưa TPC/PWM trở lại contract. Xóa chỉ khi không dùng production; nếu cần tương thích thì đánh dấu `@deprecated`, cấm map sang tuning v1. Kiểm tra toàn repo trước/sau thay đổi để không tạo API mồ côi. |
-| A5 | Thêm `INFLUXDB_ANALYTICS_BUCKET` vào cấu hình backend và tạo script provision bucket analytics idempotent. | `[x] Done` | Đã xác minh runtime wiring fail-closed: `mushroom-backend` nhận `INFLUXDB_ANALYTICS_BUCKET=${INFLUXDB_ANALYTICS_BUCKET:?INFLUXDB_ANALYTICS_BUCKET is required}`; compose render đúng giá trị hợp lệ và fail khi thiếu. Provision script dùng cùng biến, không hard-code bucket runtime. |
+| G1 | Viết Flux Task script `src/influx/tasks/kpi-hourly.flux` cho InfluxDB hourly aggregation. | `[ ] Pending` | **Pure Flux Script Directive:** Định nghĩa task `every: 1h, offset: 5m`. Đọc từ bucket cấu hình `INFLUXDB_BUCKET` (cấm hard-code tên bucket). Chỉ lọc bản ghi `data_quality == "good"`; group `(device_id, control_source, config_revision)`. Tích lũy `sum_squared_error` temp/humid (không RMSE từng giờ), đếm transition Mist false→true, tích lũy thời lượng Lamp ON (ticks × 5s; cấm average), và tính coverage `valid_samples / 720 × 100`. Ghi sang `mushroom_analytics`, measurement `kpi_metrics_1h`. |
+| G2 | Implement `InfluxTaskProvisionerService` trong `src/influx/services/influx-task-provisioner.service.ts` để provision task khi bootstrap. | `[ ] Pending` | **Idempotent Bootstrapper & Lifecycle:** Thực thi từ `onApplicationBootstrap()`. Kiểm tra Tasks API theo tên `kpi_hourly_aggregation`: active thì skip, disabled thì re-enable, chưa có thì create từ Flux script đọc tương đối theo `__dirname`. Không tạo task trùng khi restart; xử lý lỗi có cấu trúc, không làm ứng dụng NestJS boot trong trạng thái half-configured. |
 
-## Track B — Backend: Live Controller History Writer (Ngày 1–3)
+## Track H — Control Analytics Service (Ngày 8–9)
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| B1 | Định nghĩa interface `LiveTelemetryPoint` gồm device, timestamp, quality, đo lường, Core-1 target/source/revision và final relay states. | `[x] Done` | Dùng **typed domain model** trong TypeScript strict; field nullable phải biểu thị rõ dữ liệu thiếu. Không suy diễn setpoint từ crop profile hiện tại; target chỉ hợp lệ nếu Edge báo cáo tại thời điểm telemetry. |
-| B2 | Cài `ControlHistoryInfluxWriter`: subscribe `telemetry$`, map/enrich telemetry, ghi measurement `controller_history`, và xử lý lỗi ghi. | `[x] Done` | Áp dụng **Observer pattern** với `takeUntil(destroy$)` để tránh subscription leak. Writer bất đồng bộ, lỗi chỉ log có `device_id` và skip—không làm ngắt MQTT pipeline, không retry vô hạn. Gắn `data_quality=good/missing_target/degraded`; chỉ final relay states do Core 1 xác nhận. |
-| B3 | Đăng ký writer vào `InfluxModule` và import `MqttModule` cần thiết. | `[x] Done` | Duy trì Dependency Injection của NestJS; không tự khởi tạo service/new client. Kiểm tra vòng lặp dependency, lifecycle shutdown và module test; export service chỉ khi thật sự có consumer. |
+| H1 | Định nghĩa interface `KpiMetrics` v1 tại `src/analytics/interfaces/kpi-metrics.interface.ts`. | `[ ] Pending` | **Strict Domain Model Pattern:** Khai báo đầy đủ `deviceId`, time window, RMSE, switching/duty/duration metrics, coverage, sample count, `configRevision: number \| null`, và `dataQualityWarning`. Bật TypeScript strict; không dùng `any`, không làm rơi trạng thái dữ liệu thiếu. |
+| H2 | Định nghĩa interface `TuningAdvisory` và discriminated union `RecommendationResult` tại `src/analytics/interfaces/tuning-advisory.interface.ts`. | `[ ] Pending` | **Type-Safe Advisory Structure:** Advisory phải có `rulesetVersion`, snapshot current/suggested, `delta`, rules trigger, confidence, expected benefit, KPI snapshot và observation-window flag. Union phân biệt rõ `ADVISORY`, `INSUFFICIENT_DATA`, `NO_SUGGESTION`, `CONFLICT`; caller phải exhaustively handle mọi status. |
+| H3 | Implement `ControlAnalyticsService.getKpiForDevice()` truy vấn analytics bucket và tính rolling KPI. | `[ ] Pending` | **Statistical Correctness & Flux Injection Defense (SEC-S2-03, CORR-S2-01):** BẮT BUỘC escape mọi string Flux bằng `escapeFluxString(deviceId)`; cấm raw interpolation `${deviceId}`. RMSE phải là `sqrt(sum(sum_squared_error) / sum(sample_count))`, tuyệt đối không average RMSE theo giờ. Tính đúng switch/hour, lamp duty, average duration, coverage và trả `null` nếu không có data. |
+| H4 | Implement `ControlAnalyticsService.checkCoverageGate()` kiểm tra coverage, trusted samples và revision. | `[ ] Pending` | **Gatekeeper Pattern (CORR-S2-02):** `<80%` trả `COVERAGE_BELOW_80_PERCENT`; mixed quality + `<100` samples trả `INSUFFICIENT_TRUSTED_SAMPLES`; revision null trả `CONFIG_REVISION_UNAVAILABLE`. Bất kỳ gate nào fail đều ngăn recommender chạy. |
+| H5 | Implement `ControlAnalyticsService.checkDeviceOnline()` kiểm tra telemetry last-seen trong 5 phút. | `[ ] Pending` | **Fail-Closed Availability Check:** Truy vấn timestamp telemetry mới nhất; chỉ trả online khi `lastSeen > now - 5 minutes`. Lỗi truy vấn/không có telemetry phải được coi là offline, không phát advisory cho device không thể xác nhận. |
 
-## Track C — Firmware: POD, NVS Two-Slot, Queue (Ngày 2–4)
-
-| Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
-|---|---|---|---|
-| C1 | Thêm POD DynamicTuningParams trong core/models.h với command UUID, revision và bốn tham số tuning. | `[x] Done` | C++17, **POD/value-object pattern**: không `String`, pointer hay JSON handle; `static_assert(std::is_trivially_copyable<...>)`. Cấm `#pragma pack(1)`; giữ ABI/alignment tự nhiên và bounds contract v1. |
-| C2 | Định nghĩa `TuningNvsRecord` two-slot gồm version, generation, params và CRC32. | `[x] Done` | Áp dụng **versioned CRC envelope / double-buffer persistence**. CRC tính toàn record trừ field CRC; record immutable trước khi write. Không dùng/chung key baseline hoặc crop profile. |
-| C3 | Khai báo public API, enum result/reason code cho singleton `TuningConfigManager`. | `[x] Done` | Áp dụng **Single Responsibility**: manager Core 0 sở hữu validation/persistence/dispatch; API trả stable domain status, không lộ NVS internals. Sửa typo API trước merge (`getActiveParams`). |
-| C4 | Implement validation schema, provisioned device ID, UUID, finite JSON number, bounds, cross-field, duplicate và semantic diff. | `[x] Done` | **Validate-before-mutate** tuyệt đối: reject input bất kỳ trước khi đổi RAM/NVS/queue. Không silent clamp remote command; UUID kiểm tra char-by-char bounded, không dùng regex cấp phát. Dùng epsilon `0.001f` cho float, string exact. |
-| C5 | Implement đọc/ghi NVS two-slot: verify CRC/readback, chọn generation mới nhất, wear-level slot và fallback defaults. | `[x] Done` | Đã dùng validator UUID bounded chung trong storage: `memchr` kiểm NUL trong `char[37]`, bắt buộc đúng 36 ký tự/RFC-4122 trước khi slot được xem valid. Vì vậy hydrate, chọn generation và duplicate check đều fail-closed; regression mutation UUID malformed nhưng CRC hợp lệ khóa active config và duplicate behavior. |
-| C6 | Khai báo `g_tuning_config_queue` depth 1 cho `DynamicTuningParams`. | `[x] Done` | Queue là ranh giới ownership Core 0 → Core 1; chỉ truyền POD by value. Không dùng mutex chia sẻ control state; không đổi queue của baseline/config sync hiện hữu. |
-| C7 | Tạo queue trước task start, hydrate NVS và enqueue effective config khởi tạo. | `[x] Done` | Fail-fast nếu queue null trước task start. Thứ tự bắt buộc: tạo queue → hydrate → enqueue; không GPIO/MQTT/NVS trong Core 1. Queue update chỉ dùng `xQueueOverwrite`, non-blocking. |
-
-## Track D — Firmware: MQTT Subscribe/Dispatch (Ngày 2–3)
+## Track I — Tuning Recommender Engine (Ngày 9)
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| D1 | Subscribe desired topic QoS 1 khi MQTT kết nối lại. | `[x] Done` | Build topic từ tenant và provisioned device ID, không literal. Retained desired phải được xử lý như command bình thường sau reconnect; không tác động GPIO từ MQTT path. |
-| D2 | Nhận diện desired topic và dispatch payload vào `g_network_worker_queue`; reject/log payload quá 512 bytes. | `[x] Done` | MQTT callback phải **constant-time/lightweight**: chỉ compare topic và copy bytes, tuyệt đối không `deserializeJson`, NVS hay GPIO. Bounded buffer, kiểm tra length trước copy để tránh overflow/heap growth. |
-| D3 | Parse desired trong worker bằng `StaticJsonDocument<512>` và gọi `TuningConfigManager::processCommand`. | `[x] Done` | Parse bounded trên stack; mọi `DeserializationError` phải sinh `REJECTED/INVALID_SCHEMA`, không crash. Worker là sole execution context của JSON validation/persistence. |
-| D4 | Xây reported payload theo contract và publish lên reported topic QoS 1, retain=false. | `[x] Done` | **QA remediation 2026-07-24 — chờ QA Review lần 2:** `extractRootCommandId()` decode bounded JSON escape (bao gồm `\uXXXX`) khi nhận diện root key `command_id`, nên malformed payload với identity escaped phát terminal `REJECTED/INVALID_SCHEMA`. Mỗi outbox report lưu `packet_message_id` cùng PUBACK sequence tại publish; chỉ PUBACK event mới có đúng packet ID mới được dequeue. Regression bao phủ escaped-key malformed và ACK mismatch từ QoS-1 publish khác. |
+| I1 | Định nghĩa ruleset version và constants/thresholds của recommender trong `TuningRecommenderEngine`. | `[ ] Pending` | **Immutable Rule Configuration:** Dùng `RULESET_VERSION = 'v1.0.0'` và `RULE_THRESHOLDS as const`: chatter 10/h, temp RMSE 1.5, humid RMSE 5.0, lamp duty 30%, gain step 0.05, Mist threshold step 0.02. Không hard-code magic number rải rác trong branches. |
+| I2 | Implement pure function `generateRecommendation(kpi, currentConfig)`. | `[ ] Pending` | **Pure Function & Rule Conflict Detection (CORR-S2-03):** Không async/I-O/side effect. Áp dụng R1 Mist chattering, R2 Temp high + Lamp duty low, R3 Humid high + Mist ổn định. Nếu R1 và R3 cùng trigger thì trả `CONFLICT` với đủ rules, không âm thầm ưu tiên rule nào. Advisory chỉ thay đổi keys trong `delta`, lưu version/rules/KPI/current snapshot. |
+| I3 | Implement helper `clampToHardBounds()` cho các tham số tuning. | `[ ] Pending` | **Boundary Validation Pattern:** Áp cứng PLAN v2.2: gain [0.80, 1.20], `mist_on` [0.20, 0.35], `mist_off` [0.10, 0.20]; dùng `Math.max(min, Math.min(max, value))`. Không đề xuất bất kỳ key TPC/PWM/HWat/parameter không có firmware source-of-truth. |
+| I4 | Implement helper `validateHysteresis(on, off)`. | `[ ] Pending` | **Physical Invariant Enforcement:** Chỉ hợp lệ nếu `off < on`. Không silently fix hysteresis sai; proposal invalid phải bị reject/blocked để tránh che giấu lỗi ruleset. |
 
-## Track E — Firmware: Core 1 Apply Tuning (Ngày 4–5)
-
-| Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
-|---|---|---|---|
-| E1 | Drain `g_tuning_config_queue` ở đầu control tick vào local `s_activeTuning` có defaults an toàn. | `[x] Done` | Áp dụng **single-writer ownership**: Core 1 chỉ sở hữu local active copy; adoption chỉ tại tick boundary 50 ms. `xQueueReceive(..., 0)` không block; Core 1 không gọi MQTT/NVS. |
-| E2 | Nhân demand `HLamp`/`Mist` với gain scale sau fuzzy/adaptive gain và clamp `[0,1]`. | `[x] Done` | Thứ tự pipeline bất biến: fuzzy → tuning scale → arbitration/direct relay → manual latch → protector → blackout/final GPIO. Không tune HWat, setpoint, bio-bound, blackout, manual override hay `SystemProtector`. |
-| E3 | Khai báo helper `resolveBinaryDemand(demand, state, on, off)`. | `[x] Done` | Dùng **pure function pattern** (không GPIO/side effect) để unit-test table-driven. Precondition `off < on`; không thay đổi public behavior của lamp/fan. |
-| E4 | Implement helper hysteresis ON/OFF/hold. | `[x] Done` | Giữ logic deterministic: OFF→ON khi `>= on`, ON→OFF khi `< off`, còn lại giữ state. Test biên threshold, NaN defense và state transition. |
-| E5 | Refactor `applyDirectOutputs()` sử dụng helper: Mist dùng threshold động; lamp/fan giữ `0.25/0.15`. | `[x] Done` | **Safety regression gate**: không reference `mist_*_threshold` tại branch lamp/fan. Không mô tả/triển khai PWM; direct relay active-LOW giữ nguyên. Bảo toàn final interlock, max-ON/cooldown và blackout. |
-| E6 | Truyền `s_activeTuning` vào actuator controller trước relay resolution. | `[x] Done` | Ưu tiên parameter injection `const DynamicTuningParams&` hơn mutable global/setter để giảm hidden state. Thay đổi signature tối thiểu, cập nhật tất cả callers và regression test. |
-
-## Track F — Backend: DB Migration, Entity, Shadow Service (Ngày 5–7)
+## Track J — Authz & REST/SSE Tuning Module (Ngày 9–10)
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| F1 | Tạo migration `1720656000006` cho `device_tuning_configurations` và index theo device/thời gian. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Durable shadow migration verified; unique (device_id, command_id) & (device_id, revision), preflight abort on duplicates, rollback idempotent. |
-| F2 | Tạo migration `1720656000007` cho `tuning_audit_logs` và index theo device/thời gian. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Audit migration verified; ON DELETE RESTRICT; migration 0008 target-drops chỉ đúng 2 FK tuning; FK unrelated extension không bị xoá. |
-| F3 | Khai báo entity `DeviceTuningConfiguration`, `TuningConfigSnapshot` và `SyncStatus`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Entity khớp TypeORM contract; hỗ trợ `reportedConfig`, `reportedRevision`, `appliedAt`, `rejectionReason` durable. |
-| F4 | Khai báo entity `TuningAuditLog`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Audit entity append-only, `onDelete: RESTRICT` ở cả entity lẫn migration. |
-| F5 | Implement `handleReportedAck()` với type guard, transaction/row lock, canonical comparison, state transition, audit và SSE sau commit. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Fail-closed type-guard theo status; REJECTED chỉ cần identity/UUID/persisted===false/reason enum; ACCEPTED/DUPLICATE bắt buộc revision + canonical snapshot; SSE chỉ phát sau DB commit. |
-| F6 | Implement `createPendingCommand()` tạo desired/audit, publish desired retained QoS 1 và ghi thời điểm publish. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Transactional outbox pattern; supersede undelivered desired revision cũ; idempotent commandId; no retained replay livelock. |
-| F7 | Implement `getLatestByDeviceId()` với latest durable shadow. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** JWT/ownership check; query order revision DESC. |
-| F8 | Implement `getTuningHistory()` với phân trang. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Pagination fail-closed; HTTP 400 trước repo với NaN/số âm/0/overflow. |
-| F9 | Khai báo `TuningModule`, import dependencies, export service và import vào `AppModule`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** DI wiring clean; không có circular dependency ngoài forwardRef(MqttService) đã kiểm. |
-| F10 | MqttService subscribe wildcard reported QoS 1, type-guard payload và route tới `TuningConfigurationService`. | `[x] Done` | **QA APPROVED 2026-07-25 (Lần 3):** Fail-closed parse; REJECTED tách guard riêng; device_id/topic identity khớp; durable routing đến service. |
+| J1 | Implement `DeviceOwnershipGuard` tại `src/tuning/guards/device-ownership.guard.ts`. | `[ ] Pending` | **Zero-Trust Authz Guard (SEC-S2-02):** Lấy `deviceId` từ `req.params.id`, `userId` từ JWT đã verify (`req.user.sub`), gọi `DevicesService.isDeviceOwnedByUser()`. Không sở hữu phải ném `ForbiddenException` 403; không bypass bằng client input hoặc ownership cache không có invalidation. |
+| J2 | Implement `DevicesService.isDeviceOwnedByUser()` bằng DB query ownership. | `[ ] Pending` | **Least-Privilege Query:** Parameterize `SELECT 1 FROM devices WHERE device_id = $1 AND owner_user_id = $2`; chỉ trả boolean. Không leakage existence của device, không SQL string concatenation, tối ưu truy vấn bằng index hiện có/phù hợp. |
+| J3 | Implement `CreateTuningConfigurationDto` tại `src/tuning/dtos/create-tuning-configuration.dto.ts`. | `[ ] Pending` | **Input Sanitization & SEC-S2-01:** Dùng `class-validator`: UUID v4 command ID, numeric strict + min/max hard bounds, nested validation và custom `@IsMistHysteresisValid()`. DTO tuyệt đối không có `requestedBy`; actor chỉ được lấy từ verified JWT. Reject number string, null, missing fields qua validation pipe. |
+| J4 | Implement `TuningRecommendationResponseDto` tại `src/tuning/dtos/tuning-recommendation-response.dto.ts`. | `[ ] Pending` | **Canonical API DTO Pattern:** Bao gồm `deviceId`, `kpi`, current config, advisory, block reason (`INSUFFICIENT_DATA`, `DEVICE_OFFLINE`, `NO_SUGGESTION`, `CONFLICT` hoặc null), detail và `generatedAt` ISO8601. Không rò rỉ implementation/secret nội bộ qua response. |
+| J5 | Implement `GET /devices/:id/analytics/tuning-recommendations`. | `[ ] Pending` | **Guarded Recommendation Endpoint:** Luôn gắn `JwtAuthGuard` + `DeviceOwnershipGuard`. Parse `window` default 24, tối đa 168h và reject input malformed. Kiểm tra device online, KPI tồn tại và coverage gate trước recommender; gate fail không được trả advisory. |
+| J6 | Implement `POST /devices/:id/tuning-configurations` tạo durable PENDING command. | `[ ] Pending` | **Idempotent Command Creation & JWT Identity (SEC-S2-01):** Luôn gắn cả hai guards. Actor lấy từ `req.user.email`, không trust body. Gọi `createPendingCommand({ ...dto, deviceId }, actor.email)`, trả `202 { commandId, status: 'PENDING' }`; command ID duplicate phải có semantics idempotent nhất quán, device không có phải 404. |
+| J7 | Implement `GET /devices/:id/tuning-configurations/latest`. | `[ ] Pending` | **State Query Endpoint:** Luôn authn/authz trước khi đọc. Lấy state durable từ `TuningConfigurationService.getLatestByDeviceId()`; không suy đoán từ state in-memory hoặc broker retained payload. |
+| J8 | Implement `GET /devices/:id/tuning-history` có phân trang. | `[ ] Pending` | **Bounded Pagination Pattern (PERF-S2-04):** Luôn gắn guards. Default limit 20, max 100, offset default 0; validate số nguyên không âm và clamp trước query. Repository phải dùng `take/skip` (hoặc LIMIT/OFFSET parameterized), cấm query audit không giới hạn. |
+| J9 | Implement SSE `GET /devices/:id/tuning-configurations/stream`. | `[ ] Pending` | **Memory-Safe SSE Filter Pattern (PERF-S2-01, SEC-S2-04):** Luôn gắn guards. Stream từ `tuningSync$` shared, filter chính xác `deviceId`; cấm broadcast cross-device và cấm tạo Subject/Observable mới mỗi request. Đảm bảo teardown khi client disconnect (`takeUntil`/lifecycle) và SSE chỉ phát sau DB commit. |
 
-## Cổng QA bắt buộc trước khi chuyển Sprint 2
+## Track K — Frontend: Tuning Advisory Panel (Ngày 10–11)
 
-- [x] Contract không còn key/TPC topic legacy; ACL tuning tests pass.
-- [x] Live controller history ghi target/source/revision/final relay states; offline thiếu dữ liệu được đánh `data_quality=degraded`.
-- [x] Firmware tests pass: valid/invalid schema, bounds, cross-field, duplicate, NVS corrupt, no-write semantic diff và concurrent burst.
-- [x] Regression xác nhận lamp/fan vẫn dùng threshold `0.25/0.15`; blackout, uncertain time, bio-bound, max-ON/cooldown và `SystemProtector` luôn thắng tuning.
-- [x] Migrations chạy thành công; `PENDING → IN_SYNC/REJECTED` durable; QoS-1 duplicate không thêm transition/SSE; ACK cũ hoặc ACK lạ không clear retained desired mới.
+| Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
+|---|---|---|---|
+| K1 | Implement `useTuningRecommendation(deviceId)` fetch advisory qua same-origin proxy. | `[ ] Pending` | **No-Polling Fetch Hook Pattern (PERF-S2-03):** Fetch đúng `/api/backend/devices/${deviceId}/analytics/tuning-recommendations`; không tạo independent base URL. Trả `data`, loading, error, `refetch`; hủy request qua `AbortController` khi unmount/device đổi. Cấm `setInterval`/polling loop. |
+| K2 | Implement `useTuningStatus(deviceId)` dùng EventSource SSE với reconnect. | `[ ] Pending` | **Resilient SSE Hook (PERF-S2-03):** Dùng same-origin `/api/backend/.../stream`; parse event an toàn. Reconnect exponential 500ms, 1s, 2s, cap 10s; sau reconnect gọi `refetch()` đúng một lần để resync durable state. Close EventSource và cancel retry khi cleanup; không leak handler/timer. |
+| K3 | Implement `TuningAdvisoryPanel` tại `app/components/tuning/TuningAdvisoryPanel.tsx`. | `[ ] Pending` | **Strict UI Confirmation Flow (S2-3):** Tạo `crypto.randomUUID()` cho idempotency. POST config recommendation chỉ sau explicit operator confirm; disable confirm khi pending/blocked. CẤM optimistic success: chỉ hiển thị IN_SYNC/REJECTED khi SSE durable event match `pendingCommandId`. Sau 30s timeout hiển thị “Chờ xác nhận từ thiết bị”. |
+| K4 | Implement `TuningDiffView` tại `app/components/tuning/TuningDiffView.tsx`. | `[ ] Pending` | **Visual Diff Component:** Render đầy đủ 4 tham số với current -> suggested, changed badge theo `delta`, hard bounds dưới mỗi row. Màu xanh tăng/cam giảm/xám không đổi phải có text/icon không phụ thuộc chỉ màu; escape/render values an toàn. |
+| K5 | Implement `TuningStatusBadge` tại `app/components/tuning/TuningStatusBadge.tsx`. | `[ ] Pending` | **Durable State Indicator:** State PENDING/IN_SYNC/REJECTED/TIMEOUT hiển thị rõ: waiting spinner, success, rejection reason và timeout warning. Chỉ nhận state từ API/SSE đã validate; không chuyển success vì HTTP 202. |
+| K6 | Implement `CoverageWarning` tại `app/components/tuning/CoverageWarning.tsx`. | `[ ] Pending` | **Fail-Safe UI Banner:** Banner cảnh báo giải thích `INSUFFICIENT_DATA`, `DEVICE_OFFLINE`, `NO_SUGGESTION` hoặc `CONFLICT`; detail được render an toàn. Khi block reason khác null, confirm button bắt buộc disabled. |
+| K7 | Tích hợp `TuningAdvisoryPanel` vào `app/page.tsx`. | `[ ] Pending` | **Context Integration Pattern:** Reuse `useSelectedDevice()` hiện có, không tạo deviceId state riêng và không fetch khi chưa chọn device. Không phá vỡ telemetry/dashboard hiện hữu; đặt panel trong sidebar/tab theo conventions UI project. |
+
+## Track L — E2E Fault Injection Testing (Ngày 12–13)
+
+| Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
+|---|---|---|---|
+| L1 | E2E: Device offline → reconnect → nhận retained desired và ACK IN_SYNC. | `[ ] Pending` | **Fault Injection (S2-4):** Backend publish desired retained QoS 1 trong khi device offline; khi reconnect broker phải deliver retained, Edge xử lý và report ACCEPTED, backend durable transition PENDING→IN_SYNC. Verify DB, audit, SSE và không ghi NVS thừa. |
+| L2 | E2E: QoS-1 reported ACK duplicate được xử lý idempotent. | `[ ] Pending` | **Idempotent ACK Verification:** Reinject ACK ACCEPTED đã xử lý. Assert lock/transaction nhận thấy state IN_SYNC và skip: không audit duplicate, không SSE event thứ hai, không clear retained lần hai, không state drift. |
+| L3 | E2E: ACK cũ Command A sau desired Command B mới không clear retained B. | `[ ] Pending` | **Out-of-Order ACK Protection:** Setup A IN_SYNC/B PENDING, inject ACK A. Assert conditional latest-pending guard ngăn clear topic; broker vẫn giữ retained payload B. Đây là regression bắt buộc cho QoS-1 delayed/redelivery. |
+| L4 | E2E firmware: cả hai NVS slots corrupt → safe defaults. | `[ ] Pending` | **Firmware NVS Recovery Injection:** Mock NVS trả garbage/CRC invalid cho 2 slots. Assert `hydrateFromNvs()` false, active config safe defaults, warning log, không crash/boot loop và không claim persisted success. |
+| L5 | E2E firmware: burst 20 desired trong 1 giây không block Core 1. | `[ ] Pending` | **Core 1 Non-Blocking Stress Test:** Assert effective config cuối cùng là config được apply, queue depth 1/overwrite không unbounded, không heap allocation mới trên control path, không crash và 50ms tick không bị block. |
+| L6 | E2E: reject tất cả invalid desired payload variants. | `[ ] Pending` | **Negative Injection Suite:** Test `NaN`, `Infinity`, string number, null, missing key, schema khác 1, device mismatch, UUID invalid, hysteresis invalid và hard-bounds violation. Mỗi variant phải report `REJECTED` với stable reason code; RAM/NVS/Core-1 queue không đổi. |
+| L7 | E2E firmware: tuning hysteresis Mist không đổi threshold Lamp/Fan. | `[ ] Pending` | **Actuator Isolation Test:** Apply Mist `on=0.30`, `off=0.18`; verify Lamp/Fan vẫn dùng `FUZZY_ON_THRESHOLD=0.25` và `FUZZY_OFF_THRESHOLD=0.15`. Cấm regression biến tuning Mist thành global relay threshold. |
+| L8 | Viết staging 24h dry-run và rollback checklist tại `test/tuning/staging-checklist.md`. | `[ ] Pending` | **Operational Readiness Checklist (S2-5):** Bao gồm các mục: migration, provision bucket/task, ESP32 v2.2, ACK trong 10s, DB transition, audit, SSE, offline retained/reconnect, Lamp/Fan invariant, factory-safe rollback, 24h không state drift/memory leak, và operator sign-off. Checklist là release gate, không phải tài liệu tùy chọn. |
