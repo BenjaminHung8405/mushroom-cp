@@ -75,6 +75,11 @@ namespace sensors
     {
         Serial.println("[SENSORS] INFO: Attempting I2C bus recovery (bit-bang 9 clocks)...");
 
+        // BẮT BUỘC gọi Wire.end() ĐẦU TIÊN để tháo GPIO8/GPIO9 khỏi ESP32 I2C hardware matrix.
+        // Nếu không gọi Wire.end() trước, pinMode/digitalWrite sẽ không có tác dụng do bị HW peripheral đè.
+        Wire.end();
+        delayMicroseconds(500);
+
         // Bit-bang 9 clock cycles để giải phóng SDA bị stuck LOW.
         // Theo I2C spec, slave sẽ release SDA sau tối đa 9 clock cycles.
         const uint8_t sda = config::pins::PIN_I2C_SDA;
@@ -101,8 +106,6 @@ namespace sensors
         delayMicroseconds(5);
 
         // Reinitialize Wire và SHT30 driver
-        Wire.end();
-        delayMicroseconds(500);
         Wire.setPins(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL);
         Wire.begin();
         Wire.setClock(50000);
