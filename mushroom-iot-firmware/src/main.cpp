@@ -25,6 +25,16 @@ void setup()
     // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức HIGH (OFF) ngay lập tức
     actuators::init_actuators_gpio();
 
+    Preferences prefs;
+    if (prefs.begin("mushroom_cfg", false))
+    {
+        // Bắt buộc phải ghi kèm broker để hàm kiểm tra của hệ thống trả về TRUE
+        prefs.putString("mqtt_broker", "mushroomapp.mitelai.com");
+        prefs.putUShort("mqtt_port", 10883); // Điền Port mới bạn muốn đổi tại đây
+        prefs.end();
+        Serial.println(">>> ĐÃ GHI ĐÈ CẤU HÌNH PORT & BROKER TRONG NVS THÀNH CÔNG <<<");
+    }
+
     Serial.println("[MAIN] ESP32 Firmware Starting...");
     setenv("TZ", "UTC-7", 1);
     tzset();
@@ -89,11 +99,11 @@ void setup()
 
 void loop()
 {
-    // The main loop is running on Core 1 by default in Arduino-ESP32,
-    // but we can delay or delete it since logic is delegated to FreeRTOS tasks.
-    #ifndef UNIT_TEST
+// The main loop is running on Core 1 by default in Arduino-ESP32,
+// but we can delay or delete it since logic is delegated to FreeRTOS tasks.
+#ifndef UNIT_TEST
     vTaskDelay(pdMS_TO_TICKS(1000));
-    #else
+#else
     // Trong môi trường UNIT_TEST, ta chạy loop của Core 0 để kiểm thử đồng bộ
     // (như duy trì Webserver, MQTT loop, check delta telemetry)
     // Điều này đảm bảo biên dịch thành công và kiểm chứng được các luồng logic trong test suite.
@@ -109,5 +119,5 @@ void loop()
         TelemetryData mock_tel = {25.0f, 80.0f, NAN, {false, false, false, false, false, false, {0, 0}}};
         processTelemetryPublication(now, mock_tel, telemetryState);
     }
-    #endif
+#endif
 }

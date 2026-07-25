@@ -14,7 +14,7 @@ namespace {
 
 constexpr const char* LEGACY_PRODUCTION_MQTT_BROKER = "mushroomapp.mitelai.com";
 constexpr uint16_t LEGACY_PRODUCTION_MQTT_PORT = 10883;
-constexpr uint16_t PRODUCTION_MQTT_PORT = 1883;
+constexpr uint16_t PRODUCTION_MQTT_PORT = 10883;
 
 bool migrateLegacyProductionMqttPort(String& broker, uint16_t& port,
                                      const String& user, const String& pass,
