@@ -1,3 +1,15 @@
+## [2026-07-25T14:34:03+07:00] - Track G (G1): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-25T14:30–14:34 (+07:00)
+- **Task ID:** G1
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo/sửa:**
+  - `mushroom-backend/src/influx/tasks/kpi-hourly.flux` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp:** Tạo InfluxDB task `kpi_hourly_aggregation` chạy mỗi giờ, lệch 5 phút; nguồn bucket dùng biến Flux `INFLUXDB_BUCKET`, lọc measurement `controller_history` và chỉ nhận `data_quality == "good"`. Dữ liệu được pivot theo timestamp, loại bản ghi thiếu input, group theo `device_id`, `control_source`, `config_revision`, rồi reduce để cộng SSE nhiệt độ/độ ẩm, đếm transition Mist false→true, cộng duration Mist/Lamp theo tick 5 giây và tính `valid_samples / 720 * 100`. Kết quả ghi vào bucket `mushroom_analytics`, measurement `kpi_metrics_1h`, kèm các field duration/session/coverage cần cho KPI rolling.
+- **Tự kiểm tra:** `npm run build` PASS; `npm test -- --runInBand` PASS với 29 suites và 225 tests; `git diff --check` PASS. Flux được rà soát tĩnh theo schema `controller_history` và các ràng buộc G1; chưa chạy integration Flux riêng vì repository chưa có harness kiểm tra/provision task tự động.
+
 ## [2026-07-25T14:30:00+07:00] - Security/Architecture QA Review: APPROVED (LGTM - Track F: F1–F10)
 
 - **Kết quả:** **LGTM (Looks Good To Me)**. Thông qua kiểm toán toàn bộ Track F (F1–F10). Tất cả các task F1 đến F10 được chuyển sang trạng thái `[x] Done` trong `PROGRESS.md`.
