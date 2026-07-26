@@ -1,3 +1,27 @@
+## [2026-07-26T13:21:06+07:00] - Track J (J8): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T13:21:06+07:00.
+- **Task ID:** J8 — Implement `GET /devices/:id/tuning-history` có phân trang.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:** Không có.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung endpoint `GET /devices/:id/tuning-history` vào command controller, luôn áp dụng `JwtAuthGuard` và `DeviceOwnershipGuard` trước controller để bảo vệ xác thực và quyền sở hữu thiết bị.
+  - Thêm parser pagination fail-closed: chỉ nhận chuỗi số nguyên không âm an toàn, reject input malformed/array/negative/unsafe integer bằng `BadRequestException`; default `limit=20`, `offset=0`, clamp `limit` tối đa 100 trước khi gọi service. `limit=0` được chuẩn hóa thành 1 để không thể bị ORM diễn giải thành truy vấn không giới hạn.
+  - Endpoint tái sử dụng `TuningConfigurationService.getTuningHistory()`, vốn sử dụng TypeORM `take`/`skip` và thứ tự audit ổn định, nên không phát sinh truy vấn audit không giới hạn.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `npm run typecheck`: **PASS**.
+  - Focused Jest: `tuning-command.controller.spec.ts` và `tuning-configuration.service.spec.ts`: **PASS (30/30 tests, 2/2 suites)**.
+  - `npm run lint` (changed-files): **PASS**.
+  - Prettier check sau format: **PASS**.
+  - `git diff --check`: **PASS**.
+
+---
+
 ## [2026-07-26T13:18:35+07:00] - Track J (J7): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T13:18:35+07:00.
