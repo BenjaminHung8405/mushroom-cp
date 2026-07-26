@@ -15,6 +15,10 @@ import {
   TuningStatusBadge,
   type TuningCommandState,
 } from '@/app/components/tuning/TuningStatusBadge'
+import {
+  CoverageWarning,
+  isTuningRecommendationBlocked,
+} from '@/app/components/tuning/CoverageWarning'
 
 interface PendingCommand {
   commandId: string
@@ -47,7 +51,11 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null)
 
   const advisory = data?.advisory ?? null
-  const isBlocked = !deviceId || data?.blockReason !== null || advisory === null
+  const isBlocked =
+    !deviceId ||
+    !data ||
+    isTuningRecommendationBlocked(data.blockReason) ||
+    advisory === null
   const isCommandPending = pendingCommand?.state === 'PENDING'
   const confirmDisabled = isBlocked || isSubmitting || isCommandPending
 
@@ -183,11 +191,11 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
         </p>
       )}
 
-      {data?.blockReason && (
-        <p role="alert" className="rounded-md border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">
-          <strong>Không thể tạo đề xuất:</strong>{' '}
-          {data.blockReasonDetail ?? blockReasonLabel(data.blockReason)}
-        </p>
+      {data && (
+        <CoverageWarning
+          blockReason={data.blockReason}
+          detail={data.blockReasonDetail}
+        />
       )}
 
       {advisory && (
@@ -308,14 +316,4 @@ function parseCreateCommandResponse(value: unknown): CreateCommandResponse | nul
     return null
   }
   return { commandId: value.commandId, status: 'PENDING' }
-}
-
-function blockReasonLabel(reason: NonNullable<ReturnType<typeof useTuningRecommendation>['data']>['blockReason']): string {
-  switch (reason) {
-    case 'INSUFFICIENT_DATA': return 'Chưa đủ dữ liệu tin cậy để đề xuất.'
-    case 'DEVICE_OFFLINE': return 'Không thể xác nhận thiết bị đang trực tuyến.'
-    case 'NO_SUGGESTION': return 'Dữ liệu hiện tại không cần thay đổi cấu hình.'
-    case 'CONFLICT': return 'Các quy tắc đề xuất đang mâu thuẫn.'
-    case null: return ''
-  }
 }

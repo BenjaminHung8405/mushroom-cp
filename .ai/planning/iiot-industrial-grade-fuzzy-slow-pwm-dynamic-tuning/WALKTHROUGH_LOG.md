@@ -1,3 +1,30 @@
+### 2026-07-26 22:39:53 +0700
+- **Task ID:** K7
+- **Status:** Đang chờ QA Review
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/page.tsx`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:**
+  - Tích hợp thành công `TuningAdvisoryPanel` vào dashboard layout chính tại `mushroom-ui/app/page.tsx`.
+  - Tận dụng Context API thông qua `useSelectedDevice()` để lấy `selectedDeviceId` tự động truyền qua prop `deviceId`.
+  - Đặt component nằm trên `OfflineMonitoringDashboard` nhằm đảm bảo vị trí hợp lý theo UI hiện có.
+  - Chạy `npm run build` trong `mushroom-ui` để kiểm thử tĩnh (không có lỗi TypeScript hay Next.js).
+
+## 2026-07-26 23:04:00 +07 (+0700)
+
+- **Task ID:** K6 — `CoverageWarning`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/components/tuning/CoverageWarning.tsx` (tạo mới)
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx` (tích hợp banner và fail-safe disable)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K6)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Tạo banner fail-safe xử lý đầy đủ bốn lý do block `INSUFFICIENT_DATA`, `DEVICE_OFFLINE`, `NO_SUGGESTION`, `CONFLICT`, kèm thông điệp vận hành rõ ràng và icon hỗ trợ nhận biết. Detail từ API chỉ được render qua React text node. Panel dùng chung predicate `isTuningRecommendationBlocked()` và mặc định khóa xác nhận khi chưa có response, bảo đảm block reason khác `null` luôn vô hiệu hóa thao tác gửi lệnh.
+- **Tự kiểm tra:** `pnpm exec tsc --noEmit`, `pnpm run build` và `git diff --check` trong `mushroom-ui` đều pass. `pnpm run lint` đã thử nhưng không chạy được do dependency môi trường thiếu binary `eslint` (`sh: eslint: command not found`).
+
+---
+
 ## 2026-07-26 22:35:00 +07 (+0700)
 
 - **Task ID:** K5 — `TuningStatusBadge`

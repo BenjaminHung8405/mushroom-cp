@@ -9,9 +9,10 @@ import { StandardActuatorsControl } from '@/components/standard-actuators-contro
 import { OfflineMonitoringDashboard } from '@/components/offline-monitoring-dashboard'
 import { BatchProvider, useBatch } from '@/lib/batch-context'
 import { SimulationProvider } from '@/lib/simulation-context'
-import { SelectedDeviceProvider } from '@/lib/selected-device-context'
+import { SelectedDeviceProvider, useSelectedDevice } from '@/lib/selected-device-context'
 import { RealTelemetryProvider, useRealTelemetry } from '@/lib/real-telemetry-context'
-import { useEffect, useState } from 'react'
+import { TuningAdvisoryPanel } from '@/app/components/tuning/TuningAdvisoryPanel'
+import { useState } from 'react'
 import { Sliders } from 'lucide-react'
 
 function getStatus(
@@ -47,6 +48,7 @@ function DashboardContent() {
     configSync,
   } = useRealTelemetry()
   const { tempOptimalRange, humidityOptimalRange } = useBatch()
+  const { selectedDeviceId } = useSelectedDevice()
 const cfgSync = configSync
   const cfgColor =
     cfgSync?.status === 'APPLIED' ? 'border-emerald-500/40 text-emerald-400' :
@@ -161,6 +163,10 @@ const cfgSync = configSync
 
       <div className="col-span-1 md:col-span-2 lg:col-span-2">
         <StandardActuatorsControl />
+      </div>
+
+      <div className="col-span-1 md:col-span-2 lg:col-span-4">
+        <TuningAdvisoryPanel deviceId={selectedDeviceId} />
       </div>
 
       <OfflineMonitoringDashboard />
