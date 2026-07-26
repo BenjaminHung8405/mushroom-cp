@@ -21,6 +21,12 @@ EMQX_DASHBOARD_PORT=18083
 BE_HOST_PORT=3001
 UI_HOST_PORT=3000
 
+# Backend authentication
+# Generate independently, e.g. with: openssl rand -base64 48
+# TUNING_SSE_TICKET_SECRET must be at least 32 bytes and must not equal JWT_SECRET.
+JWT_SECRET=replace-with-a-separate-jwt-secret
+TUNING_SSE_TICKET_SECRET=replace-with-a-separate-sse-ticket-secret
+
 # Optional: set NODE_ENV or other service-specific vars
 NODE_ENV=development
 ```
@@ -46,4 +52,4 @@ docker compose down -v
 Notes:
 - If you run multiple projects on the same machine, prefer changing host ports in `.env` or using `docker compose -p mushroom-project up` to namespace resources.
 - EMQX dashboard is available on `http://localhost:${EMQX_DASHBOARD_PORT:-18083}` when using default ports.
-
+- `TUNING_SSE_TICKET_SECRET` is mandatory whenever the backend starts. It signs the short-lived, URL-borne SSE tickets for native `EventSource`; never reuse `JWT_SECRET` for it.

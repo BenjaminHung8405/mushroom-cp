@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 
@@ -33,11 +37,16 @@ export class TuningSseTicketService {
   private readonly signingKey: Buffer;
 
   constructor(private readonly dataSource: DataSource) {
-    const secret = process.env.TUNING_SSE_TICKET_SECRET ?? process.env.JWT_SECRET;
-    if (!secret || secret.trim().length < 32) {
-      throw new Error(
-        'TUNING_SSE_TICKET_SECRET (or JWT_SECRET) must be at least 32 characters.',
-      );
+    const secret = process.env.TUNING_SSE_TICKET_SECRET;
+    if (
+      !secret ||
+      secret.trim().length === 0 ||
+      Buffer.byteLength(secret, 'utf8') < 32
+    ) {
+      throw new Error('TUNING_SSE_TICKET_SECRET must be at least 32 bytes.');
+    }
+    if (secret === process.env.JWT_SECRET) {
+      throw new Error('TUNING_SSE_TICKET_SECRET must differ from JWT_SECRET.');
     }
     this.signingKey = Buffer.from(secret, 'utf8');
   }
@@ -49,7 +58,9 @@ export class TuningSseTicketService {
       expiresAt: Date.now() + TICKET_TTL_MS,
       jti: crypto.randomUUID(),
     };
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+      'base64url',
+    );
     return `${encodedPayload}.${this.sign(encodedPayload)}`;
   }
 
@@ -76,7 +87,9 @@ export class TuningSseTicketService {
       }
     } catch (error: unknown) {
       if (error instanceof UnauthorizedException) throw error;
-      throw new ServiceUnavailableException('Unable to establish tuning stream.');
+      throw new ServiceUnavailableException(
+        'Unable to establish tuning stream.',
+      );
     }
     return { userId: payload.userId, deviceId: payload.deviceId };
   }
@@ -84,7 +97,8 @@ export class TuningSseTicketService {
   private verifyTicket(ticket: unknown, deviceId: string): SignedSseTicket {
     if (typeof ticket !== 'string') throw this.invalidTicket();
     const parts = ticket.split('.');
-    if (parts.length !== 2 || !parts[0] || !parts[1]) throw this.invalidTicket();
+    if (parts.length !== 2 || !parts[0] || !parts[1])
+      throw this.invalidTicket();
     const [encodedPayload, signature] = parts;
     const expectedSignature = Buffer.from(this.sign(encodedPayload));
     const receivedSignature = Buffer.from(signature);
@@ -117,7 +131,9 @@ export class TuningSseTicketService {
       typeof payload.deviceId === 'string' &&
       payload.deviceId === deviceId &&
       typeof payload.jti === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(payload.jti) &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+        payload.jti,
+      ) &&
       typeof payload.expiresAt === 'number' &&
       Number.isSafeInteger(payload.expiresAt) &&
       payload.expiresAt >= Date.now() - TICKET_CLOCK_SKEW_MS
@@ -132,6 +148,8 @@ export class TuningSseTicketService {
   }
 
   private invalidTicket(): UnauthorizedException {
-    return new UnauthorizedException('A valid tuning stream ticket is required.');
+    return new UnauthorizedException(
+      'A valid tuning stream ticket is required.',
+    );
   }
 }

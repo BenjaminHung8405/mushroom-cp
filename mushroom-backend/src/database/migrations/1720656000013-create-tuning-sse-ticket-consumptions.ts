@@ -5,9 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * A unique jti is inserted atomically when a ticket is consumed, so a ticket
  * minted by one API replica can safely be opened through any other replica.
  */
-export class CreateTuningSseTicketConsumptions1720656000013
-  implements MigrationInterface
-{
+export class CreateTuningSseTicketConsumptions1720656000013 implements MigrationInterface {
   name = 'CreateTuningSseTicketConsumptions1720656000013';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -28,6 +26,8 @@ export class CreateTuningSseTicketConsumptions1720656000013
     await queryRunner.query(
       'DROP INDEX IF EXISTS idx_tuning_sse_ticket_consumptions_expires_at',
     );
-    await queryRunner.query('DROP TABLE IF EXISTS tuning_sse_ticket_consumptions');
+    await queryRunner.query(
+      'DROP TABLE IF EXISTS tuning_sse_ticket_consumptions',
+    );
   }
 }

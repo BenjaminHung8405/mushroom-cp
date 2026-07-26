@@ -36,7 +36,10 @@ export class TuningSseTicketGuard implements CanActivate {
       );
     }
 
-    const ticket = await this.tickets.consumeTicket(request.query.ticket, deviceId);
+    const ticket = await this.tickets.consumeTicket(
+      request.query.ticket,
+      deviceId,
+    );
     const owned = await this.devicesService.isDeviceOwnedByUser(
       ticket.deviceId,
       ticket.userId,

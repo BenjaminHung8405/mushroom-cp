@@ -11,7 +11,10 @@ describe('TuningSseTicketGuard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    consumeTicket.mockResolvedValue({ userId: 'owner-a', deviceId: 'device-a' });
+    consumeTicket.mockResolvedValue({
+      userId: 'owner-a',
+      deviceId: 'device-a',
+    });
     isDeviceOwnedByUser.mockResolvedValue(true);
   });
 

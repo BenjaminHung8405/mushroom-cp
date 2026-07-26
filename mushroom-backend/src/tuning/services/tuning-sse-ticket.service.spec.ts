@@ -12,6 +12,40 @@ describe('TuningSseTicketService', () => {
     service = new TuningSseTicketService({ query } as unknown as DataSource);
   });
 
+  it('fails closed when its independent signing secret is missing, short, or reused from JWT', () => {
+    const originalTicketSecret = process.env.TUNING_SSE_TICKET_SECRET;
+    const originalJwtSecret = process.env.JWT_SECRET;
+
+    try {
+      delete process.env.TUNING_SSE_TICKET_SECRET;
+      process.env.JWT_SECRET = 'j'.repeat(32);
+      expect(
+        () => new TuningSseTicketService({ query } as unknown as DataSource),
+      ).toThrow('TUNING_SSE_TICKET_SECRET must be at least 32 bytes.');
+
+      process.env.TUNING_SSE_TICKET_SECRET = 'short-secret';
+      expect(
+        () => new TuningSseTicketService({ query } as unknown as DataSource),
+      ).toThrow('TUNING_SSE_TICKET_SECRET must be at least 32 bytes.');
+
+      process.env.TUNING_SSE_TICKET_SECRET = process.env.JWT_SECRET;
+      expect(
+        () => new TuningSseTicketService({ query } as unknown as DataSource),
+      ).toThrow('TUNING_SSE_TICKET_SECRET must differ from JWT_SECRET.');
+    } finally {
+      if (originalTicketSecret === undefined) {
+        delete process.env.TUNING_SSE_TICKET_SECRET;
+      } else {
+        process.env.TUNING_SSE_TICKET_SECRET = originalTicketSecret;
+      }
+      if (originalJwtSecret === undefined) {
+        delete process.env.JWT_SECRET;
+      } else {
+        process.env.JWT_SECRET = originalJwtSecret;
+      }
+    }
+  });
+
   it('creates a self-authenticating ticket and consumes it through durable shared replay storage', async () => {
     const ticket = service.createTicket('owner-a', 'device-a');
 
@@ -56,8 +90,12 @@ describe('TuningSseTicketService', () => {
   });
 
   it('can mint on one service instance and consume on another replica through shared storage', async () => {
-    const replicaA = new TuningSseTicketService({ query } as unknown as DataSource);
-    const replicaB = new TuningSseTicketService({ query } as unknown as DataSource);
+    const replicaA = new TuningSseTicketService({
+      query,
+    } as unknown as DataSource);
+    const replicaB = new TuningSseTicketService({
+      query,
+    } as unknown as DataSource);
     const ticket = replicaA.createTicket('owner-a', 'device-a');
 
     await expect(replicaB.consumeTicket(ticket, 'device-a')).resolves.toEqual({
