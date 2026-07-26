@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConfigService } from './config.service';
@@ -17,17 +13,12 @@ interface InfluxTask {
   status?: 'active' | 'inactive';
 }
 
-interface InfluxTasksResponse {
-  tasks?: InfluxTask[];
-}
-
-interface InfluxOrganization {
-  id: string;
-  name: string;
-}
-
-interface InfluxOrganizationsResponse {
-  orgs?: InfluxOrganization[];
+interface ProvisionerConfig {
+  url: string;
+  token: string;
+  org: string;
+  sourceBucket: string;
+  analyticsBucket: string;
 }
 
 @Injectable()
@@ -38,36 +29,73 @@ export class InfluxTaskProvisionerService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     const config = this.readConfig();
-    const fluxTemplate = await readFile(
-      join(__dirname, '../tasks/kpi-hourly.flux'),
-      'utf8',
-    );
-    const flux = compileKpiTaskFlux(
-      fluxTemplate,
-      config.sourceBucket,
-      config.analyticsBucket,
-    );
     const headers = {
       Authorization: `Token ${config.token}`,
       'Content-Type': 'application/json',
     };
+    const flux = await this.loadCompiledTaskFlux(
+      config.sourceBucket,
+      config.analyticsBucket,
+    );
+    const orgId = await this.resolveOrganizationId(config, headers);
+    const task = await this.findTaskByName(config, headers);
+    await this.activateOrCreateTask(config, headers, flux, orgId, task);
+  }
 
-    const organizations = await this.request<InfluxOrganizationsResponse>(
+  private async loadCompiledTaskFlux(
+    sourceBucket: string,
+    analyticsBucket: string,
+  ): Promise<string> {
+    const template = await readFile(
+      join(__dirname, '../tasks/kpi-hourly.flux'),
+      'utf8',
+    );
+    return compileKpiTaskFlux(template, sourceBucket, analyticsBucket);
+  }
+
+  private async resolveOrganizationId(
+    config: ProvisionerConfig,
+    headers: Record<string, string>,
+  ): Promise<string> {
+    const raw = await this.request<unknown>(
       `${config.url}/api/v2/orgs?org=${encodeURIComponent(config.org)}`,
       { headers },
     );
-    const org = organizations.orgs?.[0];
-    if (!org?.id) {
+    if (typeof raw !== 'object' || raw === null) {
+      throw new Error('Malformed InfluxDB Orgs API response');
+    }
+    const orgs = (raw as Record<string, unknown>).orgs;
+    if (!Array.isArray(orgs)) {
+      throw new Error(
+        'Malformed InfluxDB Orgs API response: orgs must be an array',
+      );
+    }
+    const org = orgs[0] as Record<string, unknown> | undefined;
+    if (typeof org?.id !== 'string' || !org.id.trim()) {
       throw new Error(`InfluxDB organization '${config.org}' was not found`);
     }
+    return org.id;
+  }
 
-    const existing = await this.request<InfluxTasksResponse | InfluxTask[]>(
+  private async findTaskByName(
+    config: ProvisionerConfig,
+    headers: Record<string, string>,
+  ): Promise<InfluxTask | undefined> {
+    const raw = await this.request<unknown>(
       `${config.url}/api/v2/tasks?name=${encodeURIComponent(TASK_NAME)}`,
       { headers },
     );
-    const task = Array.isArray(existing) ? existing[0] : existing.tasks?.[0];
-    if (task?.status === 'active') return;
+    return parseAndValidateTaskResponse(raw);
+  }
 
+  private async activateOrCreateTask(
+    config: ProvisionerConfig,
+    headers: Record<string, string>,
+    flux: string,
+    orgId: string,
+    task: InfluxTask | undefined,
+  ): Promise<void> {
+    if (task?.status === 'active') return;
     if (task) {
       await this.request<unknown>(`${config.url}/api/v2/tasks/${task.id}`, {
         method: 'PATCH',
@@ -82,7 +110,7 @@ export class InfluxTaskProvisionerService implements OnApplicationBootstrap {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        orgID: org.id,
+        orgID: orgId,
         name: TASK_NAME,
         status: 'active',
         flux,
@@ -91,17 +119,13 @@ export class InfluxTaskProvisionerService implements OnApplicationBootstrap {
     this.logger.log(`Created InfluxDB task ${TASK_NAME}`);
   }
 
-  private readConfig(): {
-    url: string;
-    token: string;
-    org: string;
-    sourceBucket: string;
-    analyticsBucket: string;
-  } {
+  private readConfig(): ProvisionerConfig {
     const getRequired = (key: string): string => {
       const value = this.configService.get(key)?.trim();
-      if (!value || value.length > 255 || /[\u0000-\u001f\u007f]/u.test(value)) {
-        throw new Error(`${key} must be a non-empty value of at most 255 characters`);
+      if (!value || value.length > 255 || containsControlCharacter(value)) {
+        throw new Error(
+          `${key} must be a non-empty value of at most 255 characters`,
+        );
       }
       return value;
     };
@@ -137,15 +161,14 @@ export function compileKpiTaskFlux(
   sourceBucket: string,
   analyticsBucket: string,
 ): string {
-  if (!template.includes(SOURCE_BUCKET_PLACEHOLDER) ||
-      !template.includes(ANALYTICS_BUCKET_PLACEHOLDER)) {
+  if (
+    !template.includes(SOURCE_BUCKET_PLACEHOLDER) ||
+    !template.includes(ANALYTICS_BUCKET_PLACEHOLDER)
+  ) {
     throw new Error('KPI Flux template is missing bucket placeholders');
   }
   return template
-    .replaceAll(
-      SOURCE_BUCKET_PLACEHOLDER,
-      escapeFluxString(sourceBucket),
-    )
+    .replaceAll(SOURCE_BUCKET_PLACEHOLDER, escapeFluxString(sourceBucket))
     .replaceAll(
       ANALYTICS_BUCKET_PLACEHOLDER,
       escapeFluxString(analyticsBucket),
@@ -154,4 +177,66 @@ export function compileKpiTaskFlux(
 
 function escapeFluxString(value: string): string {
   return value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"');
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      ((codePoint >= 0 && codePoint <= 31) || codePoint === 127)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function parseAndValidateTaskResponse(raw: unknown): InfluxTask | undefined {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error(
+      'Malformed InfluxDB Tasks API response: expected object or array',
+    );
+  }
+
+  let tasksList: unknown[];
+  if (Array.isArray(raw)) {
+    tasksList = raw;
+  } else if ('tasks' in raw) {
+    const tasksProp = (raw as Record<string, unknown>).tasks;
+    if (!Array.isArray(tasksProp)) {
+      throw new Error(
+        'Malformed InfluxDB Tasks API response: tasks property must be an array',
+      );
+    }
+    tasksList = tasksProp;
+  } else {
+    throw new Error(
+      'Malformed InfluxDB Tasks API response: missing tasks property',
+    );
+  }
+
+  if (tasksList.length === 0) {
+    return undefined;
+  }
+
+  for (const item of tasksList) {
+    if (!isValidTaskObject(item)) {
+      throw new Error(
+        'Malformed InfluxDB task in response: missing or invalid id, name, or status',
+      );
+    }
+  }
+
+  const validTasks = tasksList as InfluxTask[];
+  return validTasks.find((t) => t.name === TASK_NAME) ?? validTasks[0];
+}
+
+function isValidTaskObject(item: unknown): item is InfluxTask {
+  if (typeof item !== 'object' || item === null) return false;
+  const t = item as Record<string, unknown>;
+  const hasValidId = typeof t.id === 'string' && t.id.trim().length > 0;
+  const hasValidName = typeof t.name === 'string' && t.name.trim().length > 0;
+  const hasValidStatus = t.status === 'active' || t.status === 'inactive';
+  return hasValidId && hasValidName && hasValidStatus;
 }

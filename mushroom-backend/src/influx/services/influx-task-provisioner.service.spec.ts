@@ -9,13 +9,13 @@ describe('InfluxTaskProvisionerService', () => {
     INFLUXDB_BUCKET: 'raw "bucket"',
     INFLUXDB_ANALYTICS_BUCKET: 'analytics \\bucket',
   };
-  let fetchMock: jest.Mock;
+  let fetchMock: jest.MockedFunction<typeof fetch>;
   let originalFetch: typeof fetch;
 
   beforeEach(() => {
-    fetchMock = jest.fn();
+    fetchMock = jest.fn<typeof fetch>();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
   });
 
   afterEach(() => {
@@ -31,29 +31,35 @@ describe('InfluxTaskProvisionerService', () => {
     await createService().onApplicationBootstrap();
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const [url, request] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const [url, request] = fetchMock.mock.calls[2];
     expect(url).toBe('https://influx.example.test/api/v2/tasks');
-    const body = JSON.parse(String(request.body)) as { flux: string };
+    const body = parseJsonBody(request.body) as { flux: string };
     expect(body.flux).toContain('from(bucket: "raw \\"bucket\\"")');
     expect(body.flux).toContain('bucket: "analytics \\\\bucket"');
     expect(body.flux).not.toContain('__INFLUXDB_BUCKET__');
     expect(body.flux).not.toContain('__INFLUXDB_ANALYTICS_BUCKET__');
     expect(body.flux).toContain('overshoot_temp_duration_s');
     expect(body.flux).toContain('undershoot_temp_duration_s');
-    expect(thresholdDurations([
-      { temperature: 20.6, target: 20.0 }, // overshoot
-      { temperature: 19.4, target: 20.0 }, // undershoot
-      { temperature: 20.5, target: 20.0 }, // threshold is excluded
-      { temperature: 19.5, target: 20.0 }, // threshold is excluded
-      { temperature: 20.0, target: 20.0 }, // in range
-    ])).toEqual({ overshoot: 5, undershoot: 5 });
+    expect(
+      thresholdDurations([
+        { temperature: 20.6, target: 20.0 }, // overshoot
+        { temperature: 19.4, target: 20.0 }, // undershoot
+        { temperature: 20.5, target: 20.0 }, // threshold is excluded
+        { temperature: 19.5, target: 20.0 }, // threshold is excluded
+        { temperature: 20.0, target: 20.0 }, // in range
+      ]),
+    ).toEqual({ overshoot: 5, undershoot: 5 });
   });
 
   it('does not create or modify an already active task', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
       .mockResolvedValueOnce(
-        jsonResponse({ tasks: [{ id: 'task-1', name: 'kpi_hourly_aggregation', status: 'active' }] }),
+        jsonResponse({
+          tasks: [
+            { id: 'task-1', name: 'kpi_hourly_aggregation', status: 'active' },
+          ],
+        }),
       );
 
     await createService().onApplicationBootstrap();
@@ -65,30 +71,63 @@ describe('InfluxTaskProvisionerService', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
       .mockResolvedValueOnce(
-        jsonResponse({ tasks: [{ id: 'task-1', name: 'kpi_hourly_aggregation', status: 'inactive' }] }),
+        jsonResponse({
+          tasks: [
+            {
+              id: 'task-1',
+              name: 'kpi_hourly_aggregation',
+              status: 'inactive',
+            },
+          ],
+        }),
       )
       .mockResolvedValueOnce(jsonResponse({ id: 'task-1' }));
 
     await createService().onApplicationBootstrap();
 
-    const [url, request] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const [url, request] = fetchMock.mock.calls[2];
     expect(url).toBe('https://influx.example.test/api/v2/tasks/task-1');
     expect(request.method).toBe('PATCH');
-    expect(JSON.parse(String(request.body))).toMatchObject({ status: 'active' });
+    expect(parseJsonBody(request.body)).toMatchObject({ status: 'active' });
   });
 
   it('fails closed before making an API call when the analytics bucket is absent', async () => {
     await expect(
-      createService({ ...environment, INFLUXDB_ANALYTICS_BUCKET: '' }).onApplicationBootstrap(),
+      createService({
+        ...environment,
+        INFLUXDB_ANALYTICS_BUCKET: '',
+      }).onApplicationBootstrap(),
     ).rejects.toThrow('INFLUXDB_ANALYTICS_BUCKET must be a non-empty value');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { tasks: [{}] },
+    { tasks: null },
+    { tasks: [{ name: 'kpi_hourly_aggregation', status: 'active' }] },
+    {
+      tasks: [
+        { id: 'task-1', name: 'kpi_hourly_aggregation', status: 'unknown' },
+      ],
+    },
+    'not-an-object',
+    null,
+  ])('rejects malformed Tasks API response: %o', async (malformedPayload) => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
+      .mockResolvedValueOnce(jsonResponse(malformedPayload));
+
+    await expect(createService().onApplicationBootstrap()).rejects.toThrow(
+      /Malformed InfluxDB/u,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   function createService(values = environment): InfluxTaskProvisionerService {
     const configService: Pick<ConfigService, 'get'> = {
       get: (key) => values[key as keyof typeof values],
     };
-    return new InfluxTaskProvisionerService(configService as ConfigService);
+    return new InfluxTaskProvisionerService(configService);
   }
 });
 
@@ -96,8 +135,15 @@ function jsonResponse(value: unknown): Response {
   return {
     ok: true,
     status: 200,
-    json: async () => value,
+    json: () => Promise.resolve(value),
   } as Response;
+}
+
+function parseJsonBody(body: BodyInit | null): Record<string, unknown> {
+  if (typeof body !== 'string') {
+    throw new TypeError('Expected a JSON string request body');
+  }
+  return JSON.parse(body) as Record<string, unknown>;
 }
 
 function thresholdDurations(
@@ -108,7 +154,8 @@ function thresholdDurations(
       overshoot:
         duration.overshoot + (sample.temperature > sample.target + 0.5 ? 5 : 0),
       undershoot:
-        duration.undershoot + (sample.temperature < sample.target - 0.5 ? 5 : 0),
+        duration.undershoot +
+        (sample.temperature < sample.target - 0.5 ? 5 : 0),
     }),
     { overshoot: 0, undershoot: 0 },
   );

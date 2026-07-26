@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { QueryApi } from '@influxdata/influxdb-client';
 import { InfluxDbService } from '../../influx/services/influx-db.service';
 import { ConfigService } from '../../influx/services/config.service';
@@ -27,6 +31,7 @@ interface HourlyKpiRow {
   tempSquaredError: number;
   humidSquaredError: number;
   mistSwitchCount: number;
+  mistOnDurationSec: number;
   lampOnDurationSec: number;
   lampSessionCount: number;
   overshootDurationSec: number;
@@ -42,6 +47,7 @@ interface HourlyNumericValues {
   tempSquaredError: number;
   humidSquaredError: number;
   mistSwitchCount: number;
+  mistOnDurationSec: number;
   lampOnDurationSec: number;
   lampSessionCount: number;
   overshootDurationSec: number;
@@ -55,6 +61,7 @@ interface KpiTotal {
   tempSquaredError: number;
   humidSquaredError: number;
   mistSwitchCount: number;
+  mistOnDurationSec: number;
   lampOnDurationSec: number;
   lampSessionCount: number;
   overshootDurationSec: number;
@@ -94,13 +101,14 @@ export class ControlAnalyticsService {
 
   /** Returns false for missing telemetry or any unavailable liveness dependency. */
   async checkDeviceOnline(
-    deviceId: string,
-    now = new Date(),
+    deviceId: unknown,
+    now: unknown = new Date(),
   ): Promise<boolean> {
     if (
       typeof deviceId !== 'string' ||
       !deviceId.trim() ||
-      Number.isNaN(now.getTime())
+      !(now instanceof Date) ||
+      !Number.isFinite(now.getTime())
     ) {
       return false;
     }
@@ -214,6 +222,7 @@ function validateKpiWindowTotals(
     total.expectedSamples <= expectedWindowSamples &&
     total.validSamples <= total.expectedSamples &&
     total.validSamples <= expectedWindowSamples &&
+    total.mistOnDurationSec <= maxWindowDurationSec &&
     total.lampOnDurationSec <= maxWindowDurationSec &&
     total.overshootDurationSec <= maxWindowDurationSec &&
     total.undershootDurationSec <= maxWindowDurationSec
@@ -247,6 +256,7 @@ function buildKpiMetrics(
     tempRmse: Math.sqrt(total.tempSquaredError / total.sampleCount),
     humidRmse: Math.sqrt(total.humidSquaredError / total.sampleCount),
     mistSwitchCountPerHour: total.mistSwitchCount / windowHours,
+    mistOnDurationSec: total.mistOnDurationSec,
     lampDutyCyclePercent:
       (total.lampOnDurationSec / (windowHours * SECONDS_PER_HOUR)) * 100,
     lampAvgOnDurationSec:
@@ -268,6 +278,7 @@ function emptyKpiTotal(): KpiTotal {
     tempSquaredError: 0,
     humidSquaredError: 0,
     mistSwitchCount: 0,
+    mistOnDurationSec: 0,
     lampOnDurationSec: 0,
     lampSessionCount: 0,
     overshootDurationSec: 0,
@@ -293,6 +304,7 @@ function parseHourlyNumericValues(
     tempSquaredError: toFiniteNumber(row.sum_squared_error_temp),
     humidSquaredError: toFiniteNumber(row.sum_squared_error_humid),
     mistSwitchCount: toFiniteNumber(row.mist_switch_count),
+    mistOnDurationSec: toFiniteNumber(row.mist_on_duration_s),
     lampOnDurationSec: toFiniteNumber(row.lamp_on_duration_s),
     lampSessionCount: toFiniteNumber(row.lamp_session_count),
     overshootDurationSec: toFiniteNumber(row.overshoot_temp_duration_s),
@@ -311,6 +323,7 @@ function validateHourlyKpiValues(values: HourlyNumericValues): boolean {
     tempSquaredError,
     humidSquaredError,
     mistSwitchCount,
+    mistOnDurationSec,
     lampOnDurationSec,
     lampSessionCount,
     overshootDurationSec,
@@ -332,6 +345,7 @@ function validateHourlyKpiValues(values: HourlyNumericValues): boolean {
     validSamples > expectedSamples ||
     mistSwitchCount > sampleCount ||
     lampSessionCount > sampleCount ||
+    mistOnDurationSec > SECONDS_PER_HOUR ||
     lampOnDurationSec > SECONDS_PER_HOUR ||
     overshootDurationSec > SECONDS_PER_HOUR ||
     undershootDurationSec > SECONDS_PER_HOUR ||
@@ -392,22 +406,32 @@ export function escapeFluxString(value: string): string {
 }
 
 function validateKpiQuery(
-  deviceId: string,
+  deviceId: unknown,
   windowHours: number,
-  now: Date,
+  now: unknown,
 ): void {
-  if (!deviceId.trim()) throw new TypeError('deviceId must not be empty');
+  if (typeof deviceId !== 'string' || !deviceId.trim()) {
+    throw new BadRequestException({
+      message: 'deviceId must be a non-empty string',
+      reason: 'INVALID_DEVICE_ID',
+    });
+  }
   if (
     !Number.isInteger(windowHours) ||
     windowHours < 1 ||
     windowHours > MAX_WINDOW_HOURS
   ) {
-    throw new RangeError(
-      `windowHours must be an integer between 1 and ${MAX_WINDOW_HOURS}`,
-    );
+    throw new BadRequestException({
+      message: `windowHours must be an integer between 1 and ${MAX_WINDOW_HOURS}`,
+      reason: 'INVALID_WINDOW',
+    });
   }
-  if (Number.isNaN(now.getTime()))
-    throw new TypeError('now must be a valid date');
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    throw new BadRequestException({
+      message: 'now must be a valid date',
+      reason: 'INVALID_TIMESTAMP',
+    });
+  }
 }
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
@@ -445,6 +469,7 @@ function addKpiRow(total: KpiTotal, row: HourlyKpiRow): boolean {
     'tempSquaredError',
     'humidSquaredError',
     'mistSwitchCount',
+    'mistOnDurationSec',
     'lampOnDurationSec',
     'lampSessionCount',
     'overshootDurationSec',
@@ -473,6 +498,7 @@ function isValidKpi(kpi: KpiMetrics): boolean {
     isNonNegativeFiniteNumber(kpi.tempRmse) &&
     isNonNegativeFiniteNumber(kpi.humidRmse) &&
     isNonNegativeFiniteNumber(kpi.mistSwitchCountPerHour) &&
+    isNonNegativeFiniteNumber(kpi.mistOnDurationSec) &&
     isNonNegativeFiniteNumber(kpi.lampAvgOnDurationSec) &&
     isNonNegativeFiniteNumber(kpi.overshootDurationSec) &&
     isNonNegativeFiniteNumber(kpi.undershootDurationSec) &&

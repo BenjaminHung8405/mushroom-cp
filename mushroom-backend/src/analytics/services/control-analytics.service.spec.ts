@@ -1,4 +1,7 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { QueryApi } from '@influxdata/influxdb-client';
@@ -128,6 +131,7 @@ describe('ControlAnalyticsService', () => {
         sum_squared_error_temp: 100,
         sum_squared_error_humid: 400,
         mist_switch_count: 10,
+        mist_on_duration_s: 500,
         lamp_on_duration_s: 1_800,
         lamp_session_count: 2,
         expected_samples: 120,
@@ -139,6 +143,7 @@ describe('ControlAnalyticsService', () => {
         sum_squared_error_temp: 300,
         sum_squared_error_humid: 500,
         mist_switch_count: 14,
+        mist_on_duration_s: 1_500,
         lamp_on_duration_s: 3_600,
         lamp_session_count: 3,
         expected_samples: 360,
@@ -154,6 +159,7 @@ describe('ControlAnalyticsService', () => {
       tempRmse: Math.sqrt(400 / 400),
       humidRmse: Math.sqrt(900 / 400),
       mistSwitchCountPerHour: 12,
+      mistOnDurationSec: 2_000,
       lampDutyCyclePercent: (5_400 / 7_200) * 100,
       lampAvgOnDurationSec: 1_080,
       overshootDurationSec: 10,
@@ -183,6 +189,75 @@ describe('ControlAnalyticsService', () => {
     expect(flux).not.toContain(deviceId);
   });
 
+  it.each([null, {}, '   '])(
+    'rejects invalid device identifiers with BadRequestException and INVALID_DEVICE_ID reason: %o',
+    async (value) => {
+      let error: unknown;
+      try {
+        await service.getKpiForDevice(value as unknown as string, 24, now);
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getStatus()).toBe(400);
+      expect(
+        (
+          (error as BadRequestException).getResponse() as Record<
+            string,
+            unknown
+          >
+        ).reason,
+      ).toBe('INVALID_DEVICE_ID');
+      expect(queryApi.collectRows).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, -1, 169, 2.5])(
+    'rejects invalid window hours with BadRequestException and INVALID_WINDOW reason: %o',
+    async (windowHours) => {
+      let error: unknown;
+      try {
+        await service.getKpiForDevice('device-1', windowHours, now);
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getStatus()).toBe(400);
+      expect(
+        (
+          (error as BadRequestException).getResponse() as Record<
+            string,
+            unknown
+          >
+        ).reason,
+      ).toBe('INVALID_WINDOW');
+      expect(queryApi.collectRows).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([new Date('invalid'), { getTime: () => now.getTime() }, null])(
+    'rejects invalid clock values with BadRequestException and INVALID_TIMESTAMP reason: %o',
+    async (value) => {
+      let error: unknown;
+      try {
+        await service.getKpiForDevice('device-1', 24, value as unknown as Date);
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getStatus()).toBe(400);
+      expect(
+        (
+          (error as BadRequestException).getResponse() as Record<
+            string,
+            unknown
+          >
+        ).reason,
+      ).toBe('INVALID_TIMESTAMP');
+      expect(queryApi.collectRows).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns null when all rows are absent or invalid', async () => {
     queryApi.collectRows.mockResolvedValue([
       { sample_count: 0, expected_samples: 0 },
@@ -200,6 +275,7 @@ describe('ControlAnalyticsService', () => {
         sum_squared_error_temp: 720,
         sum_squared_error_humid: 720,
         mist_switch_count: 0,
+        mist_on_duration_s: 0,
         lamp_on_duration_s: 0,
         lamp_session_count: 0,
         expected_samples: 720,
@@ -248,6 +324,8 @@ describe('ControlAnalyticsService', () => {
     { sample_count: 721 },
     { expected_samples: 720, valid_samples: 721 },
     { lamp_on_duration_s: 3_601 },
+    { mist_on_duration_s: 3_601 },
+    { sum_squared_error_temp: -1 },
   ])('rejects malformed hourly KPI rows: %o', async (overrides) => {
     queryApi.collectRows.mockResolvedValue([hourlyRow(overrides)]);
 
@@ -360,6 +438,17 @@ describe('ControlAnalyticsService', () => {
       await expect(
         service.checkDeviceOnline('device-1', new Date('invalid')),
       ).resolves.toBe(false);
+      await expect(service.checkDeviceOnline('device-1', null)).resolves.toBe(
+        false,
+      );
+      await expect(service.checkDeviceOnline('device-1', {})).resolves.toBe(
+        false,
+      );
+      await expect(
+        service.checkDeviceOnline('device-1', {
+          getTime: () => now.getTime(),
+        }),
+      ).resolves.toBe(false);
     });
 
     it('escapes device and bucket values in the liveness query', async () => {
@@ -405,6 +494,7 @@ function hourlyRow(
     sum_squared_error_temp: 10,
     sum_squared_error_humid: 20,
     mist_switch_count: 1,
+    mist_on_duration_s: 50,
     lamp_on_duration_s: 100,
     lamp_session_count: 1,
     overshoot_temp_duration_s: 5,
@@ -428,6 +518,7 @@ function kpiForGate(
     tempRmse: 1,
     humidRmse: 2,
     mistSwitchCountPerHour: 1,
+    mistOnDurationSec: 500,
     lampDutyCyclePercent: 40,
     lampAvgOnDurationSec: 120,
     overshootDurationSec: 0,

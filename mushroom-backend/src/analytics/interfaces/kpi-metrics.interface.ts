@@ -13,6 +13,7 @@ export interface KpiMetrics {
   tempRmse: number;
   humidRmse: number;
   mistSwitchCountPerHour: number;
+  mistOnDurationSec: number;
   lampDutyCyclePercent: number;
   lampAvgOnDurationSec: number;
   overshootDurationSec: number;
