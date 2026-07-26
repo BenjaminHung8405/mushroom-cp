@@ -103,6 +103,8 @@ services:
     environment:
       - NODE_ENV=development
       - CI=true
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - TUNING_SSE_TICKET_SECRET=${TUNING_SSE_TICKET_SECRET:?TUNING_SSE_TICKET_SECRET is required}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
       - MQTT_HOST=mushroom-mqtt
       - MQTT_PORT=1883

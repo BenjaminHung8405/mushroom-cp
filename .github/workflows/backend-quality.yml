@@ -23,6 +23,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: mushroom-backend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Verify Compose backend authentication configuration contract
+        run: node ../scripts/verify-backend-auth-config.mjs
       - run: pnpm run typecheck
       - name: Lint every changed TypeScript file since the merge base
         env:

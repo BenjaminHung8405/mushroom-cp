@@ -1,4 +1,22 @@
-## [2026-07-26T14:54:21+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
+## [2026-07-26T21:18:38+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T21:18:38+07:00.
+- **Task ID:** J1-J9.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `.env.example`
+  - `docker-compose.yml`
+  - `README.md`
+  - `scripts/verify-backend-auth-config.mjs` (Mới)
+  - `.github/workflows/backend-quality.yml`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:** Đã khắc phục lỗi cấu hình triển khai thiếu secret theo yêu cầu QA (Lỗi chặn phát hành Lần 2). Thêm khối "Backend authentication" vào `.env.example` với hai biến `JWT_SECRET` và `TUNING_SSE_TICKET_SECRET` dùng placeholder bắt đầu bằng `CHANGE_ME`, yêu cầu giá trị tối thiểu 32 bytes UTF-8 cho SSE và khác JWT. Bổ sung hai biến này vào cấu hình `mushroom-backend` trong `docker-compose.yml` dưới dạng required. Cập nhật `README.md` hướng dẫn chi tiết yêu cầu sinh secret. Bổ sung script regression `verify-backend-auth-config.mjs` để smoke-test hợp đồng cấu hình compose và tích hợp vào CI `backend-quality.yml`.
+- **Kết quả tự kiểm tra:** Full backend test: **PASS (364 suites, 364 tests)**; script kiểm tra cấu hình: **PASS** (xác nhận `.env.example` nhận diện được bởi Compose mà không tiết lộ khóa thật); `npm run typecheck`, `npm run build` và `git diff --check` **PASS**.
+
+---
+
+## [2026-07-26T14:54:21+07:00] - Track J (J1-J9): Bị TỪ CHỐI DUYỆT (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-26T14:54:21+07:00.
 - **Task ID:** J1-J9.

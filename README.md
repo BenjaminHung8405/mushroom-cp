@@ -4,31 +4,23 @@
 
 This repository includes a `docker-compose.yml` that brings up the TimescaleDB (Postgres), EMQX (MQTT broker), a NestJS backend, and the Next.js frontend (`mushroom-ui`). Use the commands below to start the full development environment.
 
-1) Create an `.env` file at the repository root (example below).
+1) Create an `.env` file at the repository root from the supported deployment
+template, then replace every `CHANGE_ME` value with an environment-specific
+secret before starting the stack:
 
-Example `.env`:
+```bash
+cp .env.example .env
+```
+
+The required backend authentication entries are:
 
 ```
-# Postgres
-PG_HOST_PORT=5432
-
-# EMQX / MQTT
-MQTT_TCP_PORT=18883
-MQTT_WS_PORT=8083
-EMQX_DASHBOARD_PORT=18083
-
-# Backend / Frontend host ports
-BE_HOST_PORT=3001
-UI_HOST_PORT=3000
-
 # Backend authentication
 # Generate independently, e.g. with: openssl rand -base64 48
-# TUNING_SSE_TICKET_SECRET must be at least 32 bytes and must not equal JWT_SECRET.
-JWT_SECRET=replace-with-a-separate-jwt-secret
-TUNING_SSE_TICKET_SECRET=replace-with-a-separate-sse-ticket-secret
-
-# Optional: set NODE_ENV or other service-specific vars
-NODE_ENV=development
+# TUNING_SSE_TICKET_SECRET must be UTF-8, at least 32 bytes, and must not
+# equal JWT_SECRET. Never commit real secrets.
+JWT_SECRET=CHANGE_ME_generate_a_separate_jwt_secret
+TUNING_SSE_TICKET_SECRET=CHANGE_ME_generate_a_separate_32_byte_minimum_secret
 ```
 
 2) Start services (detached):
