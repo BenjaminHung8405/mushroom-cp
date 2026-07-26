@@ -1,3 +1,49 @@
+## [2026-07-26T14:30:28.868323+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T14:30:28.868323+07:00.
+- **Task ID:** J1-J9.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.ts` (Mới)
+  - `mushroom-backend/src/tuning/guards/tuning-sse-ticket.guard.ts` (Mới)
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/database/migrations/1720656000011-add-devices-owner-user-id.ts`
+  - `mushroom-backend/src/database/migrations/1720656000012-backfill-and-enforce-devices-owner-user-id.ts` (Mới)
+  - `mushroom-backend/src/device/entities/device.entity.ts`
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.spec.ts` (Mới)
+  - `mushroom-backend/src/tuning/guards/tuning-sse-ticket.guard.spec.ts` (Mới)
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts`
+- **Giải trình:**
+  1. (Critical) Thay thế việc truyền JWT qua Bearer ở SSE route bằng ticket xác thực dùng một lần, sinh bởi một REST endpoint POST có đầy đủ guards, giới hạn thời gian sống và liên kết với duy nhất một device; Native EventSource không cần và cũng không thể gửi Bearer JWT.
+  2. (High) Thiết lập cấu trúc migration ownership backfill thành hai chặng. Chặng 1 chuẩn bị `device_owner_migration_map`. Chặng 2 (mới thêm) là Release Gate có chủ ý: fail-closed từ chối enforce migration nếu thiếu mapping chuẩn, buộc quá trình rollout ownership mapping cho devices legacy phải an toàn 100% trước khi siết `NOT NULL`.
+- **Kết quả tự kiểm tra:** Focused SSE và Authz unit tests: **PASS (19/19 tests)**; Full backend Jest: **PASS (359/359, 40/40 suites)**; `npm run typecheck`, `npm run build`, `npm run lint:changed` và `git diff --check` đều **PASS**. Migration integration test đã được bổ sung nhưng **chưa thể chạy tại máy này** vì thiếu biến CI bắt buộc `TUNING_MIGRATION_DATABASE_URL`.
+
+---
+
+## [2026-07-26T14:13:52+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T14:13:52+07:00.
+- **Task ID:** J1-J9.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/tuning/tuning.module.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning.controller.ts` (đã gỡ legacy route)
+  - `mushroom-backend/src/tuning/controllers/tuning.controller.spec.ts` (đã gỡ cùng legacy route)
+  - `mushroom-backend/src/tuning/dto/create-tuning-command.dto.ts` (đã gỡ cùng legacy route)
+  - `mushroom-backend/src/tuning/guards/tuning-principal.guard.ts` (đã gỡ cùng legacy route)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:** Gỡ endpoint legacy có thể bypass `DeviceOwnershipGuard`; giữ duy nhất write route có `JwtAuthGuard` + `DeviceOwnershipGuard` và ownership re-check trong transaction. `ConflictException` được rethrow để duplicate `commandId` với payload khác trả 409, đồng thời thêm regression không ghi audit/outbox mới. Phân rã flow tạo command thành helper transaction/authz-idempotency/persistence riêng, vẫn bảo toàn atomic persistence-audit-outbox. Thêm giới hạn vận hành `offset <= 10_000`, reject trước repository và regression boundary.
+- **Kết quả tự kiểm tra:** Focused Jest Track J **PASS (46/46, 5/5 suites)**; full backend Jest **PASS (353/353, 38/38 suites)**; `npm run typecheck` **PASS**; `npm run lint:changed` **PASS**; `git diff --check` **PASS**.
+
+---
+
 ## [2026-07-26T13:36:03+07:00] - Track J (J2, J3, J6): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện:** 2026-07-26T13:36:03+07:00.
@@ -2579,3 +2625,35 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   4. **[Medium] G1 — Flux không chứng minh đầy đủ contract “tích lũy duration theo ticks × 5s” cho `Mist` trong output consumer.** Script tạo `mist_on_duration_s` nhưng backend parser/domain aggregation không đọc field này; đồng thời Flux `reduce` không có guard dữ liệu/giới hạn số row và tính `config_revision` bằng `string(v: ...)` trước khi ghi tag. **Chỉ thị:** đồng bộ field contract giữa task và `HourlyKpiRow`/KPI interface (hoặc loại bỏ field ngoài contract có chủ đích), bảo đảm mọi field bắt buộc được parse/validate; thêm fixture kiểm tra đủ field, giới hạn 720 sample/hour và reject malformed output trước recommendation. Không được chỉ kiểm tra chuỗi Flux có chứa tên field.
 - **Các điểm đã đạt nhưng không bù được lỗi chặn:** helper `onApplicationBootstrap()` đã được phân rã dưới 50 dòng; Flux bucket được escape; không phát hiện secret hard-code mới, SQL/Flux injection trực tiếp, N+1 query hay nested loop bất hợp lý trong phạm vi thay đổi; typecheck/test/lint explicit đều xanh.
 - **Yêu cầu vòng sửa tiếp theo:** chạy lại typecheck, lint không mutation trên toàn bộ file changed/added (bao gồm file đã commit, không chỉ trạng thái working tree), unit test Track G/H3, full backend test phù hợp và `git diff --check`; chỉ chuyển lại QA Review sau khi có regression cho toàn bộ lỗi trên.
+
+## [2026-07-26T14:08:00+07:00] - Security/Architecture QA Review: REJECTED (Track J, J1-J9, vòng 3)
+
+- **Kết quả:** **Từ chối duyệt.** Đã chuyển J1-J9 trong `PROGRESS.md` từ `[ ] QA Review` về `[ ] In Progress`; không được đánh dấu `[x] Done` trước khi khắc phục và QA chạy lại.
+- **Phạm vi:** Rà soát toàn bộ source Track J đã khai báo trong các entry mới nhất, các file thay đổi chưa commit và source liên quan trực tiếp (`TuningModule`, controller/service/guards/DTOs/device ownership); đối chiếu `README.md` §3.1 và yêu cầu J1-J9 tại `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **[Critical] J1/J6 — Legacy write endpoint bypass bắt buộc `DeviceOwnershipGuard`.** `mushroom-backend/src/tuning/controllers/tuning.controller.ts:7-16` vẫn được đăng ký ở `mushroom-backend/src/tuning/tuning.module.ts:33-37`. `POST /tuning/devices/:deviceId/commands` chỉ dùng `TuningPrincipalGuard` (house scope) rồi gọi `createPendingCommand()`; không chạy `DeviceOwnershipGuard` và không dùng ownership check `owner_user_id ... FOR UPDATE` của luồng mới. Điều này trực tiếp vi phạm J6 “luôn gắn cả hai guards” và tạo đường ghi tuning cho bất kỳ JWT principal có house scope, thay vì chỉ verified owner. **Chỉ thị:** gỡ/deprecate hẳn `TuningController` và các routes legacy khỏi `TuningModule` nếu không còn là public contract; nếu bắt buộc giữ tương thích, áp dụng cùng `JwtAuthGuard` + `DeviceOwnershipGuard`, truyền verified `sub` vào `createPendingCommandByOwner()` và thêm regression chứng minh non-owner không thể tạo command qua mọi write route.
+  2. **[High] J6 — Sai error semantics cho idempotency conflict.** `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:227-230` ném `ConflictException` khi cùng `commandId` mang snapshot khác, nhưng catch tại `277-300` không rethrow `ConflictException`. Exception bị log rồi bị đổi thành `InternalServerErrorException` 500 tại `297-299`, trái yêu cầu J6 về semantics idempotency nhất quán. **Chỉ thị:** rethrow `ConflictException` (cùng các HTTP exception hợp lệ khác theo error contract) trước generic DB-error fallback; thêm test xác nhận POST/service trả 409 cho duplicate command ID có payload khác, không log lỗi DB giả và không ghi/outbox lại.
+  3. **[Medium] J6/Kiến trúc — Hàm vượt convention 50 dòng và trộn quá nhiều trách nhiệm.** `createOrGetPending()` tại `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:204-301` dài khoảng 98 dòng, đồng thời điều phối transaction/lock, authz, idempotency, revision, persistence, audit, durable outbox và mapping error. Điều này vi phạm checklist yêu cầu phân rã hàm >50 dòng, khiến security invariant khó review/duy trì. **Chỉ thị:** chia thành các helper có trách nhiệm đơn (`createPendingInTransaction`, `getExistingOrThrowConflict`, `persistPendingWithAuditAndOutbox`, `recoverUniqueConstraintIdempotency` hoặc tương đương), mỗi helper <50 dòng; giữ transaction bao trùm write/audit/outbox và ownership check trước mọi durable write.
+  4. **[Medium] J8/Hiệu năng — `offset` không có cap vận hành.** `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts:87` cho phép offset đến `Number.MAX_SAFE_INTEGER`; `getTuningHistory()` chuyển thẳng thành `skip` ở `tuning-configuration.service.ts:126-135`. Offset rất lớn gây deep-offset scan/tốn tài nguyên database và có thể vượt khả năng kiểu/binding của database/ORM. **Chỉ thị:** đặt giới hạn offset hợp lý theo API contract (hoặc thay thế bằng cursor pagination); reject vượt giới hạn bằng `BadRequestException`, test boundary và bảo đảm không gọi repository khi reject.
+- **Các điểm đã xác minh đạt:** Luồng J6 mới đã tái kiểm tra ownership bằng parameterized query với `FOR UPDATE` trong transaction và có regression ownership đổi sau guard; DTO có bounds/nested validation, actor audit lấy từ JWT email; J7 durable state trả `null` an toàn; J9 lọc shared stream theo `deviceId` và teardown theo request close; không thấy secret hard-code mới, SQL string concatenation theo input, N+1 query hoặc nested-loop vô cớ trong flow mới.
+- **Xác minh QA độc lập:** `npm run lint:changed` **PASS**; `npm run typecheck` **PASS**; focused Jest (controller/service/guards/devices) **PASS, 41/41 tests, 5/5 suites**; `git diff --check` **PASS**. Các gate xanh không bao phủ các lỗi blocking ở trên.
+## [2026-07-26T14:22:00+07:00] - QA Review Track J (J1–J9): Từ chối duyệt
+
+- **Reviewer:** Security Auditor & Senior Code Reviewer.
+- **Kết luận:** **REJECTED — chưa đạt điều kiện Done.** Đã chuyển J1–J9 trong `PROGRESS.md` về `[ ] In Progress`.
+- **Lỗi bắt buộc phải sửa:**
+  1. `mushroom-backend/src/tuning/guards/jwt-auth.guard.ts:33-103`, `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts:106-116`, và `mushroom-ui/app/api/backend/[...path]/route.ts:26-35`: SSE bắt buộc Bearer JWT, nhưng kiến trúc Sprint 2 bắt buộc Native `EventSource` qua same-origin proxy. Native `EventSource` không gửi được header `Authorization`; proxy chỉ forward header này và không chuyển tiếp cookie/auth session. Vì vậy frontend theo K2 không thể xác thực để mở stream J9, làm hỏng luồng durable SSE (S2-3). **Chỉ thị:** thiết kế và triển khai một cơ chế auth tương thích EventSource (BFF dùng HttpOnly Secure/SameSite cookie được backend/proxy xác thực, hoặc SSE ticket ngắn hạn/một lần do endpoint authenticated cấp); proxy phải chuyển tiếp credential an toàn. Không đưa JWT vào query string. Bổ sung integration test chứng minh EventSource same-origin mở được stream, bị chặn khi anonymous, và không rò tenant/device.
+  2. `mushroom-backend/src/database/migrations/1720656000011-add-devices-owner-user-id.ts:10-12`, `mushroom-backend/src/device/devices.service.ts:33-38`, và `mushroom-backend/src/tuning/guards/device-ownership.guard.ts:51-58`: migration thêm `owner_user_id` nullable nhưng không backfill, không có migration/seeding/admin flow gán owner. Toàn bộ device hiện hữu có `NULL` sẽ luôn trả 403 cho cả read/write/stream, khiến Track J không thể vận hành sau rollout. **Chỉ thị:** bổ sung migration rollout có kiểm soát để backfill ownership từ nguồn quyền sở hữu canonical, hoặc release gate bắt buộc mapping owner đầy đủ trước khi enable endpoint; sau backfill enforce `NOT NULL` nếu nghiệp vụ yêu cầu mỗi device chỉ có một owner. Thêm migration/integration tests cho device legacy và xác nhận owner hợp lệ truy cập được còn non-owner không suy luận device tồn tại.
+- **Các kiểm tra đã chạy:** `npm run typecheck` PASS; `npm run lint` PASS; `npm run build` PASS; full Jest PASS **38/38 suites, 353/353 tests**; focused Track G–J PASS **9/9 suites, 130/130 tests**; `git diff --check` PASS. Các kết quả này không loại trừ hai lỗi kiến trúc/vận hành nêu trên.
+
+---
+## [2026-07-26T14:35:00+07:00] - Security/Architecture QA Review: REJECTED (Track J, J1–J9)
+
+- **Kết quả:** **Từ chối duyệt.** J1–J9 đã được chuyển từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`. Không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Đối chiếu `README.md` v2.2 (§§3.1–3.5), yêu cầu J1–J9 trong `PROGRESS.md`, các entry mới nhất của walkthrough và toàn bộ source thay đổi/tạo mới của Track J.
+- **Lỗi chặn duyệt:**
+  1. **[High][J1/J9] Authorization ticket không tái kiểm tra ownership tại thời điểm mở SSE.** `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts:109-123` mint ticket sau hai guard, nhưng route stream tại `:131-142` chỉ dùng `TuningSseTicketGuard`; guard này (`src/tuning/guards/tuning-sse-ticket.guard.ts:20-30`) chỉ consume ticket và không gọi `DevicesService.isDeviceOwnedByUser()`. Nếu ownership bị thu hồi/đổi sau khi ticket được cấp nhưng trước khi stream mở, user cũ vẫn đọc event của device trong thời hạn ticket. Đây vi phạm zero-trust và yêu cầu J9 luôn authn/authz trước stream. **Chỉ thị:** để guard async, lấy `userId` từ ticket đã consume và gọi `DevicesService.isDeviceOwnedByUser(deviceId, userId)` trước khi cho phép subscription; trả `ForbiddenException` khi false, không rò sự tồn tại device. Bổ sung regression ownership bị đổi giữa mint/open và anonymous/cross-device ticket.
+  2. **[High][J9/HA] SSE ticket state chỉ nằm trong `Map` memory cục bộ.** `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.ts:24, 26-39` lưu ticket ở process-local map. Khi backend chạy nhiều replica hoặc request POST/GET được load-balance sang node khác, ticket hợp lệ sẽ bị coi là thiếu, làm EventSource không thể kết nối/reconnect; restart cũng làm mất state. Đây không đạt độ bền/khả dụng industrial-grade. **Chỉ thị:** dùng ticket tự xác thực có ký và có `jti` replay store dùng chung, hoặc lưu ticket/revocation trong shared durable store với TTL và atomic consume; đồng thời thêm integration test mô phỏng mint và consume qua hai service instance/replica.
+  3. **[Medium][Conventions] Hàm vượt ngưỡng 50 dòng.** `mushroom-backend/src/tuning/services/tuning-configuration.service.ts:364-423`, `handleReportedAck()`, dài khoảng 60 dòng và đồng thời điều phối lock, transition, audit/outbox, emit và dispatch. **Chỉ thị:** tách một helper transaction (trả event/result immutable) và một helper post-commit dispatch; giữ invariant “emit chỉ sau DB commit” và thêm regression cho ACK duplicate/unknown/rejected.
+- **Các điểm đã xác minh đạt:** command legacy bypass đã được gỡ; write command tái kiểm tra ownership trong transaction bằng SQL parameterized; pagination có giới hạn offset; validation DTO/bounds hiện diện; `tuningSync$` dùng shared subject, filter đúng `deviceId`, teardown qua `takeUntil`; không phát hiện secret production hard-code, SQL/Flux injection hay N+1 query trong phần thay đổi.
+- **Xác minh độc lập:** `pnpm run typecheck` PASS; `pnpm run lint:changed` PASS; `pnpm test --runInBand` PASS (**40 suites, 359 tests**); focused ticket/controller tests PASS (**3 suites, 19 tests**); `git diff --check` PASS. Migration integration test vẫn chưa chạy được do thiếu `TUNING_MIGRATION_DATABASE_URL` như walkthrough đã nêu.

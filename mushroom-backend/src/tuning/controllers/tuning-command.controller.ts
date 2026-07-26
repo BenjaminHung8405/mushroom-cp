@@ -19,19 +19,22 @@ import { fromEvent, Observable } from 'rxjs';
 import { filter, map, takeUntil } from 'rxjs/operators';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { DeviceOwnershipGuard } from '../guards/device-ownership.guard';
+import { TuningSseTicketGuard } from '../guards/tuning-sse-ticket.guard';
 import {
   JwtAuthGuard,
   type JwtAuthenticatedRequest,
 } from '../guards/jwt-auth.guard';
+import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
 import {
+  MAX_TUNING_HISTORY_OFFSET,
   TuningConfigurationService,
-  type TuningPrincipal,
 } from '../services/tuning-configuration.service';
 
 @Controller('devices')
 export class TuningCommandController {
   constructor(
     private readonly tuningConfigurationService: TuningConfigurationService,
+    private readonly tuningSseTicketService: TuningSseTicketService,
   ) {}
 
   @Post(':id/tuning-configurations')
@@ -43,12 +46,18 @@ export class TuningCommandController {
     @Req() request: JwtAuthenticatedRequest,
   ): Promise<{ commandId: string; status: 'PENDING' }> {
     const actor = this.actorEmail(request);
-    const pending = await this.tuningConfigurationService.createPendingCommand(
-      this.actorPrincipal(request, actor),
-      deviceId,
-      dto.config,
-      dto.commandId,
-    );
+    const ownerUserId = request.user!.sub;
+
+    // The service repeats the ownership check inside its write transaction.
+    // This closes the interval between DeviceOwnershipGuard and persistence.
+    const pending =
+      await this.tuningConfigurationService.createPendingCommandByOwner(
+        ownerUserId,
+        actor,
+        deviceId,
+        dto.config,
+        dto.commandId,
+      );
 
     return {
       commandId: pending.commandId,
@@ -81,17 +90,46 @@ export class TuningCommandController {
     return this.tuningConfigurationService.getTuningHistory(
       deviceId,
       this.parsePagination(limit, 20, 1, 100, 'limit'),
-      this.parsePagination(offset, 0, 0, Number.MAX_SAFE_INTEGER, 'offset'),
+      this.parsePagination(
+        offset,
+        0,
+        0,
+        MAX_TUNING_HISTORY_OFFSET,
+        'offset',
+        false,
+      ),
     );
   }
 
   /**
+   * Mints the only credential accepted by the native EventSource route. The
+   * bearer JWT stays in the authenticated POST request and is never placed in
+   * a URL. Ownership is checked before a ticket can be issued.
+   */
+  @Post(':id/tuning-configurations/stream-ticket')
+  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
+  @HttpCode(HttpStatus.CREATED)
+  createTuningStreamTicket(
+    @Param('id') deviceId: string,
+    @Req() request: JwtAuthenticatedRequest,
+  ): { ticket: string; expiresInSeconds: number } {
+    return {
+      ticket: this.tuningSseTicketService.createTicket(
+        request.user!.sub,
+        deviceId,
+      ),
+      expiresInSeconds: 30,
+    };
+  }
+
+  /**
    * Streams durable configuration state changes via Server-Sent Events (SSE).
-   * Guarded by per-device ownership validation. The stream filters a shared
-   * Subject to strictly prevent cross-device broadcasting and memory leaks.
+   * Native EventSource authenticates with a short-lived, one-time opaque
+   * ticket bound to this device. The shared source is strictly filtered to
+   * prevent cross-device broadcasts and unsubscribes on disconnect.
    */
   @Sse(':id/tuning-configurations/stream')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
+  @UseGuards(TuningSseTicketGuard)
   streamTuningConfigurations(
     @Param('id') deviceId: string,
     @Req() request: Request,
@@ -116,27 +154,13 @@ export class TuningCommandController {
     return actor;
   }
 
-  private actorPrincipal(
-    request: JwtAuthenticatedRequest,
-    actor: string,
-  ): TuningPrincipal {
-    // Both the actor and house scope come from verified JWT claims.
-    // DeviceOwnershipGuard independently verifies owner_user_id, while the
-    // service verifies this house scope against the device inside its write
-    // transaction. Never elevate this endpoint with an unconditional admin.
-    return {
-      subject: actor,
-      allowedHouseIds: request.user!.allowedHouseIds,
-      isAdmin: false,
-    };
-  }
-
   private parsePagination(
     value: unknown,
     defaultValue: number,
     minimum: number,
     maximum: number,
     fieldName: 'limit' | 'offset',
+    clamp = true,
   ): number {
     if (value === undefined) {
       return defaultValue;
@@ -152,6 +176,12 @@ export class TuningCommandController {
     if (!Number.isSafeInteger(parsed)) {
       throw new BadRequestException(
         `${fieldName} must be a non-negative integer.`,
+      );
+    }
+
+    if (parsed > maximum && !clamp) {
+      throw new BadRequestException(
+        `${fieldName} must be between ${minimum} and ${maximum}.`,
       );
     }
 

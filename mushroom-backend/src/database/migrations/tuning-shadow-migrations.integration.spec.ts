@@ -5,6 +5,9 @@ import { CreateTuningAuditLogs1720656000007 } from './1720656000007-create-tunin
 import { HardenTuningShadow1720656000008 } from './1720656000008-harden-tuning-shadow';
 import { CreateTuningMqttOutbox1720656000009 } from './1720656000009-create-tuning-mqtt-outbox';
 import { AddReportedTuningShadow1720656000010 } from './1720656000010-add-reported-tuning-shadow';
+import { AddDevicesOwnerUserId1720656000011 } from './1720656000011-add-devices-owner-user-id';
+import { BackfillAndEnforceDevicesOwnerUserId1720656000012 } from './1720656000012-backfill-and-enforce-devices-owner-user-id';
+import { CreateTuningSseTicketConsumptions1720656000013 } from './1720656000013-create-tuning-sse-ticket-consumptions';
 
 /**
  * Real PostgreSQL integration test for Track-F migrations. This is a release
@@ -16,7 +19,9 @@ const TEST_DB = 'tuning_migration_it';
 function connectionUrl(database: string): string {
   const rawUrl = process.env.TUNING_MIGRATION_DATABASE_URL;
   if (!rawUrl) {
-    throw new Error('[tuning-migration-it] TUNING_MIGRATION_DATABASE_URL is required.');
+    throw new Error(
+      '[tuning-migration-it] TUNING_MIGRATION_DATABASE_URL is required.',
+    );
   }
   if (database !== TEST_DB) {
     const url = new URL(rawUrl);
@@ -27,14 +32,21 @@ function connectionUrl(database: string): string {
 }
 
 async function ensureTestDatabaseAvailable(): Promise<void> {
-  const adminClient = new Client({ connectionString: connectionUrl('postgres') });
+  const adminClient = new Client({
+    connectionString: connectionUrl('postgres'),
+  });
   try {
     await adminClient.connect();
   } catch (error: unknown) {
-    throw new Error(`[tuning-migration-it] PostgreSQL is unreachable: ${error instanceof Error ? error.message : 'unknown error'}`);
+    throw new Error(
+      `[tuning-migration-it] PostgreSQL is unreachable: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
   }
   try {
-    const existing = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DB]);
+    const existing = await adminClient.query(
+      'SELECT 1 FROM pg_database WHERE datname = $1',
+      [TEST_DB],
+    );
     if (existing.rowCount === 0) {
       await adminClient.query(`CREATE DATABASE ${TEST_DB}`);
     }
@@ -57,7 +69,7 @@ function makeQueryRunner(client: Client): QueryRunner {
   return {
     async query(statement: string, parameters?: unknown[]) {
       const result = await client.query(statement, parameters as never);
-      return result.rows;
+      return result.rows as unknown[];
     },
   } as unknown as QueryRunner;
 }
@@ -75,31 +87,52 @@ async function seedDevicesTable(client: Client): Promise<void> {
       enabled BOOLEAN NOT NULL DEFAULT TRUE
     )
   `);
-  await client.query('INSERT INTO devices(device_id, house_id) VALUES ($1, $2)', ['device-1', 'house-1']);
-  await client.query('INSERT INTO devices(device_id, house_id) VALUES ($1, $2)', ['device-2', 'house-2']);
+  await client.query(
+    'INSERT INTO devices(device_id, house_id) VALUES ($1, $2)',
+    ['device-1', 'house-1'],
+  );
+  await client.query(
+    'INSERT INTO devices(device_id, house_id) VALUES ($1, $2)',
+    ['device-2', 'house-2'],
+  );
 }
 
 async function tableExists(client: Client, name: string): Promise<boolean> {
-  const result = await client.query('SELECT to_regclass($1) AS relation', [`public.${name}`]);
-  return result.rows[0].relation !== null;
+  const result = await client.query<{ relation: string | null }>(
+    'SELECT to_regclass($1) AS relation',
+    [`public.${name}`],
+  );
+  return result.rows[0]?.relation !== null;
 }
 
-async function constraintExists(client: Client, name: string): Promise<boolean> {
-  const result = await client.query('SELECT 1 FROM pg_constraint WHERE conname = $1', [name]);
+async function constraintExists(
+  client: Client,
+  name: string,
+): Promise<boolean> {
+  const result = await client.query<{ confdeltype: string }>(
+    'SELECT 1 FROM pg_constraint WHERE conname = $1',
+    [name],
+  );
   return result.rowCount === 1;
 }
 
 async function indexExists(client: Client, name: string): Promise<boolean> {
-  const result = await client.query('SELECT 1 FROM pg_indexes WHERE indexname = $1', [name]);
+  const result = await client.query(
+    'SELECT 1 FROM pg_indexes WHERE indexname = $1',
+    [name],
+  );
   return result.rowCount === 1;
 }
 
-async function fkOnDelete(client: Client, constraint: string): Promise<string | null> {
-  const result = await client.query(
+async function fkOnDelete(
+  client: Client,
+  constraint: string,
+): Promise<string | null> {
+  const result = await client.query<{ confdeltype: string }>(
     `SELECT confdeltype FROM pg_constraint WHERE conname = $1`,
     [constraint],
   );
-  return result.rowCount === 1 ? (result.rows[0].confdeltype as string) : null;
+  return result.rowCount === 1 ? (result.rows[0]?.confdeltype ?? null) : null;
 }
 
 const migrations = () => [
@@ -108,6 +141,8 @@ const migrations = () => [
   new HardenTuningShadow1720656000008(),
   new CreateTuningMqttOutbox1720656000009(),
   new AddReportedTuningShadow1720656000010(),
+  new AddDevicesOwnerUserId1720656000011(),
+  new CreateTuningSseTicketConsumptions1720656000013(),
 ];
 
 beforeAll(async () => {
@@ -123,20 +158,98 @@ describe('tuning shadow migrations — clean install and rollback', () => {
       const chain = migrations();
       for (const migration of chain) await migration.up(runner);
 
-      expect(await tableExists(client, 'device_tuning_configurations')).toBe(true);
+      expect(await tableExists(client, 'device_tuning_configurations')).toBe(
+        true,
+      );
       expect(await tableExists(client, 'tuning_audit_logs')).toBe(true);
       expect(await tableExists(client, 'tuning_mqtt_outbox')).toBe(true);
-      expect(await constraintExists(client, 'uq_device_tuning_configs_device_command')).toBe(true);
-      expect(await constraintExists(client, 'uq_device_tuning_configs_device_revision')).toBe(true);
-      expect(await indexExists(client, 'idx_device_tuning_configs_device_revision')).toBe(true);
-      expect(await indexExists(client, 'idx_tuning_mqtt_outbox_device_due')).toBe(true);
-      expect(await fkOnDelete(client, 'fk_tuning_audit_configuration')).toBe('r');
+      expect(await tableExists(client, 'tuning_sse_ticket_consumptions')).toBe(
+        true,
+      );
+      expect(
+        await constraintExists(
+          client,
+          'uq_device_tuning_configs_device_command',
+        ),
+      ).toBe(true);
+      expect(
+        await constraintExists(
+          client,
+          'uq_device_tuning_configs_device_revision',
+        ),
+      ).toBe(true);
+      expect(
+        await indexExists(client, 'idx_device_tuning_configs_device_revision'),
+      ).toBe(true);
+      expect(
+        await indexExists(client, 'idx_tuning_mqtt_outbox_device_due'),
+      ).toBe(true);
+      expect(await fkOnDelete(client, 'fk_tuning_audit_configuration')).toBe(
+        'r',
+      );
       expect(await fkOnDelete(client, 'fk_tuning_audit_device')).toBe('r');
 
-      for (const migration of [...chain].reverse()) await migration.down(runner);
-      expect(await tableExists(client, 'device_tuning_configurations')).toBe(false);
+      for (const migration of [...chain].reverse())
+        await migration.down(runner);
+      expect(await tableExists(client, 'device_tuning_configurations')).toBe(
+        false,
+      );
       expect(await tableExists(client, 'tuning_audit_logs')).toBe(false);
       expect(await tableExists(client, 'tuning_mqtt_outbox')).toBe(false);
+      expect(await tableExists(client, 'tuning_sse_ticket_consumptions')).toBe(
+        false,
+      );
+    });
+  }, 60_000);
+});
+
+describe('device ownership rollout migration', () => {
+  it('backfills every legacy device from the canonical mapping and enforces exactly one nonblank owner', async () => {
+    await withClient(async (client) => {
+      await resetPublicSchema(client);
+      await seedDevicesTable(client);
+      const runner = makeQueryRunner(client);
+      await new AddDevicesOwnerUserId1720656000011().up(runner);
+      await client.query(
+        'INSERT INTO device_owner_migration_map(device_id, owner_user_id) VALUES ($1, $2), ($3, $4)',
+        ['device-1', 'owner-a', 'device-2', 'owner-b'],
+      );
+
+      await new BackfillAndEnforceDevicesOwnerUserId1720656000012().up(runner);
+
+      const owners = await client.query(
+        'SELECT device_id, owner_user_id FROM devices ORDER BY device_id',
+      );
+      expect(owners.rows).toEqual([
+        { device_id: 'device-1', owner_user_id: 'owner-a' },
+        { device_id: 'device-2', owner_user_id: 'owner-b' },
+      ]);
+      await expect(
+        client.query(
+          'INSERT INTO devices(device_id, house_id, owner_user_id) VALUES ($1, $2, NULL)',
+          ['device-3', 'house-3'],
+        ),
+      ).rejects.toThrow();
+    });
+  }, 60_000);
+
+  it('blocks rollout before enforcing authz when any legacy device lacks a canonical mapping', async () => {
+    await withClient(async (client) => {
+      await resetPublicSchema(client);
+      await seedDevicesTable(client);
+      const runner = makeQueryRunner(client);
+      await new AddDevicesOwnerUserId1720656000011().up(runner);
+
+      await expect(
+        new BackfillAndEnforceDevicesOwnerUserId1720656000012().up(runner),
+      ).rejects.toThrow(
+        'Ownership rollout blocked: device device-1 has no canonical owner mapping',
+      );
+      const column = await client.query<{ is_nullable: string }>(`
+        SELECT is_nullable FROM information_schema.columns
+        WHERE table_name = 'devices' AND column_name = 'owner_user_id'
+      `);
+      expect(column.rows[0]?.is_nullable).toBe('YES');
     });
   }, 60_000);
 });
@@ -154,20 +267,41 @@ describe('tuning shadow migrations — upgrade from historical data', () => {
       ];
       for (const migration of legacy) await migration.up(runner);
 
-      const snapshot = { lamp_gain_scale: 1, mist_gain_scale: 1, mist_on_threshold: 0.25, mist_off_threshold: 0.15 };
+      const snapshot = {
+        lamp_gain_scale: 1,
+        mist_gain_scale: 1,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.15,
+      };
       await client.query(
         `INSERT INTO device_tuning_configurations(id, device_id, command_id, revision, status, config)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb), ($7, $2, $3, $8, $5, $6::jsonb)`,
         [
-          '11111111-1111-1111-1111-111111111111', 'device-1', '22222222-2222-2222-2222-222222222222', 1, 'PENDING', JSON.stringify(snapshot),
-          '33333333-3333-3333-3333-333333333333', 2,
+          '11111111-1111-1111-1111-111111111111',
+          'device-1',
+          '22222222-2222-2222-2222-222222222222',
+          1,
+          'PENDING',
+          JSON.stringify(snapshot),
+          '33333333-3333-3333-3333-333333333333',
+          2,
         ],
       );
 
       const hardening = new HardenTuningShadow1720656000008();
       await expect(hardening.up(runner)).rejects.toThrow(/duplicate/);
-      expect(await constraintExists(client, 'uq_device_tuning_configs_device_command')).toBe(false);
-      expect(await constraintExists(client, 'uq_device_tuning_configs_device_revision')).toBe(false);
+      expect(
+        await constraintExists(
+          client,
+          'uq_device_tuning_configs_device_command',
+        ),
+      ).toBe(false);
+      expect(
+        await constraintExists(
+          client,
+          'uq_device_tuning_configs_device_revision',
+        ),
+      ).toBe(false);
     });
   }, 60_000);
 
@@ -183,30 +317,57 @@ describe('tuning shadow migrations — upgrade from historical data', () => {
       ];
       for (const migration of legacy) await migration.up(runner);
 
-      await client.query('CREATE TABLE tuning_audit_extensions (id UUID PRIMARY KEY)');
-      await client.query('ALTER TABLE tuning_audit_logs ADD COLUMN extension_id UUID');
+      await client.query(
+        'CREATE TABLE tuning_audit_extensions (id UUID PRIMARY KEY)',
+      );
+      await client.query(
+        'ALTER TABLE tuning_audit_logs ADD COLUMN extension_id UUID',
+      );
       await client.query(`
         ALTER TABLE tuning_audit_logs
           ADD CONSTRAINT fk_tuning_audit_unrelated_extension
           FOREIGN KEY (extension_id) REFERENCES tuning_audit_extensions(id) ON DELETE CASCADE
       `);
 
-      const snapshot = { lamp_gain_scale: 1, mist_gain_scale: 1, mist_on_threshold: 0.25, mist_off_threshold: 0.15 };
+      const snapshot = {
+        lamp_gain_scale: 1,
+        mist_gain_scale: 1,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.15,
+      };
       await client.query(
         `INSERT INTO device_tuning_configurations(id, device_id, command_id, revision, status, config)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-        ['44444444-4444-4444-4444-444444444444', 'device-1', '55555555-5555-5555-5555-555555555555', 1, 'PENDING', JSON.stringify(snapshot)],
+        [
+          '44444444-4444-4444-4444-444444444444',
+          'device-1',
+          '55555555-5555-5555-5555-555555555555',
+          1,
+          'PENDING',
+          JSON.stringify(snapshot),
+        ],
       );
 
       await new HardenTuningShadow1720656000008().up(runner);
       await new CreateTuningMqttOutbox1720656000009().up(runner);
       await new AddReportedTuningShadow1720656000010().up(runner);
 
-      expect(await constraintExists(client, 'uq_device_tuning_configs_device_command')).toBe(true);
-      expect(await indexExists(client, 'idx_device_tuning_configs_device_revision')).toBe(true);
+      expect(
+        await constraintExists(
+          client,
+          'uq_device_tuning_configs_device_command',
+        ),
+      ).toBe(true);
+      expect(
+        await indexExists(client, 'idx_device_tuning_configs_device_revision'),
+      ).toBe(true);
       expect(await fkOnDelete(client, 'fk_tuning_audit_device')).toBe('r');
-      expect(await constraintExists(client, 'fk_tuning_audit_unrelated_extension')).toBe(true);
-      expect(await fkOnDelete(client, 'fk_tuning_audit_unrelated_extension')).toBe('c');
+      expect(
+        await constraintExists(client, 'fk_tuning_audit_unrelated_extension'),
+      ).toBe(true);
+      expect(
+        await fkOnDelete(client, 'fk_tuning_audit_unrelated_extension'),
+      ).toBe('c');
 
       await new AddReportedTuningShadow1720656000010().down(runner);
       await new CreateTuningMqttOutbox1720656000009().down(runner);

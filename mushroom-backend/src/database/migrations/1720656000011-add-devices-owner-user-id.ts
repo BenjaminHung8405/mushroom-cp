@@ -10,9 +10,19 @@ export class AddDevicesOwnerUserId1720656000011 implements MigrationInterface {
     await queryRunner.query(
       'ALTER TABLE devices ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(255)',
     );
+    // Release operators populate this staging table from the approved
+    // identity/house-assignment system before migration 0012 can enable
+    // tuning authorization. Never infer owners or assign a blanket default.
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS device_owner_migration_map (
+        device_id VARCHAR(50) PRIMARY KEY,
+        owner_user_id VARCHAR(255) NOT NULL
+      )
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query('DROP TABLE IF EXISTS device_owner_migration_map');
     await queryRunner.query(
       'ALTER TABLE devices DROP COLUMN IF EXISTS owner_user_id',
     );

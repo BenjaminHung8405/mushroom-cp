@@ -43,9 +43,9 @@ export class Device {
     name: 'owner_user_id',
     type: 'varchar',
     length: 255,
-    nullable: true,
+    nullable: false,
   })
-  ownerUserId!: string | null;
+  ownerUserId!: string;
 
   @Column({ name: 'token', type: 'varchar', length: 64, nullable: true })
   token!: string | null;

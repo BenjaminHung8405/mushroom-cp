@@ -23,8 +23,10 @@ describe('TuningModule', () => {
   let mockOutboxRepo: unknown;
 
   beforeEach(() => {
+    process.env.TUNING_SSE_TICKET_SECRET = 't'.repeat(32);
     mockDataSource = {
       transaction: jest.fn(),
+      query: jest.fn(),
     };
     mockConfigRepo = {
       findOne: jest.fn(),

@@ -26,6 +26,9 @@ async function proxy(
     const response = await fetch(upstreamUrl, {
       method: request.method,
       headers: {
+        // A same-origin EventSource can use an opaque one-time ticket in the
+        // URL, but it can never forward a bearer token. Do not relay browser
+        // cookies to the backend: the BFF owns its server-to-server auth hop.
         Accept: request.headers.get('accept') ?? 'application/json',
         ...(request.headers.get('content-type')
           ? { 'Content-Type': request.headers.get('content-type')! }

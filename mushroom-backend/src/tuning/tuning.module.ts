@@ -4,8 +4,6 @@ import { DeviceTuningConfiguration } from './entities/device-tuning-configuratio
 import { TuningAuditLog } from './entities/tuning-audit-log.entity';
 import { TuningConfigurationService } from './services/tuning-configuration.service';
 import { MqttModule } from '../mqtt/mqtt.module';
-import { TuningController } from './controllers/tuning.controller';
-import { TuningPrincipalGuard } from './guards/tuning-principal.guard';
 import { TuningMqttOutbox } from './entities/tuning-mqtt-outbox.entity';
 import { TuningMqttOutboxDispatcher } from './services/tuning-mqtt-outbox-dispatcher.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
@@ -14,6 +12,8 @@ import { DeviceOwnershipGuard } from './guards/device-ownership.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TuningRecommendationController } from './controllers/tuning-recommendation.controller';
 import { TuningCommandController } from './controllers/tuning-command.controller';
+import { TuningSseTicketService } from './services/tuning-sse-ticket.service';
+import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
 
 /**
  * TuningModule — Manages IIoT Direct-Relay Fuzzy Dynamic Tuning configurations and audit logs.
@@ -30,17 +30,14 @@ import { TuningCommandController } from './controllers/tuning-command.controller
     AnalyticsModule,
     DeviceModule,
   ],
-  controllers: [
-    TuningController,
-    TuningRecommendationController,
-    TuningCommandController,
-  ],
+  controllers: [TuningRecommendationController, TuningCommandController],
   providers: [
     TuningConfigurationService,
     TuningMqttOutboxDispatcher,
-    TuningPrincipalGuard,
     JwtAuthGuard,
     DeviceOwnershipGuard,
+    TuningSseTicketService,
+    TuningSseTicketGuard,
   ],
   exports: [TuningConfigurationService, TypeOrmModule],
 })

@@ -6,19 +6,23 @@ import { BadRequestException } from '@nestjs/common';
 import { EventEmitter } from 'node:events';
 import { Subject } from 'rxjs';
 import type { TuningSyncEvent } from '../services/tuning-configuration.service';
+import { MAX_TUNING_HISTORY_OFFSET } from '../services/tuning-configuration.service';
+import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
+import { DataSource } from 'typeorm';
 
 describe('TuningCommandController', () => {
-  const createPendingCommand = jest.fn();
+  const createPendingCommandByOwner = jest.fn();
   const getLatestByDeviceId = jest.fn();
   const getTuningHistory = jest.fn();
   const tuningSync$ = new Subject<TuningSyncEvent>();
   const service = {
-    createPendingCommand,
+    createPendingCommandByOwner,
     getLatestByDeviceId,
     getTuningHistory,
     tuningSync$,
   } as unknown as TuningConfigurationService;
-  const controller = new TuningCommandController(service);
+  let ticketService: TuningSseTicketService;
+  let controller: TuningCommandController;
 
   const commandId = '12345678-1234-1234-1234-1234567890ab';
   const config = {
@@ -31,7 +35,15 @@ describe('TuningCommandController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    createPendingCommand.mockResolvedValue({ commandId, status: 'PENDING' });
+    process.env.TUNING_SSE_TICKET_SECRET = 't'.repeat(32);
+    ticketService = new TuningSseTicketService({
+      query: jest.fn(),
+    } as unknown as DataSource);
+    controller = new TuningCommandController(service, ticketService);
+    createPendingCommandByOwner.mockResolvedValue({
+      commandId,
+      status: 'PENDING',
+    });
     getLatestByDeviceId.mockResolvedValue(null);
     getTuningHistory.mockResolvedValue({
       items: [],
@@ -56,12 +68,9 @@ describe('TuningCommandController', () => {
       request,
     );
 
-    expect(createPendingCommand).toHaveBeenCalledWith(
-      {
-        subject: 'operator@example.com',
-        allowedHouseIds: ['house-1'],
-        isAdmin: false,
-      },
+    expect(createPendingCommandByOwner).toHaveBeenCalledWith(
+      'user-1',
+      'operator@example.com',
       'device-1',
       config,
       commandId,
@@ -77,7 +86,7 @@ describe('TuningCommandController', () => {
     await expect(
       controller.createTuningConfiguration('device-1', dto, request),
     ).rejects.toThrow('JWT email is required for tuning commands.');
-    expect(createPendingCommand).not.toHaveBeenCalled();
+    expect(createPendingCommandByOwner).not.toHaveBeenCalled();
   });
 
   it('returns the latest durable configuration state for the guarded device', async () => {
@@ -120,6 +129,18 @@ describe('TuningCommandController', () => {
     expect(getTuningHistory).toHaveBeenCalledWith('device-1', 100, 25);
   });
 
+  it('rejects a deep offset before invoking the history service', async () => {
+    await expect(
+      controller.getTuningHistory(
+        'device-1',
+        '20',
+        String(MAX_TUNING_HISTORY_OFFSET + 1),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(getTuningHistory).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['limit', '1.5', '0'],
     ['limit', '-1', '0'],
@@ -135,6 +156,17 @@ describe('TuningCommandController', () => {
       expect(getTuningHistory).not.toHaveBeenCalled();
     },
   );
+  it('mints a signed, short-lived ticket only after JWT authentication and ownership guards', () => {
+    const request = {
+      user: { sub: 'user-1', allowedHouseIds: ['house-1'] },
+    } as unknown as JwtAuthenticatedRequest;
+
+    const result = controller.createTuningStreamTicket('device-1', request);
+
+    expect(result).toMatchObject({ expiresInSeconds: 30 });
+    expect(result.ticket).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u);
+  });
+
   it('streams tuning configuration sync events filtered by deviceId', (done) => {
     const request = new EventEmitter() as unknown as JwtAuthenticatedRequest;
     const result$ = controller.streamTuningConfigurations('device-1', request);
