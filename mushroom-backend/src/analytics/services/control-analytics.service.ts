@@ -6,6 +6,7 @@ import {
 import type { QueryApi } from '@influxdata/influxdb-client';
 import { InfluxDbService } from '../../influx/services/influx-db.service';
 import { ConfigService } from '../../influx/services/config.service';
+import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import type { KpiMetrics } from '../interfaces/kpi-metrics.interface';
 
 const HOURS_PER_DAY = 24;
@@ -76,6 +77,7 @@ export class ControlAnalyticsService {
   constructor(
     private readonly influxDbService: InfluxDbService,
     private readonly configService: ConfigService,
+    private readonly analyticsAvailability: AnalyticsAvailabilityService,
   ) {}
 
   /** Blocks recommendation generation until the KPI window is trustworthy. */
@@ -135,6 +137,12 @@ export class ControlAnalyticsService {
     now = new Date(),
   ): Promise<KpiMetrics | null> {
     validateKpiQuery(deviceId, windowHours, now);
+
+    if (!this.analyticsAvailability.getState().available) {
+      throw new ServiceUnavailableException(
+        'InfluxDB analytics is temporarily unavailable',
+      );
+    }
 
     const queryApi = this.influxDbService.getQueryApi();
     const analyticsBucket = this.configService

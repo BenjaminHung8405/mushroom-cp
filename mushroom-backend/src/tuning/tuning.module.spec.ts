@@ -14,6 +14,8 @@ import { ControlAnalyticsService } from '../analytics/services/control-analytics
 import { TuningRecommenderEngine } from '../analytics/services/tuning-recommender-engine.service';
 import { DeviceModule } from '../device/device.module';
 import { DEVICES_SERVICE } from '../device/devices.service';
+import { AnalyticsAvailabilityService } from '../influx/services/analytics-availability.service';
+import { InfluxModule } from '../influx/influx.module';
 
 describe('TuningModule', () => {
   let mockDataSource: unknown;
@@ -85,10 +87,30 @@ describe('TuningModule', () => {
       providers: [
         { provide: ControlAnalyticsService, useValue: {} },
         { provide: TuningRecommenderEngine, useValue: {} },
+        {
+          provide: AnalyticsAvailabilityService,
+          useValue: { getState: jest.fn(() => ({ available: true })) },
+        },
       ],
-      exports: [ControlAnalyticsService, TuningRecommenderEngine],
+      exports: [
+        ControlAnalyticsService,
+        TuningRecommenderEngine,
+        AnalyticsAvailabilityService,
+      ],
     })
     class MockAnalyticsModule {}
+
+    @Global()
+    @Module({
+      providers: [
+        {
+          provide: AnalyticsAvailabilityService,
+          useValue: { getState: jest.fn(() => ({ available: true })) },
+        },
+      ],
+      exports: [AnalyticsAvailabilityService],
+    })
+    class MockInfluxModule {}
 
     @Global()
     @Module({
@@ -109,6 +131,8 @@ describe('TuningModule', () => {
       .useModule(MockMqttModule)
       .overrideModule(AnalyticsModule)
       .useModule(MockAnalyticsModule)
+      .overrideModule(InfluxModule)
+      .useModule(MockInfluxModule)
       .overrideModule(DeviceModule)
       .useModule(MockDeviceModule)
       .overrideProvider(getRepositoryToken(DeviceTuningConfiguration))

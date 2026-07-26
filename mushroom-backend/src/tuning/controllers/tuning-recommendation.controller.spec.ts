@@ -1,4 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import type { KpiMetrics } from '../../analytics/interfaces/kpi-metrics.interface';
 import { ControlAnalyticsService } from '../../analytics/services/control-analytics.service';
 import { TuningRecommenderEngine } from '../../analytics/services/tuning-recommender-engine.service';
@@ -23,10 +27,14 @@ describe('TuningRecommendationController', () => {
   const tuningConfigurationService = {
     getLatestByDeviceId,
   } as unknown as TuningConfigurationService;
+  const analyticsAvailability = {
+    getState: jest.fn(() => ({ available: true, reason: null })),
+  } as unknown as AnalyticsAvailabilityService;
   const controller = new TuningRecommendationController(
     analyticsService,
     recommenderEngine,
     tuningConfigurationService,
+    analyticsAvailability,
   );
 
   const kpi: KpiMetrics = {
@@ -61,6 +69,23 @@ describe('TuningRecommendationController', () => {
     getLatestByDeviceId.mockResolvedValue({
       config,
     });
+    (analyticsAvailability.getState as jest.Mock).mockReturnValue({
+      available: true,
+      reason: null,
+    });
+  });
+
+  it('fails closed with 503 before querying other systems when analytics is degraded', async () => {
+    (analyticsAvailability.getState as jest.Mock).mockReturnValue({
+      available: false,
+      reason: 'INFLUXDB_ANALYTICS_BUCKET is missing',
+    });
+
+    await expect(
+      controller.getTuningRecommendations('device-1', '24'),
+    ).rejects.toThrow(ServiceUnavailableException);
+    expect(checkDeviceOnline).not.toHaveBeenCalled();
+    expect(getKpiForDevice).not.toHaveBeenCalled();
   });
 
   it('uses the default 24-hour window and returns a safe advisory response', async () => {

@@ -9,6 +9,7 @@ import { AnalyticsModule } from '../analytics.module';
 import { ConfigService } from '../../influx/services/config.service';
 import { InfluxDbService } from '../../influx/services/influx-db.service';
 import { InfluxModule } from '../../influx/influx.module';
+import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import {
   ControlAnalyticsService,
   escapeFluxString,
@@ -27,9 +28,13 @@ describe('ControlAnalyticsService', () => {
   const configService = {
     get: jest.fn<string | undefined, [string]>(defaultConfigValue),
   };
+  const analyticsAvailability = {
+    getState: jest.fn(() => ({ available: true, reason: null })),
+  } as unknown as AnalyticsAvailabilityService;
   const service = new ControlAnalyticsService(
     influxDbService as unknown as InfluxDbService,
     configService,
+    analyticsAvailability,
   );
   const now = new Date('2026-07-25T12:00:00.000Z');
 
@@ -106,8 +111,12 @@ describe('ControlAnalyticsService', () => {
       providers: [
         { provide: InfluxDbService, useValue: influxDbService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: AnalyticsAvailabilityService,
+          useValue: analyticsAvailability,
+        },
       ],
-      exports: [InfluxDbService, ConfigService],
+      exports: [InfluxDbService, ConfigService, AnalyticsAvailabilityService],
     })
     class MockInfluxModule {}
 

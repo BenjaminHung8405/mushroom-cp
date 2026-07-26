@@ -8,6 +8,7 @@ import { AddReportedTuningShadow1720656000010 } from './1720656000010-add-report
 import { AddDevicesOwnerUserId1720656000011 } from './1720656000011-add-devices-owner-user-id';
 import { BackfillAndEnforceDevicesOwnerUserId1720656000012 } from './1720656000012-backfill-and-enforce-devices-owner-user-id';
 import { CreateTuningSseTicketConsumptions1720656000013 } from './1720656000013-create-tuning-sse-ticket-consumptions';
+import { AddTuningMqttOutboxLease1720656000014 } from './1720656000014-add-tuning-mqtt-outbox-lease';
 
 /**
  * Real PostgreSQL integration test for Track-F migrations. This is a release
@@ -143,6 +144,7 @@ const migrations = () => [
   new AddReportedTuningShadow1720656000010(),
   new AddDevicesOwnerUserId1720656000011(),
   new CreateTuningSseTicketConsumptions1720656000013(),
+  new AddTuningMqttOutboxLease1720656000014(),
 ];
 
 beforeAll(async () => {
@@ -163,6 +165,20 @@ describe('tuning shadow migrations — clean install and rollback', () => {
       );
       expect(await tableExists(client, 'tuning_audit_logs')).toBe(true);
       expect(await tableExists(client, 'tuning_mqtt_outbox')).toBe(true);
+      const outboxLeaseColumns = await client.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'tuning_mqtt_outbox'
+           AND column_name IN ('processing_at', 'lease_expires_at', 'worker_id')`,
+      );
+      expect(
+        outboxLeaseColumns.rows.map((row) => row.column_name).sort(),
+      ).toEqual(['lease_expires_at', 'processing_at', 'worker_id']);
+      expect(
+        await indexExists(client, 'idx_tuning_mqtt_outbox_claim_due'),
+      ).toBe(true);
+      expect(
+        await indexExists(client, 'idx_tuning_mqtt_outbox_active_device_lease'),
+      ).toBe(true);
       expect(await tableExists(client, 'tuning_sse_ticket_consumptions')).toBe(
         true,
       );

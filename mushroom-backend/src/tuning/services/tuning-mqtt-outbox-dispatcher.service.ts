@@ -28,17 +28,31 @@ import {
 
 const OUTBOX_RETRY_MS = 5_000;
 const OUTBOX_MAX_DELAY_MS = 5 * 60_000;
+const OUTBOX_LEASE_MS = 30_000;
+
+interface DispatchClaim {
+  outboxId: string;
+  deviceId: string;
+  configurationId: string;
+  action: TuningMqttOutboxAction;
+  revision: number;
+  payload: TuningConfigSnapshot | null;
+  commandId: string;
+}
 
 /**
- * The sole MQTT side-effect owner for tuning. It holds the per-device database
- * advisory lock while publishing and recording delivery, so command creation,
- * desired publish and retained clear cannot interleave for a device.
+ * The sole MQTT side-effect owner for tuning. A short DB transaction claims an
+ * item through a durable lease, MQTT is published after that transaction has
+ * committed, and a second transaction finalizes/retries the claim. This keeps
+ * row/advisory locks away from unbounded broker I/O while preserving one active
+ * publisher per device (including retained-clear fencing).
  */
 @Injectable()
 export class TuningMqttOutboxDispatcher
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(TuningMqttOutboxDispatcher.name);
+  private readonly workerId = crypto.randomUUID();
   private timer?: NodeJS.Timeout;
 
   constructor(
@@ -75,6 +89,9 @@ export class TuningMqttOutboxDispatcher
         attempts: 0,
         nextAttemptAt: new Date(),
         deliveredAt: null,
+        processingAt: null,
+        leaseExpiresAt: null,
+        workerId: null,
       }),
     );
   }
@@ -87,7 +104,8 @@ export class TuningMqttOutboxDispatcher
   ): Promise<void> {
     await manager.query(
       `UPDATE tuning_mqtt_outbox
-       SET delivered_at = NOW(), updated_at = NOW()
+       SET delivered_at = NOW(), processing_at = NULL, lease_expires_at = NULL,
+           worker_id = NULL, updated_at = NOW()
        WHERE device_id = $1 AND action = $2 AND delivered_at IS NULL AND revision < $3`,
       [deviceId, TuningMqttOutboxAction.PUBLISH_DESIRED, revision],
     );
@@ -109,15 +127,19 @@ export class TuningMqttOutboxDispatcher
         attempts: 0,
         nextAttemptAt: new Date(),
         deliveredAt: null,
+        processingAt: null,
+        leaseExpiresAt: null,
+        workerId: null,
       }),
     );
   }
 
   async dispatchDue(): Promise<void> {
+    const now = new Date();
     const due = await this.outboxRepo.find({
       where: {
         deliveredAt: IsNull(),
-        nextAttemptAt: LessThanOrEqual(new Date()),
+        nextAttemptAt: LessThanOrEqual(now),
       },
       order: { nextAttemptAt: 'ASC', revision: 'DESC', createdAt: 'ASC' },
       take: 20,
@@ -126,58 +148,143 @@ export class TuningMqttOutboxDispatcher
   }
 
   private async dispatchOne(outboxId: string): Promise<void> {
+    let claim: DispatchClaim | null;
     try {
-      await this.dataSource.transaction(async (manager) => {
-        const candidate = await manager.findOne(TuningMqttOutbox, {
-          where: { id: outboxId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (
-          !candidate ||
-          candidate.deliveredAt ||
-          candidate.nextAttemptAt.getTime() > Date.now()
-        )
-          return;
-        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-          candidate.deviceId,
-        ]);
-        const config = await manager.findOne(DeviceTuningConfiguration, {
-          where: { id: candidate.configurationId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (
-          !config ||
-          !(await this.shouldDeliver(manager, candidate, config))
-        ) {
-          candidate.deliveredAt = new Date();
-          if (
-            config &&
-            candidate.action === TuningMqttOutboxAction.CLEAR_RETAINED
-          ) {
-            config.retainedClearPending = false;
-            config.retainedClearNextAt = null;
-            await manager.save(DeviceTuningConfiguration, config);
-          }
-          await manager.save(TuningMqttOutbox, candidate);
-          return;
-        }
-        await this.publish(candidate, config);
-        candidate.deliveredAt = new Date();
-        if (candidate.action === TuningMqttOutboxAction.PUBLISH_DESIRED)
-          config.publishedAt = candidate.deliveredAt;
-        if (candidate.action === TuningMqttOutboxAction.CLEAR_RETAINED) {
-          config.retainedClearPending = false;
-          config.retainedClearNextAt = null;
-        }
-        await manager.save(TuningMqttOutbox, candidate);
-        await manager.save(DeviceTuningConfiguration, config);
-      });
+      claim = await this.claim(outboxId);
     } catch (error: unknown) {
       await this.scheduleRetry(outboxId);
-      this.logger.warn(
-        `Tuning MQTT outbox '${outboxId}' will retry: ${this.errorMessage(error)}`,
-      );
+      this.logRetry(outboxId, error);
+      return;
     }
+    if (!claim) return;
+
+    try {
+      await this.publish(claim);
+      await this.finalizeDelivered(claim);
+    } catch (error: unknown) {
+      await this.scheduleRetry(outboxId);
+      this.logRetry(outboxId, error);
+    }
+  }
+
+  /** Transaction A: atomically claim one deliverable item and commit promptly. */
+  private async claim(outboxId: string): Promise<DispatchClaim | null> {
+    return this.dataSource.transaction(async (manager) => {
+      const item = await manager.findOne(TuningMqttOutbox, {
+        where: { id: outboxId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const now = new Date();
+      if (!item || !this.isClaimable(item, now)) return null;
+
+      // This lock only protects the fast claim/finalize transaction. MQTT I/O
+      // happens after commit; the durable per-device lease protects ordering.
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        item.deviceId,
+      ]);
+      const activeLease: unknown = await manager.query(
+        `SELECT 1 FROM tuning_mqtt_outbox
+         WHERE device_id = $1 AND id <> $2 AND delivered_at IS NULL
+           AND lease_expires_at > NOW()
+         LIMIT 1`,
+        [item.deviceId, item.id],
+      );
+      if (Array.isArray(activeLease) && activeLease.length > 0) return null;
+
+      const config = await manager.findOne(DeviceTuningConfiguration, {
+        where: { id: item.configurationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!config || !(await this.shouldDeliver(manager, item, config))) {
+        await this.markObsolete(manager, item, config);
+        return null;
+      }
+
+      item.processingAt = now;
+      item.leaseExpiresAt = new Date(now.getTime() + OUTBOX_LEASE_MS);
+      item.workerId = this.workerId;
+      await manager.save(TuningMqttOutbox, item);
+      return {
+        outboxId: item.id,
+        deviceId: item.deviceId,
+        configurationId: item.configurationId,
+        action: item.action,
+        revision: item.revision,
+        payload: item.payload,
+        commandId: config.commandId,
+      };
+    });
+  }
+
+  /** Transaction B: re-lock, verify the still-owned lease/current state, then persist delivery. */
+  private async finalizeDelivered(claim: DispatchClaim): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const item = await manager.findOne(TuningMqttOutbox, {
+        where: { id: claim.outboxId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item || item.deliveredAt || !this.ownsLease(item)) return;
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        item.deviceId,
+      ]);
+      const config = await manager.findOne(DeviceTuningConfiguration, {
+        where: { id: item.configurationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!config || !(await this.shouldDeliver(manager, item, config))) {
+        await this.markObsolete(manager, item, config);
+        return;
+      }
+
+      const deliveredAt = new Date();
+      item.deliveredAt = deliveredAt;
+      this.releaseLease(item);
+      if (item.action === TuningMqttOutboxAction.PUBLISH_DESIRED)
+        config.publishedAt = deliveredAt;
+      if (item.action === TuningMqttOutboxAction.CLEAR_RETAINED) {
+        config.retainedClearPending = false;
+        config.retainedClearNextAt = null;
+      }
+      await manager.save(TuningMqttOutbox, item);
+      await manager.save(DeviceTuningConfiguration, config);
+    });
+  }
+
+  private isClaimable(item: TuningMqttOutbox, now: Date): boolean {
+    return (
+      !item.deliveredAt &&
+      item.nextAttemptAt.getTime() <= now.getTime() &&
+      (!item.leaseExpiresAt || item.leaseExpiresAt.getTime() <= now.getTime())
+    );
+  }
+
+  private ownsLease(item: TuningMqttOutbox): boolean {
+    return (
+      item.workerId === this.workerId &&
+      item.leaseExpiresAt !== null &&
+      item.leaseExpiresAt.getTime() > Date.now()
+    );
+  }
+
+  private releaseLease(item: TuningMqttOutbox): void {
+    item.processingAt = null;
+    item.leaseExpiresAt = null;
+    item.workerId = null;
+  }
+
+  private async markObsolete(
+    manager: EntityManager,
+    item: TuningMqttOutbox,
+    config: DeviceTuningConfiguration | null,
+  ): Promise<void> {
+    item.deliveredAt = new Date();
+    this.releaseLease(item);
+    if (config && item.action === TuningMqttOutboxAction.CLEAR_RETAINED) {
+      config.retainedClearPending = false;
+      config.retainedClearNextAt = null;
+      await manager.save(DeviceTuningConfiguration, config);
+    }
+    await manager.save(TuningMqttOutbox, item);
   }
 
   private async shouldDeliver(
@@ -185,35 +292,30 @@ export class TuningMqttOutboxDispatcher
     item: TuningMqttOutbox,
     config: DeviceTuningConfiguration,
   ): Promise<boolean> {
+    const latest = await manager.findOne(DeviceTuningConfiguration, {
+      where: { deviceId: config.deviceId },
+      order: { revision: 'DESC' },
+    });
     if (item.action === TuningMqttOutboxAction.PUBLISH_DESIRED) {
-      const latest = await manager.findOne(DeviceTuningConfiguration, {
-        where: { deviceId: config.deviceId },
-        order: { revision: 'DESC' },
-      });
       return (
         config.status === SyncStatus.PENDING &&
         latest?.id === config.id &&
         item.revision === config.revision
       );
     }
-    const latest = await manager.findOne(DeviceTuningConfiguration, {
-      where: { deviceId: config.deviceId },
-      order: { revision: 'DESC' },
-    });
     return config.status === SyncStatus.IN_SYNC && latest?.id === config.id;
   }
 
-  private async publish(
-    item: TuningMqttOutbox,
-    config: DeviceTuningConfiguration,
-  ): Promise<void> {
-    if (item.action === TuningMqttOutboxAction.CLEAR_RETAINED)
-      return this.mqttService.clearTuningDesired(config.deviceId);
+  private async publish(claim: DispatchClaim): Promise<void> {
+    if (claim.action === TuningMqttOutboxAction.CLEAR_RETAINED)
+      return this.mqttService.clearTuningDesired(claim.deviceId);
+    if (!claim.payload)
+      throw new Error('Desired outbox item is missing payload');
     return this.mqttService.publishTuningDesired(
-      config.deviceId,
-      config.commandId,
-      config.revision,
-      item.payload as TuningConfigSnapshot,
+      claim.deviceId,
+      claim.commandId,
+      claim.revision,
+      claim.payload,
     );
   }
 
@@ -224,6 +326,13 @@ export class TuningMqttOutboxDispatcher
         lock: { mode: 'pessimistic_write' },
       });
       if (!item || item.deliveredAt) return;
+      // Do not steal a live lease belonging to another replica.
+      if (
+        item.workerId &&
+        item.workerId !== this.workerId &&
+        this.ownsLiveLease(item)
+      )
+        return;
       item.attempts += 1;
       item.nextAttemptAt = new Date(
         Date.now() +
@@ -232,8 +341,21 @@ export class TuningMqttOutboxDispatcher
             OUTBOX_MAX_DELAY_MS,
           ),
       );
+      this.releaseLease(item);
       await manager.save(TuningMqttOutbox, item);
     });
+  }
+
+  private ownsLiveLease(item: TuningMqttOutbox): boolean {
+    return (
+      item.leaseExpiresAt !== null && item.leaseExpiresAt.getTime() > Date.now()
+    );
+  }
+
+  private logRetry(outboxId: string, error: unknown): void {
+    this.logger.warn(
+      `Tuning MQTT outbox '${outboxId}' will retry: ${this.errorMessage(error)}`,
+    );
   }
 
   private errorMessage(error: unknown): string {

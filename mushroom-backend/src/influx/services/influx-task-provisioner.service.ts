@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConfigService } from './config.service';
+import { AnalyticsAvailabilityService } from './analytics-availability.service';
 
 const TASK_NAME = 'kpi_hourly_aggregation';
 const SOURCE_BUCKET_PLACEHOLDER = '__INFLUXDB_BUCKET__';
@@ -25,21 +26,36 @@ interface ProvisionerConfig {
 export class InfluxTaskProvisionerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(InfluxTaskProvisionerService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly analyticsAvailability: AnalyticsAvailabilityService,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    const config = this.readConfig();
-    const headers = {
-      Authorization: `Token ${config.token}`,
-      'Content-Type': 'application/json',
-    };
-    const flux = await this.loadCompiledTaskFlux(
-      config.sourceBucket,
-      config.analyticsBucket,
-    );
-    const orgId = await this.resolveOrganizationId(config, headers);
-    const task = await this.findTaskByName(config, headers);
-    await this.activateOrCreateTask(config, headers, flux, orgId, task);
+    try {
+      const config = this.readConfig();
+      const headers = {
+        Authorization: `Token ${config.token}`,
+        'Content-Type': 'application/json',
+      };
+      const flux = await this.loadCompiledTaskFlux(
+        config.sourceBucket,
+        config.analyticsBucket,
+      );
+      const orgId = await this.resolveOrganizationId(config, headers);
+      const task = await this.findTaskByName(config, headers);
+      await this.activateOrCreateTask(config, headers, flux, orgId, task);
+      this.analyticsAvailability.markAvailable();
+    } catch (error: unknown) {
+      const reason = this.errorMessage(error);
+      this.analyticsAvailability.markUnavailable(reason);
+      // Analytics is explicitly optional: expose degraded readiness and make
+      // recommendation requests fail closed, but never take unrelated APIs down.
+      this.logger.error({
+        event: 'influx_analytics_provisioning_unavailable',
+        reason,
+      });
+    }
   }
 
   private async loadCompiledTaskFlux(
@@ -153,6 +169,12 @@ export class InfluxTaskProvisionerService implements OnApplicationBootstrap {
       throw new Error(`InfluxDB Tasks API request failed (${response.status})`);
     }
     return (await response.json()) as T;
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error
+      ? error.message
+      : 'Unknown provisioning error';
   }
 }
 

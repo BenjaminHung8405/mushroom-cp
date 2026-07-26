@@ -4,6 +4,7 @@ import { ConfigService } from './services/config.service';
 import { InfluxDbService } from './services/influx-db.service';
 import { ControlHistoryInfluxWriter } from './services/control-history-influx-writer.service';
 import { InfluxTaskProvisionerService } from './services/influx-task-provisioner.service';
+import { AnalyticsAvailabilityService } from './services/analytics-availability.service';
 
 @Module({
   imports: [MqttModule],
@@ -11,9 +12,10 @@ import { InfluxTaskProvisionerService } from './services/influx-task-provisioner
     ConfigService,
     InfluxDbService,
     ControlHistoryInfluxWriter,
+    AnalyticsAvailabilityService,
     InfluxTaskProvisionerService,
   ],
-  exports: [ConfigService, InfluxDbService],
+  exports: [ConfigService, InfluxDbService, AnalyticsAvailabilityService],
 })
 export class InfluxModule {
   constructor(

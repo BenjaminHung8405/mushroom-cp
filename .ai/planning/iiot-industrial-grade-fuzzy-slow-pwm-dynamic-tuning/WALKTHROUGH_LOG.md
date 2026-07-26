@@ -2770,3 +2770,30 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
   4. **[Medium][J9 / Performance & availability] Mỗi lần mở SSE ticket thực hiện `DELETE` toàn bảng replay-store trên hot path.** `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.ts:73-77` chạy `DELETE FROM tuning_sse_ticket_consumptions WHERE expires_at <= NOW()` trước mọi `INSERT ... ON CONFLICT`. Với nhiều EventSource reconnect/replica, truy vấn delete liên tục gây write amplification, lock/WAL contention và làm connection establishment phụ thuộc cleanup toàn cục; không phù hợp ràng buộc industrial-grade/memory-safe SSE. **Chỉ thị:** chỉ thực hiện atomic consume ở request path. Dọn TTL bằng scheduled/batched job hoặc DB-native TTL/partition policy, có index đã khai báo; job phải chịu lỗi độc lập và không chặn xác thực ticket. Thêm test chứng minh consume không gọi global DELETE và cleanup bounded, idempotent.
 - **Các kiểm tra độc lập đã chạy:** explicit ESLint subset source J mới **PASS**; `npm run typecheck` **PASS**; `npm test -- --runInBand` **PASS (40 suites, 364 tests)**; `node scripts/verify-backend-auth-config.mjs` **PASS**; `git diff --check` **PASS**. `docker compose --env-file .env.example config --quiet` dừng đúng với `INFLUXDB_BUCKET is required` vì template cố ý không cung cấp bucket deployment; đây không bù các lỗi blocking ở trên. `gitleaks` không khả dụng trong environment QA, nhưng credential runtime được xác nhận trực tiếp bằng source đang tracked.
 - **Yêu cầu vòng sửa tiếp theo:** remove/rotate runtime secrets và artifacts trước; sửa strict task-name handling, tách replay cleanup khỏi SSE request path, đóng lỗ hổng lint gate; sau đó chạy lint tái lập được cho toàn bộ files Track G/H/J đã changed/added, typecheck, focused regression, full backend test, migration integration với PostgreSQL thật nếu migration thay đổi, secret scan và `git diff --check`. Chỉ chuyển lại `[ ] QA Review` khi có output chứng minh các gate này.
+## [2026-07-26T21:56:19+07:00] - Track G2, H1-H5, J1-J9: Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T21:56:19+07:00.
+- **Task ID:** G2, H1-H5, J1-J9.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/database/migrations/1720656000014-add-tuning-mqtt-outbox-lease.ts` (mới)
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts`
+  - `mushroom-backend/src/tuning/entities/tuning-mqtt-outbox.entity.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts`
+  - `mushroom-backend/src/influx/services/analytics-availability.service.ts` (mới)
+  - `mushroom-backend/src/influx/services/influx-task-provisioner.service.ts`
+  - `mushroom-backend/src/influx/services/influx-task-provisioner.service.spec.ts`
+  - `mushroom-backend/src/influx/influx.module.ts`
+  - `mushroom-backend/src/analytics/services/control-analytics.service.ts`
+  - `mushroom-backend/src/analytics/services/control-analytics.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-recommendation.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-recommendation.controller.spec.ts`
+  - `mushroom-backend/src/tuning/tuning.module.ts`, `mushroom-backend/src/tuning/tuning.module.spec.ts`
+  - `mushroom-backend/src/app.controller.ts`, `mushroom-backend/src/app.controller.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:** Đã tách MQTT publish ra ngoài PostgreSQL transaction: Transaction A claim item qua `worker_id`/lease rồi commit, MQTT I/O chạy ngoài lock, Transaction B re-lock/xác minh lease và state/revision trước khi finalize; lỗi publish hoặc finalize sau publish giải phóng lease và retry với backoff, worker crash tự được retry khi lease hết hạn. Retained clear cũ tiếp tục bị fence trước I/O khi revision mới tồn tại. Bổ sung migration/index và regression cho publish chậm không giữ transaction, finalize thất bại sau publish, cạnh tranh replica và retained-clear stale. Với Influx, chọn contract analytics optional: provisioning/config/API failure ghi structured error và health trả `degraded`; API recommendation fail-closed HTTP 503 trong khi các API không liên quan vẫn boot/hoạt động. Đã thêm tests cho thiếu cả hai bucket, token/API lỗi và readiness degraded.
+- **Kết quả tự kiểm tra:** `pnpm run typecheck` **PASS**; `LINT_BASE_REF=HEAD^ pnpm run lint:changed` **PASS**; focused Jest **PASS (5 suites, 78 tests)**; full backend Jest **PASS (41 suites, 372 tests)**; `git diff --check` **PASS**.
+
+---

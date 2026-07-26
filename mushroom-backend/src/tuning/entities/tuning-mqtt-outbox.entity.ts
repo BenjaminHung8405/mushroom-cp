@@ -26,6 +26,13 @@ export class TuningMqttOutbox {
   nextAttemptAt!: Date;
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt!: Date | null;
+  /** Durable ownership lease; never hold a database transaction during MQTT I/O. */
+  @Column({ name: 'processing_at', type: 'timestamptz', nullable: true })
+  processingAt!: Date | null;
+  @Column({ name: 'lease_expires_at', type: 'timestamptz', nullable: true })
+  leaseExpiresAt!: Date | null;
+  @Column({ name: 'worker_id', type: 'uuid', nullable: true })
+  workerId!: string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })

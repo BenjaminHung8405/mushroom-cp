@@ -1,5 +1,6 @@
 import { InfluxTaskProvisionerService } from './influx-task-provisioner.service';
 import { ConfigService } from './config.service';
+import { AnalyticsAvailabilityService } from './analytics-availability.service';
 
 describe('InfluxTaskProvisionerService', () => {
   const environment = {
@@ -102,9 +103,13 @@ describe('InfluxTaskProvisionerService', () => {
         }),
       );
 
-    await expect(createService().onApplicationBootstrap()).rejects.toThrow(
-      'InfluxDB Tasks API response did not include kpi_hourly_aggregation',
-    );
+    const availability = createAvailability();
+    await createService(environment, availability).onApplicationBootstrap();
+    expect(availability.getState()).toEqual({
+      available: false,
+      reason:
+        'InfluxDB Tasks API response did not include kpi_hourly_aggregation for its named lookup',
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
       fetchMock.mock.calls.some(([, request]) => request.method === 'PATCH'),
@@ -114,17 +119,52 @@ describe('InfluxTaskProvisionerService', () => {
     ).toBe(false);
   });
 
-  it('fails closed before making an API call when the analytics bucket is absent', async () => {
+  it('degrades analytics without aborting Nest bootstrap when the analytics bucket is absent', async () => {
+    const availability = createAvailability();
     await expect(
-      createService({
-        ...environment,
-        INFLUXDB_ANALYTICS_BUCKET: '',
-      }).onApplicationBootstrap(),
-    ).rejects.toThrow('INFLUXDB_ANALYTICS_BUCKET must be a non-empty value');
+      createService(
+        { ...environment, INFLUXDB_ANALYTICS_BUCKET: '' },
+        availability,
+      ).onApplicationBootstrap(),
+    ).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(availability.getState()).toEqual({
+      available: false,
+      reason:
+        'INFLUXDB_ANALYTICS_BUCKET must be a non-empty value of at most 255 characters',
+    });
   });
 
   it.each([
+    ['INFLUXDB_BUCKET', ''],
+    ['INFLUXDB_ANALYTICS_BUCKET', ''],
+  ])('degrades cleanly for missing %s', async (key, value) => {
+    const availability = createAvailability();
+    await createService(
+      { ...environment, [key]: value },
+      availability,
+    ).onApplicationBootstrap();
+    expect(availability.getState().available).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  const apiFailureCases: ReadonlyArray<readonly [Response, string]> = [
+    [jsonResponse({ orgs: [] }), 'organization'],
+    [{ ok: false, status: 401, json: jest.fn() } as Response, 'request failed'],
+  ];
+  it.each(apiFailureCases)(
+    'degrades cleanly for Influx API failures',
+    async (response, reason) => {
+      const availability = createAvailability();
+      fetchMock.mockResolvedValueOnce(response);
+      await createService(environment, availability).onApplicationBootstrap();
+      const state = availability.getState();
+      expect(state.available).toBe(false);
+      expect(state.reason).toMatch(new RegExp(reason, 'i'));
+    },
+  );
+
+  const malformedTaskResponses: readonly unknown[] = [
     { tasks: [{}] },
     { tasks: null },
     { tasks: [{ name: 'kpi_hourly_aggregation', status: 'active' }] },
@@ -135,22 +175,34 @@ describe('InfluxTaskProvisionerService', () => {
     },
     'not-an-object',
     null,
-  ])('rejects malformed Tasks API response: %o', async (malformedPayload) => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
-      .mockResolvedValueOnce(jsonResponse(malformedPayload));
+  ];
+  for (const malformedPayload of malformedTaskResponses) {
+    it(`degrades on malformed Tasks API response: ${JSON.stringify(malformedPayload)}`, async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
+        .mockResolvedValueOnce(jsonResponse(malformedPayload));
 
-    await expect(createService().onApplicationBootstrap()).rejects.toThrow(
-      /Malformed InfluxDB/u,
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
+      const availability = createAvailability();
+      await createService(environment, availability).onApplicationBootstrap();
+      const state = availability.getState();
+      expect(state.available).toBe(false);
+      expect(state.reason).toMatch(/Malformed InfluxDB/u);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  }
 
-  function createService(values = environment): InfluxTaskProvisionerService {
+  function createService(
+    values = environment,
+    availability = createAvailability(),
+  ): InfluxTaskProvisionerService {
     const configService: Pick<ConfigService, 'get'> = {
       get: (key) => values[key as keyof typeof values],
     };
-    return new InfluxTaskProvisionerService(configService);
+    return new InfluxTaskProvisionerService(configService, availability);
+  }
+
+  function createAvailability(): AnalyticsAvailabilityService {
+    return new AnalyticsAvailabilityService();
   }
 });
 

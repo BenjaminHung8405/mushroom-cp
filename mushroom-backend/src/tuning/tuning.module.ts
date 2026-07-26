@@ -7,6 +7,7 @@ import { MqttModule } from '../mqtt/mqtt.module';
 import { TuningMqttOutbox } from './entities/tuning-mqtt-outbox.entity';
 import { TuningMqttOutboxDispatcher } from './services/tuning-mqtt-outbox-dispatcher.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { InfluxModule } from '../influx/influx.module';
 import { DeviceModule } from '../device/device.module';
 import { DeviceOwnershipGuard } from './guards/device-ownership.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -29,6 +30,7 @@ import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
     ]),
     forwardRef(() => MqttModule),
     AnalyticsModule,
+    InfluxModule,
     DeviceModule,
   ],
   controllers: [TuningRecommendationController, TuningCommandController],

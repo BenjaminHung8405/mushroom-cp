@@ -4,8 +4,10 @@ import {
   Get,
   Param,
   Query,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
+import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import {
   ControlAnalyticsService,
   type CoverageGateFailureReason,
@@ -29,6 +31,7 @@ export class TuningRecommendationController {
     private readonly analyticsService: ControlAnalyticsService,
     private readonly recommenderEngine: TuningRecommenderEngine,
     private readonly tuningConfigurationService: TuningConfigurationService,
+    private readonly analyticsAvailability: AnalyticsAvailabilityService,
   ) {}
 
   @Get(':id/analytics/tuning-recommendations')
@@ -39,6 +42,12 @@ export class TuningRecommendationController {
   ): Promise<TuningRecommendationResponseDto> {
     const windowHours = parseWindowHours(window);
     const generatedAt = new Date().toISOString();
+
+    if (!this.analyticsAvailability.getState().available) {
+      throw new ServiceUnavailableException(
+        'Tuning recommendations are unavailable because Influx analytics is degraded.',
+      );
+    }
 
     if (!(await this.analyticsService.checkDeviceOnline(deviceId))) {
       return this.blocked(
