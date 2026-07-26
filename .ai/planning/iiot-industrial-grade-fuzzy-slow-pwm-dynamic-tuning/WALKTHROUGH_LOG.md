@@ -1,3 +1,34 @@
+## [2026-07-26T13:07:13+07:00] - Track J (J5): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T13:07:13+07:00.
+- **Task ID:** J5 — Implement `GET /devices/:id/analytics/tuning-recommendations`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/tuning/controllers/tuning-recommendation.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-recommendation.controller.spec.ts`
+  - `mushroom-backend/src/tuning/guards/jwt-auth.guard.ts`
+  - `mushroom-backend/src/tuning/guards/jwt-auth.guard.spec.ts`
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/tuning.module.ts`
+  - `mushroom-backend/src/tuning/tuning.module.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Khởi tạo controller chứa endpoint `GET /devices/:id/analytics/tuning-recommendations`, trả về payload type-safe `TuningRecommendationResponseDto`.
+  - Endpoint sử dụng `JwtAuthGuard` để xác thực JWT token (verify mã ký với `process.env.JWT_SECRET`, không tin cậy input client ngoài luồng) và tái sử dụng `DeviceOwnershipGuard` được truyền đối số từ JWT payload (thông qua property `req.user.sub`) để đảm bảo zero-trust Authz.
+  - Implement parsing `window` an toàn (bảo vệ bằng hard-bound từ 1 đến 168h, mặc định 24h, cấm malformed input) trước khi kích hoạt `ControlAnalyticsService`.
+  - Luồng recommendation bị khóa bởi fail-closed gates nếu device offline, không có dữ liệu KPI hợp lệ, hoặc không vượt qua ngưỡng tin cậy coverage theo thiết kế (S2-CORR-02); response sẽ hiển thị `blockReason` phù hợp.
+  - Fix tuning module DI injection trong test suite cho `ControlAnalyticsService`, `TuningRecommenderEngine` và `DEVICES_SERVICE`.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Backend Typecheck: **PASS**.
+  - ESLint explicit target: **PASS** (tất cả file mới và module wiring hoàn toàn không có warning, zero mutating fixes).
+  - Endpoint controller unit tests: **PASS (10/10 tests)**.
+  - JwtAuthGuard unit tests: **PASS (8/8 tests)**.
+  - Full backend unit tests suite: **PASS (338/338 tests, 38/38 suites)**.
+  - Git whitespace verification: **PASS**.
+
+---
+
 ## [2026-07-26T12:55:10+07:00] - Track J (J4): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T12:55:10+07:00.

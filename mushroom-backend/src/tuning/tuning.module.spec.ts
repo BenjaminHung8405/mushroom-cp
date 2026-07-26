@@ -9,13 +9,18 @@ import { TuningAuditLog } from './entities/tuning-audit-log.entity';
 import { TuningMqttOutbox } from './entities/tuning-mqtt-outbox.entity';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { MqttService } from '../mqtt/mqtt.service';
+import { AnalyticsModule } from '../analytics/analytics.module';
+import { ControlAnalyticsService } from '../analytics/services/control-analytics.service';
+import { TuningRecommenderEngine } from '../analytics/services/tuning-recommender-engine.service';
+import { DeviceModule } from '../device/device.module';
+import { DEVICES_SERVICE } from '../device/devices.service';
 
 describe('TuningModule', () => {
-  let mockDataSource: any;
-  let mockConfigRepo: any;
-  let mockAuditRepo: any;
-  let mockMqttService: any;
-  let mockOutboxRepo: any;
+  let mockDataSource: unknown;
+  let mockConfigRepo: unknown;
+  let mockAuditRepo: unknown;
+  let mockMqttService: unknown;
+  let mockOutboxRepo: unknown;
 
   beforeEach(() => {
     mockDataSource = {
@@ -36,7 +41,12 @@ describe('TuningModule', () => {
     mockMqttService = {
       publishTuningDesired: jest.fn(),
     };
-    mockOutboxRepo = { find: jest.fn(), findOne: jest.fn(), save: jest.fn(), create: jest.fn() };
+    mockOutboxRepo = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn(),
+    };
   });
 
   it('should compile TuningModule and provide TuningConfigurationService', async () => {
@@ -68,11 +78,37 @@ describe('TuningModule', () => {
     })
     class MockDatabaseModule {}
 
+    @Global()
+    @Module({
+      providers: [
+        { provide: ControlAnalyticsService, useValue: {} },
+        { provide: TuningRecommenderEngine, useValue: {} },
+      ],
+      exports: [ControlAnalyticsService, TuningRecommenderEngine],
+    })
+    class MockAnalyticsModule {}
+
+    @Global()
+    @Module({
+      providers: [
+        {
+          provide: DEVICES_SERVICE,
+          useValue: { isDeviceOwnedByUser: jest.fn() },
+        },
+      ],
+      exports: [DEVICES_SERVICE],
+    })
+    class MockDeviceModule {}
+
     const moduleRef = await Test.createTestingModule({
       imports: [TuningModule, MockDatabaseModule],
     })
       .overrideModule(MqttModule)
       .useModule(MockMqttModule)
+      .overrideModule(AnalyticsModule)
+      .useModule(MockAnalyticsModule)
+      .overrideModule(DeviceModule)
+      .useModule(MockDeviceModule)
       .overrideProvider(getRepositoryToken(DeviceTuningConfiguration))
       .useValue(mockConfigRepo)
       .overrideProvider(getRepositoryToken(TuningAuditLog))
@@ -83,7 +119,9 @@ describe('TuningModule', () => {
 
     expect(moduleRef).toBeDefined();
 
-    const tuningService = moduleRef.get<TuningConfigurationService>(TuningConfigurationService);
+    const tuningService = moduleRef.get<TuningConfigurationService>(
+      TuningConfigurationService,
+    );
     expect(tuningService).toBeDefined();
     expect(tuningService).toBeInstanceOf(TuningConfigurationService);
   });
