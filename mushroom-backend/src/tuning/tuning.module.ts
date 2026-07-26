@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TuningRecommendationController } from './controllers/tuning-recommendation.controller';
 import { TuningCommandController } from './controllers/tuning-command.controller';
 import { TuningSseTicketService } from './services/tuning-sse-ticket.service';
+import { TuningSseTicketCleanupService } from './services/tuning-sse-ticket-cleanup.service';
 import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
 
 /**
@@ -37,6 +38,7 @@ import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
     JwtAuthGuard,
     DeviceOwnershipGuard,
     TuningSseTicketService,
+    TuningSseTicketCleanupService,
     TuningSseTicketGuard,
   ],
   exports: [TuningConfigurationService, TypeOrmModule],

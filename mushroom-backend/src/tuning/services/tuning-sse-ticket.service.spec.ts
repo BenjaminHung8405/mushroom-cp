@@ -57,6 +57,9 @@ describe('TuningSseTicketService', () => {
       expect.stringContaining('INSERT INTO tuning_sse_ticket_consumptions'),
       expect.arrayContaining([expect.any(String), expect.any(Number)]),
     );
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM tuning_sse_ticket_consumptions'),
+    );
   });
 
   it('rejects a replay when the shared store atomically reports an already consumed jti', async () => {

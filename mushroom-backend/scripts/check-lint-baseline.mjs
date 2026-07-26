@@ -20,7 +20,7 @@ console.log(
 function readEslintReport() {
   try {
     execFileSync(
-      'eslint',
+      './node_modules/.bin/eslint',
       ['{src,apps,libs,test}/**/*.ts', '--format', 'json'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     );

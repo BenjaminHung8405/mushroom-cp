@@ -91,6 +91,29 @@ describe('InfluxTaskProvisionerService', () => {
     expect(parseJsonBody(request.body)).toMatchObject({ status: 'active' });
   });
 
+  it('fails closed when a named task lookup returns a different valid task', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ orgs: [{ id: 'org-1' }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          tasks: [
+            { id: 'other-task', name: 'unrelated_task', status: 'inactive' },
+          ],
+        }),
+      );
+
+    await expect(createService().onApplicationBootstrap()).rejects.toThrow(
+      'InfluxDB Tasks API response did not include kpi_hourly_aggregation',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.some(([, request]) => request.method === 'PATCH'),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([, request]) => request.method === 'POST'),
+    ).toBe(false);
+  });
+
   it('fails closed before making an API call when the analytics bucket is absent', async () => {
     await expect(
       createService({

@@ -229,7 +229,13 @@ function parseAndValidateTaskResponse(raw: unknown): InfluxTask | undefined {
   }
 
   const validTasks = tasksList as InfluxTask[];
-  return validTasks.find((t) => t.name === TASK_NAME) ?? validTasks[0];
+  const task = validTasks.find((candidate) => candidate.name === TASK_NAME);
+  if (!task) {
+    throw new Error(
+      `InfluxDB Tasks API response did not include ${TASK_NAME} for its named lookup`,
+    );
+  }
+  return task;
 }
 
 function isValidTaskObject(item: unknown): item is InfluxTask {

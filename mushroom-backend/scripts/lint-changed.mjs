@@ -5,13 +5,25 @@ function git(args) {
 }
 
 function resolveBaseRef() {
-  if (process.env.LINT_BASE_REF) return process.env.LINT_BASE_REF;
-
-  try {
-    return git(['merge-base', 'origin/main', 'HEAD']).trim();
-  } catch {
-    return 'HEAD^';
+  const baseRef = process.env.LINT_BASE_REF;
+  if (!baseRef) {
+    const originMain = git(['rev-parse', '--verify', 'origin/main^{commit}']).trim();
+    const head = git(['rev-parse', '--verify', 'HEAD^{commit}']).trim();
+    if (originMain === head) {
+      throw new Error(
+        'LINT_BASE_REF is required when HEAD equals origin/main; refusing an empty reviewed range.',
+      );
+    }
+    return originMain;
   }
+
+  const baseSha = git(['rev-parse', '--verify', `${baseRef}^{commit}`]).trim();
+  const headSha = git(['rev-parse', '--verify', 'HEAD^{commit}']).trim();
+  if (baseSha === headSha) {
+    throw new Error('LINT_BASE_REF must not resolve to HEAD.');
+  }
+  git(['merge-base', '--is-ancestor', baseSha, headSha]);
+  return baseSha;
 }
 
 const baseRef = resolveBaseRef();

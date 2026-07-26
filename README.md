@@ -45,3 +45,5 @@ Notes:
 - If you run multiple projects on the same machine, prefer changing host ports in `.env` or using `docker compose -p mushroom-project up` to namespace resources.
 - EMQX dashboard is available on `http://localhost:${EMQX_DASHBOARD_PORT:-18083}` when using default ports.
 - `TUNING_SSE_TICKET_SECRET` is mandatory whenever the backend starts. It signs the short-lived, URL-borne SSE tickets for native `EventSource`; never reuse `JWT_SECRET` for it.
+- Docker runtime volumes are deliberately ignored under `data/`; never add PostgreSQL, InfluxDB, EMQX/Mnesia, WAL, SQLite, or broker-generated configuration to Git.
+- Treat every credential that was present in an old runtime volume as compromised. Before deploying this remediation, rotate the PostgreSQL, InfluxDB, MQTT, JWT, SSE-ticket, and EMQX node-cookie credentials in the target environment, then recreate the affected runtime volumes.

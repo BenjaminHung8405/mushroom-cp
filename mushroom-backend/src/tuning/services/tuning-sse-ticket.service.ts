@@ -70,11 +70,6 @@ export class TuningSseTicketService {
   ): Promise<ConsumedSseTicket> {
     const payload = this.verifyTicket(ticket, deviceId);
     try {
-      // Bounded TTL retention: expiry is still enforced cryptographically, and
-      // this cleanup keeps the shared replay table from growing indefinitely.
-      await this.dataSource.query(
-        'DELETE FROM tuning_sse_ticket_consumptions WHERE expires_at <= NOW()',
-      );
       const inserted: unknown = await this.dataSource.query(
         `INSERT INTO tuning_sse_ticket_consumptions(jti, expires_at)
          VALUES ($1, to_timestamp($2 / 1000.0))

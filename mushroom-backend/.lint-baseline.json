@@ -1,15 +1,15 @@
 {
   "policy": "Legacy lint debt is recorded for visibility and is not an exemption for changed files.",
-  "generatedAt": "2026-07-25",
+  "generatedAt": "2026-07-26",
   "enforcement": {
     "changedTypeScript": "npm run lint must pass for every changed or untracked TypeScript file.",
     "allTypeScript": "npm run lint:all reports the full repository and remains non-green until legacy debt is fixed.",
     "autofix": "Forbidden in checks and CI."
   },
   "totals": {
-    "files": 37,
-    "errors": 513,
-    "warnings": 16
+    "files": 25,
+    "errors": 132,
+    "warnings": 8
   },
   "legacyAllowlist": [
     {
@@ -103,16 +103,6 @@
       }
     },
     {
-      "path": "src/database/migrations/tuning-shadow-migrations.integration.spec.ts",
-      "errors": 35,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 32,
-        "@typescript-eslint/no-unsafe-return": 1,
-        "@typescript-eslint/no-unsafe-member-access": 2
-      }
-    },
-    {
       "path": "src/device-health/device-health.service.ts",
       "errors": 1,
       "warnings": 0,
@@ -161,26 +151,6 @@
       "warnings": 0,
       "rules": {
         "@typescript-eslint/no-unsafe-member-access": 4
-      }
-    },
-    {
-      "path": "src/influx/services/influx-task-provisioner.service.spec.ts",
-      "errors": 17,
-      "warnings": 0,
-      "rules": {
-        "@typescript-eslint/no-unnecessary-type-assertion": 2,
-        "@typescript-eslint/no-base-to-string": 2,
-        "prettier/prettier": 12,
-        "@typescript-eslint/require-await": 1
-      }
-    },
-    {
-      "path": "src/influx/services/influx-task-provisioner.service.ts",
-      "errors": 7,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 6,
-        "no-control-regex": 1
       }
     },
     {
@@ -262,91 +232,6 @@
         "@typescript-eslint/no-unsafe-call": 6,
         "@typescript-eslint/no-unsafe-member-access": 9,
         "@typescript-eslint/no-unsafe-assignment": 1
-      }
-    },
-    {
-      "path": "src/tuning/controllers/tuning.controller.spec.ts",
-      "errors": 13,
-      "warnings": 8,
-      "rules": {
-        "@typescript-eslint/no-unsafe-assignment": 2,
-        "prettier/prettier": 10,
-        "@typescript-eslint/no-unsafe-argument": 8,
-        "@typescript-eslint/unbound-method": 1
-      }
-    },
-    {
-      "path": "src/tuning/controllers/tuning.controller.ts",
-      "errors": 8,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 8
-      }
-    },
-    {
-      "path": "src/tuning/guards/tuning-principal.guard.ts",
-      "errors": 12,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 11,
-        "@typescript-eslint/no-unnecessary-type-assertion": 1
-      }
-    },
-    {
-      "path": "src/tuning/services/tuning-configuration.service.spec.ts",
-      "errors": 107,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 78,
-        "@typescript-eslint/require-await": 10,
-        "@typescript-eslint/no-unsafe-return": 9,
-        "@typescript-eslint/no-unsafe-call": 9,
-        "@typescript-eslint/no-unsafe-assignment": 1
-      }
-    },
-    {
-      "path": "src/tuning/services/tuning-configuration.service.ts",
-      "errors": 80,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 80
-      }
-    },
-    {
-      "path": "src/tuning/services/tuning-mqtt-outbox-dispatcher.service.spec.ts",
-      "errors": 55,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 34,
-        "@typescript-eslint/require-await": 8,
-        "@typescript-eslint/no-unsafe-return": 6,
-        "@typescript-eslint/no-unsafe-call": 6,
-        "@typescript-eslint/no-unsafe-assignment": 1
-      }
-    },
-    {
-      "path": "src/tuning/services/tuning-mqtt-outbox-dispatcher.service.ts",
-      "errors": 40,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 40
-      }
-    },
-    {
-      "path": "src/tuning/tuning.module.spec.ts",
-      "errors": 5,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 2,
-        "@typescript-eslint/no-unsafe-assignment": 3
-      }
-    },
-    {
-      "path": "src/tuning/tuning.module.ts",
-      "errors": 2,
-      "warnings": 0,
-      "rules": {
-        "prettier/prettier": 2
       }
     }
   ]
