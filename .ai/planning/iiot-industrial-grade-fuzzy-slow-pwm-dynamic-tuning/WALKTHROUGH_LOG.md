@@ -1,3 +1,51 @@
+## [2026-07-26T12:55:10+07:00] - Track J (J4): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T12:55:10+07:00.
+- **Task ID:** J4 — Implement `TuningRecommendationResponseDto` tại `src/tuning/dtos/tuning-recommendation-response.dto.ts`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/tuning/dtos/tuning-recommendation-response.dto.ts`
+  - `mushroom-backend/src/tuning/dtos/tuning-recommendation-response.dto.spec.ts`
+- **File đã sửa đổi:**
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Tạo DTO response chuẩn với đầy đủ `deviceId`, KPI nullable, snapshot cấu hình hiện tại nullable, advisory nullable, block reason công khai, chi tiết block nullable và `generatedAt` dạng chuỗi ISO8601 do endpoint cấp.
+  - Khai báo union `TuningRecommendationBlockReason` đóng cho đúng bốn lý do công khai (`INSUFFICIENT_DATA`, `DEVICE_OFFLINE`, `NO_SUGGESTION`, `CONFLICT`), ngăn caller phát sinh mã trạng thái nội bộ/không được hỗ trợ.
+  - Tái sử dụng các domain contracts `KpiMetrics`, `TuningAdvisory` và `TuningConfigSnapshot`; DTO không thêm trường implementation, credential hoặc secret nội bộ.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit test DTO: **1 suite, 5/5 tests PASS**.
+  - Full backend suite: **36/36 suites, 320/320 tests PASS**.
+  - `npm run typecheck`: **PASS**.
+  - ESLint trực tiếp trên hai file J4: **PASS**.
+  - `git diff --check`: **PASS**.
+
+---
+
+## [2026-07-26T12:52:23+07:00] - Track J (J3): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T12:52:23+07:00.
+- **Task ID:** J3 — Implement `CreateTuningConfigurationDto` tại `src/tuning/dtos/create-tuning-configuration.dto.ts`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/tuning/dtos/create-tuning-configuration.dto.ts`
+  - `mushroom-backend/src/tuning/dtos/create-tuning-configuration.dto.spec.ts`
+- **File đã sửa đổi:**
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Tạo DTO lồng nhau `TuningConfigSnapshotDto` với `@Type` và `@ValidateNested`; mọi tham số tuning dùng `@IsNumber({ allowNaN: false, allowInfinity: false })` cùng hard bounds dùng chung từ tuning contract.
+  - Áp dụng `@IsUUID('4')` cho idempotency key và custom decorator `@IsMistHysteresisValid()`, fail-closed khi config không phải nested DTO hợp lệ hoặc khi `mist_off_threshold >= mist_on_threshold`.
+  - DTO chỉ nhận config, command ID và reference advisory tùy chọn; không tồn tại `requestedBy`, giữ actor bắt buộc thuộc phạm vi JWT-verified ở endpoint tiếp theo.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit test DTO: **1 suite, 13/13 tests PASS** (UUID v4, strict number, null/missing fields, hard bounds, nested validation, hysteresis và không có `requestedBy`).
+  - Full backend suite: **35/35 suites, 315/315 tests PASS**.
+  - `npm run typecheck`: **PASS**.
+  - ESLint trực tiếp trên hai file J3: **PASS**.
+  - `git diff --check`: **PASS**.
+
+---
+
 ## [2026-07-26T12:48:31+07:00] - Track J (J2): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26 12:48:31 (+07:00).
