@@ -19,13 +19,17 @@ describe('JwtAuthGuard', () => {
   it('verifies a signed JWT and exposes only verified user claims', () => {
     const request = {
       headers: {
-        authorization: `Bearer ${signedToken({ sub: 'user-1', email: 'operator@example.com' })}`,
+        authorization: `Bearer ${signedToken({ sub: 'user-1', email: 'operator@example.com', house_ids: ['house-1'] })}`,
       },
     };
 
     expect(guard.canActivate(contextFor(request))).toBe(true);
     expect(request).toMatchObject({
-      user: { sub: 'user-1', email: 'operator@example.com' },
+      user: {
+        sub: 'user-1',
+        email: 'operator@example.com',
+        allowedHouseIds: ['house-1'],
+      },
     });
   });
 

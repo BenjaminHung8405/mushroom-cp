@@ -5,6 +5,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   Validate,
   ValidateNested,
@@ -79,5 +80,6 @@ export class CreateTuningConfigurationDto {
   /** Optional opaque reference to the advisory that led to this command. */
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   recommendationSnapshotRef?: string;
 }

@@ -43,7 +43,11 @@ describe('TuningCommandController', () => {
 
   it('delegates durable command creation with the verified actor email', async () => {
     const request = {
-      user: { sub: 'user-1', email: 'operator@example.com' },
+      user: {
+        sub: 'user-1',
+        email: 'operator@example.com',
+        allowedHouseIds: ['house-1'],
+      },
     } as unknown as JwtAuthenticatedRequest;
 
     const result = await controller.createTuningConfiguration(
@@ -53,7 +57,11 @@ describe('TuningCommandController', () => {
     );
 
     expect(createPendingCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ subject: 'operator@example.com' }),
+      {
+        subject: 'operator@example.com',
+        allowedHouseIds: ['house-1'],
+        isAdmin: false,
+      },
       'device-1',
       config,
       commandId,
@@ -63,7 +71,7 @@ describe('TuningCommandController', () => {
 
   it('rejects the request if the verified JWT does not contain an email claim', async () => {
     const request = {
-      user: { sub: 'user-1' },
+      user: { sub: 'user-1', allowedHouseIds: ['house-1'] },
     } as unknown as JwtAuthenticatedRequest;
 
     await expect(

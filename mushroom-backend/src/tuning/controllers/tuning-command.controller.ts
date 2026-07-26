@@ -44,7 +44,7 @@ export class TuningCommandController {
   ): Promise<{ commandId: string; status: 'PENDING' }> {
     const actor = this.actorEmail(request);
     const pending = await this.tuningConfigurationService.createPendingCommand(
-      this.actorPrincipal(actor),
+      this.actorPrincipal(request, actor),
       deviceId,
       dto.config,
       dto.commandId,
@@ -116,11 +116,19 @@ export class TuningCommandController {
     return actor;
   }
 
-  private actorPrincipal(actor: string): TuningPrincipal {
-    // DeviceOwnershipGuard verifies ownership using the JWT subject before the
-    // controller runs. The legacy service API needs this internal principal
-    // shape; the verified email remains its durable audit actor.
-    return { subject: actor, allowedHouseIds: [], isAdmin: true };
+  private actorPrincipal(
+    request: JwtAuthenticatedRequest,
+    actor: string,
+  ): TuningPrincipal {
+    // Both the actor and house scope come from verified JWT claims.
+    // DeviceOwnershipGuard independently verifies owner_user_id, while the
+    // service verifies this house scope against the device inside its write
+    // transaction. Never elevate this endpoint with an unconditional admin.
+    return {
+      subject: actor,
+      allowedHouseIds: request.user!.allowedHouseIds,
+      isAdmin: false,
+    };
   }
 
   private parsePagination(

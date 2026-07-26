@@ -88,4 +88,15 @@ describe('CreateTuningConfigurationDto', () => {
   it('does not expose a client-controlled requestedBy field', () => {
     expect('requestedBy' in new CreateTuningConfigurationDto()).toBe(false);
   });
+
+  it('rejects an advisory reference longer than 255 characters', async () => {
+    const dto = validPayload();
+    dto.recommendationSnapshotRef = 'a'.repeat(256);
+
+    expect(await validate(dto)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'recommendationSnapshotRef' }),
+      ]),
+    );
+  });
 });

@@ -10,12 +10,14 @@ import type { Request } from 'express';
 interface JwtClaims {
   sub?: unknown;
   email?: unknown;
+  house_ids?: unknown;
   exp?: unknown;
 }
 
 export interface VerifiedJwtUser {
   sub: string;
   email?: string;
+  allowedHouseIds: readonly string[];
 }
 
 export type JwtAuthenticatedRequest = Request & {
@@ -43,6 +45,7 @@ export class JwtAuthGuard implements CanActivate {
 
     request.user = {
       sub: claims.sub,
+      allowedHouseIds: verifiedHouseIds(claims.house_ids),
       ...(typeof claims.email === 'string' && claims.email.trim()
         ? { email: claims.email }
         : {}),
@@ -102,4 +105,13 @@ export class JwtAuthGuard implements CanActivate {
 
 function isJwtClaims(value: unknown): value is JwtClaims {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function verifiedHouseIds(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter(
+    (houseId): houseId is string =>
+      typeof houseId === 'string' && houseId.trim().length > 0,
+  );
 }

@@ -1,3 +1,31 @@
+## [2026-07-26T13:36:03+07:00] - Track J (J2, J3, J6): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện:** 2026-07-26T13:36:03+07:00.
+- **Task ID:** J2, J3, J6.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã tạo mới:** Không có.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `mushroom-backend/src/tuning/dtos/create-tuning-configuration.dto.ts`
+  - `mushroom-backend/src/tuning/dtos/create-tuning-configuration.dto.spec.ts`
+  - `mushroom-backend/src/database/migrations/1720656000011-add-devices-owner-user-id.ts`
+  - `mushroom-backend/src/tuning/guards/jwt-auth.guard.ts`
+  - `mushroom-backend/src/tuning/guards/jwt-auth.guard.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung validation length limit bằng decorator `@MaxLength(255)` cho `recommendationSnapshotRef` theo đúng phản hồi của QA (Lỗi #2).
+  - Loại bỏ hardcode `isAdmin: true` ở `TuningCommandController`. Thay vào đó, trích xuất cấu hình `allowedHouseIds` từ JWT claims (Lỗi #1).
+  - Thêm rationale comment vào file migration ownership id nhằm giải thích quyết định không dùng index mới (Lỗi #3).
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `npm run typecheck`: **PASS**.
+  - `npm run lint:changed`: **PASS**.
+  - Bộ test API (dto spec, controller spec, authn spec): **PASS**.
+  - Code changes không vi phạm logic nghiệp vụ cũ.
+
+---
+
 ## [2026-07-26T13:26:55+07:00] - Track J (J9): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T13:26:55+07:00.
