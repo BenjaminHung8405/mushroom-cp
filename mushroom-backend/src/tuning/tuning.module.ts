@@ -13,6 +13,7 @@ import { DeviceModule } from '../device/device.module';
 import { DeviceOwnershipGuard } from './guards/device-ownership.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TuningRecommendationController } from './controllers/tuning-recommendation.controller';
+import { TuningCommandController } from './controllers/tuning-command.controller';
 
 /**
  * TuningModule — Manages IIoT Direct-Relay Fuzzy Dynamic Tuning configurations and audit logs.
@@ -29,7 +30,11 @@ import { TuningRecommendationController } from './controllers/tuning-recommendat
     AnalyticsModule,
     DeviceModule,
   ],
-  controllers: [TuningController, TuningRecommendationController],
+  controllers: [
+    TuningController,
+    TuningRecommendationController,
+    TuningCommandController,
+  ],
   providers: [
     TuningConfigurationService,
     TuningMqttOutboxDispatcher,

@@ -1,3 +1,28 @@
+## [2026-07-26T13:12:46+07:00] - Track J (J6): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T13:12:46+07:00.
+- **Task ID:** J6 — Implement `POST /devices/:id/tuning-configurations` tạo durable PENDING command.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/tuning.module.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Thêm endpoint `POST /devices/:id/tuning-configurations`, đăng ký vào `TuningModule`, gắn theo thứ tự `JwtAuthGuard` và `DeviceOwnershipGuard` để xác thực JWT trước rồi kiểm tra quyền sở hữu per-device.
+  - Controller chỉ nhận `commandId` và `config` từ DTO đã có validation; actor audit lấy độc quyền từ verified `req.user.email`, không đọc `requestedBy` hoặc bất kỳ actor nào từ request body. Thiếu email claim bị từ chối rõ ràng.
+  - Endpoint gọi cơ chế durable `TuningConfigurationService.createPendingCommand()` hiện hữu, nên kế thừa transaction, kiểm tra device 404, idempotency command ID (trả row hiện hữu nếu snapshot giống nhau; conflict nếu payload khác) và chỉ trả HTTP 202 `{ commandId, status: 'PENDING' }` sau khi persisted command được tạo/lấy thành công.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Backend Typecheck: **PASS**.
+  - ESLint changed-files không mutation: **PASS**.
+  - Controller/unit + module tests: **PASS (3/3 tests, 2/2 suites)**; focused controller test sau rà soát format: **PASS (2/2)**.
+  - Full backend unit test suite: **PASS (340/340 tests, 39/39 suites)**.
+  - `git diff --check`: **PASS**.
+
+---
+
 ## [2026-07-26T13:07:13+07:00] - Track J (J5): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T13:07:13+07:00.
