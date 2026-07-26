@@ -1,3 +1,27 @@
+## [2026-07-26T12:43:00+07:00] - Track J (J1): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26 12:43:00 (+07:00)
+- **Task ID:** J1 — Implement `DeviceOwnershipGuard`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/tuning/guards/device-ownership.guard.ts`
+  - `mushroom-backend/src/tuning/guards/device-ownership.guard.spec.ts`
+- **File đã sửa đổi:**
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Implement guard zero-trust, chỉ lấy `deviceId` từ route parameter `req.params.id` và `userId` từ JWT đã verify tại `req.user.sub`; tuyệt đối không đọc identity hoặc device scope do client gửi trong body/query.
+  - Guard gọi đúng contract `DevicesService.isDeviceOwnedByUser(deviceId, userId)` qua DI token tối thiểu. Truy vấn DB và registration provider thuộc Task J2 tiếp theo, do đó không có cache ownership để bypass/invalidation.
+  - Tất cả input thiếu/sai hoặc ownership bị từ chối đều fail-closed với `ForbiddenException` 403 cùng thông điệp, không rò rỉ sự tồn tại của device.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit test `DeviceOwnershipGuard` — **4/4 PASS**.
+  - ESLint trực tiếp cho hai file guard mới — **PASS**.
+  - `npm run typecheck` — **PASS**.
+  - Full backend suite `npm test -- --runInBand` — **33/33 suites, 300/300 tests PASS**.
+  - `git diff --check` — **PASS**.
+
+---
+
 ## [2026-07-26T12:35:00+07:00] - Security/Architecture QA Review: APPROVED (LGTM — Track I: I1–I4)
 
 - **Kết quả:** **LGTM (Looks Good To Me)**. Thông qua kiểm toán toàn bộ Track I (I1–I4). Tất cả 4 task I1, I2, I3, I4 được chuyển sang trạng thái `[x] Done` trong `PROGRESS.md`.
