@@ -1,3 +1,69 @@
+## 2026-07-26 22:35:00 +07 (+0700)
+
+- **Task ID:** K5 — `TuningStatusBadge`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/components/tuning/TuningStatusBadge.tsx` (tạo mới)
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx` (tích hợp badge trạng thái dùng chung)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K5)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Tạo badge trạng thái có kiểu chặt chẽ cho `PENDING`, `IN_SYNC`, `REJECTED`, `TIMEOUT`; hiển thị spinner khi chờ, xác nhận thành công, lý do từ chối và cảnh báo timeout. Badge chỉ render state do luồng API/SSE đã kiểm tra truyền vào; HTTP 202 vẫn chỉ dẫn tới `PENDING`, không thể tự hiển thị thành công. Tích hợp panel dùng badge này để tránh trùng logic hiển thị trạng thái.
+- **Tự kiểm tra:** `pnpm exec tsc --noEmit`, `pnpm run build` và `git diff --check` trong `mushroom-ui` đều pass. Đã kiểm tra luồng trạng thái: `IN_SYNC`/`REJECTED` chỉ được panel gán khi nhận SSE event cùng `commandId`. `pnpm run lint` chưa chạy được vì môi trường thiếu binary `eslint` (`sh: eslint: command not found`).
+
+---
+
+## 2026-07-26 22:29:02 +07 (+0700)
+
+- **Task ID:** K4 — `TuningDiffView`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/components/tuning/TuningDiffView.tsx` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K4)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Xây dựng component `TuningDiffView` trực quan hiển thị cả 4 tham số tinh chỉnh (`lamp_gain_scale`, `mist_gain_scale`, `mist_on_threshold`, `mist_off_threshold`) với giá trị hiện tại, đề xuất và sự thay đổi (`delta`). Hiển thị rõ giới hạn cứng của từng thông số, dùng thẻ bảng (`table`) hỗ trợ aria-labels giúp screen readers. Các thay đổi được phân biệt trạng thái tăng/giảm/không đổi bằng text rõ ràng kèm icon lucide tương ứng; màu sắc chỉ đóng vai trò nhấn mạnh thẩm mỹ chứ không giữ vai trò thông tin chính, và giá trị được escape an toàn thông qua JSX `Number.toFixed`.
+- **Tự kiểm tra:** Build thành công với next build (`✓ Compiled successfully`). Type check `tsc --noEmit` và `git diff --check` đều pass hoàn toàn.
+
+---
+
+## 2026-07-26 22:25:29 +07 (+0700)
+
+- **Task ID:** K3 — `TuningAdvisoryPanel`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K3)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Tạo panel client-side lấy advisory và durable SSE state qua các hook K1/K2. Panel chỉ POST cấu hình được đề xuất sau khi operator mở hộp thoại xác nhận; mỗi lần gửi sinh `crypto.randomUUID()` làm idempotency command ID. HTTP 202 chỉ khởi tạo `PENDING`, không hiển thị thành công lạc quan. Chỉ SSE event có `commandId` trùng lệnh đang chờ mới có thể chuyển sang `IN_SYNC` hoặc `REJECTED`; sau 30 giây chưa có terminal event, UI báo “Chờ xác nhận từ thiết bị”. Nút xác nhận bị vô hiệu khi pending, dữ liệu bị block hoặc chưa có advisory.
+- **Tự kiểm tra:** `pnpm exec tsc --noEmit` và `pnpm run build` trong `mushroom-ui` đều pass; `git diff --check` pass. `pnpm run lint` không chạy được do môi trường thiếu binary `eslint` (`sh: eslint: command not found`).
+
+---
+
+## 2026-07-26 22:20:46 +07 (+0700)
+
+- **Task ID:** K2 — `useTuningStatus(deviceId)`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/hooks/useTuningStatus.ts` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K2)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Tạo hook client-side mở SSE qua same-origin proxy, lấy ticket one-time bằng `POST /api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations/stream-ticket` rồi kết nối `/stream?ticket=...`. Payload ticket và SSE được kiểm tra kiểu dữ liệu trước khi cập nhật state; chỉ nhận event đúng `deviceId`. Khi ngắt kết nối, hook đóng EventSource cũ và retry exponential 500ms → 1s → 2s ... với giới hạn 10s; sau mỗi lần mở lại stream thành công, gọi `refetch()` đúng một lần để đồng bộ durable state. Cleanup hủy fetch ticket, đóng EventSource và xóa retry timer, không dùng polling.
+- **Tự kiểm tra:** `pnpm exec tsc --noEmit` và `pnpm run build` trong `mushroom-ui` đều pass; `git diff --check` pass. `pnpm run lint` không chạy được vì project hiện không cài binary `eslint` (`sh: eslint: command not found`).
+
+---
+
+## 2026-07-26 22:15:03 +07 (+0700)
+
+- **Task ID:** K1 — `useTuningRecommendation(deviceId)`
+- **Trạng thái:** Đang chờ QA Review.
+- **Files tạo mới hoặc sửa đổi:**
+  - `mushroom-ui/app/hooks/useTuningRecommendation.ts` (tạo mới)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái K1)
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (bổ sung nhật ký này)
+- **Giải pháp:** Tạo React hook client-side gọi duy nhất same-origin gateway `/api/backend/devices/${encodeURIComponent(deviceId)}/analytics/tuning-recommendations`. Hook trả `data`, `isLoading`, `error`, `refetch`; quản lý một `AbortController` đang hoạt động, hủy request khi unmount, đổi device hoặc refetch để ngăn kết quả cũ ghi đè state mới. Không dùng polling hay `setInterval`; khi chưa chọn thiết bị, hook xóa state và không phát sinh request.
+- **Tự kiểm tra:** `pnpm exec tsc --noEmit` trong `mushroom-ui` pass; `git diff --check` pass. Đã rà lại đường dẫn fetch đúng proxy same-origin, device ID được `encodeURIComponent`, và cleanup abort được thực hiện.
+
+---
+
 ## [2026-07-26T21:42:00+07:00] - Track G2, H1-H5, J1-J9: Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-26T21:42:00+07:00.
