@@ -1,4 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import type { TuningConfigSnapshot } from '../../tuning/entities/device-tuning-configuration.entity';
+import type { KpiMetrics } from '../interfaces/kpi-metrics.interface';
+import type {
+  RecommendationResult,
+  TuningAdvisory,
+} from '../interfaces/tuning-advisory.interface';
 
 /**
  * Immutable recommender ruleset identity.
@@ -35,12 +41,106 @@ export type RuleThresholds = typeof RULE_THRESHOLDS;
 /**
  * Deterministic, side-effect-free tuning recommender.
  *
- * This task (I1) establishes the immutable ruleset identity and thresholds.
- * The pure `generateRecommendation()` evaluation and its boundary/hysteresis
- * helpers are implemented in follow-up tasks (I2-I4).
+ * Boundary clamping and hysteresis validation are intentionally delegated to
+ * the dedicated I3 and I4 helpers. This evaluator only decides which rules
+ * apply and creates the immutable advisory payload.
  */
 @Injectable()
 export class TuningRecommenderEngine {
   readonly rulesetVersion = RULESET_VERSION;
   readonly thresholds: RuleThresholds = RULE_THRESHOLDS;
+
+  /**
+   * Evaluates the v1 rule table without I/O, mutation, or dependency access.
+   *
+   * A high-humidity candidate conflicts with mist chattering even though the
+   * non-conflicting R3 path requires stable Mist. Returning the conflict
+   * explicitly prevents an unsafe, silent choice between damping relay
+   * switching and increasing Mist gain.
+   */
+  generateRecommendation(
+    kpi: KpiMetrics | null | undefined,
+    currentConfig: TuningConfigSnapshot | null | undefined,
+  ): RecommendationResult {
+    if (kpi == null || currentConfig == null) {
+      return {
+        status: 'INSUFFICIENT_DATA',
+        reason: 'KPI and current tuning configuration are required.',
+      };
+    }
+
+    const isMistChattering =
+      kpi.mistSwitchCountPerHour >
+      this.thresholds.MIST_CHATTERING_SWITCHES_PER_HOUR;
+    const hasHighHumidity = kpi.humidRmse > this.thresholds.HUMID_RMSE_HIGH;
+
+    if (isMistChattering && hasHighHumidity) {
+      return {
+        status: 'CONFLICT',
+        conflictingRules: ['R1_MIST_CHATTERING', 'R3_HUMID_HIGH_MIST_OK'],
+      };
+    }
+
+    const hasHighTemperatureWithLowLampDuty =
+      kpi.tempRmse > this.thresholds.TEMP_RMSE_HIGH &&
+      kpi.lampDutyCyclePercent < this.thresholds.MIN_LAMP_DUTY_CYCLE_PERCENT;
+
+    const delta: Partial<TuningConfigSnapshot> = {};
+    const triggeredRules: string[] = [];
+
+    if (isMistChattering) {
+      delta.mist_on_threshold =
+        currentConfig.mist_on_threshold + this.thresholds.MIST_THRESHOLD_STEP;
+      triggeredRules.push('R1_MIST_CHATTERING');
+    }
+
+    if (hasHighTemperatureWithLowLampDuty) {
+      delta.lamp_gain_scale =
+        currentConfig.lamp_gain_scale + this.thresholds.GAIN_SCALE_STEP;
+      triggeredRules.push('R2_TEMP_HIGH_LAMP_LOW');
+    }
+
+    if (hasHighHumidity) {
+      delta.mist_gain_scale =
+        currentConfig.mist_gain_scale + this.thresholds.GAIN_SCALE_STEP;
+      triggeredRules.push('R3_HUMID_HIGH_MIST_OK');
+    }
+
+    if (triggeredRules.length === 0) {
+      return {
+        status: 'NO_SUGGESTION',
+        reason: 'No tuning rule was triggered by the current KPI window.',
+      };
+    }
+
+    const suggestedConfig: TuningConfigSnapshot = {
+      ...currentConfig,
+      ...delta,
+    };
+    const advisory: TuningAdvisory = {
+      rulesetVersion: this.rulesetVersion,
+      currentConfig: { ...currentConfig },
+      suggestedConfig,
+      delta,
+      triggeredRules,
+      confidence: 'MEDIUM',
+      expectedBenefit: this.describeExpectedBenefit(triggeredRules),
+      kpiSnapshot: kpi,
+      observationWindowRequired: true,
+    };
+
+    return { status: 'ADVISORY', advisory };
+  }
+
+  private describeExpectedBenefit(triggeredRules: readonly string[]): string {
+    if (triggeredRules.includes('R1_MIST_CHATTERING')) {
+      return 'Reduce Mist relay chattering through a higher activation threshold.';
+    }
+
+    if (triggeredRules.includes('R2_TEMP_HIGH_LAMP_LOW')) {
+      return 'Improve temperature tracking by increasing Lamp control gain.';
+    }
+
+    return 'Improve humidity tracking by increasing Mist control gain.';
+  }
 }

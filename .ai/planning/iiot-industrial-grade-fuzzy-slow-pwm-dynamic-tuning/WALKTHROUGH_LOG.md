@@ -1,3 +1,27 @@
+## [2026-07-26T11:55:46+07:00] - Track I (I2): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26 11:49–11:55 (+07:00)
+- **Task ID:** I2 — Implement pure function `generateRecommendation(kpi, currentConfig)`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Cài đặt `generateRecommendation()` là hàm thuần, không thực hiện async/I-O, không thay đổi KPI hoặc current config đầu vào. Hàm áp dụng deterministic các rule R1 (Mist chattering), R2 (temperature RMSE cao cùng Lamp duty thấp) và R3 (humidity RMSE cao), hoàn toàn dựa trên `RULE_THRESHOLDS` đã immutable.
+  - Detect rõ ràng trường hợp Mist chattering đồng thời humidity RMSE cao và trả `{ status: 'CONFLICT', conflictingRules: ['R1_MIST_CHATTERING', 'R3_HUMID_HIGH_MIST_OK'] }`, không âm thầm ưu tiên một rule. R2 có thể kết hợp với R1 hoặc R3 khi không có conflict.
+  - Advisory giữ nguyên current snapshot qua shallow copy, tạo suggested snapshot bằng merge delta và chỉ đưa các key thực sự thay đổi vào `delta`; kèm ruleset version, rule triggers, KPI snapshot, confidence, expected benefit và cờ observation window. Input thiếu được fail-closed là `INSUFFICIENT_DATA`; không rule nào trigger trả `NO_SUGGESTION`.
+  - Scope I2 được giữ tách biệt: clamp hard bounds và validate hysteresis vẫn để các task I3/I4 pending triển khai theo đúng phân vùng task.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit test recommender: **9/9 PASS**, bao phủ conflict R1/R3, R1 delta tối thiểu/không mutation, kết hợp R2+R3, ranh giới strict threshold và input thiếu.
+  - `npm run typecheck` — **PASS**.
+  - `npm run lint` — **PASS**.
+  - `git diff --check` — **PASS**.
+  - Full backend suite `npm test -- --runInBand` — **32/32 suites, 288/288 tests PASS**.
+
+---
+
 ## [2026-07-26T11:49:13+07:00] - Track I (I1): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26 11:44–11:49 (+07:00)
