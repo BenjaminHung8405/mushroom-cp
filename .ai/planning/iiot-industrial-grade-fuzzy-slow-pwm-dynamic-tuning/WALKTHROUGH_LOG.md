@@ -1,3 +1,27 @@
+## [2026-07-26T12:07:55+07:00] - Track I (I3): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T12:07:55+07:00
+- **Task ID:** I3 — Implement helper `clampToHardBounds()` cho các tham số tuning.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Triển khai helper `clampToHardBounds(value, type)` áp dụng cứng các hard bounds của firmware (PLAN v2.2) cho các tham số tuning được hỗ trợ:
+    - `gain`: [0.80, 1.20]
+    - `mist_on`: [0.20, 0.35]
+    - `mist_off`: [0.10, 0.20]
+  - Áp dụng pattern `Math.max(min, Math.min(max, value))` cho các giá trị này để đảm bảo giá trị gợi ý luôn nằm trong giới hạn vật lý và firmware an toàn.
+  - Sử dụng tham số `type` để dễ dàng mở rộng và phân biệt các tham số tuning, không đề xuất hay chỉnh sửa bất kỳ non-firmware parameters nào.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit test: Bổ sung block test `clampToHardBounds (I3)` test toàn bộ các range của `gain`, `mist_on`, `mist_off` (đảm bảo clamped đúng boundary). Chạy pass 100%.
+  - Cú pháp và conventions: `npm run typecheck`, typescript strict mode pass.
+  - Full suite backend pass 32 suites, 291 tests.
+
+---
+
 ## [2026-07-26T11:55:46+07:00] - Track I (I2): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26 11:49–11:55 (+07:00)

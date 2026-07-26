@@ -132,6 +132,39 @@ export class TuningRecommenderEngine {
     return { status: 'ADVISORY', advisory };
   }
 
+  /**
+   * Boundary Validation Pattern
+   *
+   * Áp cứng PLAN v2.2:
+   * - gain: [0.80, 1.20]
+   * - mist_on: [0.20, 0.35]
+   * - mist_off: [0.10, 0.20]
+   *
+   * Không đề xuất bất kỳ key TPC/PWM/HWat/parameter không có firmware source-of-truth.
+   */
+  clampToHardBounds(
+    value: number,
+    type: 'gain' | 'mist_on' | 'mist_off',
+  ): number {
+    let min = 0;
+    let max = 0;
+    switch (type) {
+      case 'gain':
+        min = 0.8;
+        max = 1.2;
+        break;
+      case 'mist_on':
+        min = 0.2;
+        max = 0.35;
+        break;
+      case 'mist_off':
+        min = 0.1;
+        max = 0.2;
+        break;
+    }
+    return Math.max(min, Math.min(max, value));
+  }
+
   private describeExpectedBenefit(triggeredRules: readonly string[]): string {
     if (triggeredRules.includes('R1_MIST_CHATTERING')) {
       return 'Reduce Mist relay chattering through a higher activation threshold.';

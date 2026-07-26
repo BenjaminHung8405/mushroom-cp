@@ -162,4 +162,26 @@ describe('TuningRecommenderEngine (I1 — ruleset identity & thresholds)', () =>
       });
     });
   });
+
+  describe('clampToHardBounds (I3)', () => {
+    const engine = new TuningRecommenderEngine();
+
+    it('clamps gain values to the inclusive [0.80, 1.20] hard bounds', () => {
+      expect(engine.clampToHardBounds(0.5, 'gain')).toBe(0.8);
+      expect(engine.clampToHardBounds(1.5, 'gain')).toBe(1.2);
+      expect(engine.clampToHardBounds(1, 'gain')).toBe(1);
+    });
+
+    it('clamps mist_on values to the inclusive [0.20, 0.35] hard bounds', () => {
+      expect(engine.clampToHardBounds(0.1, 'mist_on')).toBe(0.2);
+      expect(engine.clampToHardBounds(0.4, 'mist_on')).toBe(0.35);
+      expect(engine.clampToHardBounds(0.25, 'mist_on')).toBe(0.25);
+    });
+
+    it('clamps mist_off values to the inclusive [0.10, 0.20] hard bounds', () => {
+      expect(engine.clampToHardBounds(0.05, 'mist_off')).toBe(0.1);
+      expect(engine.clampToHardBounds(0.3, 'mist_off')).toBe(0.2);
+      expect(engine.clampToHardBounds(0.15, 'mist_off')).toBe(0.15);
+    });
+  });
 });
