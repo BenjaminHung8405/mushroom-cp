@@ -1,3 +1,28 @@
+## [2026-07-26T13:18:35+07:00] - Track J (J7): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T13:18:35+07:00.
+- **Task ID:** J7 — Implement `GET /devices/:id/tuning-configurations/latest`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:** Không có.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung endpoint `GET /devices/:id/tuning-configurations/latest` vào controller command đã đăng ký trong `TuningModule`; endpoint luôn áp dụng theo thứ tự `JwtAuthGuard` và `DeviceOwnershipGuard` trước khi controller được thực thi.
+  - Endpoint chỉ chuyển `deviceId` từ route tới `TuningConfigurationService.getLatestByDeviceId()` để trả state durable mới nhất, bao gồm trường hợp chưa có cấu hình trả `null`; không đọc state in-memory hay MQTT retained payload.
+  - Thêm unit test xác nhận truy vấn đúng device ID, giữ nguyên object durable được service trả về, và bảo toàn kết quả `null` khi thiếu configuration.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `npm run typecheck`: **PASS**.
+  - Unit test controller J7: **PASS (4/4 tests, 1/1 suite)**.
+  - Unit test legacy tuning controller: **PASS (2/2 tests, 1/1 suite)**.
+  - ESLint các file J7 và `npm run lint:changed`: **PASS**.
+  - Full backend unit test suite: **PASS (342/342 tests, 39/39 suites)**.
+  - `git diff --check`: **PASS**.
+
+---
+
 ## [2026-07-26T13:12:46+07:00] - Track J (J6): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T13:12:46+07:00.

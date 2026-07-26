@@ -5,8 +5,10 @@ import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuratio
 
 describe('TuningCommandController', () => {
   const createPendingCommand = jest.fn();
+  const getLatestByDeviceId = jest.fn();
   const service = {
     createPendingCommand,
+    getLatestByDeviceId,
   } as unknown as TuningConfigurationService;
   const controller = new TuningCommandController(service);
 
@@ -22,6 +24,7 @@ describe('TuningCommandController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     createPendingCommand.mockResolvedValue({ commandId, status: 'PENDING' });
+    getLatestByDeviceId.mockResolvedValue(null);
   });
 
   it('delegates durable command creation with the verified actor email', async () => {
@@ -53,5 +56,31 @@ describe('TuningCommandController', () => {
       controller.createTuningConfiguration('device-1', dto, request),
     ).rejects.toThrow('JWT email is required for tuning commands.');
     expect(createPendingCommand).not.toHaveBeenCalled();
+  });
+
+  it('returns the latest durable configuration state for the guarded device', async () => {
+    const latestConfiguration = {
+      commandId,
+      deviceId: 'device-1',
+      revision: 2,
+      status: 'IN_SYNC',
+      config,
+    };
+    getLatestByDeviceId.mockResolvedValue(latestConfiguration);
+
+    await expect(
+      controller.getLatestTuningConfiguration('device-1'),
+    ).resolves.toBe(latestConfiguration);
+    expect(getLatestByDeviceId).toHaveBeenCalledTimes(1);
+    expect(getLatestByDeviceId).toHaveBeenCalledWith('device-1');
+  });
+
+  it('preserves a missing durable configuration as null', async () => {
+    await expect(
+      controller.getLatestTuningConfiguration('device-without-configuration'),
+    ).resolves.toBeNull();
+    expect(getLatestByDeviceId).toHaveBeenCalledWith(
+      'device-without-configuration',
+    );
   });
 });
