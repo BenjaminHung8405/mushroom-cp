@@ -1,3 +1,26 @@
+## [2026-07-26T13:26:55+07:00] - Track J (J9): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T13:26:55+07:00.
+- **Task ID:** J9 — Implement SSE `GET /devices/:id/tuning-configurations/stream`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:** Không có.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung endpoint SSE được bảo vệ `GET /devices/:id/tuning-configurations/stream` trên `TuningCommandController`; luôn chạy `JwtAuthGuard` và `DeviceOwnershipGuard` trước khi mở stream.
+  - Endpoint sử dụng trực tiếp shared `TuningConfigurationService.tuningSync$`, lọc chính xác theo `deviceId` từ route để tuyệt đối không broadcast sự kiện giữa các thiết bị; không tạo `Subject` hoặc Observable nguồn mới cho từng request.
+  - Áp dụng `takeUntil(fromEvent(request, 'close'))` để hủy subscription khi client SSE ngắt kết nối. Nguồn `tuningSync$` chỉ phát sau transaction DB commit từ luồng ACK có sẵn của service, nên SSE không thể thông báo state chưa durable.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `npm run typecheck`: **PASS**.
+  - `npm run lint:changed`: **PASS**.
+  - Focused Jest `src/tuning/controllers/tuning-command.controller.spec.ts`: **PASS (12/12 tests)**; bao phủ lọc cross-device và teardown khi request `close`.
+  - `git diff --check`: **PASS**.
+
+---
+
 ## [2026-07-26T13:21:06+07:00] - Track J (J8): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T13:21:06+07:00.

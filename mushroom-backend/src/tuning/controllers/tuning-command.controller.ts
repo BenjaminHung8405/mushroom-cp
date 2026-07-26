@@ -9,9 +9,14 @@ import {
   Post,
   Query,
   Req,
+  Sse,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import type { MessageEvent } from '@nestjs/common';
+import type { Request } from 'express';
+import { fromEvent, Observable } from 'rxjs';
+import { filter, map, takeUntil } from 'rxjs/operators';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { DeviceOwnershipGuard } from '../guards/device-ownership.guard';
 import {
@@ -77,6 +82,24 @@ export class TuningCommandController {
       deviceId,
       this.parsePagination(limit, 20, 1, 100, 'limit'),
       this.parsePagination(offset, 0, 0, Number.MAX_SAFE_INTEGER, 'offset'),
+    );
+  }
+
+  /**
+   * Streams durable configuration state changes via Server-Sent Events (SSE).
+   * Guarded by per-device ownership validation. The stream filters a shared
+   * Subject to strictly prevent cross-device broadcasting and memory leaks.
+   */
+  @Sse(':id/tuning-configurations/stream')
+  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
+  streamTuningConfigurations(
+    @Param('id') deviceId: string,
+    @Req() request: Request,
+  ): Observable<MessageEvent> {
+    return this.tuningConfigurationService.tuningSync$.pipe(
+      filter((event) => event.deviceId === deviceId),
+      map((event) => ({ data: event })),
+      takeUntil(fromEvent(request, 'close')),
     );
   }
 

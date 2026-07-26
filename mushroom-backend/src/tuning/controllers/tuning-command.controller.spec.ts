@@ -3,15 +3,20 @@ import { TuningConfigurationService } from '../services/tuning-configuration.ser
 import type { JwtAuthenticatedRequest } from '../guards/jwt-auth.guard';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { BadRequestException } from '@nestjs/common';
+import { EventEmitter } from 'node:events';
+import { Subject } from 'rxjs';
+import type { TuningSyncEvent } from '../services/tuning-configuration.service';
 
 describe('TuningCommandController', () => {
   const createPendingCommand = jest.fn();
   const getLatestByDeviceId = jest.fn();
   const getTuningHistory = jest.fn();
+  const tuningSync$ = new Subject<TuningSyncEvent>();
   const service = {
     createPendingCommand,
     getLatestByDeviceId,
     getTuningHistory,
+    tuningSync$,
   } as unknown as TuningConfigurationService;
   const controller = new TuningCommandController(service);
 
@@ -122,4 +127,43 @@ describe('TuningCommandController', () => {
       expect(getTuningHistory).not.toHaveBeenCalled();
     },
   );
+  it('streams tuning configuration sync events filtered by deviceId', (done) => {
+    const request = new EventEmitter() as unknown as JwtAuthenticatedRequest;
+    const result$ = controller.streamTuningConfigurations('device-1', request);
+    const emitted: TuningSyncEvent[] = [];
+    result$.subscribe({
+      next: (event) => emitted.push(event.data as TuningSyncEvent),
+      complete: () => {
+        expect(emitted).toHaveLength(2);
+        expect(emitted[0].commandId).toBe('event-for-1');
+        expect(emitted[1].commandId).toBe('another-event-for-1');
+        done();
+      },
+    });
+
+    tuningSync$.next(syncEvent('device-2', 'ignored'));
+    tuningSync$.next(syncEvent('device-1', 'event-for-1'));
+    tuningSync$.next(syncEvent('device-3', 'ignored-too'));
+    tuningSync$.next(syncEvent('device-1', 'another-event-for-1'));
+    (request as unknown as EventEmitter).emit('close');
+  });
 });
+
+function syncEvent(deviceId: string, commandId: string): TuningSyncEvent {
+  return {
+    id: `event-${commandId}`,
+    deviceId,
+    commandId,
+    revision: 1,
+    status: 'PENDING',
+    config: {
+      lamp_gain_scale: 1,
+      mist_gain_scale: 1,
+      mist_on_threshold: 0.25,
+      mist_off_threshold: 0.15,
+    },
+    publishedAt: null,
+    createdAt: '2026-07-26T00:00:00.000Z',
+    updatedAt: '2026-07-26T00:00:00.000Z',
+  };
+}
