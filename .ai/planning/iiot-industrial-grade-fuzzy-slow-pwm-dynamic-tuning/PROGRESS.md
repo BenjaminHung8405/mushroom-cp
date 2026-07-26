@@ -42,10 +42,10 @@
 
 | Task ID | Mô tả Task | Status | Note / chỉ thị kỹ thuật bắt buộc |
 |---|---|---|---|
-| I1 | Định nghĩa ruleset version và constants/thresholds của recommender trong `TuningRecommenderEngine`. | `[ ] QA Review` | **Immutable Rule Configuration:** Dùng `RULESET_VERSION = 'v1.0.0'` và `RULE_THRESHOLDS as const`: chatter 10/h, temp RMSE 1.5, humid RMSE 5.0, lamp duty 30%, gain step 0.05, Mist threshold step 0.02. Không hard-code magic number rải rác trong branches. |
-| I2 | Implement pure function `generateRecommendation(kpi, currentConfig)`. | `[ ] QA Review` | **Pure Function & Rule Conflict Detection (CORR-S2-03):** Không async/I-O/side effect. Áp dụng R1 Mist chattering, R2 Temp high + Lamp duty low, R3 Humid high + Mist ổn định. Nếu R1 và R3 cùng trigger thì trả `CONFLICT` với đủ rules, không âm thầm ưu tiên rule nào. Advisory chỉ thay đổi keys trong `delta`, lưu version/rules/KPI/current snapshot. |
-| I3 | Implement helper `clampToHardBounds()` cho các tham số tuning. | `[ ] QA Review` | **Boundary Validation Pattern:** Áp cứng PLAN v2.2: gain [0.80, 1.20], `mist_on` [0.20, 0.35], `mist_off` [0.10, 0.20]; dùng `Math.max(min, Math.min(max, value))`. Không đề xuất bất kỳ key TPC/PWM/HWat/parameter không có firmware source-of-truth. |
-| I4 | Implement helper `validateHysteresis(on, off)`. | `[ ] QA Review` | **Physical Invariant Enforcement:** Chỉ hợp lệ nếu `off < on`. Không silently fix hysteresis sai; proposal invalid phải bị reject/blocked để tránh che giấu lỗi ruleset. |
+| I1 | Định nghĩa ruleset version và constants/thresholds của recommender trong `TuningRecommenderEngine`. | `[x] Done` | **Immutable Rule Configuration:** Dùng `RULESET_VERSION = 'v1.0.0'` và `RULE_THRESHOLDS as const`: chatter 10/h, temp RMSE 1.5, humid RMSE 5.0, lamp duty 30%, gain step 0.05, Mist threshold step 0.02. Không hard-code magic number rải rác trong branches. |
+| I2 | Implement pure function `generateRecommendation(kpi, currentConfig)`. | `[x] Done` | **Pure Function & Rule Conflict Detection (CORR-S2-03):** Không async/I-O/side effect. Áp dụng R1 Mist chattering, R2 Temp high + Lamp duty low, R3 Humid high + Mist ổn định. Nếu R1 và R3 cùng trigger thì trả `CONFLICT` với đủ rules, không âm thầm ưu tiên rule nào. Advisory chỉ thay đổi keys trong `delta`, lưu version/rules/KPI/current snapshot. |
+| I3 | Implement helper `clampToHardBounds()` cho các tham số tuning. | `[x] Done` | **Boundary Validation Pattern:** Áp cứng PLAN v2.2: gain [0.80, 1.20], `mist_on` [0.20, 0.35], `mist_off` [0.10, 0.20]; dùng `Math.max(min, Math.min(max, value))`. Không đề xuất bất kỳ key TPC/PWM/HWat/parameter không có firmware source-of-truth. |
+| I4 | Implement helper `validateHysteresis(on, off)`. | `[x] Done` | **Physical Invariant Enforcement:** Chỉ hợp lệ nếu `off < on`. Không silently fix hysteresis sai; proposal invalid phải bị reject/blocked để tránh che giấu lỗi ruleset. |
 
 ## Track J — Authz & REST/SSE Tuning Module (Ngày 9–10)
 

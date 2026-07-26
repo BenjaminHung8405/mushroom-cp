@@ -1,3 +1,45 @@
+## [2026-07-26T12:35:00+07:00] - Security/Architecture QA Review: APPROVED (LGTM — Track I: I1–I4)
+
+- **Kết quả:** **LGTM (Looks Good To Me)**. Thông qua kiểm toán toàn bộ Track I (I1–I4). Tất cả 4 task I1, I2, I3, I4 được chuyển sang trạng thái `[x] Done` trong `PROGRESS.md`.
+- **Phạm vi kiểm tra:** Rà soát `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`, `.spec.ts`, `analytics.module.ts`, `src/analytics/interfaces/kpi-metrics.interface.ts`, `src/analytics/interfaces/tuning-advisory.interface.ts`; đối chiếu `README.md` v2.2 (§§2.2, 3.1–3.5) và yêu cầu I1–I4 trong `PROGRESS.md`.
+- **Đánh giá checklist:**
+  1. **Kiến trúc & Conventions:** `TuningRecommenderEngine` đặt đúng tại `src/analytics/services/`; không có dependency layer ngược chiều. `generateRecommendation()` được phân rã thành 4 helper (`evaluateRules`, `buildDelta`, `buildAdvisory`, `describeExpectedBenefit`), không hàm nào vượt 50 dòng. `RULE_THRESHOLDS` là single source of truth — không có magic number rải trong branches. Đăng ký đúng ở `providers` + `exports` trong `AnalyticsModule`.
+  2. **Bảo mật:** Không có secret/credential hard-code. Không có Flux/SQL injection surface (pure function). Input `kpi`/`currentConfig` được guard null/undefined. `validateHysteresis()` kiểm tra `Number.isFinite()` chống NaN/Infinity. `clampToHardBounds()` dùng `Math.max(min, Math.min(max, value))` — không overflow.
+  3. **Logic & Edge-Cases:** Pure function contract được bảo toàn: không mutation input, không I/O, không side effect. Conflict R1+R3 được detect và trả explicit `CONFLICT` — không âm thầm ưu tiên. Hysteresis invalid trả `NO_SUGGESTION` fail-closed — không tự sửa. Boundary `>` (strict) đúng spec: `mistSwitchCountPerHour === 10` không trigger R1. `INSUFFICIENT_DATA` khi null/undefined input. No-mutation xác nhận bằng test shallow copy.
+  4. **Tối ưu:** Pure function O(1) logic — không I/O, không N+1, không nested loop bất hợp lý, không memory leak. `Object.freeze()` một lần khi module load.
+- **Observation (Non-Blocking):** `describeExpectedBenefit()` là private helper với logic trivial (3 nhánh if/else), không được test trực tiếp nhưng không ảnh hưởng correctness recommendation — acceptable.
+- **Test Coverage:** 17/17 tests PASS. Phủ đủ: ruleset identity, threshold pin, runtime freeze, conflict R1+R3, R1 delta + no-mutation, R2+R3 combined, boundary NO_SUGGESTION, hard-bound clamp, null input, gain/mist_on/mist_off clamp bounds, hysteresis valid/equal/reversed/NaN/Infinity, block recommendation.
+- **Xác minh tự kiểm tra của Execution Agent (entry 2026-07-26T12:32:50):**
+  - `pnpm run typecheck` — **PASS**
+  - `pnpm run lint` — **PASS**
+  - Unit test recommender: **17/17 PASS**
+  - Full backend suite: **32/32 suites, 296/296 tests PASS**
+  - `git diff --check` — **PASS**
+
+---
+
+## [2026-07-26T12:32:50+07:00] - Track I (I2, I3): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T12:32:50+07:00
+- **Task ID:** I2 — Implement pure function `generateRecommendation(kpi, currentConfig)`; I3 — Implement helper `clampToHardBounds()` cho các tham số tuning.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình theo feedback QA:**
+  - Phân rã `generateRecommendation()` thành orchestration ngắn cùng các helper `evaluateRules()`, `buildDelta()` và `buildAdvisory()`; không làm thay đổi pure-function contract, conflict detection, null guard hay hysteresis fail-closed hiện có.
+  - `buildDelta()` gọi `clampToHardBounds()` cho từng delta R1 (`mist_on`) và R2/R3 (`gain`) trước khi tạo `suggestedConfig`, do đó advisory không thể vượt firmware hard bounds.
+  - Bổ sung regression test tại cận trên hard bound với R1+R2 trigger, xác nhận suggested `mist_on_threshold = 0.35` và `lamp_gain_scale = 1.20`; đồng thời assert rõ R1 không trigger khi `mistSwitchCountPerHour === 10` trong test R2+R3.
+- **Kết quả tự kiểm tra:**
+  - `pnpm run typecheck` — PASS.
+  - `pnpm run lint` — PASS.
+  - Unit test recommender — **17/17 PASS**.
+  - Full backend suite `pnpm test --runInBand` — **32/32 suites, 296/296 tests PASS**.
+  - `git diff --check` — PASS.
+
+---
+
 ## [2026-07-26T12:25:23+07:00] - Track I (I4): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T12:08–12:25:23+07:00

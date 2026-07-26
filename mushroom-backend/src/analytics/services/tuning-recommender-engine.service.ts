@@ -41,9 +41,9 @@ export type RuleThresholds = typeof RULE_THRESHOLDS;
 /**
  * Deterministic, side-effect-free tuning recommender.
  *
- * Boundary clamping and hysteresis validation are intentionally delegated to
- * the dedicated I3 and I4 helpers. This evaluator only decides which rules
- * apply and creates the immutable advisory payload.
+ * It evaluates the rule table, delegates safe delta construction to the I3
+ * boundary helper, enforces the I4 hysteresis invariant, and creates an
+ * immutable advisory payload.
  */
 @Injectable()
 export class TuningRecommenderEngine {
@@ -68,7 +68,6 @@ export class TuningRecommenderEngine {
         reason: 'KPI and current tuning configuration are required.',
       };
     }
-
     if (
       !this.validateHysteresis(
         currentConfig.mist_on_threshold,
@@ -82,43 +81,15 @@ export class TuningRecommenderEngine {
       };
     }
 
-    const isMistChattering =
-      kpi.mistSwitchCountPerHour >
-      this.thresholds.MIST_CHATTERING_SWITCHES_PER_HOUR;
-    const hasHighHumidity = kpi.humidRmse > this.thresholds.HUMID_RMSE_HIGH;
-
-    if (isMistChattering && hasHighHumidity) {
+    const flags = this.evaluateRules(kpi);
+    if (flags.isMistChattering && flags.hasHighHumidity) {
       return {
         status: 'CONFLICT',
         conflictingRules: ['R1_MIST_CHATTERING', 'R3_HUMID_HIGH_MIST_OK'],
       };
     }
 
-    const hasHighTemperatureWithLowLampDuty =
-      kpi.tempRmse > this.thresholds.TEMP_RMSE_HIGH &&
-      kpi.lampDutyCyclePercent < this.thresholds.MIN_LAMP_DUTY_CYCLE_PERCENT;
-
-    const delta: Partial<TuningConfigSnapshot> = {};
-    const triggeredRules: string[] = [];
-
-    if (isMistChattering) {
-      delta.mist_on_threshold =
-        currentConfig.mist_on_threshold + this.thresholds.MIST_THRESHOLD_STEP;
-      triggeredRules.push('R1_MIST_CHATTERING');
-    }
-
-    if (hasHighTemperatureWithLowLampDuty) {
-      delta.lamp_gain_scale =
-        currentConfig.lamp_gain_scale + this.thresholds.GAIN_SCALE_STEP;
-      triggeredRules.push('R2_TEMP_HIGH_LAMP_LOW');
-    }
-
-    if (hasHighHumidity) {
-      delta.mist_gain_scale =
-        currentConfig.mist_gain_scale + this.thresholds.GAIN_SCALE_STEP;
-      triggeredRules.push('R3_HUMID_HIGH_MIST_OK');
-    }
-
+    const { delta, triggeredRules } = this.buildDelta(flags, currentConfig);
     if (triggeredRules.length === 0) {
       return {
         status: 'NO_SUGGESTION',
@@ -126,11 +97,77 @@ export class TuningRecommenderEngine {
       };
     }
 
+    return {
+      status: 'ADVISORY',
+      advisory: this.buildAdvisory(currentConfig, delta, triggeredRules, kpi),
+    };
+  }
+
+  private evaluateRules(kpi: KpiMetrics): {
+    isMistChattering: boolean;
+    hasHighHumidity: boolean;
+    hasHighTempWithLowLamp: boolean;
+  } {
+    return {
+      isMistChattering:
+        kpi.mistSwitchCountPerHour >
+        this.thresholds.MIST_CHATTERING_SWITCHES_PER_HOUR,
+      hasHighHumidity: kpi.humidRmse > this.thresholds.HUMID_RMSE_HIGH,
+      hasHighTempWithLowLamp:
+        kpi.tempRmse > this.thresholds.TEMP_RMSE_HIGH &&
+        kpi.lampDutyCyclePercent < this.thresholds.MIN_LAMP_DUTY_CYCLE_PERCENT,
+    };
+  }
+
+  private buildDelta(
+    flags: {
+      isMistChattering: boolean;
+      hasHighHumidity: boolean;
+      hasHighTempWithLowLamp: boolean;
+    },
+    currentConfig: TuningConfigSnapshot,
+  ): { delta: Partial<TuningConfigSnapshot>; triggeredRules: string[] } {
+    const delta: Partial<TuningConfigSnapshot> = {};
+    const triggeredRules: string[] = [];
+
+    if (flags.isMistChattering) {
+      delta.mist_on_threshold = this.clampToHardBounds(
+        currentConfig.mist_on_threshold + this.thresholds.MIST_THRESHOLD_STEP,
+        'mist_on',
+      );
+      triggeredRules.push('R1_MIST_CHATTERING');
+    }
+
+    if (flags.hasHighTempWithLowLamp) {
+      delta.lamp_gain_scale = this.clampToHardBounds(
+        currentConfig.lamp_gain_scale + this.thresholds.GAIN_SCALE_STEP,
+        'gain',
+      );
+      triggeredRules.push('R2_TEMP_HIGH_LAMP_LOW');
+    }
+
+    if (flags.hasHighHumidity) {
+      delta.mist_gain_scale = this.clampToHardBounds(
+        currentConfig.mist_gain_scale + this.thresholds.GAIN_SCALE_STEP,
+        'gain',
+      );
+      triggeredRules.push('R3_HUMID_HIGH_MIST_OK');
+    }
+
+    return { delta, triggeredRules };
+  }
+
+  private buildAdvisory(
+    currentConfig: TuningConfigSnapshot,
+    delta: Partial<TuningConfigSnapshot>,
+    triggeredRules: string[],
+    kpi: KpiMetrics,
+  ): TuningAdvisory {
     const suggestedConfig: TuningConfigSnapshot = {
       ...currentConfig,
       ...delta,
     };
-    const advisory: TuningAdvisory = {
+    return {
       rulesetVersion: this.rulesetVersion,
       currentConfig: { ...currentConfig },
       suggestedConfig,
@@ -141,8 +178,6 @@ export class TuningRecommenderEngine {
       kpiSnapshot: kpi,
       observationWindowRequired: true,
     };
-
-    return { status: 'ADVISORY', advisory };
   }
 
   /**

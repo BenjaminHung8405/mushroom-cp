@@ -131,6 +131,9 @@ describe('TuningRecommenderEngine (I1 — ruleset identity & thresholds)', () =>
         'R2_TEMP_HIGH_LAMP_LOW',
         'R3_HUMID_HIGH_MIST_OK',
       ]);
+      expect(result.advisory.triggeredRules).not.toContain(
+        'R1_MIST_CHATTERING',
+      );
     });
 
     it('returns no suggestion at exact rule thresholds', () => {
@@ -149,6 +152,33 @@ describe('TuningRecommenderEngine (I1 — ruleset identity & thresholds)', () =>
         status: 'NO_SUGGESTION',
         reason: 'No tuning rule was triggered by the current KPI window.',
       });
+    });
+
+    it('clamps the suggested configuration to hard bounds when rules trigger near the boundary', () => {
+      const boundaryConfig = {
+        ...currentConfig,
+        mist_on_threshold: 0.35,
+        lamp_gain_scale: 1.2,
+      };
+
+      const result = engine.generateRecommendation(
+        {
+          ...kpi,
+          mistSwitchCountPerHour: 11,
+          tempRmse: 1.6,
+          lampDutyCyclePercent: 29,
+        },
+        boundaryConfig,
+      );
+
+      expect(result.status).toBe('ADVISORY');
+      if (result.status !== 'ADVISORY') {
+        return;
+      }
+
+      // Recommendations at the exact firmware maxima must not exceed them.
+      expect(result.advisory.suggestedConfig.mist_on_threshold).toBe(0.35);
+      expect(result.advisory.suggestedConfig.lamp_gain_scale).toBe(1.2);
     });
 
     it('fails closed when a required evaluation input is absent', () => {
