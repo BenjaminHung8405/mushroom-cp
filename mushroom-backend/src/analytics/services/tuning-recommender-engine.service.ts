@@ -69,6 +69,19 @@ export class TuningRecommenderEngine {
       };
     }
 
+    if (
+      !this.validateHysteresis(
+        currentConfig.mist_on_threshold,
+        currentConfig.mist_off_threshold,
+      )
+    ) {
+      return {
+        status: 'NO_SUGGESTION',
+        reason:
+          'Current Mist hysteresis is invalid: mist_off_threshold must be strictly less than mist_on_threshold.',
+      };
+    }
+
     const isMistChattering =
       kpi.mistSwitchCountPerHour >
       this.thresholds.MIST_CHATTERING_SWITCHES_PER_HOUR;
@@ -163,6 +176,15 @@ export class TuningRecommenderEngine {
         break;
     }
     return Math.max(min, Math.min(max, value));
+  }
+
+  /**
+   * Validates the physical Mist relay hysteresis invariant without attempting
+   * to repair a malformed proposal. Callers must block an invalid snapshot
+   * rather than infer or mutate a replacement threshold.
+   */
+  validateHysteresis(on: number, off: number): boolean {
+    return Number.isFinite(on) && Number.isFinite(off) && off < on;
   }
 
   private describeExpectedBenefit(triggeredRules: readonly string[]): string {

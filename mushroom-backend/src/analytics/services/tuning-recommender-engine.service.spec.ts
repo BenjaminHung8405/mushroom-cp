@@ -184,4 +184,42 @@ describe('TuningRecommenderEngine (I1 — ruleset identity & thresholds)', () =>
       expect(engine.clampToHardBounds(0.15, 'mist_off')).toBe(0.15);
     });
   });
+
+  describe('validateHysteresis (I4)', () => {
+    const engine = new TuningRecommenderEngine();
+
+    it('accepts only a finite Mist off threshold strictly below the on threshold', () => {
+      expect(engine.validateHysteresis(0.25, 0.15)).toBe(true);
+      expect(engine.validateHysteresis(0.2, 0.1)).toBe(true);
+    });
+
+    it('rejects equal and reversed thresholds without repairing either value', () => {
+      expect(engine.validateHysteresis(0.2, 0.2)).toBe(false);
+      expect(engine.validateHysteresis(0.15, 0.2)).toBe(false);
+    });
+
+    it('rejects non-finite thresholds', () => {
+      expect(engine.validateHysteresis(Number.NaN, 0.15)).toBe(false);
+      expect(engine.validateHysteresis(0.25, Number.POSITIVE_INFINITY)).toBe(
+        false,
+      );
+    });
+
+    it('blocks recommendation generation when the current hysteresis is invalid', () => {
+      expect(
+        engine.generateRecommendation(
+          { ...kpi, mistSwitchCountPerHour: 11 },
+          {
+            ...currentConfig,
+            mist_on_threshold: 0.15,
+            mist_off_threshold: 0.2,
+          },
+        ),
+      ).toEqual({
+        status: 'NO_SUGGESTION',
+        reason:
+          'Current Mist hysteresis is invalid: mist_off_threshold must be strictly less than mist_on_threshold.',
+      });
+    });
+  });
 });

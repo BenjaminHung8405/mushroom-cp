@@ -1,3 +1,26 @@
+## [2026-07-26T12:25:23+07:00] - Track I (I4): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26T12:08–12:25:23+07:00
+- **Task ID:** I4 — Implement helper `validateHysteresis(on, off)`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung `validateHysteresis(on, off)` cho recommender; helper chỉ trả hợp lệ khi cả hai giá trị là số hữu hạn và `off < on`, bảo toàn bất biến vật lý của hysteresis Mist.
+  - Helper không clamp, hoán đổi hay tự sửa threshold. `generateRecommendation()` kiểm tra snapshot hiện tại trước khi đánh giá rule và trả `NO_SUGGESTION` có lý do rõ ràng khi hysteresis không hợp lệ, nhờ đó proposal không hợp lệ bị chặn thay vì bị che giấu bằng điều chỉnh ngầm.
+  - Thêm regression test cho ngưỡng hợp lệ, ngưỡng bằng nhau/đảo chiều, số không hữu hạn và đường đi block recommendation.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `pnpm run typecheck` — PASS.
+  - `pnpm run lint` — PASS.
+  - Unit test recommender — **16/16 PASS**.
+  - Full backend suite `pnpm jest --runInBand --testPathIgnorePatterns=tuning-shadow-migrations.integration.spec.ts` — **32/32 suites, 295/295 tests PASS**.
+  - `git diff --check` — PASS.
+
+---
+
 ## [2026-07-26T12:07:55+07:00] - Track I (I3): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26T12:07:55+07:00
