@@ -2,13 +2,16 @@ import { TuningCommandController } from './tuning-command.controller';
 import { TuningConfigurationService } from '../services/tuning-configuration.service';
 import type { JwtAuthenticatedRequest } from '../guards/jwt-auth.guard';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
+import { BadRequestException } from '@nestjs/common';
 
 describe('TuningCommandController', () => {
   const createPendingCommand = jest.fn();
   const getLatestByDeviceId = jest.fn();
+  const getTuningHistory = jest.fn();
   const service = {
     createPendingCommand,
     getLatestByDeviceId,
+    getTuningHistory,
   } as unknown as TuningConfigurationService;
   const controller = new TuningCommandController(service);
 
@@ -25,6 +28,12 @@ describe('TuningCommandController', () => {
     jest.clearAllMocks();
     createPendingCommand.mockResolvedValue({ commandId, status: 'PENDING' });
     getLatestByDeviceId.mockResolvedValue(null);
+    getTuningHistory.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+    });
   });
 
   it('delegates durable command creation with the verified actor email', async () => {
@@ -83,4 +92,34 @@ describe('TuningCommandController', () => {
       'device-without-configuration',
     );
   });
+
+  it('uses a bounded default pagination window for durable history', async () => {
+    await expect(
+      controller.getTuningHistory('device-1', undefined, undefined),
+    ).resolves.toEqual({ items: [], total: 0, limit: 20, offset: 0 });
+
+    expect(getTuningHistory).toHaveBeenCalledWith('device-1', 20, 0);
+  });
+
+  it('clamps valid history pagination before querying the repository', async () => {
+    await controller.getTuningHistory('device-1', '999', '25');
+
+    expect(getTuningHistory).toHaveBeenCalledWith('device-1', 100, 25);
+  });
+
+  it.each([
+    ['limit', '1.5', '0'],
+    ['limit', '-1', '0'],
+    ['limit', ['20'], '0'],
+    ['offset', '20', '-1'],
+    ['offset', '20', '9007199254740992'],
+  ])(
+    'rejects malformed %s pagination before a history query',
+    async (_field, limit, offset) => {
+      await expect(
+        controller.getTuningHistory('device-1', limit, offset),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(getTuningHistory).not.toHaveBeenCalled();
+    },
+  );
 });
