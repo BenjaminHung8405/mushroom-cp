@@ -1,3 +1,29 @@
+## [2026-07-26T11:49:13+07:00] - Track I (I1): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26 11:44–11:49 (+07:00)
+- **Task ID:** I1 — Định nghĩa ruleset version và constants/thresholds của recommender trong `TuningRecommenderEngine`.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.ts`
+  - `mushroom-backend/src/analytics/services/tuning-recommender-engine.service.spec.ts`
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/analytics/analytics.module.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - **Immutable Rule Configuration:** Khai báo `RULESET_VERSION = 'v1.0.0'` và bảng `RULE_THRESHOLDS` là single source of truth cho rule engine với đủ 6 ngưỡng theo PLAN: `MIST_CHATTERING_SWITCHES_PER_HOUR = 10`, `TEMP_RMSE_HIGH = 1.5`, `HUMID_RMSE_HIGH = 5.0`, `MIN_LAMP_DUTY_CYCLE_PERCENT = 30`, `GAIN_SCALE_STEP = 0.05`, `MIST_THRESHOLD_STEP = 0.02`. Không rải magic number trong các branch — I2–I4 sẽ tham chiếu trực tiếp các constant này.
+  - **True Immutability:** Kết hợp `Object.freeze(... as const)` để vừa có literal type read-only lúc compile-time, vừa chống mutation lúc runtime (bảo vệ ruleset không bị thay đổi ngoài ý muốn ở downstream).
+  - **Provider Registration:** Đăng ký `TuningRecommenderEngine` vào `AnalyticsModule` (providers + exports) để các task tiếp theo (recommender/endpoint) inject được, không phá vỡ DI graph hiện hữu.
+  - **Scope Discipline:** Đúng phạm vi I1 — chỉ thiết lập ruleset identity + thresholds; các method `generateRecommendation()`, `clampToHardBounds()`, `validateHysteresis()` để dành cho I2–I4, tránh sinh nợ kỹ thuật hoặc code chưa được đặc tả.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - `npm run typecheck` — **PASS**.
+  - `npm run lint` (changed) — **PASS**.
+  - Unit test recommender: **4/4 PASS** (pin version, pin thresholds, provider identity, runtime freeze).
+  - Analytics suites (bao gồm DI module): **47/47 PASS**.
+  - Full backend suite: 32/33 suites PASS. Suite duy nhất fail là `tuning-shadow-migrations.integration.spec.ts` do thiếu env `TUNING_MIGRATION_DATABASE_URL` (integration DB test, pre-existing, không liên quan thay đổi I1).
+
+---
+
 ## [2026-07-26T11:41:29+07:00] - Security/Architecture QA Review: APPROVED (LGTM — Track G: G1–G2 & Track H: H1–H5)
 
 - **Kết quả:** **LGTM (Looks Good To Me)**. Thông qua kiểm toán toàn bộ Track G (G1–G2) và Track H (H1–H5). Tất cả 7 task G1, G2, H1, H2, H3, H4, H5 được chuyển sang trạng thái `[x] Done` trong `PROGRESS.md`.
