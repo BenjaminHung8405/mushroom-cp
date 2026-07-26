@@ -39,6 +39,14 @@ export class Device {
   @Column({ name: 'mqtt_username', type: 'varchar', length: 50, unique: true })
   mqttUsername!: string;
 
+  @Column({
+    name: 'owner_user_id',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  ownerUserId!: string | null;
+
   @Column({ name: 'token', type: 'varchar', length: 64, nullable: true })
   token!: string | null;
 

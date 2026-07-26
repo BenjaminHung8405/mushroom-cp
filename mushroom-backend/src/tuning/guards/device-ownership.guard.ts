@@ -6,17 +6,17 @@ import {
   Injectable,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import {
+  DEVICES_SERVICE,
+  type DevicesServiceContract,
+} from '../../device/devices.service';
 
 /**
  * Contract implemented by DevicesService in Task J2. It remains deliberately
  * minimal so authorization cannot read or expose any device metadata.
  */
-export interface DevicesService {
-  isDeviceOwnedByUser(deviceId: string, userId: string): Promise<boolean>;
-}
-
-/** DI token owned by the device module when its service is registered. */
-export const DEVICES_SERVICE = Symbol('DEVICES_SERVICE');
+export type DevicesService = DevicesServiceContract;
+export { DEVICES_SERVICE };
 
 interface VerifiedJwtUser {
   sub?: unknown;

@@ -1,3 +1,31 @@
+## [2026-07-26T12:48:31+07:00] - Track J (J2): Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-26 12:48:31 (+07:00).
+- **Task ID:** J2 — Implement `DevicesService.isDeviceOwnedByUser()` bằng DB query ownership.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **File đã tạo mới:**
+  - `mushroom-backend/src/device/devices.service.ts`
+  - `mushroom-backend/src/device/devices.service.spec.ts`
+  - `mushroom-backend/src/database/migrations/1720656000011-add-devices-owner-user-id.ts`
+- **File đã sửa đổi:**
+  - `mushroom-backend/src/device/entities/device.entity.ts`
+  - `mushroom-backend/src/device/device.module.ts`
+  - `mushroom-backend/src/tuning/guards/device-ownership.guard.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp logic:**
+  - Bổ sung `DevicesService` với đúng một phép kiểm tra ownership dạng existence-only, dùng SQL parameterized `SELECT 1 FROM devices WHERE device_id = $1 AND owner_user_id = $2`; kết quả boolean không phân biệt device không tồn tại với device của người dùng khác.
+  - Thêm cột nullable `owner_user_id` bằng migration idempotent, ánh xạ vào entity `Device`, và đăng ký/expose DI token ở `DeviceModule` để `DeviceOwnershipGuard` gọi service DB thay vì cache.
+  - Dùng primary-key index hiện có của `devices(device_id)` cho lookup một device; không thêm index dư thừa vì filter `device_id` đã là duy nhất.
+- **Kết quả tự kiểm tra mã nguồn:**
+  - Unit tests `DevicesService` + `DeviceOwnershipGuard`: **2 suites, 6/6 tests PASS**.
+  - `npm run typecheck`: **PASS**.
+  - ESLint trực tiếp trên toàn bộ file thuộc J2: **PASS**.
+  - `git diff --check`: **PASS**.
+  - Lệnh lint wrapper của repository vẫn báo legacy errors ở các file ngoài phạm vi J2 đã thay đổi từ trước; các file J2 không có lỗi lint.
+
+---
+
 ## [2026-07-26T12:43:00+07:00] - Track J (J1): Đang chờ QA Review
 
 - **Thời gian thực hiện:** 2026-07-26 12:43:00 (+07:00)
