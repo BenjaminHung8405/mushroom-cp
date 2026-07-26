@@ -1,3 +1,26 @@
+## [2026-07-26T14:45:00+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-26T14:45:00+07:00.
+- **Task ID:** J1-J9.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **File đã sửa:**
+  - `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.ts`
+  - `mushroom-backend/src/tuning/guards/tuning-sse-ticket.guard.ts`
+  - `mushroom-backend/src/database/migrations/1720656000013-create-tuning-sse-ticket-consumptions.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.ts`
+  - `mushroom-backend/src/tuning/services/tuning-sse-ticket.service.spec.ts`
+  - `mushroom-backend/src/tuning/guards/tuning-sse-ticket.guard.spec.ts`
+  - `mushroom-backend/src/tuning/services/tuning-configuration.service.spec.ts`
+  - `mushroom-backend/src/tuning/controllers/tuning-command.controller.spec.ts`
+  - `mushroom-backend/src/tuning/tuning.module.spec.ts`
+  - `mushroom-backend/src/database/migrations/tuning-shadow-migrations.integration.spec.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:** Đã thay Map ticket theo process bằng ticket HMAC tự xác thực và replay-store PostgreSQL dùng chung với atomic `INSERT ... ON CONFLICT`, do đó mint/consume qua replica khác vẫn hoạt động. Guard SSE đã async và tái kiểm tra ownership sau consume ticket, trả 403 không lộ device khi quyền bị thay đổi. Luồng ACK được tách thành helper transaction trả intent bất biến và helper post-commit emit/dispatch, bảo đảm SSE chỉ phát sau commit. Đã thêm regression cho ownership đổi, cross-device, anonymous, replay và hai replica.
+- **Kết quả tự kiểm tra:** Focused Track J Jest **PASS (45/45, 4/4 suites)**; full backend Jest **PASS (363/363, 40/40 suites)**; `pnpm run typecheck`, `pnpm run build`, `pnpm run lint:changed` và `git diff --check` đều **PASS**. Migration integration test chưa chạy vì thiếu `TUNING_MIGRATION_DATABASE_URL`.
+
+---
+
 ## [2026-07-26T14:30:28.868323+07:00] - Track J (J1-J9): Đang chờ QA Review (Lần 2)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-26T14:30:28.868323+07:00.
