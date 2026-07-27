@@ -7,6 +7,7 @@ import {
   buildForwardHeaders,
   buildValidatedUpstreamUrl,
   forwardUpstreamResponse,
+  isPublicDeviceReadRequest,
   resolveBearerToken,
   validateAndSanitizePath,
 } from '@/app/api/backend/[...path]/route'
@@ -124,6 +125,31 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       })
     })
 
+    it('buildForwardHeaders omits Authorization for public requests', () => {
+      const req = new NextRequest('http://localhost:3000/api/backend/devices')
+      expect(buildForwardHeaders(req, null)).toEqual({ Accept: 'application/json' })
+    })
+
+    it('allows only public device GET and SSE routes without a JWT', () => {
+      for (const path of [
+        ['devices'],
+        ['devices', 'DEV_001'],
+        ['devices', 'status', 'stream'],
+        ['devices', 'DEV_001', 'status'],
+        ['devices', 'DEV_001', 'config-sync'],
+        ['devices', 'DEV_001', 'config-sync', 'stream'],
+        ['devices', 'DEV_001', 'telemetry'],
+        ['devices', 'DEV_001', 'telemetry', 'history'],
+        ['devices', 'DEV_001', 'telemetry', 'stream'],
+      ]) {
+        expect(isPublicDeviceReadRequest('GET', path)).toBe(true)
+      }
+
+      expect(isPublicDeviceReadRequest('POST', ['devices', 'DEV_001', 'setpoint'])).toBe(false)
+      expect(isPublicDeviceReadRequest('GET', ['devices', 'DEV_001', 'tuning-configurations'])).toBe(false)
+      expect(isPublicDeviceReadRequest('GET', ['devices', 'DEV_001', 'analytics', 'tuning-recommendations'])).toBe(false)
+    })
+
     it('forwardUpstreamResponse formats normal and event-stream responses', async () => {
       const normalUpstream = new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -145,6 +171,24 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
   })
 
   describe('Proxy Security & Route Coverage Cases', () => {
+    it('Case 0: Anonymous public status SSE request forwards without Authorization', async () => {
+      let forwardedAuthorization: string | null | undefined
+      vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+        forwardedAuthorization = new Headers(init?.headers).get('Authorization')
+        return new Response('event: device-status\ndata: {}\n\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      })
+
+      const params = Promise.resolve({ path: ['devices', 'status', 'stream'] })
+      const req = new NextRequest('http://localhost:3000/api/backend/devices/status/stream')
+      const res = await GET(req, { params })
+
+      expect(res.status).toBe(200)
+      expect(forwardedAuthorization).toBeNull()
+    })
+
     it('Case 1: Anonymous request -> returns 401 directly at BFF', async () => {
       const params = Promise.resolve({ path: ['devices', 'DEV_001', 'tuning-configurations'] })
       const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations')

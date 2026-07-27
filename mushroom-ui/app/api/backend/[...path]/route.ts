@@ -20,6 +20,37 @@ const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
   'health',
 ])
 
+/**
+ * Read-only device routes intentionally remain public in the Nest backend.
+ * Keep this allowlist narrow: tuning and analytics GET endpoints carry
+ * operator data and are protected by JWT + ownership guards upstream.
+ */
+export function isPublicDeviceReadRequest(method: string, path: string[]): boolean {
+  if (method.toUpperCase() !== 'GET' || path[0] !== 'devices') return false
+
+  if (path.length === 1) return true // GET /devices
+  if (path.length === 2) return true // GET /devices/:id
+
+  const [, deviceIdOrStatus, resource, subresource] = path
+  if (deviceIdOrStatus === 'status') {
+    return resource === 'stream' && subresource === undefined
+  }
+
+  if (resource === 'status') {
+    return subresource === undefined
+  }
+
+  if (resource === 'config-sync') {
+    return subresource === undefined || subresource === 'stream'
+  }
+
+  if (resource === 'telemetry') {
+    return subresource === undefined || subresource === 'history' || subresource === 'stream'
+  }
+
+  return false
+}
+
 export function resolveBearerToken(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -106,10 +137,10 @@ export function buildValidatedUpstreamUrl(path: string[], search: string): { url
   return { url: upstreamUrl }
 }
 
-export function buildForwardHeaders(request: NextRequest, token: string): Record<string, string> {
+export function buildForwardHeaders(request: NextRequest, token: string | null): Record<string, string> {
   return {
     Accept: request.headers.get('accept') ?? 'application/json',
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(request.headers.get('content-type')
       ? { 'Content-Type': request.headers.get('content-type')! }
       : {}),
@@ -239,10 +270,11 @@ async function proxy(
   const originResult = validateMutationOrigin(request)
   if (originResult) return originResult
 
-  const authResult = authenticateBrowserRequest(request)
+  const { path } = await context.params
+  const isPublicRead = isPublicDeviceReadRequest(request.method, path)
+  const authResult = isPublicRead ? null : authenticateBrowserRequest(request)
   if (authResult instanceof NextResponse) return authResult
 
-  const { path } = await context.params
   const urlResult = buildValidatedUpstreamUrl(path, request.nextUrl.search)
   if (urlResult instanceof NextResponse) return urlResult
 
@@ -250,7 +282,7 @@ async function proxy(
   if (bodyResult instanceof NextResponse) return bodyResult
 
   try {
-    const headers = buildForwardHeaders(request, authResult.token)
+    const headers = buildForwardHeaders(request, authResult?.token ?? null)
     const response = await fetch(urlResult.url, {
       method: request.method,
       headers,
