@@ -19,6 +19,7 @@
 #include "core/encoder.h"
 #include "core/manual_control.h"
 #include "core/protector.h"
+#include "core/telemetry_holdover.h"
 #include "core/crop_profile_storage.h"
 #include "core/crop_profile_validator.h"
 #include "core/time_confidence.h"
@@ -4223,6 +4224,117 @@ int main() {
                 assert(latch[i].active == false);
                 assert(latch[i].forced_state == AppIntent::AUTO);
             }
+        }
+
+        // S2-H: Control/safety telemetry holdover (transient NaN dropout).
+        // Root cause fix: a transient I2C dropout blanks humidity to NaN and the
+        // MIST gate fail-closes (RejectedNAN) for a full sensor cycle even though
+        // the sensor is healthy. The control pipeline feeds a holdover-backed
+        // telemetry view to the gate; publish/web keep the raw NaN.
+        {
+            Serial.println("[TEST] Starting Track C - Telemetry Holdover (control/safety) Unit Tests...");
+
+            constexpr uint32_t MAX_AGE = 15000UL;  // mirrors CONTROL_HOLDOVER_MAX_AGE_MS
+            Trajectory::SetpointPod hp = {};
+            hp.temp_target = 25.0f;
+            hp.humidity_target = 80.0f;
+            relay_control::RtcTimePod hpRtc = {true, 7U, 30U};
+            const uint16_t hpCropDay = 5;
+            ManualRequest mistOn = { AppChannel::MIST, AppIntent::FORCE_ON, 1000UL };
+
+            // H1: raw NaN + fresh last-good (age < 15s) -> gate Accepted (MIST ON).
+            {
+                telemetry_holdover::LastGoodSample humid;
+                telemetry_holdover::updateLastGood(humid, 80.0f, 1000UL); // good @ t=1s
+                const uint32_t now = 6000UL;                              // age = 5s
+                TelemetryData ct = {};
+                ct.humidity_air = telemetry_holdover::holdoverValue(NAN, humid, now, MAX_AGE);
+                assert(std::isfinite(ct.humidity_air) && ct.humidity_air == 80.0f);
+                assert(manual::evaluateSafetyGate(mistOn, ct, hp, hpRtc, hpCropDay) ==
+                       ManualDecision::Accepted);
+            }
+
+            // H2: raw NaN + stale last-good (age > 15s) -> fail-closed RejectedNAN.
+            {
+                telemetry_holdover::LastGoodSample humid;
+                telemetry_holdover::updateLastGood(humid, 80.0f, 1000UL); // good @ t=1s
+                const uint32_t now = 21000UL;                             // age = 20s
+                TelemetryData ct = {};
+                ct.humidity_air = telemetry_holdover::holdoverValue(NAN, humid, now, MAX_AGE);
+                assert(!std::isfinite(ct.humidity_air));
+                assert(manual::evaluateSafetyGate(mistOn, ct, hp, hpRtc, hpCropDay) ==
+                       ManualDecision::RejectedNAN);
+            }
+
+            // H3: raw NaN + never had a good sample (boot) -> fail-closed.
+            {
+                telemetry_holdover::LastGoodSample humid; // valid == false
+                const uint32_t now = 5000UL;
+                TelemetryData ct = {};
+                ct.humidity_air = telemetry_holdover::holdoverValue(NAN, humid, now, MAX_AGE);
+                assert(!std::isfinite(ct.humidity_air));
+                assert(manual::evaluateSafetyGate(mistOn, ct, hp, hpRtc, hpCropDay) ==
+                       ManualDecision::RejectedNAN);
+            }
+
+            // H4: raw finite but >= 92% RH -> holdover must NOT relax the humidity
+            // ceiling; gate still RejectedHumi.
+            {
+                telemetry_holdover::LastGoodSample humid;
+                telemetry_holdover::updateLastGood(humid, 80.0f, 1000UL);
+                const uint32_t now = 2000UL;
+                TelemetryData ct = {};
+                ct.humidity_air = telemetry_holdover::holdoverValue(95.0f, humid, now, MAX_AGE);
+                assert(ct.humidity_air == 95.0f); // raw wins when finite
+                assert(manual::evaluateSafetyGate(mistOn, ct, hp, hpRtc, hpCropDay) ==
+                       ManualDecision::RejectedHumi);
+            }
+
+            // H5: overflow-safe age across the millis() wrap. last-good just before
+            // wrap, now just after; true elapsed = 5s (< 15s) -> holdover still used.
+            {
+                telemetry_holdover::LastGoodSample humid;
+                const uint32_t tGood = 0xFFFFFFFFUL - 2000UL; // 2s before wrap
+                telemetry_holdover::updateLastGood(humid, 80.0f, tGood);
+                const uint32_t now = 3000UL;                  // 3s after wrap -> 5s elapsed
+                TelemetryData ct = {};
+                ct.humidity_air = telemetry_holdover::holdoverValue(NAN, humid, now, MAX_AGE);
+                assert(std::isfinite(ct.humidity_air) && ct.humidity_air == 80.0f);
+                assert(manual::evaluateSafetyGate(mistOn, ct, hp, hpRtc, hpCropDay) ==
+                       ManualDecision::Accepted);
+            }
+
+            // H6: independent fields. Defog blanks temp (NaN) while humidity stays
+            // valid; temp holdover must not bleed into a fresh humidity read, and a
+            // fresh temp read must not be masked by a stale humidity slot.
+            {
+                telemetry_holdover::LastGoodSample temp;
+                telemetry_holdover::LastGoodSample humid;
+                telemetry_holdover::updateLastGood(temp, 24.0f, 1000UL);
+                telemetry_holdover::updateLastGood(humid, 81.0f, 1000UL);
+                const uint32_t now = 3000UL;
+                // temp raw NaN (defog) -> holdover 24.0; humidity raw fresh 82 -> raw.
+                const float ctTemp = telemetry_holdover::holdoverValue(NAN, temp, now, MAX_AGE);
+                const float ctHumid = telemetry_holdover::holdoverValue(82.0f, humid, now, MAX_AGE);
+                assert(ctTemp == 24.0f);
+                assert(ctHumid == 82.0f);
+            }
+
+            // H7: publish/web integrity. Raw telemetry must remain NaN even when the
+            // control view is holdover-backed (helper never mutates the raw input).
+            {
+                telemetry_holdover::LastGoodSample humid;
+                telemetry_holdover::updateLastGood(humid, 80.0f, 1000UL);
+                const uint32_t now = 3000UL;
+                TelemetryData raw = {};
+                raw.humidity_air = NAN;
+                const float controlView =
+                    telemetry_holdover::holdoverValue(raw.humidity_air, humid, now, MAX_AGE);
+                assert(std::isfinite(controlView) && controlView == 80.0f);
+                assert(!std::isfinite(raw.humidity_air)); // raw untouched -> web/InfluxDB show `--`
+            }
+
+            Serial.println("[TEST] Track C - Telemetry Holdover: all cases passed.");
         }
 
         // S4-A1, A2, A3, A5 Unit Tests

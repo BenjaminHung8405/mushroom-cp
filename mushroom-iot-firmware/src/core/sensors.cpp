@@ -215,11 +215,16 @@ namespace sensors
         hum = sht30.readHumidity();
 
         // Lọc nhiễu điện từ (EMI) thoáng qua do đóng cắt rơ-le hoặc chập chờn dây tín hiệu.
-        // Wait 50 ms before retrying: this exceeds a high-repeatability conversion
-        // and lets a relay-switching transient settle before beginning a new read.
+        // Yield ~20 ms before the single retry: this lets a relay-switching
+        // transient settle while cooperatively releasing the CPU. We must NOT
+        // busy-block here — read_sht30() runs inside the ~50 ms Core 1 control
+        // task, whose loop is contractually "no delay(), no busy wait". A
+        // longer/blocking wait would risk a tick overrun and the task watchdog.
+        // A single retry is enough per cycle: the control/safety pipeline's
+        // 15 s last-known-good holdover covers any longer dropout.
         if (std::isnan(temp) || std::isnan(hum))
         {
-            delay(50);
+            vTaskDelay(pdMS_TO_TICKS(20));
             temp = sht30.readTemperature();
             hum = sht30.readHumidity();
         }

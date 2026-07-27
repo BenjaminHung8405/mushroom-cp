@@ -10,6 +10,7 @@
 #include "core/serial_mutex.h"
 #include "core/storage.h"
 #include "core/manual_control.h"
+#include "core/telemetry_holdover.h"
 #include "core/protector.h"
 #include "core/crop_profile_storage.h"
 #include "core/light_schedule.h"
@@ -181,6 +182,14 @@ SharedSystemState getSharedSystemState()
 // interval so console output is observable during development; production will
 // raise this to 5 minutes.
 static constexpr unsigned long SENSOR_READ_INTERVAL_MS = 5000UL;
+
+// Maximum age of a last-known-good SHT30 sample that the control/safety
+// pipeline may reuse when the current read drops to NaN. A transient I2C/EMI
+// dropout (relay switching noise, momentarily stuck bus) must not fail-close
+// the manual safety gate. Beyond this bound the data is treated as stale and
+// the gate returns to fail-closed. Publish/web paths always keep raw values.
+// 15 s ≈ 3 sensor read cycles (SENSOR_READ_INTERVAL_MS = 5 s).
+static constexpr uint32_t CONTROL_HOLDOVER_MAX_AGE_MS = 15000UL;
 
 // ===========================================================================
 // Track I: Hardware Button Task (BOOT/GPIO0) — runs on Core 1
@@ -799,6 +808,29 @@ static void runControlPipelineStep(
         newSensorRead = true;
     }
 
+    // -----------------------------------------------------------------------
+    // Last-known-good holdover for the control/safety pipeline ONLY.
+    // A transient I2C dropout blanks telemetry.{temp_air,humidity_air} to NaN;
+    // without holdover the manual safety gate fail-closes (RejectedNAN) for up
+    // to a full sensor cycle, wrongly refusing e.g. MIST ON. We keep an
+    // independent last-good sample per field (temperature can be blanked by the
+    // active defog heater while humidity stays valid, so they must not share a
+    // slot) and reuse it while it is younger than CONTROL_HOLDOVER_MAX_AGE_MS.
+    // Publish/web paths keep the raw `telemetry` so dashboards/InfluxDB report
+    // the dropout truthfully.
+    static telemetry_holdover::LastGoodSample lastGoodTemp;
+    static telemetry_holdover::LastGoodSample lastGoodHumid;
+
+    telemetry_holdover::updateLastGood(lastGoodTemp, telemetry.temp_air, now);
+    telemetry_holdover::updateLastGood(lastGoodHumid, telemetry.humidity_air, now);
+
+    // controlTelemetry is the holdover-backed view consumed by control + safety.
+    TelemetryData controlTelemetry = telemetry;
+    controlTelemetry.temp_air = telemetry_holdover::holdoverValue(
+        telemetry.temp_air, lastGoodTemp, now, CONTROL_HOLDOVER_MAX_AGE_MS);
+    controlTelemetry.humidity_air = telemetry_holdover::holdoverValue(
+        telemetry.humidity_air, lastGoodHumid, now, CONTROL_HOLDOVER_MAX_AGE_MS);
+
     // Rate of change calculation for inertia compensation
     static float prevTemp = NAN;
     static float prevHumid = NAN;
@@ -808,23 +840,23 @@ static void runControlPipelineStep(
 
     if (newSensorRead && lastSensorReadOk)
     {
-        if (std::isfinite(telemetry.temp_air) && std::isfinite(telemetry.humidity_air))
+        if (std::isfinite(controlTelemetry.temp_air) && std::isfinite(controlTelemetry.humidity_air))
         {
             if (std::isfinite(prevTemp) && std::isfinite(prevHumid) && lastCalcMs != 0)
             {
                 float dt = static_cast<float>(now - lastCalcMs) / 1000.0f;
                 if (dt > 0.5f)
                 {
-                    float rawTempRate = (telemetry.temp_air - prevTemp) / dt;
-                    float rawHumidRate = (telemetry.humidity_air - prevHumid) / dt;
+                    float rawTempRate = (controlTelemetry.temp_air - prevTemp) / dt;
+                    float rawHumidRate = (controlTelemetry.humidity_air - prevHumid) / dt;
 
                     constexpr float alpha = 0.3f;
                     tempRateFiltered = alpha * rawTempRate + (1.0f - alpha) * tempRateFiltered;
                     humidRateFiltered = alpha * rawHumidRate + (1.0f - alpha) * humidRateFiltered;
                 }
             }
-            prevTemp = telemetry.temp_air;
-            prevHumid = telemetry.humidity_air;
+            prevTemp = controlTelemetry.temp_air;
+            prevHumid = controlTelemetry.humidity_air;
             lastCalcMs = now;
         }
     }
@@ -833,17 +865,17 @@ static void runControlPipelineStep(
     float errorHumid = NAN;
     float errorCO2 = NAN;
     const Trajectory::SetpointPod setpoints =
-        getControlSetpointsAndErrors(telemetry, baselineCmd, overrideCmd, errorTemp, errorHumid, errorCO2);
+        getControlSetpointsAndErrors(controlTelemetry, baselineCmd, overrideCmd, errorTemp, errorHumid, errorCO2);
 
     // Apply inertia compensation to errorTemp and errorHumid
     if (std::isfinite(errorTemp))
     {
-        float tempComp = telemetry.temp_air + config::control::K_INERTIA_TEMP * tempRateFiltered;
+        float tempComp = controlTelemetry.temp_air + config::control::K_INERTIA_TEMP * tempRateFiltered;
         errorTemp = setpoints.temp_target - tempComp;
     }
     if (std::isfinite(errorHumid))
     {
-        float humidComp = telemetry.humidity_air + config::control::K_INERTIA_HUMID * humidRateFiltered;
+        float humidComp = controlTelemetry.humidity_air + config::control::K_INERTIA_HUMID * humidRateFiltered;
         errorHumid = setpoints.humidity_target - humidComp;
     }
 
@@ -859,7 +891,7 @@ static void runControlPipelineStep(
 
     // All cross-core commands are applied by this Core-1-owned FIFO before
     // constructing the tick's base demand or entering SystemProtector.
-    drainControlEvents(now, telemetry, setpoints, manualLatch, systemProtector);
+    drainControlEvents(now, controlTelemetry, setpoints, manualLatch, systemProtector);
 
     const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
 
@@ -902,7 +934,7 @@ static void runControlPipelineStep(
 
     manual::ManualLatchArray prevLatch = manualLatch;
 
-    manual::applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTimeBeforeLatch, cropDay);
+    manual::applyManualLatchToOutputs(outputs, manualLatch, now, controlTelemetry, setpoints, rtcTimeBeforeLatch, cropDay);
 
     // Check for auto-releases and push events
     for (size_t i = 0; i < manualLatch.size(); ++i) {
@@ -941,8 +973,8 @@ static void runControlPipelineStep(
     systemProtector.update(
         now,
         fuzzyEnabled,
-        telemetry.temp_air,
-        telemetry.humidity_air,
+        controlTelemetry.temp_air,
+        controlTelemetry.humidity_air,
         relay_control::isSafetyBlackoutActive(rtcTime),
         manualLatch,
         relayState

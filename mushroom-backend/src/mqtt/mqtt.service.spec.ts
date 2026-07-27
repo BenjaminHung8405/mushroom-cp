@@ -531,5 +531,60 @@ describe('MqttService', () => {
         'MQTT client is not connected.',
       );
     });
+
+    it('logs a warning with the device error when a command ACK is not SUCCESS', () => {
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      messageCallback(
+        'mushroom/esp32/device-1/up/command/ack',
+        Buffer.from(
+          JSON.stringify({
+            command_id: '22222222-2222-2222-2222-222222222222',
+            status: 'FAILED',
+            result: { relay_id: 'relay_1', actual_state: 'OFF' },
+            error: {
+              code: 'SENSOR_INVALID',
+              message:
+                'Request rejected because required sensor data is invalid',
+            },
+          }),
+        ),
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Command ACK FAILED'),
+      );
+      const message = warnSpy.mock.calls
+        .map((call) => String(call[0]))
+        .find((text) => text.includes('Command ACK FAILED'));
+      expect(message).toContain('device-1');
+      expect(message).toContain('22222222-2222-2222-2222-222222222222');
+      expect(message).toContain('relay_1');
+      expect(message).toContain('SENSOR_INVALID');
+    });
+
+    it('does not log a command-ACK warning when the status is SUCCESS', () => {
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      messageCallback(
+        'mushroom/esp32/device-1/up/command/ack',
+        Buffer.from(
+          JSON.stringify({
+            command_id: '33333333-3333-3333-3333-333333333333',
+            status: 'SUCCESS',
+            result: { relay_id: 'relay_1', actual_state: 'ON' },
+          }),
+        ),
+      );
+
+      const commandAckWarnings = warnSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((text) => text.includes('Command ACK'));
+      expect(commandAckWarnings).toHaveLength(0);
+    });
   });
 });

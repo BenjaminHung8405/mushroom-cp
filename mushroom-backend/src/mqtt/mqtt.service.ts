@@ -679,6 +679,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     };
     this.commandAck$.next(ack);
     this.applyConfigAck(ack);
+    if (ack.status !== 'SUCCESS') {
+      // Surface device-side rejections (e.g. SENSOR_INVALID from the Core 1
+      // safety gate) in the log. Without this the backend was silent whenever
+      // a relay command failed, so operators had to sniff MQTT to see why.
+      this.logger.warn(
+        `Command ACK ${ack.status} from '${deviceId}' ` +
+          `(commandId=${ack.commandId}, relayId=${ack.relayId ?? 'n/a'})` +
+          (ack.error
+            ? `: ${ack.error.code} — ${ack.error.message}`
+            : '.'),
+      );
+    }
     void this.registry.touchLastSeen(deviceId, receivedAt);
   }
 
