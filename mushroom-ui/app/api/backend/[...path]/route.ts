@@ -142,6 +142,37 @@ export function forwardUpstreamResponse(response: Response): Response {
   })
 }
 
+export function validateMutationOrigin(request: NextRequest): NextResponse | null {
+  const method = request.method.toUpperCase()
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const origin = request.headers.get('origin')
+    const referer = request.headers.get('referer')
+    const expectedOrigin = request.nextUrl.origin
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim())
+      : [expectedOrigin]
+
+    let requestOrigin: string | null = null
+    if (origin) {
+      requestOrigin = origin
+    } else if (referer) {
+      try {
+        requestOrigin = new URL(referer).origin
+      } catch {
+        requestOrigin = null
+      }
+    }
+
+    if (!requestOrigin || !allowedOrigins.includes(requestOrigin)) {
+      return NextResponse.json(
+        { message: 'Yêu cầu bị từ chối do nguồn gốc (Origin) không hợp lệ.' },
+        { status: 403, headers: { 'Cache-Control': 'no-store' } },
+      )
+    }
+  }
+  return null
+}
+
 /**
  * Same-origin proxy gateway to NestJS. Validates browser identity and path segments
  * before forwarding requests to the internal API URL.
@@ -150,6 +181,9 @@ async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
+  const originResult = validateMutationOrigin(request)
+  if (originResult) return originResult
+
   const authResult = authenticateBrowserRequest(request)
   if (authResult instanceof NextResponse) return authResult
 

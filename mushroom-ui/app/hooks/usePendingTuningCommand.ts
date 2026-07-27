@@ -236,25 +236,11 @@ export function usePendingTuningCommand(
           throw new Error('Máy chủ trả về xác nhận lệnh không hợp lệ.')
         }
 
-        const initialPending: PendingCommand = {
+        setPendingCommand({
           commandId,
           state: 'PENDING',
           rejectionReason: null,
-        }
-        setPendingCommand(initialPending)
-
-        try {
-          const latest = await fetchLatestState(deviceId)
-          if (latest && latest.commandId === commandId) {
-            const updated = applyDurableState(latest, initialPending)
-            if (updated && updated.state !== 'PENDING') {
-              setPendingCommand(updated)
-            }
-          }
-        } catch {
-          // SSE stream and timeout handle fallback
-        }
-
+        })
         return true
       } catch (cause: unknown) {
         setSubmissionError(

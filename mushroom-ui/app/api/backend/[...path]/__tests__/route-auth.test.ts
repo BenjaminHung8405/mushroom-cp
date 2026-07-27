@@ -176,7 +176,7 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       expect(res.status).toBe(200)
     })
 
-    it('Case 3: Valid PATCH /batches/batch-1/end request -> forwards to backend', async () => {
+    it('Case 3: Valid PATCH /batches/batch-1/end request -> forwards to backend when Origin matches', async () => {
       let requestedUrl: string | undefined
       vi.mocked(fetch).mockImplementationOnce(async (url) => {
         requestedUrl = url.toString()
@@ -186,7 +186,11 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       const params = Promise.resolve({ path: ['batches', 'batch-1', 'end'] })
       const req = new NextRequest('http://localhost:3000/api/backend/batches/batch-1/end', {
         method: 'PATCH',
-        headers: { Authorization: 'Bearer valid-jwt', 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: 'Bearer valid-jwt',
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost:3000',
+        },
         body: JSON.stringify({ status: 'COMPLETED' }),
       })
       const res = await PATCH(req, { params })
@@ -207,6 +211,30 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       expect(fetch).not.toHaveBeenCalled()
       const data = await res.json()
       expect(data.message).toBe('Đường dẫn proxy không hợp lệ.')
+    })
+
+    it('Case 5: Cross-origin mutation requests (POST/PATCH/DELETE) -> returns 403 Forbidden without calling backend fetch', async () => {
+      const params = Promise.resolve({ path: ['devices', 'DEV_001', 'tuning-configurations'] })
+
+      const crossOriginReq = new NextRequest(
+        'http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer valid-jwt',
+            'Content-Type': 'application/json',
+            Origin: 'http://evil-attacker.com',
+          },
+          body: JSON.stringify({ commandId: 'c1' }),
+        },
+      )
+
+      const res = await GET(crossOriginReq, { params })
+
+      expect(res.status).toBe(403)
+      expect(fetch).not.toHaveBeenCalled()
+      const data = await res.json()
+      expect(data.message).toBe('Yêu cầu bị từ chối do nguồn gốc (Origin) không hợp lệ.')
     })
   })
 })

@@ -89,12 +89,7 @@ export function TuningPanelActions({
   )
 }
 
-/**
- * Presents a server-generated tuning recommendation and submits it only after
- * the operator explicitly confirms it. A 202 merely establishes a pending
- * command; terminal UI state is driven solely by a matching durable state event.
- */
-export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
+export function useTuningAdvisoryPanelState(deviceId: string | null | undefined) {
   const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -123,81 +118,107 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const isCommandPending = pendingCommand?.state === 'PENDING'
   const confirmDisabled = isBlocked || isSubmitting || isCommandPending
 
-  const requestConfirmation = () => {
+  const requestConfirmation = useCallback(() => {
     if (confirmDisabled) return
     setSubmissionError(null)
     setConfirmOpen(true)
-  }
+  }, [confirmDisabled, setSubmissionError])
 
-  const handleConfirmSubmit = async () => {
+  const handleConfirmSubmit = useCallback(async () => {
     if (!advisory) return
     const success = await submitRecommendation(advisory.suggestedConfig)
-    if (success) {
-      setConfirmOpen(false)
-    }
-  }
+    if (success) setConfirmOpen(false)
+  }, [advisory, submitRecommendation])
 
-  const handleManualRefresh = async () => {
+  const handleManualRefresh = useCallback(async () => {
     await refetch()
     await resyncDurableState()
+  }, [refetch, resyncDurableState])
+
+  return {
+    data,
+    isLoading,
+    error,
+    confirmOpen,
+    setConfirmOpen,
+    advisory,
+    currentConfig,
+    isBlocked,
+    pendingCommand,
+    isSubmitting,
+    submissionError,
+    isCommandPending,
+    confirmDisabled,
+    requestConfirmation,
+    handleConfirmSubmit,
+    handleManualRefresh,
   }
+}
+
+/**
+ * Presents a server-generated tuning recommendation and submits it only after
+ * the operator explicitly confirms it. A 202 merely establishes a pending
+ * command; terminal UI state is driven solely by a matching durable state event.
+ */
+export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
+  const panel = useTuningAdvisoryPanelState(deviceId)
 
   return (
     <Card className="border border-slate-700/50 bg-slate-950/40 p-6">
-      <TuningPanelHeader pendingCommand={pendingCommand} />
+      <TuningPanelHeader pendingCommand={panel.pendingCommand} />
 
-      {isLoading && !data && (
+      {panel.isLoading && !panel.data && (
         <p className="text-sm text-muted-foreground">Đang phân tích dữ liệu vận hành…</p>
       )}
 
-      {error && (
+      {panel.error && (
         <p role="alert" className="rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
-          {error.message}
+          {panel.error.message}
         </p>
       )}
 
-      {data && (
+      {panel.data && (
         <CoverageWarning
-          blockReason={data.blockReason}
-          detail={data.blockReasonDetail}
+          blockReason={panel.data.blockReason}
+          detail={panel.data.blockReasonDetail}
         />
       )}
 
-      {advisory && (
+      {panel.advisory && (
         <div className="space-y-4">
-          <AdvisorySummary advisory={advisory} />
-          {currentConfig && (
+          <AdvisorySummary advisory={panel.advisory} />
+          {panel.currentConfig && (
             <TuningDiffView
-              currentConfig={currentConfig}
-              suggestedConfig={advisory.suggestedConfig}
-              delta={advisory.delta}
+              currentConfig={panel.currentConfig}
+              suggestedConfig={panel.advisory.suggestedConfig}
+              delta={panel.advisory.delta}
             />
           )}
         </div>
       )}
 
-      {submissionError && (
+      {panel.submissionError && (
         <p role="alert" className="mt-4 rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
-          {submissionError}
+          {panel.submissionError}
         </p>
       )}
 
       <TuningPanelActions
-        confirmDisabled={confirmDisabled}
-        isSubmitting={isSubmitting}
-        isCommandPending={isCommandPending}
-        isBlocked={isBlocked}
+        confirmDisabled={panel.confirmDisabled}
+        isSubmitting={panel.isSubmitting}
+        isCommandPending={panel.isCommandPending}
+        isBlocked={panel.isBlocked}
         deviceId={deviceId}
-        onRequestConfirmation={requestConfirmation}
-        onManualRefresh={() => void handleManualRefresh()}
+        onRequestConfirmation={panel.requestConfirmation}
+        onManualRefresh={() => void panel.handleManualRefresh()}
       />
 
-      {confirmOpen && advisory && (
+      {panel.confirmOpen && panel.advisory && (
         <ConfirmationDialog
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => void handleConfirmSubmit()}
-          isSubmitting={isSubmitting}
-          config={advisory.suggestedConfig}
+          onCancel={() => panel.setConfirmOpen(false)}
+          onConfirm={() => void panel.handleConfirmSubmit()}
+          isSubmitting={panel.isSubmitting}
+          config={panel.advisory.suggestedConfig}
         />
       )}
     </Card>

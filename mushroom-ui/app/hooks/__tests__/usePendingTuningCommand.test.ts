@@ -76,15 +76,10 @@ describe('usePendingTuningCommand hook & parsers', () => {
       const commandId = 'cmd-123-uuid'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-      vi.mocked(fetch)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING' }),
-        } as Response) // POST
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-        } as Response) // GET latest
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'PENDING' }),
+      } as Response) // POST 202
 
       const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
 
@@ -101,42 +96,61 @@ describe('usePendingTuningCommand hook & parsers', () => {
       })
     })
 
-    it('handles RACE CONDITION: immediately resolves to IN_SYNC if latest state is already IN_SYNC on POST completion', async () => {
-      const commandId = 'cmd-fast-ack'
+    it('REGRESSION TEST (K3/K5): UI remains PENDING even if REST GET latest is IN_SYNC before SSE event arrives; transitions to IN_SYNC only after matching SSE event', async () => {
+      const commandId = 'cmd-strict-k3'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-      vi.mocked(fetch)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING' }),
-        } as Response) // POST 202
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'IN_SYNC', rejectionReason: null }),
-        } as Response) // GET latest durable status arrives immediately
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'PENDING' }),
+      } as Response) // POST 202
 
-      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+      const { result, rerender } = renderHook(
+        ({ event }: { event: TuningStatusEvent | null }) =>
+          usePendingTuningCommand('DEV_001', event),
+        { initialProps: { event: null as TuningStatusEvent | null } },
+      )
 
       await act(async () => {
         await result.current.submitRecommendation(dummyConfig)
       })
 
-      expect(result.current.pendingCommand?.state).toBe('IN_SYNC')
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'PENDING',
+        rejectionReason: null,
+      })
+
+      const sseInSyncEvent: TuningStatusEvent = {
+        id: 'evt-1',
+        deviceId: 'DEV_001',
+        commandId,
+        revision: 2,
+        status: 'IN_SYNC',
+        config: dummyConfig,
+        publishedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rejectionReason: null,
+      }
+
+      rerender({ event: sseInSyncEvent })
+
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'IN_SYNC',
+        rejectionReason: null,
+      })
     })
 
     it('transitions state and preserves rejectionReason when matching SSE REJECTED event is received', async () => {
       const commandId = 'cmd-sse-test'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-      vi.mocked(fetch)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-        } as Response)
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'PENDING' }),
+      } as Response)
 
       const { result, rerender } = renderHook(
         ({ event }: { event: TuningStatusEvent | null }) =>
@@ -174,15 +188,10 @@ describe('usePendingTuningCommand hook & parsers', () => {
       const commandId = 'cmd-timeout-test'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-      vi.mocked(fetch)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-        } as Response)
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'PENDING' }),
+      } as Response)
 
       const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
 

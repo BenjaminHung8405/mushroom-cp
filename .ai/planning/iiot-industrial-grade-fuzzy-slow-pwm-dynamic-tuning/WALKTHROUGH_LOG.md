@@ -1,3 +1,39 @@
+## [2026-07-27T12:37:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 2 - Đã khắc phục triệt để 3 lỗi từ QA)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:37:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **Danh sách file đã sửa đổi:**
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/api/backend/[...path]/__tests__/route-auth.test.ts`
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts`
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn giải pháp khắc phục 3 lỗi chặn duyệt do QA chỉ ra:**
+  1. **Strict Confirmation State Flow (K3/K5):**
+     - Loại bỏ việc gọi `GET .../latest` trong luồng `submitRecommendation()`.
+     - Sau khi POST `202` thành công, UI lập tức set state thành `PENDING`.
+     - Chuyển đổi trạng thái terminal (`IN_SYNC` / `REJECTED`) chỉ được kích hoạt bởi SSE durable event khớp `pendingCommandId` (hoặc qua `resyncDurableState` khi reconnect/refresh).
+     - Bổ sung unit test regression kiểm tra UI vẫn `PENDING` nếu REST `latest` là `IN_SYNC` trước khi SSE event tới, và chỉ chuyển `IN_SYNC` khi nhận được SSE matching `commandId`.
+  2. **BFF Anti-CSRF Protection (`route.ts`):**
+     - Thêm hàm `validateMutationOrigin(request)` trong `route.ts` để kiểm tra bắt buộc `Origin`/`Referer` trên mọi phương thức ghi (`POST`, `PUT`, `PATCH`, `DELETE`).
+     - Từ chối ngay các request cross-origin với mã HTTP `403 Forbidden` trước khi thực thi fetch upstream tới backend.
+     - Bổ sung unit tests kiểm tra từ chối cross-origin `POST`, `PATCH`, `DELETE` và xác nhận backend `fetch` không hề được gọi.
+  3. **Refactoring & DRY (< 50 dòng/hàm):**
+     - Tách `TuningAdvisoryPanel` thành custom hook `useTuningAdvisoryPanelState(deviceId)` điều phối state và presentation components.
+     - Đơn giản hóa `usePendingTuningCommand` và loại bỏ phần code trùng lặp `fetchLatestState`/`applyDurableState`.
+     - Đảm bảo tất cả các hàm public và helper đều dưới 50 dòng và loại bỏ hoàn toàn code lặp.
+- **Kết quả tự kiểm tra:**
+  - `pnpm run lint` (mushroom-ui): **PASS (0 errors, 0 warnings)**.
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS (zero errors)**.
+  - `pnpm test` (mushroom-ui): **PASS (6 suites, 47 tests)**.
+  - `pnpm run build` (mushroom-ui): **PASS (Turbopack compiled successfully)**.
+  - `git diff --check`: **PASS (zero whitespace/formatting errors)**.
+
+---
+
 ## [2026-07-27T12:25:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 4 - Khắc phục phản hồi QA Reviewer)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:25:00+07:00.
