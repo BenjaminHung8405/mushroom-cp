@@ -1,3 +1,46 @@
+## [2026-07-27T13:09:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Đã khắc phục 2 lỗi từ Chuyên gia Kiểm toán QA)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:09:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã sửa:**
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts`
+  - `mushroom-ui/app/lib/tuning-schema.ts`
+  - `mushroom-ui/app/lib/__tests__/tuning-schema.test.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn giải pháp khắc phục 2 lỗi do QA chỉ ra:**
+  1. **Durable ACK Race Condition Protection (High):**
+     - Sau khi POST `202` thành công trong `submitRecommendation()`, UI thực hiện ngay một lượt durable reconciliation gọi `fetchLatestState(deviceId)` với hàng rào `latest.commandId === commandId`.
+     - Nếu Edge ACK cực nhanh cập nhật DB bền vững trước hoặc trong khi POST response trả về hoặc trước khi SSE event đến, UI lập tức chuyển sang `IN_SYNC` hoặc `REJECTED` với đúng `rejectionReason`, loại bỏ hoàn toàn khả năng bị ngắt kết nối SSE gây sai lệch trạng thái `TIMEOUT`.
+     - Bổ sung 3 unit tests regression cho: ultra-fast ACK `IN_SYNC` xảy ra trước SSE, ultra-fast ACK `REJECTED` kèm `rejectionReason`, và kiểm tra hàng rào `commandId` đảm bảo latest state của command khác không ghi đè command đang chờ.
+  2. **Fail-Safe Frontend Tuning Contract Validation (Medium):**
+     - Thêm validator `isValidTuningSnapshot` kiểm tra hard bounds: `lamp_gain_scale` [0.80, 1.20], `mist_gain_scale` [0.80, 1.20], `mist_on_threshold` [0.20, 0.35], `mist_off_threshold` [0.10, 0.20] và invariant `mist_off_threshold < mist_on_threshold`.
+     - Kiểm tra `isSnapshotEqual` và `isDeltaConsistent` đảm bảo `advisory.currentConfig` phải khớp `currentConfig`, `kpiSnapshot.deviceId` khớp với response `deviceId`, và `delta` nhất quán hoàn toàn với `suggestedConfig - currentConfig`.
+     - Khi bất kỳ quy tắc nào vi phạm, `parseTuningRecommendationResponse` trả về `null`, UI hiển thị thông báo dữ liệu không hợp lệ, không render advisory sai lệch, và vô hiệu hóa nút Confirm.
+     - Bổ sung các fixtures/unit tests cho: từng giới hạn hard bounds out-of-bound, vi phạm hysteresis, KPI/advisory khác deviceId, và delta không khớp snapshot.
+- **Kết quả tự kiểm tra:**
+  - `pnpm run lint` (mushroom-ui): **PASS (0 errors, 0 warnings)**.
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS (zero errors)**.
+  - `pnpm test` (mushroom-ui): **PASS (6 suites, 54 tests)**.
+  - `pnpm run build` (mushroom-ui): **PASS (Turbopack compiled successfully)**.
+  - `git diff --check`: **PASS (zero formatting/whitespace errors)**.
+
+---
+
+## [2026-07-27T13:05:00+07:00] - Security/Architecture QA Review: REJECTED (Track K, K1–K7)
+
+- **Kết quả:** **Từ chối duyệt.** K1–K7 đã được trả từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`. Không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Toàn bộ source được khai báo trong các entry Track K mới nhất của walkthrough, đối chiếu `README.md` v2.2 §§3.1–3.6, Track K tại `PROGRESS.md` và contract backend hiện hành.
+- **Lỗi chặn phát hành:**
+  1. **[High][K2/K3/K5 – logic/race condition] Có khoảng mù giữa HTTP 202 và lần đăng ký SSE, làm UI có thể treo `PENDING` vô hạn sai lệch trạng thái durable.** `mushroom-ui/app/hooks/usePendingTuningCommand.ts:230–244` chỉ lưu `pendingCommand` sau khi POST hoàn thành; `mushroom-ui/app/hooks/useTuningStatus.ts:206–211` chỉ giữ event đến sau thời điểm listener/hook state đã sẵn sàng. Nếu Edge ACK rất nhanh trong khoảng từ POST response đến React render/effect kế tiếp, event `IN_SYNC`/`REJECTED` bị bỏ qua và client không tự resync; timeout tại `:171–183` chuyển sang `TIMEOUT`, nhưng `resyncDurableState()` chỉ chạy khi operator bấm làm mới hoặc SSE reconnect (`TuningAdvisoryPanel.tsx:133–136`, `:96–100`). Do backend chỉ phát event sau DB commit và SSE không có replay, đây là race có thể tái hiện trong production, vi phạm yêu cầu state terminal phải phản ánh durable event và không được để command bị xác nhận thành chờ vô thời hạn. **Chỉ thị:** sau khi POST 202 và ghi `pendingCommand`, thực hiện một durable reconciliation có command-id fence (hoặc thiết kế atomic subscribe-before-submit/replay cursor); chỉ cập nhật terminal khi `latest.commandId === pendingCommandId`. Giữ cấm optimistic success, nhưng không phụ thuộc độc quyền vào một SSE message có thể đã mất. Bổ sung regression: POST trả `PENDING`, durable latest ngay sau đó là cùng command `IN_SYNC` và không có SSE → UI phải hiển thị `IN_SYNC`; lặp lại cho `REJECTED` kèm `rejectionReason`; và test stale/different command không được ghi đè.
+  2. **[Medium][K1/K3/K4/K6 – input validation] Runtime schema chỉ kiểm tra `finite number`, không enforce hard bounds/hysteresis hay sự nhất quán cross-field của payload advisory trước khi render và POST lại.** `mushroom-ui/app/lib/tuning-schema.ts:138–156` chấp nhận mọi snapshot hữu hạn; `:159–186` chấp nhận mọi delta hữu hạn; `:189–227` không kiểm tra `currentConfig`, `suggestedConfig`, `delta` hay `kpiSnapshot.deviceId` cùng device response. Ví dụ backend/proxy bị lỗi trả `suggestedConfig.mist_on_threshold=999`, `mist_off_threshold=0.30` hoặc `kpiSnapshot.deviceId` của thiết bị khác sẽ được UI hợp lệ hóa rồi chuyển nguyên sang POST ở `usePendingTuningCommand.ts:42–49`. Backend vẫn là defense cuối, nhưng UI không fail-safe theo contract v1 (bounds và `mist_off < mist_on`) và có thể khiến operator xác nhận dữ liệu sai/khó hiểu. **Chỉ thị:** tạo validator dùng chung cho snapshot với bounds contract (`gain 0.80–1.20`, Mist ON `0.20–0.35`, Mist OFF `0.10–0.20`, `mist_off_threshold < mist_on_threshold`); validate delta phù hợp snapshot (key delta phải khớp chênh lệch current/suggested, không ngoài bounds), `advisory.currentConfig` khớp `currentConfig`, và KPI/advisory deviceId khớp response deviceId. Khi validation fail phải render lỗi + khóa Confirm; thêm fixtures invalid cho từng bound, hysteresis, cross-device KPI/advisory và delta inconsistent.
+- **Điểm đạt đã xác minh:** same-origin fetch và encode device ID; AbortController cleanup; backoff 500 ms → 10 s, đóng EventSource/timer khi cleanup; POST chỉ sau dialog confirm; `crypto.randomUUID()` được dùng; badge/diff/banner render React text node (không XSS); BFF loại fallback token, validate path traversal/SSRF và chặn mutation cross-origin; không phát hiện hard-code secret, SQL injection, N+1 query hay nested loop trong phạm vi Track K.
+- **Xác minh độc lập:** `pnpm run lint` **PASS**; `pnpm exec tsc --noEmit` **PASS**; `pnpm test` **PASS (6 suites, 47 tests)**; `pnpm run build` **PASS**. Các gate xanh không loại trừ hai lỗi logic/validation nêu trên.
+
+---
+
 ## [2026-07-27T12:37:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 2 - Đã khắc phục triệt để 3 lỗi từ QA)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:37:00+07:00.

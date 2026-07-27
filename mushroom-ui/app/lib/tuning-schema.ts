@@ -53,43 +53,112 @@ export interface TuningRecommendationResponseDto {
   generatedAt: string
 }
 
-export function parseTuningRecommendationResponse(
-  value: unknown,
-  expectedDeviceId?: string | null,
-): TuningRecommendationResponseDto | null {
-  if (!isRecord(value)) return null
 
-  if (typeof value.deviceId !== 'string' || !value.deviceId.trim()) return null
-  if (expectedDeviceId && value.deviceId !== expectedDeviceId) return null
 
-  if (!isBlockReason(value.blockReason)) return null
-  if (!isNullableString(value.blockReasonDetail)) return null
-  if (typeof value.generatedAt !== 'string' || !value.generatedAt.trim()) return null
+const EPSILON = 1e-5
 
-  const kpi = parseKpiMetrics(value.kpi)
-  if (value.kpi !== null && kpi === null) return null
+export function isValidTuningSnapshot(value: unknown): value is TuningConfigSnapshot {
+  if (!isRecord(value)) return false
+  const { lamp_gain_scale, mist_gain_scale, mist_on_threshold, mist_off_threshold } = value
 
-  const currentConfig = parseTuningSnapshot(value.currentConfig)
-  if (value.currentConfig !== null && currentConfig === null) return null
+  if (
+    !isFiniteNumber(lamp_gain_scale) ||
+    !isFiniteNumber(mist_gain_scale) ||
+    !isFiniteNumber(mist_on_threshold) ||
+    !isFiniteNumber(mist_off_threshold)
+  ) {
+    return false
+  }
 
-  const advisory = parseTuningAdvisory(value.advisory)
-  if (value.advisory !== null && advisory === null) return null
+  if (lamp_gain_scale < 0.80 || lamp_gain_scale > 1.20) return false
+  if (mist_gain_scale < 0.80 || mist_gain_scale > 1.20) return false
+  if (mist_on_threshold < 0.20 || mist_on_threshold > 0.35) return false
+  if (mist_off_threshold < 0.10 || mist_off_threshold > 0.20) return false
 
-  // Invariant validation: If blockReason is specified, advisory should be null
-  if (value.blockReason !== null && advisory !== null) return null
+  if (mist_off_threshold >= mist_on_threshold) return false
 
+  return true
+}
+
+export function isSnapshotEqual(
+  a: TuningConfigSnapshot,
+  b: TuningConfigSnapshot,
+): boolean {
+  return (
+    Math.abs(a.lamp_gain_scale - b.lamp_gain_scale) < EPSILON &&
+    Math.abs(a.mist_gain_scale - b.mist_gain_scale) < EPSILON &&
+    Math.abs(a.mist_on_threshold - b.mist_on_threshold) < EPSILON &&
+    Math.abs(a.mist_off_threshold - b.mist_off_threshold) < EPSILON
+  )
+}
+
+export function isDeltaConsistent(
+  currentConfig: TuningConfigSnapshot,
+  suggestedConfig: TuningConfigSnapshot,
+  delta: Partial<TuningConfigSnapshot>,
+): boolean {
+  const keys: (keyof TuningConfigSnapshot)[] = [
+    'lamp_gain_scale',
+    'mist_gain_scale',
+    'mist_on_threshold',
+    'mist_off_threshold',
+  ]
+
+  for (const k of keys) {
+    const diff = suggestedConfig[k] - currentConfig[k]
+    const hasChange = Math.abs(diff) > EPSILON
+    const deltaVal = delta[k]
+
+    if (hasChange) {
+      if (deltaVal === undefined || !isFiniteNumber(deltaVal)) return false
+      if (Math.abs(diff - deltaVal) > EPSILON) return false
+    } else {
+      if (deltaVal !== undefined && Math.abs(deltaVal) > EPSILON) return false
+    }
+  }
+
+  return true
+}
+
+export function parseTuningSnapshot(value: unknown): TuningConfigSnapshot | null {
+  if (!isValidTuningSnapshot(value)) return null
   return {
-    deviceId: value.deviceId,
-    kpi,
-    currentConfig,
-    advisory,
-    blockReason: value.blockReason,
-    blockReasonDetail: value.blockReasonDetail,
-    generatedAt: value.generatedAt,
+    lamp_gain_scale: value.lamp_gain_scale,
+    mist_gain_scale: value.mist_gain_scale,
+    mist_on_threshold: value.mist_on_threshold,
+    mist_off_threshold: value.mist_off_threshold,
   }
 }
 
-export function parseKpiMetrics(value: unknown): KpiMetrics | null {
+export function parsePartialTuningSnapshot(
+  value: unknown,
+): Partial<TuningConfigSnapshot> | null {
+  if (value === null) return null
+  if (!isRecord(value)) return null
+
+  const allowedKeys = new Set([
+    'lamp_gain_scale',
+    'mist_gain_scale',
+    'mist_on_threshold',
+    'mist_off_threshold',
+  ])
+
+  const result: Partial<TuningConfigSnapshot> = {}
+
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) return null
+    const val = value[key]
+    if (!isFiniteNumber(val)) return null
+    result[key as keyof TuningConfigSnapshot] = val
+  }
+
+  return result
+}
+
+export function parseKpiMetrics(
+  value: unknown,
+  expectedDeviceId?: string | null,
+): KpiMetrics | null {
   if (value === null) return null
   if (!isRecord(value)) return null
 
@@ -116,6 +185,10 @@ export function parseKpiMetrics(value: unknown): KpiMetrics | null {
     return null
   }
 
+  if (expectedDeviceId && value.deviceId !== expectedDeviceId) {
+    return null
+  }
+
   return {
     deviceId: value.deviceId,
     windowStart: value.windowStart,
@@ -135,58 +208,11 @@ export function parseKpiMetrics(value: unknown): KpiMetrics | null {
   }
 }
 
-export function parseTuningSnapshot(value: unknown): TuningConfigSnapshot | null {
-  if (value === null) return null
-  if (!isRecord(value)) return null
-
-  if (
-    !isFiniteNumber(value.lamp_gain_scale) ||
-    !isFiniteNumber(value.mist_gain_scale) ||
-    !isFiniteNumber(value.mist_on_threshold) ||
-    !isFiniteNumber(value.mist_off_threshold)
-  ) {
-    return null
-  }
-
-  return {
-    lamp_gain_scale: value.lamp_gain_scale,
-    mist_gain_scale: value.mist_gain_scale,
-    mist_on_threshold: value.mist_on_threshold,
-    mist_off_threshold: value.mist_off_threshold,
-  }
-}
-
-export function parsePartialTuningSnapshot(
+export function parseTuningAdvisory(
   value: unknown,
-): Partial<TuningConfigSnapshot> | null {
-  if (value === null) return null
-  if (!isRecord(value)) return null
-
-  const allowedKeys = new Set([
-    'lamp_gain_scale',
-    'mist_gain_scale',
-    'mist_on_threshold',
-    'mist_off_threshold',
-  ])
-
-  const keys = Object.keys(value)
-  const result: Partial<TuningConfigSnapshot> = {}
-
-  for (const key of keys) {
-    if (!allowedKeys.has(key)) {
-      return null
-    }
-    const val = value[key]
-    if (!isFiniteNumber(val)) {
-      return null
-    }
-    result[key as keyof TuningConfigSnapshot] = val
-  }
-
-  return result
-}
-
-export function parseTuningAdvisory(value: unknown): TuningAdvisory | null {
+  expectedDeviceId?: string | null,
+  topLevelCurrentConfig?: TuningConfigSnapshot | null,
+): TuningAdvisory | null {
   if (value === null) return null
   if (!isRecord(value)) return null
 
@@ -196,10 +222,18 @@ export function parseTuningAdvisory(value: unknown): TuningAdvisory | null {
   const currentConfig = parseTuningSnapshot(value.currentConfig)
   if (currentConfig === null) return null
 
+  if (topLevelCurrentConfig && !isSnapshotEqual(currentConfig, topLevelCurrentConfig)) {
+    return null
+  }
+
   const delta = parsePartialTuningSnapshot(value.delta)
   if (delta === null) return null
 
-  const kpiSnapshot = parseKpiMetrics(value.kpiSnapshot)
+  if (!isDeltaConsistent(currentConfig, suggestedConfig, delta)) {
+    return null
+  }
+
+  const kpiSnapshot = parseKpiMetrics(value.kpiSnapshot, expectedDeviceId)
   if (kpiSnapshot === null) return null
 
   if (
@@ -224,6 +258,41 @@ export function parseTuningAdvisory(value: unknown): TuningAdvisory | null {
     expectedBenefit: value.expectedBenefit,
     kpiSnapshot,
     observationWindowRequired: value.observationWindowRequired,
+  }
+}
+
+export function parseTuningRecommendationResponse(
+  value: unknown,
+  expectedDeviceId?: string | null,
+): TuningRecommendationResponseDto | null {
+  if (!isRecord(value)) return null
+
+  if (typeof value.deviceId !== 'string' || !value.deviceId.trim()) return null
+  if (expectedDeviceId && value.deviceId !== expectedDeviceId) return null
+
+  if (!isBlockReason(value.blockReason)) return null
+  if (!isNullableString(value.blockReasonDetail)) return null
+  if (typeof value.generatedAt !== 'string' || !value.generatedAt.trim()) return null
+
+  const kpi = parseKpiMetrics(value.kpi, value.deviceId)
+  if (value.kpi !== null && kpi === null) return null
+
+  const currentConfig = parseTuningSnapshot(value.currentConfig)
+  if (value.currentConfig !== null && currentConfig === null) return null
+
+  const advisory = parseTuningAdvisory(value.advisory, value.deviceId, currentConfig)
+  if (value.advisory !== null && advisory === null) return null
+
+  if (value.blockReason !== null && advisory !== null) return null
+
+  return {
+    deviceId: value.deviceId,
+    kpi,
+    currentConfig,
+    advisory,
+    blockReason: value.blockReason,
+    blockReasonDetail: value.blockReasonDetail,
+    generatedAt: value.generatedAt,
   }
 }
 

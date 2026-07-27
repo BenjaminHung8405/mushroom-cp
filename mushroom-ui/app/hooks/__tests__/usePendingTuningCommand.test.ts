@@ -96,20 +96,83 @@ describe('usePendingTuningCommand hook & parsers', () => {
       })
     })
 
-    it('REGRESSION TEST (K3/K5): UI remains PENDING even if REST GET latest is IN_SYNC before SSE event arrives; transitions to IN_SYNC only after matching SSE event', async () => {
-      const commandId = 'cmd-strict-k3'
+    it('immediately reconciles durable state when GET latest returns IN_SYNC after POST 202 before SSE event arrives', async () => {
+      const commandId = 'cmd-fast-ack'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING' }),
-      } as Response) // POST 202
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response) // POST 202
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'IN_SYNC', rejectionReason: null }),
+        } as Response) // GET latest ultra-fast ACK
 
-      const { result, rerender } = renderHook(
-        ({ event }: { event: TuningStatusEvent | null }) =>
-          usePendingTuningCommand('DEV_001', event),
-        { initialProps: { event: null as TuningStatusEvent | null } },
-      )
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
+
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'IN_SYNC',
+        rejectionReason: null,
+      })
+    })
+
+    it('immediately reconciles durable state when GET latest returns REJECTED with rejectionReason after POST 202', async () => {
+      const commandId = 'cmd-fast-reject'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            commandId,
+            status: 'REJECTED',
+            rejectionReason: 'HARD_BOUNDS_VIOLATION',
+          }),
+        } as Response)
+
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
+
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'REJECTED',
+        rejectionReason: 'HARD_BOUNDS_VIOLATION',
+      })
+    })
+
+    it('does not overwrite pendingCommand when GET latest returns state for a different commandId', async () => {
+      const commandId = 'cmd-current-new'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            commandId: 'cmd-stale-old',
+            status: 'IN_SYNC',
+            rejectionReason: null,
+          }),
+        } as Response)
+
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
 
       await act(async () => {
         await result.current.submitRecommendation(dummyConfig)
@@ -118,27 +181,6 @@ describe('usePendingTuningCommand hook & parsers', () => {
       expect(result.current.pendingCommand).toEqual({
         commandId,
         state: 'PENDING',
-        rejectionReason: null,
-      })
-
-      const sseInSyncEvent: TuningStatusEvent = {
-        id: 'evt-1',
-        deviceId: 'DEV_001',
-        commandId,
-        revision: 2,
-        status: 'IN_SYNC',
-        config: dummyConfig,
-        publishedAt: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        rejectionReason: null,
-      }
-
-      rerender({ event: sseInSyncEvent })
-
-      expect(result.current.pendingCommand).toEqual({
-        commandId,
-        state: 'IN_SYNC',
         rejectionReason: null,
       })
     })

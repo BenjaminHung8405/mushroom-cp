@@ -135,4 +135,98 @@ describe('tuning-schema runtime validation', () => {
     }
     expect(parseTuningSnapshot(infSnapshot)).toBeNull()
   })
+
+  it('enforces hard bounds for tuning snapshots (gain 0.80-1.20, mist ON 0.20-0.35, mist OFF 0.10-0.20)', () => {
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 0.79,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.15,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.21,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.15,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.19,
+        mist_off_threshold: 0.15,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.36,
+        mist_off_threshold: 0.15,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.09,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.25,
+        mist_off_threshold: 0.21,
+      }),
+    ).toBeNull()
+  })
+
+  it('enforces hysteresis invariant (mist_off_threshold < mist_on_threshold)', () => {
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.20,
+        mist_off_threshold: 0.20,
+      }),
+    ).toBeNull()
+
+    expect(
+      parseTuningSnapshot({
+        lamp_gain_scale: 1.0,
+        mist_gain_scale: 1.0,
+        mist_on_threshold: 0.20,
+        mist_off_threshold: 0.20,
+      }),
+    ).toBeNull()
+  })
+
+  it('rejects payload when advisory kpiSnapshot deviceId does not match response deviceId', () => {
+    const invalid = JSON.parse(JSON.stringify(validPayload))
+    invalid.advisory.kpiSnapshot.deviceId = 'DEV_OTHER'
+    expect(parseTuningRecommendationResponse(invalid, 'DEV_001')).toBeNull()
+  })
+
+  it('rejects payload when advisory currentConfig does not match top-level currentConfig', () => {
+    const invalid = JSON.parse(JSON.stringify(validPayload))
+    invalid.advisory.currentConfig.lamp_gain_scale = 1.10
+    expect(parseTuningRecommendationResponse(invalid, 'DEV_001')).toBeNull()
+  })
+
+  it('rejects payload when delta is inconsistent with suggestedConfig and currentConfig', () => {
+    const invalid = JSON.parse(JSON.stringify(validPayload))
+    invalid.advisory.delta.mist_on_threshold = 0.08 // Should be 0.03
+    expect(parseTuningRecommendationResponse(invalid, 'DEV_001')).toBeNull()
+  })
 })
