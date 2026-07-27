@@ -35,9 +35,8 @@ export function TuningPanelHeader({ pendingCommand }: { pendingCommand: PendingC
         </div>
         <div>
           <h3 className="text-lg font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Chỉ áp dụng sau khi người vận hành xác nhận và thiết bị ghi nhận bền vững.
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Đề xuất tinh chỉnh cho thiết bị</p>
+          <p className="text-xs text-muted-foreground">Chỉ áp dụng khi bạn xác nhận và thiết bị chạy ổn định.</p>
         </div>
       </div>
       {pendingCommand && (
@@ -75,14 +74,14 @@ export function TuningPanelActions({
         ) : (
           <CheckCircle2 aria-hidden="true" />
         )}
-        Xác nhận áp dụng
+        Áp dụng đề xuất
       </Button>
       <Button variant="outline" onClick={onManualRefresh} disabled={!deviceId || isSubmitting}>
-        Làm mới đề xuất
+        Tải lại đề xuất
       </Button>
       {(isBlocked || isCommandPending) && (
         <span className="text-xs text-muted-foreground">
-          {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Xác nhận bị khóa cho đến khi đủ điều kiện.'}
+          {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Chưa đủ dữ liệu tin cậy để đề xuất. Hãy để hệ thống chạy thêm rồi thử lại.'}
         </span>
       )}
     </div>

@@ -33,12 +33,12 @@ const STATUS_CONTENT: Record<
     Icon: CheckCircle2,
   },
   REJECTED: {
-    label: 'Thiết bị từ chối cấu hình',
+    label: 'Thiết bị chưa áp dụng được đề xuất',
     className: 'border-red-500/30 bg-red-950/30 text-red-100',
     Icon: XCircle,
   },
   TIMEOUT: {
-    label: 'Chờ xác nhận từ thiết bị',
+    label: 'Thiết bị đang phản hồi chậm',
     className: 'border-amber-500/30 bg-amber-950/30 text-amber-100',
     Icon: AlertTriangle,
   },

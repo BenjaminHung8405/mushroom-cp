@@ -40,6 +40,25 @@ const WARNING_CONTENT: Record<TuningRecommendationBlockReason, WarningContent> =
   },
 }
 
+const BACKEND_ENGLISH_DETAILS = new Set([
+  'No valid KPI data is available for the requested observation window.',
+])
+
+/**
+ * Accept operator-facing details only when they contain Vietnamese diacritics.
+ * All backend English strings are ASCII, so the presence of any non-ASCII code
+ * point is a strong indicator that the payload was localised in Vietnamese.
+ */
+export function isVietnameseText(value: string): boolean {
+  // Any non-ASCII code point implies a localised (Vietnamese) payload since
+  // backend English strings are ASCII-only. We inspect char codes directly to
+  // avoid a control-character regex (which upsets the linter).
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) > 127) return true
+  }
+  return false
+}
+
 /** Returns whether the operator must be prevented from confirming a command. */
 export function isTuningRecommendationBlocked(
   blockReason: TuningRecommendationBlockReason | null,
@@ -57,7 +76,13 @@ export function CoverageWarning({ blockReason, detail = null }: CoverageWarningP
   }
 
   const { title, description, Icon } = WARNING_CONTENT[blockReason]
-  const safeDetail = detail?.trim()
+  const candidateDetail = detail?.trim() ?? ''
+  const safeDetail =
+    candidateDetail &&
+    !BACKEND_ENGLISH_DETAILS.has(candidateDetail) &&
+    isVietnameseText(candidateDetail)
+      ? candidateDetail
+      : null
 
   return (
     <div

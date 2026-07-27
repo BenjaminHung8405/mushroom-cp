@@ -89,7 +89,7 @@ describe('TuningAdvisoryPanel component', () => {
       expect(screen.getByText('R1_MIST_CHATTERING')).toBeInTheDocument()
     })
 
-    const confirmButton = screen.getByRole('button', { name: /Xác nhận áp dụng/i })
+    const confirmButton = screen.getByRole('button', { name: /Áp dụng đề xuất/i })
     expect(confirmButton).not.toBeDisabled()
   })
 
@@ -123,7 +123,7 @@ describe('TuningAdvisoryPanel component', () => {
       expect(screen.getByText(/Thiết bị ngoại tuyến/i)).toBeInTheDocument()
     })
 
-    const confirmButton = screen.getByRole('button', { name: /Xác nhận áp dụng/i })
+    const confirmButton = screen.getByRole('button', { name: /Áp dụng đề xuất/i })
     expect(confirmButton).toBeDisabled()
   })
 
@@ -147,7 +147,7 @@ describe('TuningAdvisoryPanel component', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument()
     })
 
-    const confirmButton = screen.getByRole('button', { name: /Xác nhận áp dụng/i })
+    const confirmButton = screen.getByRole('button', { name: /Áp dụng đề xuất/i })
     expect(confirmButton).toBeDisabled()
   })
 })

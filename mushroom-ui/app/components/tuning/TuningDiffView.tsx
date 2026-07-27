@@ -16,6 +16,10 @@ type TuningParameter = keyof TuningConfigSnapshot
 interface ParameterDefinition {
   key: TuningParameter
   label: string
+  friendlyLabel: string
+  description: string
+  /** When true, prefer "Mạnh hơn / Nhẹ hơn" over "Tăng / Giảm". */
+  gainStyle?: boolean
   min: number
   max: number
 }
@@ -24,24 +28,34 @@ const PARAMETERS: readonly ParameterDefinition[] = [
   {
     key: 'lamp_gain_scale',
     label: 'Lamp gain scale',
+    friendlyLabel: 'Độ mạnh đèn sưởi',
+    description: 'Hệ số nhân công suất đèn sưởi khi hệ thống cần tăng nhiệt độ.',
+    gainStyle: true,
     min: 0.8,
     max: 1.2,
   },
   {
     key: 'mist_gain_scale',
     label: 'Mist gain scale',
+    friendlyLabel: 'Độ mạnh phun sương',
+    description: 'Hệ số nhân lượng phun sương khi hệ thống cần tăng độ ẩm.',
+    gainStyle: true,
     min: 0.8,
     max: 1.2,
   },
   {
     key: 'mist_on_threshold',
     label: 'Mist ON threshold',
+    friendlyLabel: 'Ngưỡng bật phun sương',
+    description: 'Mức độ ẩm thiếu hụt tối thiểu để hệ thống bật phun sương.',
     min: 0.2,
     max: 0.35,
   },
   {
     key: 'mist_off_threshold',
     label: 'Mist OFF threshold',
+    friendlyLabel: 'Ngưỡng tắt phun sương',
+    description: 'Mức độ ẩm thiếu hụt tối đa để hệ thống ngừng phun sương.',
     min: 0.1,
     max: 0.2,
   },
@@ -69,7 +83,7 @@ export function TuningDiffView({
             <th scope="col" className="px-4 py-3 text-right font-medium">Hiện tại</th>
             <th scope="col" className="px-2 py-3" aria-label="Chuyển thành" />
             <th scope="col" className="px-4 py-3 text-right font-medium">Đề xuất</th>
-            <th scope="col" className="px-4 py-3 text-right font-medium">Trạng thái</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">Thay đổi</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800/70">
@@ -103,15 +117,21 @@ function DiffRow({
   const direction = isChanged && difference !== 0
     ? difference > 0 ? 'increase' : 'decrease'
     : 'unchanged'
-  const status = statusFor(direction, difference)
+  const status = statusFor(direction, difference, definition.gainStyle ?? false)
 
   return (
     <tr className="bg-slate-950/20">
-      <th scope="row" className="px-4 py-3 font-medium text-foreground">
-        <div>{definition.label}</div>
-        <p className="mt-1 text-xs font-normal text-muted-foreground">
-          Giới hạn cứng: {formatValue(definition.min)} – {formatValue(definition.max)}
-        </p>
+      <th scope="row" className="px-4 py-3 font-medium text-foreground" title={definition.description}>
+        <div>{definition.friendlyLabel}</div>
+        <details className="mt-1 text-xs font-normal text-muted-foreground">
+          <summary className="cursor-pointer select-none text-[11px] text-slate-400 hover:text-slate-200">
+            Chi tiết kỹ thuật
+          </summary>
+          <p className="mt-1 font-mono text-[11px] text-slate-500">{definition.label}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Giới hạn cứng: {formatValue(definition.min)} – {formatValue(definition.max)}
+          </p>
+        </details>
       </th>
       <td className="px-4 py-3 text-right font-mono text-slate-200">
         {formatValue(currentValue)}
@@ -135,18 +155,23 @@ function DiffRow({
 function statusFor(
   direction: 'increase' | 'decrease' | 'unchanged',
   difference: number,
+  gainStyle: boolean,
 ) {
   switch (direction) {
     case 'increase':
       return {
         Icon: MoveUp,
-        label: `Tăng ${formatDifference(difference)}`,
+        label: gainStyle
+          ? `Mạnh hơn ${formatDifference(difference)}`
+          : `Tăng ${formatDifference(difference)}`,
         className: 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30',
       }
     case 'decrease':
       return {
         Icon: MoveDown,
-        label: `Giảm ${formatDifference(Math.abs(difference))}`,
+        label: gainStyle
+          ? `Nhẹ hơn ${formatDifference(Math.abs(difference))}`
+          : `Giảm ${formatDifference(Math.abs(difference))}`,
         className: 'bg-amber-500/10 text-amber-200 ring-1 ring-amber-500/30',
       }
     case 'unchanged':
