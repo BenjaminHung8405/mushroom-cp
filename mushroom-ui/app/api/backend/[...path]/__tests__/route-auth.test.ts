@@ -3,16 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   GET,
   PATCH,
-  authenticateBrowserRequest,
   buildForwardHeaders,
   buildValidatedUpstreamUrl,
   forwardUpstreamResponse,
-  isPublicDeviceReadRequest,
   resolveBearerToken,
   validateAndSanitizePath,
 } from '@/app/api/backend/[...path]/route'
 
-describe('BFF Route Proxy Authentication & SSRF Defense', () => {
+describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
     delete process.env.BFF_JWT_TOKEN
@@ -91,18 +89,6 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
   })
 
   describe('Proxy helper functions', () => {
-    it('authenticateBrowserRequest returns token or 401 response', () => {
-      const reqAuth = new NextRequest('http://localhost:3000/api/backend/devices', {
-        headers: { Authorization: 'Bearer valid-jwt' },
-      })
-      const authRes = authenticateBrowserRequest(reqAuth)
-      expect(authRes).toEqual({ token: 'valid-jwt' })
-
-      const reqAnon = new NextRequest('http://localhost:3000/api/backend/devices')
-      const anonRes = authenticateBrowserRequest(reqAnon)
-      expect('status' in anonRes && anonRes.status).toBe(401)
-    })
-
     it('buildValidatedUpstreamUrl returns valid URL or 400 response', () => {
       const result = buildValidatedUpstreamUrl(['batches', 'active', 'house-1'], '?window=24')
       expect('url' in result && result.url.toString()).toBe(
@@ -125,29 +111,9 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       })
     })
 
-    it('buildForwardHeaders omits Authorization for public requests', () => {
+    it('buildForwardHeaders omits Authorization when the client did not provide a token', () => {
       const req = new NextRequest('http://localhost:3000/api/backend/devices')
       expect(buildForwardHeaders(req, null)).toEqual({ Accept: 'application/json' })
-    })
-
-    it('allows only public device GET and SSE routes without a JWT', () => {
-      for (const path of [
-        ['devices'],
-        ['devices', 'DEV_001'],
-        ['devices', 'status', 'stream'],
-        ['devices', 'DEV_001', 'status'],
-        ['devices', 'DEV_001', 'config-sync'],
-        ['devices', 'DEV_001', 'config-sync', 'stream'],
-        ['devices', 'DEV_001', 'telemetry'],
-        ['devices', 'DEV_001', 'telemetry', 'history'],
-        ['devices', 'DEV_001', 'telemetry', 'stream'],
-      ]) {
-        expect(isPublicDeviceReadRequest('GET', path)).toBe(true)
-      }
-
-      expect(isPublicDeviceReadRequest('POST', ['devices', 'DEV_001', 'setpoint'])).toBe(false)
-      expect(isPublicDeviceReadRequest('GET', ['devices', 'DEV_001', 'tuning-configurations'])).toBe(false)
-      expect(isPublicDeviceReadRequest('GET', ['devices', 'DEV_001', 'analytics', 'tuning-recommendations'])).toBe(false)
     })
 
     it('forwardUpstreamResponse formats normal and event-stream responses', async () => {
@@ -171,7 +137,7 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
   })
 
   describe('Proxy Security & Route Coverage Cases', () => {
-    it('Case 0: Anonymous public status SSE request forwards without Authorization', async () => {
+    it('Case 0: Anonymous SSE request forwards without Authorization', async () => {
       let forwardedAuthorization: string | null | undefined
       vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
         forwardedAuthorization = new Headers(init?.headers).get('Authorization')
@@ -189,21 +155,33 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       expect(forwardedAuthorization).toBeNull()
     })
 
-    it('Case 1: Anonymous request -> returns 401 directly at BFF', async () => {
+    it('Case 1: Anonymous request to a formerly guarded route forwards without Authorization', async () => {
+      let forwardedAuthorization: string | null | undefined
+      vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+        forwardedAuthorization = new Headers(init?.headers).get('Authorization')
+        return new Response(JSON.stringify({ message: 'Bearer JWT is required.' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+
       const params = Promise.resolve({ path: ['devices', 'DEV_001', 'tuning-configurations'] })
       const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations')
       const res = await GET(req, { params })
 
       expect(res.status).toBe(401)
-      expect(fetch).not.toHaveBeenCalled()
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(forwardedAuthorization).toBeNull()
       const data = await res.json()
-      expect(data.message).toBe('Yêu cầu xác thực người dùng.')
+      expect(data.message).toBe('Bearer JWT is required.')
     })
 
-    it('Case 2: Valid batches request -> forwards request to /batches/active/house-1', async () => {
+    it('Case 2: Authenticated batches request forwards request and token to /batches/active/house-1', async () => {
       let requestedUrl: string | undefined
-      vi.mocked(fetch).mockImplementationOnce(async (url) => {
+      let forwardedAuthorization: string | null | undefined
+      vi.mocked(fetch).mockImplementationOnce(async (url, init) => {
         requestedUrl = url.toString()
+        forwardedAuthorization = new Headers(init?.headers).get('Authorization')
         return new Response(JSON.stringify({ id: 'batch-1', status: 'ACTIVE' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -217,13 +195,16 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       const res = await GET(req, { params })
 
       expect(requestedUrl).toBe('http://localhost:6002/batches/active/house-1')
+      expect(forwardedAuthorization).toBe('Bearer valid-jwt')
       expect(res.status).toBe(200)
     })
 
-    it('Case 3: Valid PATCH /batches/batch-1/end request -> forwards to backend when Origin matches', async () => {
+    it('Case 3: Anonymous PATCH request forwards to backend when Origin matches', async () => {
       let requestedUrl: string | undefined
-      vi.mocked(fetch).mockImplementationOnce(async (url) => {
+      let forwardedAuthorization: string | null | undefined
+      vi.mocked(fetch).mockImplementationOnce(async (url, init) => {
         requestedUrl = url.toString()
+        forwardedAuthorization = new Headers(init?.headers).get('Authorization')
         return new Response(null, { status: 204 })
       })
 
@@ -231,7 +212,6 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       const req = new NextRequest('http://localhost:3000/api/backend/batches/batch-1/end', {
         method: 'PATCH',
         headers: {
-          Authorization: 'Bearer valid-jwt',
           'Content-Type': 'application/json',
           Origin: 'http://localhost:3000',
         },
@@ -240,6 +220,7 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       const res = await PATCH(req, { params })
 
       expect(requestedUrl).toBe('http://localhost:6002/batches/batch-1/end')
+      expect(forwardedAuthorization).toBeNull()
       expect(res.status).toBe(204)
     })
 

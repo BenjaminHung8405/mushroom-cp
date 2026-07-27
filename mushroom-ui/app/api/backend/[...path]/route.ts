@@ -20,37 +20,6 @@ const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
   'health',
 ])
 
-/**
- * Read-only device routes intentionally remain public in the Nest backend.
- * Keep this allowlist narrow: tuning and analytics GET endpoints carry
- * operator data and are protected by JWT + ownership guards upstream.
- */
-export function isPublicDeviceReadRequest(method: string, path: string[]): boolean {
-  if (method.toUpperCase() !== 'GET' || path[0] !== 'devices') return false
-
-  if (path.length === 1) return true // GET /devices
-  if (path.length === 2) return true // GET /devices/:id
-
-  const [, deviceIdOrStatus, resource, subresource] = path
-  if (deviceIdOrStatus === 'status') {
-    return resource === 'stream' && subresource === undefined
-  }
-
-  if (resource === 'status') {
-    return subresource === undefined
-  }
-
-  if (resource === 'config-sync') {
-    return subresource === undefined || subresource === 'stream'
-  }
-
-  if (resource === 'telemetry') {
-    return subresource === undefined || subresource === 'history' || subresource === 'stream'
-  }
-
-  return false
-}
-
 export function resolveBearerToken(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -100,17 +69,6 @@ export function validateAndSanitizePath(pathSegments: string[]): string[] | null
   }
 
   return sanitized
-}
-
-export function authenticateBrowserRequest(request: NextRequest): { token: string } | NextResponse {
-  const token = resolveBearerToken(request)
-  if (!token) {
-    return NextResponse.json(
-      { message: 'Yêu cầu xác thực người dùng.' },
-      { status: 401, headers: { 'Cache-Control': 'no-store' } },
-    )
-  }
-  return { token }
 }
 
 export function buildValidatedUpstreamUrl(path: string[], search: string): { url: URL } | NextResponse {
@@ -271,9 +229,6 @@ async function proxy(
   if (originResult) return originResult
 
   const { path } = await context.params
-  const isPublicRead = isPublicDeviceReadRequest(request.method, path)
-  const authResult = isPublicRead ? null : authenticateBrowserRequest(request)
-  if (authResult instanceof NextResponse) return authResult
 
   const urlResult = buildValidatedUpstreamUrl(path, request.nextUrl.search)
   if (urlResult instanceof NextResponse) return urlResult
@@ -282,7 +237,9 @@ async function proxy(
   if (bodyResult instanceof NextResponse) return bodyResult
 
   try {
-    const headers = buildForwardHeaders(request, authResult?.token ?? null)
+    // Non-user mode: an optional client token is preserved when supplied, but
+    // the BFF does not require one before forwarding to the backend.
+    const headers = buildForwardHeaders(request, resolveBearerToken(request))
     const response = await fetch(urlResult.url, {
       method: request.method,
       headers,
