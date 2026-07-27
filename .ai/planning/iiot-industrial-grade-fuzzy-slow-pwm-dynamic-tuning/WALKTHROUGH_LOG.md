@@ -1,3 +1,46 @@
+## [2026-07-27T13:57:00+07:00] - Security & Architecture QA Audit: LGTM (Track K, K1–K7)
+
+- **Kết quả:** **LGTM (Looks Good To Me) — ĐÃ DUYỆT BỞI CHUYÊN GIA KIỂM TOÁN MÃ NGUỒN.**
+- **Trạng thái Task:** Toàn bộ Task từ K1 đến K7 trong `PROGRESS.md` đã được chuyển sang `[x] Done`.
+- **Phạm vi kiểm toán:** 10 tệp mã nguồn và cấu hình chính của Track K frontend (`mushroom-ui`), đối chiếu `README.md` (v2.2), `PROGRESS.md`, và contract backend hiện hành:
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/lib/tuning-schema.ts`
+  - `mushroom-ui/app/hooks/useTuningRecommendation.ts`
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `mushroom-ui/app/components/tuning/TuningDiffView.tsx`
+  - `mushroom-ui/app/components/tuning/TuningStatusBadge.tsx`
+  - `mushroom-ui/app/components/tuning/CoverageWarning.tsx`
+  - `mushroom-ui/app/page.tsx`
+
+- **Tóm tắt kiểm định theo 4 tiêu chí Checklist:**
+  1. **KIẾN TRÚC & CONVENTIONS (PASS):**
+     - Đạt 100% Clean Architecture (phân tầng rõ ràng giữa Proxy BFF, Schema Validator, Custom Hooks, và Presentation Sub-components).
+     - Áp dụng triệt để nguyên lý DRY.
+     - Kiểm tra AST & Line-Count: **100% trong số 126 hàm/hook thuộc tất cả các tệp trên đều strictly <= 50 dòng (hàm dài nhất là 50 dòng trong `readRequestBodyWithLimit` và 43 dòng trong `usePendingTuningCommand`).**
+  2. **BẢO MẬT (PASS):**
+     - Không hardcode secret hay env fallback. Request anonymous luôn nhận HTTP 401 tại BFF Proxy.
+     - Chống SSRF & Path Traversal via `validateAndSanitizePath()` với top-level prefix allow-list (`devices`, `batches`, `analytics`, `offline-sync`, `health`) và origin enforcement (`upstreamUrl.origin === targetOrigin`).
+     - Chống CSRF via `validateMutationOrigin()` bắt buộc `Origin`/`Referer` hợp lệ cho mọi mutation method (`POST`, `PUT`, `PATCH`, `DELETE`).
+     - Chống DoS / Heap OOM via `readRequestBodyWithLimit()` giới hạn 64 KB với byte-counter chunk streaming cancel reader.
+     - Chống Cross-Device Race: 100% state và dialogs được fence với `deviceId` immutable ở render level.
+  3. **LOGIC & EDGE-CASES (PASS):**
+     - Schema parser validate fail-closed đối với mọi hard bounds (`gain 0.80–1.20`, `mist_on 0.20–0.35`, `mist_off 0.10–0.20`, hysteresis `mist_off < mist_on`), delta consistency, và ISO-8601 timestamps.
+     - Chống NPE triệt để bằng runtime type-guards và strict nullability.
+     - Reconnect SSE & Durable state sync tự động phục hồi terminal state mà không gây race condition. Coi `TIMEOUT` là local state, giữ khóa button Confirm chống double submit.
+  4. **ĐỘ TỐI ƯU (PASS):**
+     - Không có N+1 query hay nested loop bất hợp lý.
+     - Dọn dẹp tài nguyên hoàn hảo (clean close EventSource, clearTimeout, AbortController cancel).
+- **Kết quả Quality Gates thực tế:**
+  - `pnpm test` (mushroom-ui): **PASS (6 files, 58 unit/integration tests passing 100%)**.
+  - `pnpm test` (mushroom-backend): **PASS (41 files, 373 unit/integration tests passing 100%)**.
+  - `pnpm run lint` (mushroom-ui): **PASS (0 errors, 0 warnings)**.
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS (0 TypeScript errors)**.
+  - `pnpm audit --prod` (mushroom-ui): **PASS (0 vulnerabilities found)**.
+
+---
+
 ## [2026-07-27T13:48:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 3 - Đã khắc phục triệt để 6 nhóm lỗi từ QA Reviewer)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:48:00+07:00.
