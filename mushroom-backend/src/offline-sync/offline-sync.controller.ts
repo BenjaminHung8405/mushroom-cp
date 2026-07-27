@@ -25,6 +25,13 @@ export class OfflineSyncController {
       topic: `devices/${deviceId}/sync_burst`,
     };
   }
+  /**
+   * Returns live telemetry history for the Offline Monitoring dashboard,
+   * sourced from the `controller_history` measurement written by the live
+   * MQTT telemetry pipeline. Offline sync bursts are persisted by
+   * `OfflineSyncService.writeBurst()` into separate measurements and are
+   * intentionally not merged into this response.
+   */
   @Get(':deviceId/history')
   async getHistory(
     @Param('deviceId') deviceId: string,

@@ -72,7 +72,16 @@ export class OfflineSyncService implements OnModuleDestroy {
     );
   }
 
-  /** Query and merge the three Influx measurements into UI-ready time-series rows. */
+  /**
+   * Live telemetry history for the Offline Monitoring dashboard.
+   *
+   * Reads the `controller_history` measurement written by
+   * `ControlHistoryInfluxWriter` from the live MQTT telemetry stream. Offline
+   * sync bursts are still persisted by `writeBurst()` into the
+   * `environment_telemetry`/`actuator_events`/`system_status` measurements, but
+   * this endpoint intentionally does not merge them; offline-burst history, if
+   * needed later, belongs in a separate endpoint with explicit provenance.
+   */
   async getHistory(
     deviceId: string,
     from: Date,
@@ -89,9 +98,9 @@ export class OfflineSyncService implements OnModuleDestroy {
     const flux = `from(bucket: "${escapeFluxString(this.influxBucket)}")
       |> range(start: time(v: "${from.toISOString()}"), stop: time(v: "${to.toISOString()}"))
       |> filter(fn: (r) => r["device_id"] == "${escapedDeviceId}")
-      |> filter(fn: (r) => r["_measurement"] == "environment_telemetry" or r["_measurement"] == "actuator_events" or r["_measurement"] == "system_status")
-      |> pivot(rowKey: ["_time", "device_id", "data_quality", "boot_count"], columnKey: ["_field"], valueColumn: "_value")
-      |> keep(columns: ["_time", "data_quality", "boot_count", "temperature_c", "humidity_percent", "mist_state", "lamp_state", "delta_time_s", "fuzzy_temp_demand", "fuzzy_humid_demand"])
+      |> filter(fn: (r) => r["_measurement"] == "controller_history")
+      |> pivot(rowKey: ["_time", "device_id", "data_quality", "control_source"], columnKey: ["_field"], valueColumn: "_value")
+      |> keep(columns: ["_time", "data_quality", "temperature_c", "humidity_percent", "mist_state", "lamp_state"])
       |> sort(columns: ["_time"])`;
 
     try {
@@ -159,7 +168,9 @@ export function toOfflineHistoryPoint(
   if (!time || Number.isNaN(new Date(time).getTime())) return null;
   return {
     time,
-    dataQuality: row.data_quality === 'degraded' ? 'degraded' : 'trusted',
+    // `controller_history` uses `good` for trustworthy samples; every other
+    // state (`degraded`, `missing_target`) is reported as degraded to the UI.
+    dataQuality: row.data_quality === 'good' ? 'trusted' : 'degraded',
     bootCount: finiteInteger(row.boot_count),
     temperature: finiteNumber(row.temperature_c),
     humidity: finiteNumber(row.humidity_percent),

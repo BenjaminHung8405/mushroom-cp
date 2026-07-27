@@ -104,50 +104,63 @@ describe('OfflineSyncService', () => {
     expect(
       toOfflineHistoryPoint({
         _time: '2026-07-19T00:00:00.000Z',
-        data_quality: 'trusted',
-        boot_count: '7',
+        data_quality: 'good',
         temperature_c: 28.5,
         humidity_percent: 85,
         mist_state: true,
         lamp_state: false,
-        delta_time_s: 30,
       }),
     ).toEqual({
       time: '2026-07-19T00:00:00.000Z',
       dataQuality: 'trusted',
-      bootCount: 7,
+      bootCount: null,
       temperature: 28.5,
       humidity: 85,
       mistState: true,
       lampState: false,
-      deltaTimeS: 30,
+      deltaTimeS: null,
       fuzzyTempDemand: null,
       fuzzyHumidDemand: null,
+    });
+    // controller_history rows without `good` quality are surfaced as degraded
+    // so the UI can call out untrusted samples.
+    expect(
+      toOfflineHistoryPoint({
+        _time: '2026-07-19T00:00:00.000Z',
+        data_quality: 'degraded',
+        temperature_c: 27,
+        humidity_percent: 82,
+        mist_state: false,
+        lamp_state: true,
+      }),
+    ).toMatchObject({
+      dataQuality: 'degraded',
+      temperature: 27,
+      humidity: 82,
+      mistState: false,
+      lampState: true,
     });
     expect(toOfflineHistoryPoint({ _time: 'not-a-date' })).toBeNull();
   });
 
-  it('returns mapped history and exposes unavailable Influx queries', async () => {
+  it('returns mapped controller_history rows and exposes unavailable Influx queries', async () => {
     const service = new OfflineSyncService() as unknown as {
       queryApi: { collectRows: jest.Mock };
       influxBucket: string;
       getHistory: OfflineSyncService['getHistory'];
     };
     service.influxBucket = 'mushroom';
-    service.queryApi = {
-      collectRows: jest.fn().mockResolvedValue([
-        {
-          _time: '2026-07-19T00:00:00.000Z',
-          data_quality: 'trusted',
-          boot_count: 2,
-          temperature_c: 27,
-          humidity_percent: 86,
-          mist_state: false,
-          lamp_state: true,
-          delta_time_s: 5,
-        },
-      ]),
-    };
+    const collectRows = jest.fn().mockResolvedValue([
+      {
+        _time: '2026-07-19T00:00:00.000Z',
+        data_quality: 'good',
+        temperature_c: 27,
+        humidity_percent: 86,
+        mist_state: false,
+        lamp_state: true,
+      },
+    ]);
+    service.queryApi = { collectRows };
     await expect(
       service.getHistory(
         'device-1',
@@ -157,14 +170,27 @@ describe('OfflineSyncService', () => {
     ).resolves.toMatchObject([
       {
         dataQuality: 'trusted',
-        bootCount: 2,
+        bootCount: null,
         temperature: 27,
+        humidity: 86,
+        mistState: false,
         lampState: true,
+        deltaTimeS: null,
+        fuzzyTempDemand: null,
+        fuzzyHumidDemand: null,
       },
     ]);
-    service.queryApi.collectRows.mockRejectedValueOnce(
-      new Error('Influx unavailable'),
-    );
+
+    // Flux query targets the live `controller_history` measurement and no
+    // longer merges offline-sync-only measurements.
+    const flux = collectRows.mock.calls[0][0] as string;
+    expect(flux).toContain('_measurement"] == "controller_history"');
+    expect(flux).not.toContain('environment_telemetry');
+    expect(flux).not.toContain('actuator_events');
+    expect(flux).not.toContain('system_status');
+    expect(flux).toContain('"device_id"] == "device-1"');
+
+    collectRows.mockRejectedValueOnce(new Error('Influx unavailable'));
     await expect(
       service.getHistory(
         'device-1',
