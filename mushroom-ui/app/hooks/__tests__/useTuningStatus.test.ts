@@ -168,6 +168,59 @@ describe('useTuningStatus hook & helpers', () => {
       expect(result.current.event).toEqual(eventDev1)
     })
 
+    it('rejects malformed SSE events (negative/fractional revision, bad timestamp, out-of-bounds snapshot, malformed reason)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ticket: 'ticket-789', expiresInSeconds: 30 }),
+      } as Response)
+
+      const { result } = renderHook(() => useTuningStatus('DEV_001'))
+
+      await waitFor(() => expect(activeMockInstance).not.toBeNull())
+      act(() => { activeMockInstance?.onopen?.() })
+
+      const baseEvent = {
+        id: 'e1',
+        deviceId: 'DEV_001',
+        commandId: 'cmd-1',
+        revision: 1,
+        status: 'PENDING',
+        config: { lamp_gain_scale: 1.0, mist_gain_scale: 1.0, mist_on_threshold: 0.25, mist_off_threshold: 0.15 },
+        publishedAt: null,
+        createdAt: '2026-07-27T10:00:00.000Z',
+        updatedAt: '2026-07-27T10:00:00.000Z',
+        rejectionReason: null,
+      }
+
+      // Negative revision
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, revision: -1 }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Fractional revision
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, revision: 1.5 }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Invalid timestamp
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, createdAt: 'not-a-date' }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Empty commandId
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, commandId: '' }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Config out of hard bounds
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, config: { ...baseEvent.config, lamp_gain_scale: 2.5 } }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Hysteresis violation
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, config: { ...baseEvent.config, mist_off_threshold: 0.30, mist_on_threshold: 0.25 } }) }) })
+      expect(result.current.event).toBeNull()
+
+      // Malformed rejection reason (object)
+      act(() => { activeMockInstance?.onmessage?.({ data: JSON.stringify({ ...baseEvent, rejectionReason: { bad: true } }) }) })
+      expect(result.current.event).toBeNull()
+    })
+
     it('closes EventSource and cancels pending ticket requests on unmount', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,

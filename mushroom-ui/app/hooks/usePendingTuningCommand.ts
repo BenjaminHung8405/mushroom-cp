@@ -7,6 +7,7 @@ import type { TuningCommandState } from '@/app/components/tuning/TuningStatusBad
 
 export interface PendingCommand {
   commandId: string
+  deviceId: string
   state: TuningCommandState
   rejectionReason: string | null
 }
@@ -91,6 +92,7 @@ export function applyDurableState(
   if (latest.status === 'IN_SYNC') {
     return {
       commandId: currentPending.commandId,
+      deviceId: currentPending.deviceId,
       state: 'IN_SYNC',
       rejectionReason: null,
     }
@@ -98,6 +100,7 @@ export function applyDurableState(
   if (latest.status === 'REJECTED') {
     return {
       commandId: currentPending.commandId,
+      deviceId: currentPending.deviceId,
       state: 'REJECTED',
       rejectionReason:
         latest.rejectionReason && latest.rejectionReason.trim()
@@ -108,6 +111,7 @@ export function applyDurableState(
   if (latest.status === 'PENDING') {
     return {
       commandId: currentPending.commandId,
+      deviceId: currentPending.deviceId,
       state: 'PENDING',
       rejectionReason: null,
     }
@@ -122,29 +126,41 @@ function useDurableStateReconciler(
 ) {
   return useCallback(async () => {
     const currentPending = pendingCommandRef.current
-    if (!deviceId || !currentPending || currentPending.state !== 'PENDING') {
+    if (
+      !deviceId ||
+      !currentPending ||
+      currentPending.deviceId !== deviceId ||
+      (currentPending.state !== 'PENDING' && currentPending.state !== 'TIMEOUT')
+    ) {
       return
     }
 
     const latest = await fetchLatestState(deviceId)
     if (!latest) return
 
-    if (pendingCommandRef.current?.commandId !== currentPending.commandId) return
+    if (
+      pendingCommandRef.current?.commandId !== currentPending.commandId ||
+      pendingCommandRef.current?.deviceId !== deviceId
+    ) {
+      return
+    }
 
     const updated = applyDurableState(latest, currentPending)
-    if (updated && updated.state !== currentPending.state) {
+    if (updated && (updated.state !== currentPending.state || updated.rejectionReason !== currentPending.rejectionReason)) {
       setPendingCommand(updated)
     }
   }, [deviceId, pendingCommandRef, setPendingCommand])
 }
 
 function useSseEventReconciler(
+  deviceId: string | null | undefined,
   pendingCommand: PendingCommand | null,
   tuningEvent: TuningStatusEvent | null,
   setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
 ) {
   useEffect(() => {
-    if (!pendingCommand || !tuningEvent) return
+    if (!deviceId || !pendingCommand || !tuningEvent) return
+    if (pendingCommand.deviceId !== deviceId || tuningEvent.deviceId !== deviceId) return
     if (tuningEvent.commandId !== pendingCommand.commandId) return
 
     const sseLatest: LatestTuningStateResponse = {
@@ -161,7 +177,7 @@ function useSseEventReconciler(
     ) {
       setPendingCommand(updated)
     }
-  }, [pendingCommand, tuningEvent, setPendingCommand])
+  }, [deviceId, pendingCommand, tuningEvent, setPendingCommand])
 }
 
 function usePendingTimeout(
@@ -193,6 +209,7 @@ async function executeCommandSubmission(
   deviceId: string,
   commandId: string,
   config: TuningConfigSnapshot,
+  currentDeviceIdRef: React.RefObject<string | null | undefined>,
   setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
 ): Promise<void> {
   const result = await postPendingCommand(deviceId, commandId, config)
@@ -200,15 +217,18 @@ async function executeCommandSubmission(
     throw new Error('Máy chủ trả về xác nhận lệnh không hợp lệ.')
   }
 
+  if (currentDeviceIdRef.current !== deviceId) return
+
   const pending: PendingCommand = {
     commandId,
+    deviceId,
     state: 'PENDING',
     rejectionReason: null,
   }
   setPendingCommand(pending)
 
   const latest = await fetchLatestState(deviceId)
-  if (latest && latest.commandId === commandId) {
+  if (latest && latest.commandId === commandId && currentDeviceIdRef.current === deviceId) {
     const updated = applyDurableState(latest, pending)
     if (updated && updated.state !== 'PENDING') {
       setPendingCommand(updated)
@@ -218,13 +238,14 @@ async function executeCommandSubmission(
 
 function useSubmitRecommendation(
   deviceId: string | null | undefined,
+  currentDeviceIdRef: React.RefObject<string | null | undefined>,
   setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
   setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>,
   setSubmissionError: React.Dispatch<React.SetStateAction<string | null>>,
 ) {
   return useCallback(
     async (config: TuningConfigSnapshot): Promise<boolean> => {
-      if (!deviceId) return false
+      if (!deviceId || deviceId !== currentDeviceIdRef.current) return false
       const commandId = createCommandId()
       if (!commandId) {
         setSubmissionError('Trình duyệt không hỗ trợ tạo mã lệnh an toàn.')
@@ -235,7 +256,13 @@ function useSubmitRecommendation(
       setSubmissionError(null)
 
       try {
-        await executeCommandSubmission(deviceId, commandId, config, setPendingCommand)
+        await executeCommandSubmission(
+          deviceId,
+          commandId,
+          config,
+          currentDeviceIdRef,
+          setPendingCommand,
+        )
         return true
       } catch (cause: unknown) {
         const msg = cause instanceof Error ? cause.message : 'Không thể tạo lệnh tinh chỉnh.'
@@ -245,17 +272,21 @@ function useSubmitRecommendation(
         setIsSubmitting(false)
       }
     },
-    [deviceId, setPendingCommand, setIsSubmitting, setSubmissionError],
+    [deviceId, currentDeviceIdRef, setPendingCommand, setIsSubmitting, setSubmissionError],
   )
 }
 
-export function usePendingTuningCommand(
+function usePendingStateSync(
   deviceId: string | null | undefined,
-  tuningEvent: TuningStatusEvent | null,
-): UsePendingTuningCommandResult {
-  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submissionError, setSubmissionError] = useState<string | null>(null)
+  pendingCommand: PendingCommand | null,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+  setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>,
+  setSubmissionError: React.Dispatch<React.SetStateAction<string | null>>,
+) {
+  const currentDeviceIdRef = useRef<string | null | undefined>(deviceId)
+  useEffect(() => {
+    currentDeviceIdRef.current = deviceId
+  }, [deviceId])
 
   const pendingCommandRef = useRef<PendingCommand | null>(pendingCommand)
   useEffect(() => {
@@ -266,14 +297,34 @@ export function usePendingTuningCommand(
     setPendingCommand(null)
     setIsSubmitting(false)
     setSubmissionError(null)
-  }, [deviceId])
+  }, [deviceId, setPendingCommand, setIsSubmitting, setSubmissionError])
+
+  return { currentDeviceIdRef, pendingCommandRef }
+}
+
+export function usePendingTuningCommand(
+  deviceId: string | null | undefined,
+  tuningEvent: TuningStatusEvent | null,
+): UsePendingTuningCommandResult {
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
+
+  const { currentDeviceIdRef, pendingCommandRef } = usePendingStateSync(
+    deviceId,
+    pendingCommand,
+    setPendingCommand,
+    setIsSubmitting,
+    setSubmissionError,
+  )
 
   const resyncDurableState = useDurableStateReconciler(deviceId, pendingCommandRef, setPendingCommand)
-  useSseEventReconciler(pendingCommand, tuningEvent, setPendingCommand)
+  useSseEventReconciler(deviceId, pendingCommand, tuningEvent, setPendingCommand)
   usePendingTimeout(pendingCommand, setPendingCommand)
 
   const submitRecommendation = useSubmitRecommendation(
     deviceId,
+    currentDeviceIdRef,
     setPendingCommand,
     setIsSubmitting,
     setSubmissionError,
@@ -282,8 +333,11 @@ export function usePendingTuningCommand(
     setPendingCommand(null)
   }, [])
 
+  const safePendingCommand =
+    pendingCommand && deviceId && pendingCommand.deviceId === deviceId ? pendingCommand : null
+
   return {
-    pendingCommand,
+    pendingCommand: safePendingCommand,
     isSubmitting,
     submissionError,
     setSubmissionError,
@@ -300,6 +354,7 @@ export function parseCreateCommandResponse(value: unknown): CreateCommandRespons
     !('commandId' in value) ||
     !('status' in value) ||
     typeof value.commandId !== 'string' ||
+    !value.commandId.trim() ||
     value.status !== 'PENDING'
   ) {
     return null
@@ -312,16 +367,19 @@ export function parseLatestTuningState(value: unknown): LatestTuningStateRespons
   const rec = value as Record<string, unknown>
   if (
     typeof rec.commandId !== 'string' ||
+    !rec.commandId.trim() ||
     (rec.status !== 'PENDING' && rec.status !== 'IN_SYNC' && rec.status !== 'REJECTED')
   ) {
     return null
   }
-  const rejectionReason =
-    typeof rec.rejectionReason === 'string'
-      ? rec.rejectionReason
-      : rec.rejectionReason === null
-        ? null
-        : null
+
+  let rejectionReason: string | null = null
+  if (rec.rejectionReason !== null && rec.rejectionReason !== undefined) {
+    if (typeof rec.rejectionReason !== 'string' || rec.rejectionReason.length > 500) {
+      return null
+    }
+    rejectionReason = rec.rejectionReason
+  }
 
   return {
     commandId: rec.commandId,

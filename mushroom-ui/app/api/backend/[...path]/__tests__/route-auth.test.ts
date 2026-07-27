@@ -236,5 +236,49 @@ describe('BFF Route Proxy Authentication & SSRF Defense', () => {
       const data = await res.json()
       expect(data.message).toBe('Yêu cầu bị từ chối do nguồn gốc (Origin) không hợp lệ.')
     })
+
+    it('Case 6: Body larger than 64KB with Content-Length header -> returns 413 without calling fetch', async () => {
+      const params = Promise.resolve({ path: ['devices', 'DEV_001', 'tuning-configurations'] })
+      const req = new NextRequest(
+        'http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer valid-jwt',
+            'Content-Type': 'application/json',
+            'Content-Length': '70000',
+            Origin: 'http://localhost:3000',
+          },
+          body: new Uint8Array(70000),
+        },
+      )
+
+      const res = await PATCH(req, { params })
+      expect(res.status).toBe(413)
+      expect(fetch).not.toHaveBeenCalled()
+      const data = await res.json()
+      expect(data.message).toBe('Kích thước dữ liệu vượt quá giới hạn cho phép.')
+    })
+
+    it('Case 7: Chunked body larger than 64KB without Content-Length -> returns 413 during streaming read', async () => {
+      const params = Promise.resolve({ path: ['devices', 'DEV_001', 'tuning-configurations'] })
+      const largeBody = new Uint8Array(70000)
+      const req = new NextRequest(
+        'http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer valid-jwt',
+            'Content-Type': 'application/json',
+            Origin: 'http://localhost:3000',
+          },
+          body: largeBody,
+        },
+      )
+
+      const res = await PATCH(req, { params })
+      expect(res.status).toBe(413)
+      expect(fetch).not.toHaveBeenCalled()
+    })
   })
 })

@@ -1,3 +1,75 @@
+## [2026-07-27T13:48:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 3 - Đã khắc phục triệt để 6 nhóm lỗi từ QA Reviewer)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:48:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 3).
+- **Danh sách file đã sửa:**
+  - `mushroom-ui/package.json`
+  - `mushroom-ui/pnpm-lock.yaml`
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/api/backend/[...path]/__tests__/route-auth.test.ts`
+  - `mushroom-ui/app/hooks/useTuningRecommendation.ts`
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts`
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `mushroom-ui/app/hooks/__tests__/useTuningStatus.test.ts`
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `mushroom-ui/app/page.tsx`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình chi tiết giải pháp khắc phục 6 nhóm lỗi từ phản hồi QA:**
+  1. **Cross-Device Race Protection (Critical):**
+     - Đã gắn toàn bộ advisory state, dialog state, và pending command state với `deviceId` bất biến.
+     - `useTuningRecommendation` trả `data: null` ngay lập tức trong render nếu `data.deviceId !== deviceId`.
+     - `TuningAdvisoryPanel` tự động đóng dialog xác nhận khi `deviceId` thay đổi và fail-closed nếu advisory/data thuộc về device khác.
+     - `usePendingTuningCommand` sử dụng `currentDeviceIdRef` và device fence để loại bỏ hoàn toàn khả năng POST lệnh/GET state của thiết bị A sang thiết bị B.
+  2. **Durable Reconnect Sync & TIMEOUT State Reconciliation (High):**
+     - Đã cập nhật callback `handleReconnect` trong `TuningAdvisoryPanel` để gọi cả `refetch()` recommendation VÀ `cmd.resyncDurableState()` sau mỗi lần SSE kết nối lại.
+     - Coi `TIMEOUT` là trạng thái hiển thị cục bộ của command outstanding, tiếp tục khóa nút Confirm (chống gửi command thứ hai) và cho phép `resyncDurableState()` chuyển sang `IN_SYNC` / `REJECTED` khi `GET /latest` hoặc SSE trả về kết quả bền vững.
+  3. **BFF Body Size Limit & DoS/OOM Protection (High):**
+     - Xây dựng `readRequestBodyWithLimit` trong `route.ts` với giới hạn `MAX_PROXY_BODY_BYTES = 64 KB`.
+     - Kiểm tra `Content-Length` header và trả về HTTP `413 Payload Too Large` ngay lập tức nếu vượt quá 64 KB.
+     - Đọc stream request body với byte counter để ngắt dòng và trả về `413` nếu chunked request vượt quá 64 KB, không buffer body vào RAM trước khi vượt qua kiểm tra giới hạn.
+     - Bổ sung unit tests trong `route-auth.test.ts` kiểm tra boundary và ngắt stream quá kích thước mà không gọi backend upstream.
+  4. **Dependency Supply Chain Audit Clean (High):**
+     - Nâng `next` lên `16.2.12` trong dependencies sản xuất.
+     - Chuyển `shadcn` sang `devDependencies`.
+     - Pin exact 100% direct và devDependencies trong `package.json` (loại bỏ toàn bộ ký tự `^`).
+     - Đã cấu hình `pnpm.overrides` cho `next`, `postcss`, `sharp`, `fast-uri`, `brace-expansion`, `body-parser`, `hono`, và `@hono/node-server`.
+     - Tái tạo `pnpm-lock.yaml`, kết quả `pnpm audit --prod`: **No known vulnerabilities found (0 High, 0 Critical, 0 Moderate, 0 Low)**.
+  5. **Fail-Closed Runtime Payload Validation (Medium):**
+     - Sửa `parseTuningStatusEvent` trong `useTuningStatus.ts`: kiểm tra `revision` là safe integer không âm, `id/deviceId/commandId` là string không rỗng, timestamp đúng chuẩn ISO-8601, `config` đạt `isValidTuningSnapshot` (hard bounds + hysteresis `mist_off < mist_on`), và `rejectionReason` phải null hoặc string <= 500 chars (từ chối object/number/boolean sai kiểu).
+     - Sửa `parseCreateCommandResponse` và `parseLatestTuningState` trong `usePendingTuningCommand.ts`: validate `commandId` và `rejectionReason` fail-closed.
+     - Bổ sung unit tests fixture cho từng biến thể dữ liệu lỗi.
+  6. **Vi phạm giới hạn 50 dòng / hàm (Medium):**
+     - Phân rã `useTuningRecommendation.ts`, `usePendingTuningCommand.ts`, `useTuningStatus.ts`, `TuningAdvisoryPanel.tsx`, và `app/page.tsx` thành các helper/custom hooks/sub-components nhỏ.
+     - Đã xác minh qua AST Line-Check script: **100% trong số 126 hàm/hook thuộc 10 file sản xuất Track K đều dưới 50 dòng (tất cả PASS)**.
+- **Kết quả tự kiểm tra Quality Gates:**
+  - ESLint (`pnpm run lint`): **PASS (0 errors, 0 warnings)**.
+  - TypeScript strict check (`pnpm exec tsc --noEmit`): **PASS (0 errors)**.
+  - Unit tests (`pnpm test`): **PASS (6 files, 58 tests passing)**.
+  - Production build (`pnpm run build`): **PASS (Next.js 16.2.12 Turbopack compiled successfully)**.
+  - Git diff check (`git diff --check`): **PASS (0 whitespace/formatting issues)**.
+  - Dependency audit (`pnpm audit --prod`): **PASS (0 vulnerabilities found)**.
+
+---
+
+## [2026-07-27T13:30:17+07:00] - Security/Architecture QA Review: REJECTED (Track K, K1–K7)
+
+- **Kết quả:** **Từ chối duyệt.** Đã trả K1–K7 từ `[ ] QA Review` về `[ ] In Progress` trong `PROGRESS.md`; không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Toàn bộ 24 source/config/test frontend được tạo hoặc sửa từ commit bắt đầu Track K `ed31767c` đến `db00ce54` (không tính hai planning document), đối chiếu `README.md` §§3.1–3.6, `sprint_2.md` Track K, yêu cầu K1–K7 trong `PROGRESS.md`, và contract controller/entity backend hiện hành.
+- **Lỗi chặn phát hành:**
+  1. **[Critical][K1/K3/K7 — cross-device race] Advisory của thiết bị cũ có thể được POST sang thiết bị mới.** `mushroom-ui/app/hooks/useTuningRecommendation.ts:29–38, 96–108` giữ nguyên `data` qua render đầu tiên khi `deviceId` đổi và chỉ abort/refresh trong effect sau commit; `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx:121–147` không fence `data.deviceId === deviceId`, không đóng dialog khi đổi device, và `handleConfirmSubmit()` gửi snapshot advisory đang giữ qua callback submit của device hiện tại. Trong cửa sổ này, recommendation/dialog của A có thể được xác nhận vào endpoint B. `mushroom-ui/app/hooks/usePendingTuningCommand.ts:192–217, 219–249, 265–269` cũng không có request-generation/device fence, nên POST/GET của A hoàn tất sau khi chọn B có thể ghi lại state A dưới panel B. **Chỉ thị:** gắn mọi advisory, dialog và command state với immutable `deviceId`; fail-closed ngay trong render/handler nếu response/advisory device khác selection; reset/đóng dialog đồng bộ khi selection đổi; dùng generation token hoặc AbortController cho cả POST và GET latest, kiểm tra generation + device + command trước mọi `setState`. Thêm regression đổi A→B khi advisory A đang hiển thị, khi dialog A đang mở, khi POST A đang chờ và khi GET latest A trả muộn; tuyệt đối không POST snapshot A tới B và không hiển thị state A ở B.
+  2. **[High][K2/K3/K5 — mất đồng bộ durable] Reconnect không resync command state và TIMEOUT làm hỏng state machine.** `TuningAdvisoryPanel.tsx:124–129` truyền callback reconnect chỉ gọi `refetch()` recommendation, không gọi `cmd.resyncDurableState()` như K2/walkthrough tuyên bố. `usePendingTuningCommand.ts:123–127` chỉ cho REST reconciliation khi state là `PENDING`; sau timeout tại `:167–183`, state `TIMEOUT` không thể được phục hồi qua GET latest. Đồng thời `TuningAdvisoryPanel.tsx:136–137` coi chỉ `PENDING` là command đang chờ, nên TIMEOUT mở lại nút Confirm dù command durable đầu tiên vẫn có thể PENDING. ACK xảy ra khi SSE mất kết nối vì vậy có thể bị bỏ lỡ, còn operator có thể tạo command thứ hai. **Chỉ thị:** coi `TIMEOUT` là trạng thái hiển thị cục bộ của cùng một command outstanding, vẫn khóa Confirm và vẫn cho phép durable reconciliation; callback sau mỗi reconnect phải gọi đúng một lần cả recommendation refetch và latest-state resync có command/device fence. Thêm regression ACK IN_SYNC/REJECTED trong lúc disconnect rồi reconnect, TIMEOUT→latest terminal, và TIMEOUT không cho submit command thứ hai.
+  3. **[High][Security/availability — unbounded input buffering] BFF buffer toàn bộ mutation body không giới hạn.** `mushroom-ui/app/api/backend/[...path]/route.ts:194–203` gọi `await request.arrayBuffer()` trước khi forward nhưng không giới hạn `Content-Length` hoặc số byte thực đọc. Một principal hợp lệ có thể gửi body rất lớn làm tăng heap/GC hoặc OOM process Next.js trước khi giới hạn của NestJS có tác dụng. **Chỉ thị:** đặt giới hạn body nhỏ, cấu hình được và phù hợp contract; reject `413` sớm khi `Content-Length` vượt giới hạn, đồng thời đọc stream có byte counter để chặn chunked/missing/forged length; chỉ buffer sau khi pass limit. Thêm test cho exact boundary, over-limit có/không có Content-Length, chunked oversized và xác nhận không gọi upstream.
+  4. **[High][Supply chain] Cây dependency production có 12 lỗ hổng mức High.** `mushroom-ui/package.json:19` pin `next@16.2.6`, trong khi `pnpm audit --prod` báo nhiều advisory Next.js (proxy bypass, SSRF, DoS, disclosure) được vá từ `16.2.11`; lock hiện còn `sharp@0.34.5`, `fast-uri@3.1.2`, `brace-expansion@5.0.6` và các package vulnerable khác. Ngoài ra các dev dependency mới tại `package.json:27–42` dùng range `^`, trái quy tắc dependency phải pin exact. **Chỉ thị:** nâng/pin exact các direct dependencies đến bản đã vá, dùng override/resolution có giải trình cho transitive dependency nếu upstream chưa khóa, regenerate lockfile và yêu cầu `pnpm audit --prod` không còn High/Critical; chạy lại build/test sau upgrade. Không dùng `--no-audit` hay ignore advisory áp dụng cho runtime.
+  5. **[Medium][K2/K5 — validation fail-open] Runtime parser trạng thái chưa enforce contract.** `mushroom-ui/app/hooks/useTuningStatus.ts:324–377` chấp nhận revision âm/phân số, timestamp bất kỳ, command/device/id rỗng, snapshot hữu hạn nhưng ngoài hard bounds hoặc sai hysteresis, và rejection reason không giới hạn. `usePendingTuningCommand.ts:296–330` chấp nhận command ID rỗng và biến mọi kiểu `rejectionReason` sai thành `null` thay vì reject payload. Đây chưa đạt yêu cầu “chỉ nhận state từ API/SSE đã validate”. **Chỉ thị:** tái sử dụng validator snapshot chung; validate UUID/ID theo public contract, revision là safe integer không âm, timestamp ISO-8601 hợp lệ, reason code/string có giới hạn; payload sai phải bị reject fail-closed và không đổi UI state. Thêm fixture cho từng malformed variant.
+  6. **[Medium][Architecture/conventions] Vẫn còn hàm vượt 50 dòng dù walkthrough tuyên bố đã xử lý toàn bộ.** `mushroom-ui/app/hooks/useTuningRecommendation.ts:29–110` (`useTuningRecommendation`, 82 dòng; callback `fetchAdvisory` tại `:38–94`, 57 dòng) và file đã sửa `mushroom-ui/app/page.tsx:30–226` (`DashboardContent`, 197 dòng). **Chỉ thị:** tách fetch/parse/state commit thành helper hoặc reducer có fence; phân rã dashboard thành các section/component nhỏ, không chỉ đổi formatting. Thêm/lưu command AST line-check tái lập được trên toàn bộ production files Track K thay vì chỉ bốn file được chọn.
+- **Điểm đã xác minh đạt:** same-origin URLs và encode device ID; BFF không dùng token environment fallback, chặn anonymous/cross-origin mutation và path traversal/SSRF cơ bản; backoff 500 ms→10 s, EventSource/timer cleanup; React text rendering không tạo XSS trực tiếp; recommendation parser đã enforce bounds/hysteresis/delta consistency; không có polling, SQL query, N+1 query hay nested loop bất hợp lý trong Track K.
+- **Xác minh độc lập:** `pnpm run lint` **PASS**; `pnpm exec tsc --noEmit` **PASS**; `pnpm test` **PASS (6 files, 54 tests)**; `pnpm run build` **PASS**; `git diff --check ed31767c^..HEAD` **PASS**. `pnpm audit --prod` **FAIL: 23 vulnerabilities (12 High, 10 Moderate, 1 Low)**. Các gate chức năng hiện tại không bao phủ các race/device-switch/reconnect/body-limit nêu trên.
+
+---
+
 ## [2026-07-27T13:25:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 2 - Khắc phục vi phạm quy tắc độ dài hàm > 50 dòng)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:25:00+07:00.

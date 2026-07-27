@@ -1,7 +1,7 @@
 'use client'
 
 import { CheckCircle2, LoaderCircle, SlidersHorizontal } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -90,7 +90,9 @@ export function TuningPanelActions({
 }
 
 function useTuningPanelHandlers(
+  deviceId: string | null | undefined,
   advisory: TuningAdvisory | null,
+  dataDeviceId: string | undefined,
   confirmDisabled: boolean,
   refetch: () => Promise<unknown>,
   resyncDurableState: () => Promise<void>,
@@ -105,10 +107,10 @@ function useTuningPanelHandlers(
   }, [confirmDisabled, setSubmissionError, setConfirmOpen])
 
   const handleConfirmSubmit = useCallback(async () => {
-    if (!advisory) return
+    if (!advisory || !deviceId || dataDeviceId !== deviceId) return
     const success = await submitRecommendation(advisory.suggestedConfig)
     if (success) setConfirmOpen(false)
-  }, [advisory, submitRecommendation, setConfirmOpen])
+  }, [advisory, deviceId, dataDeviceId, submitRecommendation, setConfirmOpen])
 
   const handleManualRefresh = useCallback(async () => {
     await refetch()
@@ -118,46 +120,69 @@ function useTuningPanelHandlers(
   return { requestConfirmation, handleConfirmSubmit, handleManualRefresh }
 }
 
-export function useTuningAdvisoryPanelState(deviceId: string | null | undefined) {
+function usePanelStateSetup(deviceId: string | null | undefined) {
   const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const prevDeviceIdRef = useRef(deviceId)
+  if (prevDeviceIdRef.current !== deviceId) {
+    prevDeviceIdRef.current = deviceId
+    if (confirmOpen) setConfirmOpen(false)
+  }
+
+  const resyncRef = useRef<() => Promise<void>>(async () => {})
   const handleReconnect = useCallback(async () => {
     await refetch()
+    await resyncRef.current()
   }, [refetch])
 
   const { event: tuningEvent } = useTuningStatus(deviceId, handleReconnect)
   const cmd = usePendingTuningCommand(deviceId, tuningEvent)
 
-  const advisory = data?.advisory ?? null
-  const currentConfig = data?.currentConfig ?? null
-  const isBlocked =
-    !deviceId || !data || isTuningRecommendationBlocked(data.blockReason) || advisory === null
+  useEffect(() => {
+    resyncRef.current = cmd.resyncDurableState
+  }, [cmd.resyncDurableState])
 
-  const isCommandPending = cmd.pendingCommand?.state === 'PENDING'
-  const confirmDisabled = isBlocked || cmd.isSubmitting || isCommandPending
+  return { data, isLoading, error, refetch, confirmOpen, setConfirmOpen, cmd }
+}
+
+export function useTuningAdvisoryPanelState(deviceId: string | null | undefined) {
+  const setup = usePanelStateSetup(deviceId)
+
+  const safeData = setup.data && deviceId && setup.data.deviceId === deviceId ? setup.data : null
+  const advisory = safeData?.advisory ?? null
+  const currentConfig = safeData?.currentConfig ?? null
+  const isBlocked =
+    !deviceId || !safeData || isTuningRecommendationBlocked(safeData.blockReason) || advisory === null
+
+  const isCommandPending =
+    setup.cmd.pendingCommand?.state === 'PENDING' || setup.cmd.pendingCommand?.state === 'TIMEOUT'
+  const confirmDisabled = isBlocked || setup.cmd.isSubmitting || isCommandPending
 
   const handlers = useTuningPanelHandlers(
+    deviceId,
     advisory,
+    safeData?.deviceId,
     confirmDisabled,
-    refetch,
-    cmd.resyncDurableState,
-    cmd.submitRecommendation,
-    cmd.setSubmissionError,
-    setConfirmOpen,
+    setup.refetch,
+    setup.cmd.resyncDurableState,
+    setup.cmd.submitRecommendation,
+    setup.cmd.setSubmissionError,
+    setup.setConfirmOpen,
   )
 
   return {
-    data,
-    isLoading,
-    error,
-    confirmOpen,
-    setConfirmOpen,
+    data: safeData,
+    isLoading: setup.isLoading,
+    error: setup.error,
+    confirmOpen: setup.confirmOpen,
+    setConfirmOpen: setup.setConfirmOpen,
     advisory,
     currentConfig,
     isBlocked,
-    pendingCommand: cmd.pendingCommand,
-    isSubmitting: cmd.isSubmitting,
-    submissionError: cmd.submissionError,
+    pendingCommand: setup.cmd.pendingCommand,
+    isSubmitting: setup.cmd.isSubmitting,
+    submissionError: setup.cmd.submissionError,
     isCommandPending,
     confirmDisabled,
     ...handlers,
@@ -206,11 +231,6 @@ export function TuningPanelBody({
   )
 }
 
-/**
- * Presents a server-generated tuning recommendation and submits it only after
- * the operator explicitly confirms it. A 202 merely establishes a pending
- * command; terminal UI state is driven solely by a matching durable state event.
- */
 export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const panel = useTuningAdvisoryPanelState(deviceId)
 

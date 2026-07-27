@@ -45,26 +45,28 @@ describe('usePendingTuningCommand hook & parsers', () => {
     })
 
     it('preserves specific rejectionReason when backend rejects command', () => {
-      const pending = { commandId: 'cmd-1', state: 'PENDING' as const, rejectionReason: null }
+      const pending = { commandId: 'cmd-1', deviceId: 'DEV_001', state: 'PENDING' as const, rejectionReason: null }
       const res = applyDurableState(
         { commandId: 'cmd-1', status: 'REJECTED', rejectionReason: 'REVISION_MISMATCH' },
         pending,
       )
       expect(res).toEqual({
         commandId: 'cmd-1',
+        deviceId: 'DEV_001',
         state: 'REJECTED',
         rejectionReason: 'REVISION_MISMATCH',
       })
     })
 
     it('fallbacks to generic rejection message only when server returns null rejectionReason', () => {
-      const pending = { commandId: 'cmd-1', state: 'PENDING' as const, rejectionReason: null }
+      const pending = { commandId: 'cmd-1', deviceId: 'DEV_001', state: 'PENDING' as const, rejectionReason: null }
       const res = applyDurableState(
         { commandId: 'cmd-1', status: 'REJECTED', rejectionReason: null },
         pending,
       )
       expect(res).toEqual({
         commandId: 'cmd-1',
+        deviceId: 'DEV_001',
         state: 'REJECTED',
         rejectionReason: 'Thiết bị đã từ chối cấu hình được đề xuất.',
       })
@@ -91,6 +93,7 @@ describe('usePendingTuningCommand hook & parsers', () => {
       expect(success).toBe(true)
       expect(result.current.pendingCommand).toEqual({
         commandId,
+        deviceId: 'DEV_001',
         state: 'PENDING',
         rejectionReason: null,
       })
@@ -118,6 +121,7 @@ describe('usePendingTuningCommand hook & parsers', () => {
 
       expect(result.current.pendingCommand).toEqual({
         commandId,
+        deviceId: 'DEV_001',
         state: 'IN_SYNC',
         rejectionReason: null,
       })
@@ -149,6 +153,7 @@ describe('usePendingTuningCommand hook & parsers', () => {
 
       expect(result.current.pendingCommand).toEqual({
         commandId,
+        deviceId: 'DEV_001',
         state: 'REJECTED',
         rejectionReason: 'HARD_BOUNDS_VIOLATION',
       })
@@ -180,6 +185,7 @@ describe('usePendingTuningCommand hook & parsers', () => {
 
       expect(result.current.pendingCommand).toEqual({
         commandId,
+        deviceId: 'DEV_001',
         state: 'PENDING',
         rejectionReason: null,
       })
@@ -221,13 +227,14 @@ describe('usePendingTuningCommand hook & parsers', () => {
       rerender({ event: matchingEvent })
       expect(result.current.pendingCommand).toEqual({
         commandId,
+        deviceId: 'DEV_001',
         state: 'REJECTED',
         rejectionReason: 'PERSISTENCE_NOT_CONFIRMED',
       })
     })
 
-    it('transitions state to TIMEOUT after 30 seconds if still PENDING', async () => {
-      const commandId = 'cmd-timeout-test'
+    it('reconciles state from TIMEOUT to IN_SYNC when resyncDurableState is called after local timeout', async () => {
+      const commandId = 'cmd-timeout-resync'
       vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
       vi.mocked(fetch).mockResolvedValueOnce({
@@ -245,8 +252,46 @@ describe('usePendingTuningCommand hook & parsers', () => {
       act(() => {
         vi.advanceTimersByTime(30_000)
       })
-
       expect(result.current.pendingCommand?.state).toBe('TIMEOUT')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'IN_SYNC', rejectionReason: null }),
+      } as Response)
+
+      await act(async () => {
+        await result.current.resyncDurableState()
+      })
+
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        deviceId: 'DEV_001',
+        state: 'IN_SYNC',
+        rejectionReason: null,
+      })
+    })
+
+    it('resets pendingCommand to null synchronously when deviceId changes', async () => {
+      const commandId = 'cmd-device-switch'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ commandId, status: 'PENDING' }),
+      } as Response)
+
+      const { result, rerender } = renderHook(
+        ({ devId }: { devId: string }) => usePendingTuningCommand(devId, null),
+        { initialProps: { devId: 'DEV_001' } },
+      )
+
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
+      expect(result.current.pendingCommand?.commandId).toBe(commandId)
+
+      rerender({ devId: 'DEV_002' })
+      expect(result.current.pendingCommand).toBeNull()
     })
   })
 })

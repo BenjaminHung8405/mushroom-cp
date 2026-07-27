@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+export const MAX_PROXY_BODY_BYTES = 64 * 1024 // 64 KB
+
 const backendBaseUrl = (
   process.env.API_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
@@ -18,14 +20,6 @@ const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
   'health',
 ])
 
-/**
- * Resolves Bearer JWT strictly from browser context:
- * 1. Authorization header in incoming request
- * 2. HttpOnly cookies (`session_token`, `auth_token`, `jwt`, `token`, `access_token`)
- *
- * NOTE: Server-side fallback tokens (e.g. BFF_JWT_TOKEN) are deliberately NOT
- * used here to prevent privilege escalation for unauthenticated browser requests.
- */
 export function resolveBearerToken(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -173,10 +167,71 @@ export function validateMutationOrigin(request: NextRequest): NextResponse | nul
   return null
 }
 
-/**
- * Same-origin proxy gateway to NestJS. Validates browser identity and path segments
- * before forwarding requests to the internal API URL.
- */
+function checkContentLengthHeader(request: NextRequest, maxBytes: number): NextResponse | null {
+  const contentLengthHeader = request.headers.get('content-length')
+  if (contentLengthHeader) {
+    const contentLength = parseInt(contentLengthHeader, 10)
+    if (!isNaN(contentLength) && contentLength > maxBytes) {
+      return NextResponse.json(
+        { message: 'Kích thước dữ liệu vượt quá giới hạn cho phép.' },
+        { status: 413, headers: { 'Cache-Control': 'no-store' } },
+      )
+    }
+  }
+  return null
+}
+
+export async function readRequestBodyWithLimit(
+  request: NextRequest,
+  maxBytes: number = MAX_PROXY_BODY_BYTES,
+): Promise<{ body: ArrayBuffer | undefined } | NextResponse> {
+  const method = request.method.toUpperCase()
+  if (method === 'GET' || method === 'HEAD') {
+    return { body: undefined }
+  }
+
+  const lengthError = checkContentLengthHeader(request, maxBytes)
+  if (lengthError) return lengthError
+
+  if (!request.body) return { body: undefined }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        totalBytes += value.byteLength
+        if (totalBytes > maxBytes) {
+          await reader.cancel()
+          return NextResponse.json(
+            { message: 'Kích thước dữ liệu vượt quá giới hạn cho phép.' },
+            { status: 413, headers: { 'Cache-Control': 'no-store' } },
+          )
+        }
+        chunks.push(value)
+      }
+    }
+  } catch {
+    return NextResponse.json(
+      { message: 'Không thể đọc nội dung yêu cầu.' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
+
+  const combined = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    combined.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return { body: combined.buffer }
+}
+
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -191,15 +246,15 @@ async function proxy(
   const urlResult = buildValidatedUpstreamUrl(path, request.nextUrl.search)
   if (urlResult instanceof NextResponse) return urlResult
 
+  const bodyResult = await readRequestBodyWithLimit(request)
+  if (bodyResult instanceof NextResponse) return bodyResult
+
   try {
     const headers = buildForwardHeaders(request, authResult.token)
     const response = await fetch(urlResult.url, {
       method: request.method,
       headers,
-      body:
-        request.method === 'GET' || request.method === 'HEAD'
-          ? undefined
-          : await request.arrayBuffer(),
+      body: bodyResult.body,
       cache: 'no-store',
     })
     return forwardUpstreamResponse(response)

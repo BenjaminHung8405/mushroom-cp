@@ -26,16 +26,40 @@ export interface UseTuningRecommendationResult {
   refetch: () => Promise<void>
 }
 
-export function useTuningRecommendation(
+export async function fetchAdvisoryFromApi(
+  deviceId: string,
+  signal: AbortSignal,
+): Promise<TuningRecommendationResponseDto> {
+  const response = await fetch(
+    `/api/backend/devices/${encodeURIComponent(deviceId)}/analytics/tuning-recommendations`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+      signal,
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`Không thể tải đề xuất tinh chỉnh (HTTP ${response.status}).`)
+  }
+
+  const payload: unknown = await response.json()
+  const validated = parseTuningRecommendationResponse(payload, deviceId)
+  if (!validated) {
+    throw new Error('Máy chủ trả về dữ liệu đề xuất không hợp lệ.')
+  }
+  return validated
+}
+
+function useAdvisoryFetcher(
   deviceId: string | null | undefined,
-): UseTuningRecommendationResult {
-  const [data, setData] = useState<TuningRecommendationResponseDto | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
-
-  const abortControllerRef = useRef<AbortController | null>(null)
-
-  const fetchAdvisory = useCallback(async () => {
+  setData: React.Dispatch<React.SetStateAction<TuningRecommendationResponseDto | null>>,
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>,
+  setError: React.Dispatch<React.SetStateAction<Error | null>>,
+  abortControllerRef: React.MutableRefObject<AbortController | null>,
+) {
+  return useCallback(async () => {
     if (!deviceId) {
       setData(null)
       setIsLoading(false)
@@ -51,60 +75,51 @@ export function useTuningRecommendation(
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/backend/devices/${encodeURIComponent(deviceId)}/analytics/tuning-recommendations`,
-        {
-          method: 'GET',
-          cache: 'no-store',
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        },
-      )
-
-      if (!response.ok) {
-        throw new Error(
-          `Không thể tải đề xuất tinh chỉnh (HTTP ${response.status}).`,
-        )
-      }
-
-      const payload: unknown = await response.json()
-      if (controller.signal.aborted) return
-
-      const validated = parseTuningRecommendationResponse(payload, deviceId)
-      if (!validated) {
-        setData(null)
-        setError(new Error('Máy chủ trả về dữ liệu đề xuất không hợp lệ.'))
-      } else {
-        setData(validated)
-        setError(null)
-      }
+      const validated = await fetchAdvisoryFromApi(deviceId, controller.signal)
+      if (controller.signal.aborted || validated.deviceId !== deviceId) return
+      setData(validated)
+      setError(null)
     } catch (cause: unknown) {
       if (controller.signal.aborted) return
       setData(null)
-      setError(
-        cause instanceof Error
-          ? cause
-          : new Error('Không thể tải đề xuất tinh chỉnh.'),
-      )
+      setError(cause instanceof Error ? cause : new Error('Không thể tải đề xuất tinh chỉnh.'))
     } finally {
       if (abortControllerRef.current === controller) {
         setIsLoading(false)
       }
     }
-  }, [deviceId])
+  }, [deviceId, setData, setIsLoading, setError, abortControllerRef])
+}
+
+export function useTuningRecommendation(
+  deviceId: string | null | undefined,
+): UseTuningRecommendationResult {
+  const [data, setData] = useState<TuningRecommendationResponseDto | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const fetchAdvisory = useAdvisoryFetcher(
+    deviceId,
+    setData,
+    setIsLoading,
+    setError,
+    abortControllerRef,
+  )
 
   useEffect(() => {
     void fetchAdvisory()
-
     return () => {
       abortControllerRef.current?.abort()
     }
   }, [fetchAdvisory])
 
+  const safeData = data && deviceId && data.deviceId === deviceId ? data : null
+
   return {
-    data,
-    isLoading,
-    error,
+    data: safeData,
+    isLoading: safeData ? false : isLoading,
+    error: safeData ? null : error,
     refetch: fetchAdvisory,
   }
 }
