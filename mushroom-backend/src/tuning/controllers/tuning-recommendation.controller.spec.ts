@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import type { KpiMetrics } from '../../analytics/interfaces/kpi-metrics.interface';
@@ -75,7 +74,7 @@ describe('TuningRecommendationController', () => {
     });
   });
 
-  it('fails closed with 503 before querying other systems when analytics is degraded', async () => {
+  it('returns a blocked response before querying other systems when analytics is degraded', async () => {
     (analyticsAvailability.getState as jest.Mock).mockReturnValue({
       available: false,
       reason: 'INFLUXDB_ANALYTICS_BUCKET is missing',
@@ -83,7 +82,15 @@ describe('TuningRecommendationController', () => {
 
     await expect(
       controller.getTuningRecommendations('device-1', '24'),
-    ).rejects.toThrow(ServiceUnavailableException);
+    ).resolves.toMatchObject({
+      deviceId: 'device-1',
+      kpi: null,
+      currentConfig: null,
+      advisory: null,
+      blockReason: 'INSUFFICIENT_DATA',
+      blockReasonDetail:
+        'Tuning recommendations are temporarily unavailable: INFLUXDB_ANALYTICS_BUCKET is missing',
+    });
     expect(checkDeviceOnline).not.toHaveBeenCalled();
     expect(getKpiForDevice).not.toHaveBeenCalled();
   });

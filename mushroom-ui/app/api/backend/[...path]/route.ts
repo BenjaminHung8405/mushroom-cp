@@ -130,10 +130,17 @@ export function validateMutationOrigin(request: NextRequest): NextResponse | nul
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     const origin = request.headers.get('origin')
     const referer = request.headers.get('referer')
-    const expectedOrigin = request.nextUrl.origin
+    // On a reverse-proxied deployment, nextUrl may contain the internal
+    // container origin. Host is the public origin observed by the browser.
+    const forwardedHost = request.headers.get('x-forwarded-host')
+    const publicHost = forwardedHost ?? request.headers.get('host')
+    const forwardedProtocol = request.headers.get('x-forwarded-proto')
+    const publicOrigin = publicHost
+      ? `${forwardedProtocol ?? request.nextUrl.protocol.replace(/:$/, '')}://${publicHost}`
+      : request.nextUrl.origin
     const allowedOrigins = process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim())
-      : [expectedOrigin]
+      : [request.nextUrl.origin, publicOrigin]
 
     let requestOrigin: string | null = null
     if (origin) {

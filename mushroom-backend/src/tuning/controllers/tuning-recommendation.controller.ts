@@ -4,7 +4,6 @@ import {
   Get,
   Param,
   Query,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import {
@@ -39,9 +38,15 @@ export class TuningRecommendationController {
     const windowHours = parseWindowHours(window);
     const generatedAt = new Date().toISOString();
 
-    if (!this.analyticsAvailability.getState().available) {
-      throw new ServiceUnavailableException(
-        'Tuning recommendations are unavailable because Influx analytics is degraded.',
+    const analyticsState = this.analyticsAvailability.getState();
+    if (!analyticsState.available) {
+      return this.blocked(
+        deviceId,
+        generatedAt,
+        null,
+        null,
+        'INSUFFICIENT_DATA',
+        `Tuning recommendations are temporarily unavailable: ${analyticsState.reason ?? 'Influx analytics is degraded.'}`,
       );
     }
 

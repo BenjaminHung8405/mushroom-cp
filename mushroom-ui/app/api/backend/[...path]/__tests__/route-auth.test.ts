@@ -8,6 +8,7 @@ import {
   forwardUpstreamResponse,
   resolveBearerToken,
   validateAndSanitizePath,
+  validateMutationOrigin,
 } from '@/app/api/backend/[...path]/route'
 
 describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
@@ -114,6 +115,19 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
     it('buildForwardHeaders omits Authorization when the client did not provide a token', () => {
       const req = new NextRequest('http://localhost:3000/api/backend/devices')
       expect(buildForwardHeaders(req, null)).toEqual({ Accept: 'application/json' })
+    })
+
+    it('accepts a mutation from the public forwarded origin behind a reverse proxy', () => {
+      const req = new NextRequest('http://mushroom-ui:3000/api/backend/devices/DEV_001/tuning-configurations', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://mushroomapp.mitelai.com',
+          Host: 'mushroomapp.mitelai.com',
+          'X-Forwarded-Proto': 'https',
+        },
+      })
+
+      expect(validateMutationOrigin(req)).toBeNull()
     })
 
     it('forwardUpstreamResponse formats normal and event-stream responses', async () => {
