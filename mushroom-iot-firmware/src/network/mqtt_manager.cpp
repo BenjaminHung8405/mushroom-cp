@@ -1579,21 +1579,30 @@ MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(const char
     const char* raw_command_id = out_doc["command_id"].is<const char*>()
         ? out_doc["command_id"].as<const char*>()
         : nullptr;
-    const size_t raw_command_id_length = raw_command_id == nullptr
-        ? 0
-        : strnlen(raw_command_id, UUID_LEN + 1);
 
-    // A missing, empty, or oversized identity cannot safely own a terminal
-    // report. A bounded non-canonical identity is preserved so the validator
-    // can emit the stable INVALID_UUID rejection without touching state.
-    if (raw_command_id_length == 0 || raw_command_id_length > UUID_LEN) {
-        Serial.println("[MQTT] Tuning message classify: missing or oversized root command_id.");
+    const auto is_canonical_uuid = [](const char* s) -> bool {
+        if (s == nullptr || std::strlen(s) != 36) return false;
+        for (int i = 0; i < 36; ++i) {
+            const char c = s[i];
+            if (i == 8 || i == 13 || i == 18 || i == 23) {
+                if (c != '-') return false;
+            } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // A missing, empty, oversized, or non-canonical identity cannot safely own
+    // a terminal report because backend parser drops non-canonical ACKs.
+    if (!is_canonical_uuid(raw_command_id)) {
+        Serial.println("[MQTT] Tuning message classify: non-canonical or missing root command_id.");
         return TuningIngressDecision::DEFER_REDELIVERY;
     }
 
     if (out_command_id != nullptr) {
-        std::memcpy(out_command_id, raw_command_id, raw_command_id_length);
-        out_command_id[raw_command_id_length] = '\0';
+        std::memcpy(out_command_id, raw_command_id, UUID_LEN);
+        out_command_id[UUID_LEN] = '\0';
     }
 
     return TuningIngressDecision::PROCESS_COMMAND;

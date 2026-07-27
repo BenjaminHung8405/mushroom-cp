@@ -216,13 +216,9 @@ static void runL7ActuatorIsolationTest()
     Serial.println("[TEST] L7 actuator threshold isolation passed");
 }
 
-static void runL5TuningBurstStressTest()
+static void setupL5TuningEnvironment()
 {
-    Serial.println("[TEST] L5 - Burst 20 tuning desired updates...");
     config::network::MQTT_CLIENT_ID_VAL = "mushroom_s3_unittest";
-
-    // Warm host-only maps and function-local statics before measuring the
-    // production control path. No burst candidate exists during this tick.
     xQueueReset(g_tuning_config_queue);
     taskCore1Control(nullptr);
 
@@ -238,50 +234,128 @@ static void runL5TuningBurstStressTest()
     assert(tuner.init() == true);
     assert(xQueueReset(g_tuning_config_queue) == pdTRUE);
 
-    DynamicTuningParams expected{};
-    const auto burstStart = std::chrono::steady_clock::now();
-    for (uint32_t i = 0; i < 20U; ++i) {
-        StaticJsonDocument<512> desired;
-        char commandId[37];
-        std::snprintf(commandId, sizeof(commandId),
-                      "00000000-0000-4000-8000-%012u", i + 1U);
-        desired["schema_version"] = 1;
-        desired["command_id"] = commandId;
-        desired["device_id"] = "mushroom_s3_unittest";
-        desired["revision"] = i + 1U;
-        JsonObject tuning = desired.createNestedObject("config");
-        tuning["lamp_gain_scale"] = 0.80f + static_cast<float>(i % 9U) * 0.05f;
-        tuning["mist_gain_scale"] = 1.20f - static_cast<float>(i % 9U) * 0.05f;
-        tuning["mist_on_threshold"] = (i % 2U == 0U) ? 0.30f : 0.35f;
-        tuning["mist_off_threshold"] = (i % 2U == 0U) ? 0.15f : 0.18f;
+    // Drive the burst through the production MQTT ingress path, so the test
+    // exercises MqttManager::processNetworkMessage() + outbox, not a direct
+    // processCommand() call.
+    auto& manager = mqtt::MqttManager::getInstance();
+    manager.resetOutboxForTest();
+    manager.setProvisionedForTest(true);
+    manager.setTenantForTest("test_tenant");
+    manager.setDeviceIdForTest("mushroom_s3_unittest");
+    manager.setStateForTest(mqtt::MqttState::CONNECTED);
+    PubSubClient::mock_connected = true;
+    PubSubClient::mock_publish_result = true;
+    PubSubClient::mock_has_pending_qos1_publish = false;
+    PubSubClient::mock_pending_qos1_message_id = 0;
+    PubSubClient::mock_last_puback_message_id = 0;
+    PubSubClient::mock_puback_sequence = 0;
+}
 
-        storage::TuningReason reason = storage::TuningReason::OK;
-        assert(tuner.processCommand(desired.as<JsonVariant>(), reason) ==
-               storage::TuningResult::ACCEPTED);
-        assert(reason == storage::TuningReason::OK);
-        assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 1U);
-        expected = tuner.getActiveParams();
+static mqtt::NetworkMessage buildL5DesiredMessage(uint32_t i)
+{
+    char payload[mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES + 1]{};
+    const float lamp = 0.80f + static_cast<float>(i % 9U) * 0.05f;
+    const float mist = 1.20f - static_cast<float>(i % 9U) * 0.05f;
+    const float mist_on = (i % 2U == 0U) ? 0.30f : 0.35f;
+    const float mist_off = (i % 2U == 0U) ? 0.15f : 0.18f;
+    const int length = std::snprintf(
+        payload, sizeof(payload),
+        "{\"schema_version\":1,\"command_id\":\"00000000-0000-4000-8000-%012u\","
+        "\"device_id\":\"mushroom_s3_unittest\",\"revision\":%u,\"config\":{"
+        "\"lamp_gain_scale\":%.2f,\"mist_gain_scale\":%.2f,"
+        "\"mist_on_threshold\":%.2f,\"mist_off_threshold\":%.2f}}",
+        i + 1U, i + 1U, lamp, mist, mist_on, mist_off);
+    assert(length > 0 && static_cast<size_t>(length) <= mqtt::MAX_TUNING_DESIRED_PAYLOAD_BYTES);
+
+    mqtt::NetworkMessage message{};
+    message.type = mqtt::CommandType::TUNING_DESIRED;
+    message.payload_length = static_cast<size_t>(length);
+    std::memcpy(message.payload, payload, message.payload_length);
+    return message;
+}
+
+static void drainL5Outbox(mqtt::MqttManager& manager)
+{
+    // Complete the QoS-1 terminal report the ingress path just published so
+    // the bounded outbox (depth 8) never blocks the 20-command burst.
+    int guard = 0;
+    while (manager.pendingReportCountForTest() > 0 && guard++ < 64) {
+        manager.processPendingReports();
+        if (manager.reportInFlightForTest()) {
+            PubSubClient::mock_last_puback_message_id =
+                PubSubClient::mock_pending_qos1_message_id;
+            ++PubSubClient::mock_puback_sequence;
+            PubSubClient::mock_has_pending_qos1_publish = false;
+            manager.processPendingReports();
+        }
     }
+    assert(manager.pendingReportCountForTest() == 0);
+}
+
+static void executeL5InterleavedBurst(DynamicTuningParams& outFinalExpected,
+                                       unsigned long& outMaxTickUs,
+                                       uint32_t& outTotalAllocations)
+{
+    auto& tuner = storage::TuningConfigManager::getInstance();
+    auto& manager = mqtt::MqttManager::getInstance();
+    outMaxTickUs = 0UL;
+    outTotalAllocations = 0U;
+
+    for (uint32_t i = 0; i < 20U; ++i) {
+        // Inject through the production MQTT ingress within the burst window.
+        const mqtt::NetworkMessage message = buildL5DesiredMessage(i);
+        manager.processNetworkMessage(message);
+        assert(manager.getState() == mqtt::MqttState::CONNECTED);
+        assert(uxQueueMessagesWaiting(g_tuning_config_queue) <= 1U);
+
+        // Interleave Core 1 control tick during burst
+        mock_heap_allocation_count = 0U;
+        mock_measure_core1_tick_allocations = true;
+        taskCore1Control(nullptr);
+        mock_measure_core1_tick_allocations = false;
+
+        outTotalAllocations += mock_heap_allocation_count;
+        unsigned long tickUs = getCore1LastTickDurationUsForTest();
+        if (tickUs > outMaxTickUs) {
+            outMaxTickUs = tickUs;
+        }
+        assert(tickUs < 50000UL);
+
+        // Acknowledge the terminal report so the bounded outbox keeps up with
+        // the burst; this is the QoS-1 PUBACK the broker would deliver.
+        drainL5Outbox(manager);
+        outFinalExpected = tuner.getActiveParams();
+    }
+}
+
+static void runL5TuningBurstStressTest()
+{
+    Serial.println("[TEST] L5 - Interleaved burst 20 tuning updates & control ticks...");
+    setupL5TuningEnvironment();
+
+    DynamicTuningParams expected{};
+    unsigned long maxTickUs = 0UL;
+    uint32_t totalAllocations = 0U;
+
+    const auto burstStart = std::chrono::steady_clock::now();
+    executeL5InterleavedBurst(expected, maxTickUs, totalAllocations);
     const auto burstElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - burstStart);
+
     assert(burstElapsed.count() < 1000);
     assert(expected.revision == 20U);
-
-    mock_heap_allocation_count = 0U;
-    mock_measure_core1_tick_allocations = true;
-    taskCore1Control(nullptr);
-    mock_measure_core1_tick_allocations = false;
 
     const DynamicTuningParams applied = getCore1ActiveTuningForTest();
     assert(applied.revision == expected.revision);
     assert(std::memcmp(&applied, &expected, sizeof(applied)) == 0);
     assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 0U);
-    assert(mock_heap_allocation_count == 0U);
-    assert(getCore1LastTickDurationUsForTest() < 50000UL);
-    Serial.printf("[TEST] L5 passed: burst=%lldms tick=%luus allocations=%u\n",
+    assert(totalAllocations == 0U);
+    assert(maxTickUs < 50000UL);
+
+    Serial.printf("[TEST] L5 passed: burst=%lldms max_tick=%luus allocations=%u\n",
                   static_cast<long long>(burstElapsed.count()),
-                  getCore1LastTickDurationUsForTest(),
-                  static_cast<unsigned>(mock_heap_allocation_count));
+                  maxTickUs,
+                  static_cast<unsigned>(totalAllocations));
 }
 
 int main() {
@@ -1493,10 +1567,10 @@ int main() {
             assert(std::abs(after_redelivery.mist_on_threshold - rebooted.mist_on_threshold) < 0.0001f);
             assert(std::abs(after_redelivery.mist_off_threshold - rebooted.mist_off_threshold) < 0.0001f);
 
-            // Old retained command (revision 1 < 2) is fenced by STALE_REVISION; no NVS write.
+            // Old retained command with unseen UUID (revision 1 < 2) is fenced by STALE_REVISION; no NVS write.
             StaticJsonDocument<512> old_retained;
             old_retained.set(doc);
-            old_retained["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215264";
+            old_retained["command_id"] = "a0d33b2e-9d2a-43a9-8de6-bf10d3215267";
             old_retained["revision"] = 1;
             const size_t writes_before_old_replay = Preferences::mock_put_bytes_count;
             assert(tuner.processCommand(old_retained.as<JsonVariant>(), reason) == storage::TuningResult::REJECTED);
@@ -2030,29 +2104,6 @@ int main() {
             storage::TuningConfigManager& tuner = storage::TuningConfigManager::getInstance();
             tuner.resetForTest();
 
-            // Set up a hook on putBytes to corrupt the stored receipt in global storage
-            // immediately after putBytes writes it.
-            Preferences::mock_put_bytes_hook = [](const char* key, const void* value, size_t len) {
-                if (std::strcmp(key, "tune_rcpt") == 0) {
-                    auto& storage = Preferences::_global_storage[config::network::NVS_NAMESPACE];
-                    auto it = storage.find(key);
-                    if (it != storage.end()) {
-                        std::string& stored = it->second;
-                        struct DummyReceipt {
-                            uint32_t version;
-                            char command_id[37];
-                            uint8_t padding[3];
-                            uint32_t crc32;
-                        };
-                        if (stored.size() >= sizeof(DummyReceipt)) {
-                            DummyReceipt* rec =
-                                reinterpret_cast<DummyReceipt*>(&stored[0]);
-                            rec->crc32 ^= 0xFFFFFFFF; // Corrupt the CRC32
-                        }
-                    }
-                }
-            };
-
             // First, process a valid accepted command to establish it as active
             StaticJsonDocument<512> doc;
             doc["schema_version"] = 1;
@@ -2068,6 +2119,23 @@ int main() {
             storage::TuningReason reason = storage::TuningReason::OK;
             storage::TuningResult result = tuner.processCommand(doc.as<JsonVariant>(), reason);
             assert(result == storage::TuningResult::ACCEPTED);
+
+            // Set up a hook on putBytes to corrupt the stored receipt in global storage
+            // immediately after putBytes writes it.
+            Preferences::mock_put_bytes_hook = [](const char* key, const void*, size_t) {
+                if (key != nullptr && std::strncmp(key, "tune_", 5) == 0) {
+                    auto& storage = Preferences::_global_storage[config::network::NVS_NAMESPACE];
+                    auto it = storage.find(key);
+                    if (it != storage.end()) {
+                        std::string& stored = it->second;
+                        if (stored.size() >= 4) {
+                            // Corrupt the last 4 bytes (CRC)
+                            size_t crc_offset = stored.size() - 4;
+                            stored[crc_offset] ^= 0xFF;
+                        }
+                    }
+                }
+            };
 
             // Now send a semantically identical command with a DIFFERENT command_id.
             // This should trigger recordNoChangeReceipt() which persists the two-slot envelope.
@@ -4581,13 +4649,16 @@ int main() {
         assert(cfg.getMqttBroker() == "retained.broker.com");
         assert(cfg.getMqttPort() == 1885);
 
-        // Legacy production endpoint migrates exactly once without rotating its PSK.
+        // Production truth (commit 3b984f24 + docker-compose): the production
+        // endpoint is mushroomapp.mitelai.com:10883. The legacy production port
+        // equals the production port, so ConfigManager keeps 10883 as-is and
+        // never rotates the stored PSK.
         assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass",
                                      "mushroomapp.mitelai.com", 10883,
                                      "legacy_production_psk") == true);
         cfg.init();
         assert(cfg.getMqttBroker() == "mushroomapp.mitelai.com");
-        assert(cfg.getMqttPort() == 1883);
+        assert(cfg.getMqttPort() == 10883);
         assert(cfg.getMqttPass() == "legacy_production_psk");
 
         String persisted_broker, persisted_user, persisted_pass;
@@ -4595,10 +4666,11 @@ int main() {
         assert(storage::StorageManager::get_instance().load_mqtt_config(
                    persisted_broker, persisted_port, persisted_user, persisted_pass) == true);
         assert(persisted_broker == "mushroomapp.mitelai.com");
-        assert(persisted_port == 1883);
+        assert(persisted_port == 10883);
         assert(persisted_pass == "legacy_production_psk");
 
-        // The current production endpoint and all custom endpoints are preserved.
+        // A production-broker endpoint pinned to the internal 1883 port is left
+        // untouched (broker matches but the port is not the legacy 10883 value).
         assert(cfg.saveNetworkConfig("SavedWifi", "SavedPass",
                                      "mushroomapp.mitelai.com", 1883,
                                      "current_production_psk") == true);

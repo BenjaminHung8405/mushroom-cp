@@ -192,6 +192,6 @@ Rollback command ID, độ trễ và bằng chứng: `________________`.
 | QA/Reviewer độc lập | | | | |
 | Release owner | | | | |
 
-**Kết luận gate S2-5:** `PASS / FAIL`  
-**Release ticket/biên bản:** `________________`  
+**Kết luận gate S2-5:** `PASS / FAIL`
+**Release ticket/biên bản:** `________________`
 **Ghi chú:** `________________`

@@ -56,25 +56,26 @@ bool TuningConfigManager::init() {
 bool TuningConfigManager::hydrateFromNvs() {
     lock();
     _has_pending_dispatch = false;
-    // RAM fast-path cleared on every boot; durable receipt is loaded from NVS below.
+    // RAM fast-path cleared on every boot; durable receipt is loaded from NVS below if NVS slots are valid.
     std::memset(_last_no_change_command_id, 0, sizeof(_last_no_change_command_id));
     std::memset(_durable_receipt_command_id, 0, sizeof(_durable_receipt_command_id));
 
-    if (_storage != nullptr) {
-        _storage->loadDurableReceipt(_durable_receipt_command_id, sizeof(_durable_receipt_command_id));
-    }
     DynamicTuningParams loaded;
     const bool hydrated = _storage != nullptr && _storage->loadTuningParams(loaded);
     if (hydrated) {
         _active_params = loaded;
+        if (_storage != nullptr) {
+            _storage->loadDurableReceipt(_durable_receipt_command_id, sizeof(_durable_receipt_command_id));
+        }
     } else {
-        // Never retain pre-reboot RAM state when persistent records cannot be trusted.
+        // Never retain pre-reboot RAM state or standalone receipts when persistent records cannot be trusted.
         _active_params.revision = 0;
         _active_params.lamp_gain_scale = 1.0f;
         _active_params.mist_gain_scale = 1.0f;
         _active_params.mist_on_threshold = 0.25f;
         _active_params.mist_off_threshold = 0.15f;
         std::memset(_active_params.command_id, 0, sizeof(_active_params.command_id));
+        std::memset(_durable_receipt_command_id, 0, sizeof(_durable_receipt_command_id));
     }
     _initialized = true;
     unlock();

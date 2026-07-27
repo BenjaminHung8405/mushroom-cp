@@ -1,3 +1,21 @@
+// SCOPE (see QA note L1–L3): This suite is a component-level fault-injection
+// harness. It drives the REAL production classes MqttService,
+// TuningConfigurationService and TuningMqttOutboxDispatcher, but substitutes
+// PostgreSQL, the MQTT broker and the ESP32 NVS with in-memory doubles so the
+// idempotency / out-of-order / retained-clear control flow can be asserted
+// deterministically and offline. It intentionally does NOT prove physical
+// durability (transaction/row-lock semantics, retained QoS-1 delivery, or
+// two-slot NVS persistence across a real restart). The L1/L2/L3 durability
+// gate lives in
+// `src/tuning/services/tuning-durability.integration.spec.ts`, which drives
+// these same production services against a REAL PostgreSQL instance (row
+// locks + committed transitions) and a REAL retained/QoS-1 MQTT broker via
+// the mandatory `TUNING_MIGRATION_DATABASE_URL` + `MQTT_*` envs
+// (npm run test:tuning:durability), asserting the reconnect-retained
+// (L1), duplicate-ACK idempotent-skip (L2) and out-of-order-ACK retained-B
+// protection (L3) scenarios after real commit/restart. The Track-F migration
+// gate (`tuning-shadow-migrations.integration.spec.ts`) remains the schema
+// gate, and the firmware host suite covers the two-slot NVS invariant.
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Device } from '../../src/device/entities/device.entity';
 import { MqttService } from '../../src/mqtt/mqtt.service';
@@ -189,7 +207,7 @@ interface DurableHarness {
   outboxDispatches: number;
 }
 
-describe('Tuning retained desired fault injection (e2e)', () => {
+describe('Tuning retained desired fault injection (component harness, in-memory doubles)', () => {
   it('should deliver retained desired to device on reconnect', async () => {
     const broker = new RetainedBrokerHarness();
     const mqtt = createMqttService(broker);
@@ -290,35 +308,61 @@ describe('Tuning retained desired fault injection (e2e)', () => {
 
     const commandABefore = snapshotDurableState(commandA);
     const commandBBefore = snapshotDurableState(commandB);
-    broker.publishFromEdge(
-      `${TENANT}/esp32/${DEVICE_ID}/up/tuning/reported`,
-      JSON.stringify({
-        schema_version: 1,
-        command_id: COMMAND_ID,
-        device_id: DEVICE_ID,
-        revision: 1,
-        status: 'ACCEPTED',
-        reason_code: null,
-        persisted: true,
-        reported_config: CONFIG,
-      }),
-    );
-    await waitUntil(
-      () => durable.transactionCount === 1 && durable.transactionCommitted,
+
+    await thisTestL3OldAckIgnored(
+      broker,
+      durable,
+      commandA,
+      commandB,
+      commandABefore,
+      commandBBefore,
+      sseEvents,
+      desiredTopic,
+      retainedCommandB,
     );
 
-    expect(durable.lockedCommandReads).toBe(1);
-    expect(snapshotDurableState(commandA)).toEqual(commandABefore);
-    expect(snapshotDurableState(commandB)).toEqual(commandBBefore);
-    expect(durable.audits).toHaveLength(0);
-    expect(sseEvents).toHaveLength(0);
-    expect(durable.retainedClearEnqueues).toBe(0);
-    expect(durable.outboxDispatches).toBe(0);
-    expect(retainedClearCount(broker)).toBe(0);
-    expect(broker.retainedPayload(desiredTopic)).toBe(retainedCommandB);
     service.onModuleDestroy();
   });
 });
+
+async function thisTestL3OldAckIgnored(
+  broker: RetainedBrokerHarness,
+  durable: DurableHarness,
+  commandA: DeviceTuningConfiguration,
+  commandB: DeviceTuningConfiguration,
+  commandABefore: Readonly<Record<string, unknown>>,
+  commandBBefore: Readonly<Record<string, unknown>>,
+  sseEvents: TuningSyncEvent[],
+  desiredTopic: string,
+  retainedCommandB: string | null,
+): Promise<void> {
+  broker.publishFromEdge(
+    `${TENANT}/esp32/${DEVICE_ID}/up/tuning/reported`,
+    JSON.stringify({
+      schema_version: 1,
+      command_id: COMMAND_ID,
+      device_id: DEVICE_ID,
+      revision: 1,
+      status: 'ACCEPTED',
+      reason_code: null,
+      persisted: true,
+      reported_config: CONFIG,
+    }),
+  );
+  await waitUntil(
+    () => durable.transactionCount === 1 && durable.transactionCommitted,
+  );
+
+  expect(durable.lockedCommandReads).toBe(1);
+  expect(snapshotDurableState(commandA)).toEqual(commandABefore);
+  expect(snapshotDurableState(commandB)).toEqual(commandBBefore);
+  expect(durable.audits).toHaveLength(0);
+  expect(sseEvents).toHaveLength(0);
+  expect(durable.retainedClearEnqueues).toBe(0);
+  expect(durable.outboxDispatches).toBe(0);
+  expect(retainedClearCount(broker)).toBe(0);
+  expect(broker.retainedPayload(desiredTopic)).toBe(retainedCommandB);
+}
 
 function createMqttService(broker: RetainedBrokerHarness): MqttService {
   const registry = {
@@ -373,21 +417,13 @@ function createDurableHarness(): DurableHarness {
   return harness;
 }
 
-function createOutOfOrderDurableHarness(
+function createOutOfOrderManager(
+  harness: DurableHarness,
   commandA: DeviceTuningConfiguration,
   commandB: DeviceTuningConfiguration,
-): DurableHarness {
-  const audits: TuningAuditLog[] = [];
-  const harness = {
-    pending: commandA,
-    audits,
-    transactionCommitted: false,
-    transactionCount: 0,
-    lockedCommandReads: 0,
-    retainedClearEnqueues: 0,
-    outboxDispatches: 0,
-  } as DurableHarness;
-  const manager = {
+  audits: TuningAuditLog[],
+): EntityManager {
+  return {
     findOne: jest.fn().mockImplementation(
       (
         entity: unknown,
@@ -415,6 +451,23 @@ function createOutOfOrderDurableHarness(
       return Promise.resolve(value);
     }),
   } as unknown as EntityManager;
+}
+
+function createOutOfOrderDurableHarness(
+  commandA: DeviceTuningConfiguration,
+  commandB: DeviceTuningConfiguration,
+): DurableHarness {
+  const audits: TuningAuditLog[] = [];
+  const harness = {
+    pending: commandA,
+    audits,
+    transactionCommitted: false,
+    transactionCount: 0,
+    lockedCommandReads: 0,
+    retainedClearEnqueues: 0,
+    outboxDispatches: 0,
+  } as DurableHarness;
+  const manager = createOutOfOrderManager(harness, commandA, commandB, audits);
   harness.dataSource = {
     transaction: async <T>(
       work: (entityManager: EntityManager) => Promise<T>,
