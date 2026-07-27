@@ -162,6 +162,9 @@ extern HardwareSerial Serial;
 #include <chrono>
 
 extern unsigned long mock_millis_offset;
+extern bool mock_measure_core1_tick_allocations;
+extern bool mock_track_heap_allocations;
+extern size_t mock_heap_allocation_count;
 
 inline void delay(unsigned long ms) {}
 
@@ -170,6 +173,13 @@ inline unsigned long millis() {
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time);
     return static_cast<unsigned long>(duration.count()) + mock_millis_offset;
+}
+
+inline unsigned long micros() {
+    static auto start_time = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time);
+    return static_cast<unsigned long>(duration.count());
 }
 
 inline void yield() {}
@@ -514,9 +524,14 @@ inline BaseType_t xQueueSend(QueueHandle_t xQueue, const void* pvItemToQueue, Ti
     MockQueue* q = static_cast<MockQueue*>(xQueue);
     if (q == nullptr || mock_fail_queue_send) return pdFALSE;
     if (q->items.size() >= q->capacity) return pdFALSE;
+    // std::vector/std::queue allocate in this host shim; real FreeRTOS queue
+    // sends copy into preallocated storage and do not allocate on the caller path.
+    const bool was_tracking_heap = mock_track_heap_allocations;
+    mock_track_heap_allocations = false;
     std::vector<uint8_t> buf(q->item_size);
     std::memcpy(buf.data(), pvItemToQueue, q->item_size);
     q->items.push(std::move(buf));
+    mock_track_heap_allocations = was_tracking_heap;
     if (mock_queue_send_hook != nullptr) {
         mock_queue_send_hook(xQueue, pvItemToQueue);
     }
@@ -529,9 +544,14 @@ inline BaseType_t xQueueOverwrite(QueueHandle_t xQueue, const void* pvItemToQueu
     while (!q->items.empty()) {
         q->items.pop();
     }
+    // Match xQueueOverwrite's fixed-capacity production semantics rather than
+    // counting allocations made only by the STL-backed host mock.
+    const bool was_tracking_heap = mock_track_heap_allocations;
+    mock_track_heap_allocations = false;
     std::vector<uint8_t> buf(q->item_size);
     std::memcpy(buf.data(), pvItemToQueue, q->item_size);
     q->items.push(std::move(buf));
+    mock_track_heap_allocations = was_tracking_heap;
     if (mock_queue_overwrite_hook != nullptr) {
         mock_queue_overwrite_hook(xQueue, pvItemToQueue);
     }

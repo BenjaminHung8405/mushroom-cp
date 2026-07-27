@@ -1,19 +1,79 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <map>
+#include <string>
+#include <vector>
 
+#include "core/system_manager.h"
 #include "core/tuning_config_manager.h"
 #include "network/mqtt_manager.h"
+#include "Preferences.h"
 
 namespace test_ingress {
 namespace {
 
 constexpr const char* kValidCommandId = "d4444444-1234-1234-1234-123456789012";
 
+struct InvalidDesiredCase {
+    const char* name;
+    const char* command_id;
+    const char* payload;
+    storage::TuningReason reason;
+    const char* reason_code;
+};
+
 void assertNoMutation(const DynamicTuningParams& before,
                       const DynamicTuningParams& after)
 {
     assert(std::memcmp(&before, &after, sizeof(DynamicTuningParams)) == 0);
+}
+
+void assertInvalidDesiredRejected(const InvalidDesiredCase& test_case,
+                                  mqtt::MqttManager& manager,
+                                  storage::TuningConfigManager& tuning,
+                                  const DynamicTuningParams& active_before,
+                                  const std::map<std::string, std::string>& nvs_before)
+{
+    manager.resetOutboxForTest();
+    manager.setStateForTest(mqtt::MqttState::CONNECTED);
+    PubSubClient::mock_connected = true;
+    PubSubClient::mock_publish_result = true;
+    PubSubClient::mock_has_pending_qos1_publish = false;
+    PubSubClient::mock_last_published_payload.clear();
+    assert(xQueueReset(g_tuning_config_queue) == pdTRUE);
+
+    const size_t writes_before = Preferences::mock_put_bytes_count;
+    mqtt::NetworkMessage message{};
+    message.type = mqtt::CommandType::TUNING_DESIRED;
+    message.payload_length = std::strlen(test_case.payload);
+    assert(message.payload_length <= sizeof(message.payload));
+    std::memcpy(message.payload, test_case.payload, message.payload_length);
+
+    manager.processNetworkMessage(message);
+
+    assert(manager.getState() == mqtt::MqttState::CONNECTED);
+    assert(manager.pendingReportCountForTest() == 1);
+    assert(manager.reportInFlightForTest());
+    assert(std::strcmp(manager.pendingReportCommandIdForTest(0), test_case.command_id) == 0);
+    assert(manager.pendingReportResultForTest(0) == storage::TuningResult::REJECTED);
+    assert(manager.pendingReportReasonForTest(0) == test_case.reason);
+    assert(PubSubClient::mock_last_published_payload.find("\"status\":\"REJECTED\"") !=
+           std::string::npos);
+    const std::string expected_reason =
+        std::string("\"reason_code\":\"") + test_case.reason_code + "\"";
+    assert(PubSubClient::mock_last_published_payload.find(expected_reason) != std::string::npos);
+    assert(PubSubClient::mock_last_published_payload.find("\"persisted\":false") !=
+           std::string::npos);
+    assert(!PubSubClient::mock_last_published_retained);
+    assert(PubSubClient::mock_last_published_qos == 1);
+
+    assertNoMutation(active_before, tuning.getActiveParams());
+    assert(Preferences::mock_put_bytes_count == writes_before);
+    assert(Preferences::_global_storage["mushroom_cfg"] == nvs_before);
+    assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 0U);
+    std::cout << "[TEST] L6 rejected " << test_case.name << " as "
+              << test_case.reason_code << std::endl;
 }
 
 } // namespace
@@ -112,9 +172,46 @@ void run_all_tests()
         assertDeferredWithoutMutation(oversized, sizeof(oversized));
     }
     const char missing_uuid[] = "{\"device_id\":\"mushroom_s3_unittest\"}";
-    const char invalid_uuid[] = "{\"command_id\":\"not-a-uuid\"}";
     assertDeferredWithoutMutation(missing_uuid, std::strlen(missing_uuid));
-    assertDeferredWithoutMutation(invalid_uuid, std::strlen(invalid_uuid));
+
+    // L6 fault-injection table exercises the complete production ingress,
+    // validator, terminal report, persistence, RAM, and Core-1 queue boundary.
+    const std::vector<InvalidDesiredCase> invalid_cases = {
+        {"NaN", "d4444444-1234-4234-8234-123456789101",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789101","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":NaN,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::INVALID_SCHEMA, "INVALID_SCHEMA"},
+        {"Infinity", "d4444444-1234-4234-8234-123456789102",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789102","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":Infinity,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::INVALID_SCHEMA, "INVALID_SCHEMA"},
+        {"string number", "d4444444-1234-4234-8234-123456789103",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789103","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":"1.05","mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::OUT_OF_BOUNDS, "OUT_OF_RANGE"},
+        {"null", "d4444444-1234-4234-8234-123456789104",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789104","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":null,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::OUT_OF_BOUNDS, "OUT_OF_RANGE"},
+        {"missing key", "d4444444-1234-4234-8234-123456789105",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789105","device_id":"mushroom_s3_unittest","revision":1,"config":{"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::OUT_OF_BOUNDS, "OUT_OF_RANGE"},
+        {"schema version", "d4444444-1234-4234-8234-123456789106",
+         R"({"schema_version":2,"command_id":"d4444444-1234-4234-8234-123456789106","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":1.05,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::INVALID_SCHEMA, "INVALID_SCHEMA"},
+        {"device mismatch", "d4444444-1234-4234-8234-123456789107",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789107","device_id":"another_device","revision":1,"config":{"lamp_gain_scale":1.05,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::INVALID_DEVICE_ID, "DEVICE_MISMATCH"},
+        {"invalid UUID", "not-a-uuid",
+         R"({"schema_version":1,"command_id":"not-a-uuid","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":1.05,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::INVALID_UUID, "INVALID_UUID"},
+        {"invalid hysteresis", "d4444444-1234-4234-8234-123456789109",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789109","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":1.05,"mist_gain_scale":1.0,"mist_on_threshold":0.20,"mist_off_threshold":0.20}})",
+         storage::TuningReason::CROSS_FIELD_VIOLATION, "CROSS_FIELD_INVALID"},
+        {"hard bounds", "d4444444-1234-4234-8234-123456789110",
+         R"({"schema_version":1,"command_id":"d4444444-1234-4234-8234-123456789110","device_id":"mushroom_s3_unittest","revision":1,"config":{"lamp_gain_scale":1.21,"mist_gain_scale":1.0,"mist_on_threshold":0.25,"mist_off_threshold":0.15}})",
+         storage::TuningReason::OUT_OF_BOUNDS, "OUT_OF_RANGE"},
+    };
+    const auto nvs_before = Preferences::_global_storage["mushroom_cfg"];
+    for (const InvalidDesiredCase& test_case : invalid_cases) {
+        assertInvalidDesiredRejected(test_case, manager, tuning, before, nvs_before);
+    }
 
     // Escaped key is decoded by ArduinoJson and still identifies the root
     // command_id. The ingress classifier therefore yields a canonical ID for

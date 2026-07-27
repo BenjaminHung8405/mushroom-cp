@@ -1579,16 +1579,21 @@ MqttManager::TuningIngressDecision MqttManager::classifyTuningMessage(const char
     const char* raw_command_id = out_doc["command_id"].is<const char*>()
         ? out_doc["command_id"].as<const char*>()
         : nullptr;
+    const size_t raw_command_id_length = raw_command_id == nullptr
+        ? 0
+        : strnlen(raw_command_id, UUID_LEN + 1);
 
-    if (raw_command_id == nullptr ||
-        !isCanonicalUuid36(raw_command_id, strnlen(raw_command_id, UUID_LEN + 1))) {
-        Serial.println("[MQTT] Tuning message classify: missing or invalid root command_id UUID.");
+    // A missing, empty, or oversized identity cannot safely own a terminal
+    // report. A bounded non-canonical identity is preserved so the validator
+    // can emit the stable INVALID_UUID rejection without touching state.
+    if (raw_command_id_length == 0 || raw_command_id_length > UUID_LEN) {
+        Serial.println("[MQTT] Tuning message classify: missing or oversized root command_id.");
         return TuningIngressDecision::DEFER_REDELIVERY;
     }
 
     if (out_command_id != nullptr) {
-        std::memcpy(out_command_id, raw_command_id, UUID_LEN);
-        out_command_id[UUID_LEN] = '\0';
+        std::memcpy(out_command_id, raw_command_id, raw_command_id_length);
+        out_command_id[raw_command_id_length] = '\0';
     }
 
     return TuningIngressDecision::PROCESS_COMMAND;

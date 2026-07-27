@@ -1,6 +1,8 @@
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include "storage/tuning_storage.h"
 #include "core/tuning_config_manager.h"
 #include "Preferences.h"
@@ -100,6 +102,59 @@ void run_all_tests() {
         // The malformed record cannot replace the safe active/default configuration.
         DynamicTuningParams fallback = tuner.getActiveParams();
         assert(std::memcmp(&fallback, &active_before, sizeof(fallback)) == 0);
+    }
+
+    // L4. A reboot with no trustworthy slot must use defaults without writing
+    // over forensic evidence or claiming that persisted state was hydrated.
+    {
+        auto& global_nvs = Preferences::_global_storage["mushroom_cfg"];
+        global_nvs.clear();
+
+        global_nvs["tune_s0"] = std::string("\xA5\x00garbage", 9);
+        storage::TuningNvsRecord crc_invalid{};
+        crc_invalid.version = 2;
+        crc_invalid.commit_state = 2;
+        crc_invalid.generation = 99;
+        std::strncpy(crc_invalid.params.command_id,
+                     "d4444444-1234-1234-1234-123456789099",
+                     sizeof(crc_invalid.params.command_id) - 1);
+        crc_invalid.params.revision = 99;
+        crc_invalid.params.lamp_gain_scale = 1.2f;
+        crc_invalid.params.mist_gain_scale = 0.8f;
+        crc_invalid.params.mist_on_threshold = 0.35f;
+        crc_invalid.params.mist_off_threshold = 0.20f;
+        crc_invalid.crc32 = calculateRecordCrcForTest(crc_invalid) ^ 0xFFFFFFFFU;
+        global_nvs["tune_s1"] = std::string(
+            reinterpret_cast<const char*>(&crc_invalid), sizeof(crc_invalid));
+
+        const std::string slot0_before = global_nvs["tune_s0"];
+        const std::string slot1_before = global_nvs["tune_s1"];
+        const size_t writes_before = Preferences::mock_put_bytes_count;
+
+        tuner.resetForTest();
+        std::ostringstream boot_log;
+        std::streambuf* const previous_output = std::cout.rdbuf(boot_log.rdbuf());
+        const bool first_boot_hydrated = tuner.hydrateFromNvs();
+        const bool second_boot_hydrated = tuner.hydrateFromNvs();
+        std::cout.rdbuf(previous_output);
+
+        assert(!first_boot_hydrated);
+        assert(!second_boot_hydrated);
+        const DynamicTuningParams fallback = tuner.getActiveParams();
+        assert(fallback.revision == 0);
+        assert(fallback.command_id[0] == '\0');
+        assert(std::abs(fallback.lamp_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(fallback.mist_gain_scale - 1.0f) < 0.0001f);
+        assert(std::abs(fallback.mist_on_threshold - 0.25f) < 0.0001f);
+        assert(std::abs(fallback.mist_off_threshold - 0.15f) < 0.0001f);
+
+        const std::string warning_log = boot_log.str();
+        assert(warning_log.find("WARNING") != std::string::npos);
+        assert(warning_log.find("using safe defaults") != std::string::npos);
+        assert(warning_log.find("Hydrated dynamic tuning parameters") == std::string::npos);
+        assert(Preferences::mock_put_bytes_count == writes_before);
+        assert(global_nvs["tune_s0"] == slot0_before);
+        assert(global_nvs["tune_s1"] == slot1_before);
     }
 
     std::cout << "[TEST SUITE] Tuning Storage & NVS Two-Slot Invariant Passed!" << std::endl;

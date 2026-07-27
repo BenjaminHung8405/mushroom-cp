@@ -1,3 +1,169 @@
+## [2026-07-27T14:42:47+07:00] - Task L8: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:42:47+07:00.
+- **Task ID:** L8.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `test/tuning/staging-checklist.md` (tạo mới checklist staging 24 giờ, rollback drill và release gate S2-5).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật L8 từ Pending → In Progress → QA Review).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi mới nhất).
+- **Giải pháp logic:** Xây dựng checklist vận hành bắt buộc theo mô hình fail-closed, mỗi gate có tiêu chí PASS/FAIL và vị trí lưu bằng chứng. Checklist bao phủ staging isolation/backup, migration `1720656000006`–`1720656000014`, provisioning bucket và task Influx idempotent, firmware triển khai contract Dynamic Tuning v2.2, apply online với ACK tối đa 10 giây, DB/audit/SSE sau commit, offline retained/reconnect, bất biến Lamp/Fan khi tuning Mist, cửa sổ quan sát liên tục 24 giờ, factory-safe rollback qua đúng durable shadow flow và chữ ký operator/reviewer/release owner. Phần firmware tách rõ phiên bản contract v2.2 khỏi semantic version runtime để tránh xác nhận sai artifact; rollback chỉ tác động tuning, không xóa crop profile, Wi-Fi hoặc provisioning credentials.
+- **Kết quả tự kiểm tra:**
+  - Xác nhận file là UTF-8 (`text/plain; charset=utf-8`): **PASS**.
+  - Kiểm tra cấu trúc checklist có **64 mục hành động**, đủ migration, bucket/task, ESP32, ACK 10 giây, DB transition, audit, SSE, retained reconnect, Lamp/Fan invariant, rollback, quan sát memory/state drift 24 giờ và sign-off: **PASS**.
+  - Đối chiếu lệnh và contract với source hiện tại (`migration:run`, `test:migrations:integration`, `provision-influx.sh`, task `kpi_hourly_aggregation`, MQTT topic/QoS/retain, factory-safe snapshot `1.0/1.0/0.25/0.15`): **PASS**.
+  - Rà soát tài liệu không chứa credential/token thực và có cảnh báo redaction, không chạy migration destructive trên staging: **PASS**.
+  - Rà soát Markdown và whitespace bằng `git diff --check`: **PASS**.
+
+---
+
+## [2026-07-27T14:37:20+07:00] - Task L7: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:37:20+07:00.
+- **Task ID:** L7.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-iot-firmware/test/run_tests.cpp` (bổ sung actuator-isolation regression test và entrypoint `L7_TARGETED_TEST`).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L7).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Bổ sung test chạy trực tiếp `relay_control::applyDirectOutputs()` với tuning Mist chính xác `on=0.30`, `off=0.18`. Khi demand bằng `0.25`, Lamp/Fan phải bật theo dải cố định `0.25/0.15` nhưng Mist vẫn tắt; khi Mist đạt `0.30` thì chỉ Mist chuyển bật. Sau đó tại demand `0.17`, Mist phải tắt do thấp hơn ngưỡng động `0.18`, trong khi Lamp/Fan tiếp tục bật vì chưa xuống dưới ngưỡng cố định `0.15`; tại `0.149`, Lamp/Fan mới tắt. Các điểm biên này sẽ fail ngay nếu tuning Mist bị dùng nhầm làm threshold toàn cục. Test cũ về hysteresis `0.35/0.20`, invalid band và relay stability được giữ nguyên; không sửa logic production vì implementation hiện tại đã cô lập đúng từng actuator.
+- **Kết quả tự kiểm tra:**
+  - Targeted harness liên kết và thực thi trực tiếp `src/core/actuator_controller.cpp`: **PASS** (`L7 targeted production-source harness: PASS`).
+  - Syntax-check `test/run_tests.cpp` với `UNIT_TEST` và `L7_TARGETED_TEST`: **PASS**.
+  - Production firmware build `platformio run -e otg`: **PASS**; RAM 19.5%, Flash 44.3%.
+  - Xác nhận coverage hysteresis cũ vẫn còn nguyên và L7 có cả targeted entrypoint lẫn lời gọi trong full runner: **PASS**.
+  - `git diff --check`: **PASS**.
+
+---
+
+## [2026-07-27T14:32:27+07:00] - Task L6: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:32:27+07:00.
+- **Task ID:** L6.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-iot-firmware/src/network/mqtt_manager.cpp` (cho phép UUID sai định dạng nhưng có độ dài bounded đi qua validator để phát terminal `REJECTED/INVALID_UUID`; identity thiếu/rỗng/quá dài vẫn fail-closed bằng redelivery).
+  - `mushroom-iot-firmware/test/tuning_ingress_validation_tests.cpp` (bổ sung negative injection suite L6 dạng table-driven và kiểm tra report/RAM/NVS/Core-1 queue).
+  - `mushroom-iot-firmware/test/run_tests.cpp` (bổ sung entrypoint `L6_TARGETED_TEST` để chạy cô lập suite qua production ingress).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L6).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Negative suite inject đủ 10 biến thể qua `MqttManager::processNetworkMessage()` production: token `NaN`, `Infinity`, numeric string, `null`, thiếu key, schema khác 1, device mismatch, UUID sai định dạng, hysteresis không hợp lệ và hard-bound violation. Mỗi case xác nhận terminal report QoS 1/non-retained có `status=REJECTED`, `persisted=false` và reason code ổn định tương ứng (`INVALID_SCHEMA`, `OUT_OF_RANGE`, `DEVICE_MISMATCH`, `INVALID_UUID`, `CROSS_FIELD_INVALID`). Ingress giữ nguyên fail-closed cho identity thiếu/rỗng/quá dài; UUID sai định dạng nhưng bounded được chuyển đến validator để có thể báo `INVALID_UUID` mà không persist hay dispatch. Sau từng injection, test so sánh byte-for-byte active RAM, snapshot namespace NVS, số NVS writes và depth queue Core 1 để chứng minh không có state mutation.
+- **Kết quả tự kiểm tra:**
+  - Targeted L6 host runner build trực tiếp cùng toàn bộ production source và test companion: **PASS**; đủ **10/10 variants** nhận đúng stable reason code.
+  - Bất biến từng variant: active RAM không đổi, NVS snapshot không đổi, NVS write count không tăng, Core-1 tuning queue giữ depth 0, MQTT report QoS 1 và `retain=false`: **PASS**.
+  - Production firmware build `platformio run -e otg`: **PASS**; RAM 19.5%, Flash 44.3%.
+  - `git diff --check`: **PASS**.
+  - Full host runner build thành công nhưng dừng trước suite L6 tại assertion cũ `run_tests.cpp:1456`: test kỳ vọng retained UUID cũ trả `STALE_REVISION`, trong khi production nhận diện UUID đã tồn tại và trả `DUPLICATE_UUID` trước revision fence. Đây là regression test tồn đọng đã được ghi nhận ở L4/L5; targeted L6 và production build không có lỗi L6.
+
+---
+
+## [2026-07-27T14:24:32+07:00] - Task L5: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:24:32+07:00.
+- **Task ID:** L5.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-iot-firmware/src/core/core1_tasks.cpp` (bổ sung snapshot/timing quan sát chỉ dành cho UNIT_TEST tại ranh giới control tick).
+  - `mushroom-iot-firmware/src/core/system_manager.h` (khai báo test-only API đọc tuning snapshot và thời lượng tick).
+  - `mushroom-iot-firmware/test/Arduino.h` (bổ sung đồng hồ microsecond và cơ chế loại trừ allocation giả của mock FreeRTOS queue).
+  - `mushroom-iot-firmware/test/run_tests.cpp` (bổ sung fault-injection stress scenario L5 và targeted entrypoint).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L5).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Scenario phát tuần tự 20 desired command hợp lệ qua `TuningConfigManager::processCommand()` production trong khi Core 1 chưa chạy, xác nhận sau từng command queue tuning luôn bị chặn ở depth 1 bằng overwrite và toàn bộ burst hoàn tất dưới 1 giây. Sau burst, đúng một control tick production được chạy; test so sánh byte-for-byte snapshot Core-1-owned với durable snapshot revision 20, xác nhận queue đã drain, không crash, không có `operator new/new[]` trên control path và thời lượng tick nhỏ hơn ngân sách 50 ms. Instrumentation snapshot, timing và heap tracking đều nằm sau `UNIT_TEST`, không tạo state/overhead trong firmware production; allocation nội tại của STL-backed mock queue được loại khỏi phép đo vì FreeRTOS queue thật dùng vùng nhớ cấp sẵn.
+- **Kết quả tự kiểm tra:**
+  - Targeted L5 host firmware runner, build trực tiếp cùng toàn bộ production source: **PASS** (`Targeted exit: 0`).
+  - Burst 20 desired: **PASS**, hoàn tất trong **1 ms**; queue giữ đúng depth 1 sau mọi command.
+  - Core 1 áp dụng đúng command cuối revision 20 và queue về 0: **PASS**.
+  - Control tick: **8 µs**, nhỏ hơn 50.000 µs; heap allocation mới trên path đo được: **0**.
+  - Production firmware build `platformio run -e otg`: **PASS**; RAM 19.5%, Flash 44.3%.
+  - `git diff --check`: **PASS**.
+  - Full host runner build thành công nhưng dừng trước L5 tại hai assertion test cũ ngoài phạm vi: stale UUID đang được production phân loại `DUPLICATE_UUID` thay vì kỳ vọng cũ `STALE_REVISION`, và Case K2 kỳ vọng `REJECTED` cho durable no-change receipt. Targeted L5 dùng cùng helper production/full-suite để kiểm chứng độc lập, không sửa source repository nhằm né các regression tồn đọng này.
+
+---
+
+## [2026-07-27T14:16:13+07:00] - Task L4: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:16:13+07:00.
+- **Task ID:** L4.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.h` (bổ sung API hydration có kết quả tin cậy).
+  - `mushroom-iot-firmware/src/core/tuning_config_manager.cpp` (fallback fail-safe và warning khi hai slot không hợp lệ).
+  - `mushroom-iot-firmware/src/core/system_manager.cpp` (bootstrap phân biệt persisted hydration với safe-default fallback).
+  - `mushroom-iot-firmware/test/tuning_storage_tests.cpp` (bổ sung fault-injection L4).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L4).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Khôi phục contract `hydrateFromNvs()` theo kế hoạch: trả `true` duy nhất khi đọc được committed record hợp lệ từ cơ chế NVS hai slot, còn storage thiếu/hai slot sai thì xóa mọi state RAM có thể còn sót, cài đầy đủ safe defaults (`revision=0`, gain `1.0/1.0`, Mist `0.25/0.15`, command ID rỗng), phát warning và trả `false`. `init()` vẫn giữ contract tương thích là manager khởi tạo thành công vì fallback luôn tạo cấu hình an toàn. Bootstrap chỉ log “Hydrated” khi persisted state đáng tin; nhánh fallback enqueue defaults với cảnh báo, không ghi đè/xóa bằng chứng NVS lỗi.
+- **Kết quả tự kiểm tra:**
+  - Targeted L4 runner dùng trực tiếp `TuningStorageImpl` + `TuningConfigManager` production: **PASS** (`L4 targeted recovery test passed`).
+  - Toàn bộ suite NVS two-slot cô lập, gồm invariant cũ và L4 mới: **PASS** (`Tuning Storage & NVS Two-Slot Invariant Passed`).
+  - Production firmware build `platformio run -e otg`: **PASS**; RAM 19.5%, Flash 44.3%.
+  - `git diff --check`: **PASS**.
+  - Fault injection bao phủ một slot garbage sai kích thước và một envelope đủ kích thước nhưng CRC sai; hai lần hydrate liên tiếp đều trả `false`, defaults giữ nguyên, warning xuất hiện, không claim persisted hydration, không phát sinh NVS write và bytes lỗi giữ nguyên.
+  - Full host runner đã build từ source và chạy tới assertion cũ `run_tests.cpp:1340`; assertion này kỳ vọng stale UUID trả `STALE_REVISION`, trong khi production hiện nhận diện UUID còn tồn tại trong slot là `DUPLICATE_UUID` trước revision fence. Đây là mâu thuẫn test tồn đọng ngoài L4; targeted suite và production build không có lỗi L4.
+
+---
+
+## [2026-07-27T14:08:11+07:00] - Task L3: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:08:11+07:00.
+- **Task ID:** L3.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-backend/test/tuning/fault-injection.e2e-spec.ts` (mở rộng E2E fault-injection với scenario L3).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L3).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Bổ sung scenario out-of-order QoS-1 ACK với durable state Command A=`IN_SYNC`, Command B=`PENDING` revision mới hơn và broker đang retain nguyên envelope B. ACK `ACCEPTED` cũ của A được inject qua MQTT parser production; harness xác nhận transaction khóa đúng command A và truy vấn latest trả B, từ đó nhánh terminal/latest guard không mutation state, không audit/SSE, không enqueue hoặc dispatch retained-clear và không phát packet clear. Payload retained B được so sánh byte-for-byte trước và sau ACK để ngăn regression xóa nhầm desired mới.
+- **Kết quả tự kiểm tra:**
+  - Targeted E2E `fault-injection.e2e-spec.ts`: **PASS (1 suite, 3 tests)**.
+  - Backend unit/regression: **PASS (41 suites, 373 tests)**.
+  - ESLint trực tiếp trên file E2E: **PASS (0 lỗi, 0 cảnh báo)**.
+  - Backend production type-check: **PASS**.
+  - Backend production build: **PASS**.
+  - Assertions L3 chính: A và B không state drift; đúng một pessimistic locked read cho A; audit/SSE/outbox enqueue/outbox dispatch/clear-retained đều bằng 0; retained envelope B giữ nguyên.
+
+---
+
+## [2026-07-27T14:05:06+07:00] - Task L2: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:05:06+07:00.
+- **Task ID:** L2.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-backend/test/tuning/fault-injection.e2e-spec.ts` (mở rộng E2E fault-injection từ L1 với scenario L2).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L2).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Bổ sung scenario tái phát nguyên vẹn ACK `ACCEPTED` đã được xử lý qua parser MQTT production, sau khi durable command đã chuyển sang `IN_SYNC`. Harness instrument số transaction, lượt đọc command dưới pessimistic row lock, enqueue/dispatch outbox và số packet clear-retained; đồng thời chụp toàn bộ durable state trước khi reinject. Test xác nhận ACK duplicate vẫn đi vào transaction và đọc row có lock, nhưng nhánh terminal-state bỏ qua mọi mutation/side effect: state không drift, không audit mới, không SSE thứ hai, không enqueue/dispatch outbox và không clear retained lần hai.
+- **Kết quả tự kiểm tra:**
+  - Targeted E2E `fault-injection.e2e-spec.ts`: **PASS (1 suite, 2 tests)**.
+  - Backend unit/regression: **PASS (41 suites, 373 tests)**.
+  - ESLint trực tiếp trên file E2E: **PASS (0 lỗi, 0 cảnh báo)**.
+  - Backend production type-check: **PASS**.
+  - Backend production build: **PASS**.
+  - Assertions L2 chính: transaction duplicate hoàn tất và tăng đúng một lượt đọc command có lock; durable snapshot giữ nguyên; audit/SSE/outbox enqueue/outbox dispatch/clear-retained đều không tăng.
+
+---
+
+## [2026-07-27T14:02:17+07:00] - Task L1: Đang chờ QA Review
+
+- **Thời gian thực hiện:** 2026-07-27T14:02:17+07:00.
+- **Task ID:** L1.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review.
+- **Danh sách file đã tạo mới hoặc sửa đổi:**
+  - `mushroom-backend/test/tuning/fault-injection.e2e-spec.ts` (tạo mới).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` (cập nhật trạng thái L1).
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md` (thêm nhật ký thực thi).
+- **Giải pháp logic:** Bổ sung E2E fault-injection xác định cho luồng device offline → reconnect. Test chạy qua API publish production của `MqttService`, broker harness kiểm chứng desired được publish QoS 1/retained và giữ lại khi Edge offline; khi reconnect, Edge harness nhận retained envelope, kiểm tra contract, mô phỏng commit NVS hai-slot đúng một lần rồi gửi `ACCEPTED` qua uplink production parser. `TuningConfigurationService` xử lý ACK bằng transaction production, chuyển durable state `PENDING → IN_SYNC`, ghi audit `SYNC_ACCEPTED`, phát SSE sau commit và dispatch clear retained. Phạm vi chỉ bao phủ L1, không reinject duplicate ACK hoặc kiểm thử out-of-order ACK thuộc L2/L3.
+- **Kết quả tự kiểm tra:**
+  - Targeted E2E `fault-injection.e2e-spec.ts`: **PASS (1 suite, 1 test)**.
+  - Backend unit/regression: **PASS (41 suites, 373 tests)**.
+  - ESLint trực tiếp trên file mới: **PASS (0 lỗi)**.
+  - Backend production type-check/build (`pnpm run build`): **PASS**.
+  - Full test-source TypeScript check: file L1 **không có diagnostic**; lệnh tổng vẫn báo các lỗi fixture tồn đọng trong những spec cũ, ngoài phạm vi Task L1.
+  - Assertions chính: desired chưa tới Edge khi offline; packet có `qos: 1`, `retain: true`; reconnect nhận đúng một retained desired; NVS có đúng một commit/two-slot (2 writes, không ghi thừa); DB là `IN_SYNC`; audit và SSE mỗi loại đúng một bản ghi/sự kiện; retained desired được clear sau ACK commit.
+
+---
+
 ## [2026-07-27T13:57:00+07:00] - Security & Architecture QA Audit: LGTM (Track K, K1–K7)
 
 - **Kết quả:** **LGTM (Looks Good To Me) — ĐÃ DUYỆT BỞI CHUYÊN GIA KIỂM TOÁN MÃ NGUỒN.**
@@ -3257,5 +3423,3 @@ Tài liệu này lưu vết nhật ký thực thi của dự án dynamic tuning 
 - **Kết quả:** **LGTM / Approved.** Các task G2, H1-H5 và J1-J9 đã vượt qua Security Audit & Code Review theo checklist README.md v2.2 và được chuyển sang `[x] Done` trong `PROGRESS.md`.
 - **Xác nhận trọng tâm kiểm toán:** Clean Architecture và convention; zero-trust ownership authorization; input/SQL/Flux validation; SSE ticket/HMAC/replay protection và teardown; transaction/audit/outbox durability; KPI aggregation/coverage gate; pagination và cleanup batch.
 - **Trạng thái sprint tiếp theo:** Chuyển trọng tâm thực hiện sang **Track K — Frontend: Tuning Advisory Panel** và **Track L — E2E Fault Injection Testing**.
-
----

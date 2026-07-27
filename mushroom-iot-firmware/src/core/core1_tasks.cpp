@@ -47,6 +47,23 @@ QueueHandle_t g_manual_ack_queue = nullptr;
 QueueHandle_t g_operating_mode_ack_queue = nullptr;
 QueueHandle_t g_profile_update_queue = nullptr;
 QueueHandle_t g_tuning_config_queue = nullptr;
+
+#ifdef UNIT_TEST
+namespace {
+DynamicTuningParams core1_active_tuning_for_test{};
+unsigned long core1_last_tick_duration_us_for_test = 0U;
+}
+
+DynamicTuningParams getCore1ActiveTuningForTest()
+{
+    return core1_active_tuning_for_test;
+}
+
+unsigned long getCore1LastTickDurationUsForTest()
+{
+    return core1_last_tick_duration_us_for_test;
+}
+#endif
 EventGroupHandle_t xWifiEventGroup = nullptr;
 
 bool enqueueControlEvent(const ControlEvent& event)
@@ -1085,6 +1102,10 @@ void taskCore1Control(void* /*pvParameters*/)
     for (int iteration = 0; iteration < 1; ++iteration)
 #endif
     {
+#ifdef UNIT_TEST
+        const unsigned long tickStartUs = micros();
+        mock_track_heap_allocations = mock_measure_core1_tick_allocations;
+#endif
         runControlPipelineStep(
             telemetry,
             co2State,
@@ -1096,6 +1117,12 @@ void taskCore1Control(void* /*pvParameters*/)
             manualLatch,
             lastSensorMs,
             lastControlMs);
+
+#ifdef UNIT_TEST
+        mock_track_heap_allocations = false;
+        core1_last_tick_duration_us_for_test = micros() - tickStartUs;
+        core1_active_tuning_for_test = s_activeTuning;
+#endif
 
 #ifndef UNIT_TEST
         esp_task_wdt_reset();

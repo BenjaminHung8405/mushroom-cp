@@ -33,6 +33,8 @@ using storage::TuningNvsRecord;
 #include <type_traits>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <new>
 
 namespace test_ingress { void run_all_tests(); }
 namespace test_outbox { void run_all_tests(); }
@@ -99,6 +101,41 @@ std::string WiFiClass::mock_pass = "";
 bool WiFiClass::disconnect_called = false;
 WiFiClass WiFi;
 unsigned long mock_millis_offset = 0;
+bool mock_measure_core1_tick_allocations = false;
+bool mock_track_heap_allocations = false;
+size_t mock_heap_allocation_count = 0;
+
+void* operator new(std::size_t size) {
+    if (mock_track_heap_allocations) ++mock_heap_allocation_count;
+    if (void* ptr = std::malloc(size)) return ptr;
+    throw std::bad_alloc();
+}
+
+void* operator new[](std::size_t size) {
+    if (mock_track_heap_allocations) ++mock_heap_allocation_count;
+    if (void* ptr = std::malloc(size)) return ptr;
+    throw std::bad_alloc();
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment) {
+    if (mock_track_heap_allocations) ++mock_heap_allocation_count;
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, static_cast<std::size_t>(alignment), size) == 0) return ptr;
+    throw std::bad_alloc();
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment) {
+    return ::operator new(size, alignment);
+}
+
+void operator delete(void* ptr) noexcept { std::free(ptr); }
+void operator delete[](void* ptr) noexcept { std::free(ptr); }
+void operator delete(void* ptr, std::size_t) noexcept { std::free(ptr); }
+void operator delete[](void* ptr, std::size_t) noexcept { std::free(ptr); }
+void operator delete(void* ptr, std::align_val_t) noexcept { std::free(ptr); }
+void operator delete[](void* ptr, std::align_val_t) noexcept { std::free(ptr); }
+void operator delete(void* ptr, std::size_t, std::align_val_t) noexcept { std::free(ptr); }
+void operator delete[](void* ptr, std::size_t, std::align_val_t) noexcept { std::free(ptr); }
 bool PubSubClient::mock_connected = false;
 uint16_t PubSubClient::mock_buffer_size = 0;
 uint16_t PubSubClient::mock_keep_alive = 0;
@@ -138,6 +175,115 @@ bool mock_fail_queue_send = false;
 bool mock_core1_adopted_tuning_candidate = false;
 bool mock_drain_tuning_overwrite = false;
 
+static void runL7ActuatorIsolationTest()
+{
+    using FuzzyController::ArbitratedOutputsPod;
+    using relay_control::RelayStatePod;
+
+    DynamicTuningParams mistTuning{};
+    mistTuning.mist_on_threshold = 0.30f;
+    mistTuning.mist_off_threshold = 0.18f;
+
+    // At 0.25, fixed Lamp/Fan thresholds switch ON while Mist remains OFF
+    // until its independently tuned 0.30 ON boundary is reached.
+    RelayStatePod state = {false, false, false, false};
+    relay_control::applyDirectOutputs(
+        ArbitratedOutputsPod{0.25f, 0.0f, 0.25f, 0.25f}, mistTuning, state);
+    assert(state.lamp_active == true);
+    assert(state.mist_active == false);
+    assert(state.fan_active == true);
+
+    relay_control::applyDirectOutputs(
+        ArbitratedOutputsPod{0.25f, 0.0f, 0.30f, 0.25f}, mistTuning, state);
+    assert(state.lamp_active == true);
+    assert(state.mist_active == true);
+    assert(state.fan_active == true);
+
+    // At 0.17, Mist crosses its tuned 0.18 OFF threshold, while Lamp/Fan
+    // remain ON because their fixed 0.15 OFF threshold is unchanged.
+    relay_control::applyDirectOutputs(
+        ArbitratedOutputsPod{0.17f, 0.0f, 0.17f, 0.17f}, mistTuning, state);
+    assert(state.lamp_active == true);
+    assert(state.mist_active == false);
+    assert(state.fan_active == true);
+
+    relay_control::applyDirectOutputs(
+        ArbitratedOutputsPod{0.149f, 0.0f, 0.17f, 0.149f}, mistTuning, state);
+    assert(state.lamp_active == false);
+    assert(state.mist_active == false);
+    assert(state.fan_active == false);
+
+    Serial.println("[TEST] L7 actuator threshold isolation passed");
+}
+
+static void runL5TuningBurstStressTest()
+{
+    Serial.println("[TEST] L5 - Burst 20 tuning desired updates...");
+    config::network::MQTT_CLIENT_ID_VAL = "mushroom_s3_unittest";
+
+    // Warm host-only maps and function-local statics before measuring the
+    // production control path. No burst candidate exists during this tick.
+    xQueueReset(g_tuning_config_queue);
+    taskCore1Control(nullptr);
+
+    Preferences prefs;
+    assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+    prefs.remove("tune_s0");
+    prefs.remove("tune_s1");
+    prefs.remove("tune_rcpt");
+    prefs.end();
+
+    auto& tuner = storage::TuningConfigManager::getInstance();
+    tuner.resetForTest();
+    assert(tuner.init() == true);
+    assert(xQueueReset(g_tuning_config_queue) == pdTRUE);
+
+    DynamicTuningParams expected{};
+    const auto burstStart = std::chrono::steady_clock::now();
+    for (uint32_t i = 0; i < 20U; ++i) {
+        StaticJsonDocument<512> desired;
+        char commandId[37];
+        std::snprintf(commandId, sizeof(commandId),
+                      "00000000-0000-4000-8000-%012u", i + 1U);
+        desired["schema_version"] = 1;
+        desired["command_id"] = commandId;
+        desired["device_id"] = "mushroom_s3_unittest";
+        desired["revision"] = i + 1U;
+        JsonObject tuning = desired.createNestedObject("config");
+        tuning["lamp_gain_scale"] = 0.80f + static_cast<float>(i % 9U) * 0.05f;
+        tuning["mist_gain_scale"] = 1.20f - static_cast<float>(i % 9U) * 0.05f;
+        tuning["mist_on_threshold"] = (i % 2U == 0U) ? 0.30f : 0.35f;
+        tuning["mist_off_threshold"] = (i % 2U == 0U) ? 0.15f : 0.18f;
+
+        storage::TuningReason reason = storage::TuningReason::OK;
+        assert(tuner.processCommand(desired.as<JsonVariant>(), reason) ==
+               storage::TuningResult::ACCEPTED);
+        assert(reason == storage::TuningReason::OK);
+        assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 1U);
+        expected = tuner.getActiveParams();
+    }
+    const auto burstElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - burstStart);
+    assert(burstElapsed.count() < 1000);
+    assert(expected.revision == 20U);
+
+    mock_heap_allocation_count = 0U;
+    mock_measure_core1_tick_allocations = true;
+    taskCore1Control(nullptr);
+    mock_measure_core1_tick_allocations = false;
+
+    const DynamicTuningParams applied = getCore1ActiveTuningForTest();
+    assert(applied.revision == expected.revision);
+    assert(std::memcmp(&applied, &expected, sizeof(applied)) == 0);
+    assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 0U);
+    assert(mock_heap_allocation_count == 0U);
+    assert(getCore1LastTickDurationUsForTest() < 50000UL);
+    Serial.printf("[TEST] L5 passed: burst=%lldms tick=%luus allocations=%u\n",
+                  static_cast<long long>(burstElapsed.count()),
+                  getCore1LastTickDurationUsForTest(),
+                  static_cast<unsigned>(mock_heap_allocation_count));
+}
+
 int main() {
     static storage::TuningStorageImpl tuning_storage;
     storage::TuningConfigManager::getInstance().setStorage(&tuning_storage);
@@ -150,6 +296,22 @@ int main() {
     };
     initQueues();
     initSemaphores();
+
+#ifdef L5_TARGETED_TEST
+    runL5TuningBurstStressTest();
+    return 0;
+#endif
+
+#ifdef L6_TARGETED_TEST
+    config::network::MQTT_CLIENT_ID_VAL = "mushroom_s3_unittest";
+    test_ingress::run_all_tests();
+    return 0;
+#endif
+
+#ifdef L7_TARGETED_TEST
+    runL7ActuatorIsolationTest();
+    return 0;
+#endif
 
     config::FUZZY_CONTROL_ENABLED = true;
     Serial.println("--- Starting StorageManager Unit Tests ---");
@@ -2365,7 +2527,11 @@ int main() {
     taskCore1Control(nullptr);
     assert(uxQueueMessagesWaiting(g_tuning_config_queue) == 0U);
 
-    // 19.9 Cleanup queues
+    // 19.9 L5: A burst of 20 durable desired updates remains bounded by the
+    // depth-1 overwrite queue and Core 1 adopts the latest complete POD.
+    runL5TuningBurstStressTest();
+
+    // 19.10 Cleanup queues
     vQueueDelete(test_baseline_q);
     vQueueDelete(test_override_q);
     vQueueDelete(test_tel_queue);
@@ -3012,6 +3178,9 @@ int main() {
         channelState.mist_active = true;
         relay_control::applyDirectOutputs(mistOnBoundaryDemand, invalidMistTuning, channelState);
         assert(channelState.mist_active == false);
+
+        // L7 regression: exact production tuning must affect Mist only.
+        runL7ActuatorIsolationTest();
 
         // There is no pulse/window scheduler: binary state remains stable until
         // the demand crosses the hysteresis OFF threshold.

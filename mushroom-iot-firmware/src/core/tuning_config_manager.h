@@ -59,6 +59,13 @@ public:
     bool init();
 
     /**
+     * @brief Hydrate active tuning parameters from the validated two-slot NVS record.
+     * @return true when a valid committed record was loaded; false when safe defaults
+     *         were applied because storage was unavailable or both slots were invalid.
+     */
+    bool hydrateFromNvs();
+
+    /**
      * @brief Process a desired tuning JSON command.
      * Validates schema, device ID, bounds, UUID, and does semantic diff.
      * If valid, stages and durably finalizes NVS before handing off to Core 1.

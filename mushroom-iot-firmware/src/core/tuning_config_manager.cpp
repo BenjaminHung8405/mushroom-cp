@@ -47,6 +47,13 @@ void TuningConfigManager::unlock() {
 }
 
 bool TuningConfigManager::init() {
+    // Initialization remains successful when persistence is unavailable because
+    // hydrateFromNvs() installs a complete fail-safe configuration.
+    hydrateFromNvs();
+    return true;
+}
+
+bool TuningConfigManager::hydrateFromNvs() {
     lock();
     _has_pending_dispatch = false;
     // RAM fast-path cleared on every boot; durable receipt is loaded from NVS below.
@@ -57,10 +64,11 @@ bool TuningConfigManager::init() {
         _storage->loadDurableReceipt(_durable_receipt_command_id, sizeof(_durable_receipt_command_id));
     }
     DynamicTuningParams loaded;
-    if (_storage != nullptr && _storage->loadTuningParams(loaded)) {
+    const bool hydrated = _storage != nullptr && _storage->loadTuningParams(loaded);
+    if (hydrated) {
         _active_params = loaded;
     } else {
-        // Fallback to default values (already set in constructor or resetForTest)
+        // Never retain pre-reboot RAM state when persistent records cannot be trusted.
         _active_params.revision = 0;
         _active_params.lamp_gain_scale = 1.0f;
         _active_params.mist_gain_scale = 1.0f;
@@ -70,7 +78,10 @@ bool TuningConfigManager::init() {
     }
     _initialized = true;
     unlock();
-    return true;
+    if (!hydrated) {
+        Serial.println("[TUNING] WARNING: No valid committed NVS slot; using safe defaults.");
+    }
+    return hydrated;
 }
 
 TuningResult TuningConfigManager::processCommand(const JsonVariant& doc, TuningReason& reason) {

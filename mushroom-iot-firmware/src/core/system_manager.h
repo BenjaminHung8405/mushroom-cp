@@ -227,6 +227,14 @@ extern QueueHandle_t g_operating_mode_ack_queue;
 extern QueueHandle_t g_profile_update_queue;
 extern QueueHandle_t g_tuning_config_queue;
 
+#ifdef UNIT_TEST
+/** Last tuning snapshot owned by Core 1 after a complete test control tick. */
+DynamicTuningParams getCore1ActiveTuningForTest();
+
+/** Wall-clock duration of the last host test control tick. */
+unsigned long getCore1LastTickDurationUsForTest();
+#endif
+
 /**
  * @brief Hydrate setpoints from NVS and push them to xBaselineQueue and xOverrideQueue.
  * Fallbacks to trajectory Day 0 if NVS baseline is missing/invalid.
