@@ -9,8 +9,6 @@ import { TuningMqttOutboxDispatcher } from './services/tuning-mqtt-outbox-dispat
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { InfluxModule } from '../influx/influx.module';
 import { DeviceModule } from '../device/device.module';
-import { DeviceOwnershipGuard } from './guards/device-ownership.guard';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TuningRecommendationController } from './controllers/tuning-recommendation.controller';
 import { TuningCommandController } from './controllers/tuning-command.controller';
 import { TuningSseTicketService } from './services/tuning-sse-ticket.service';
@@ -37,8 +35,6 @@ import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
   providers: [
     TuningConfigurationService,
     TuningMqttOutboxDispatcher,
-    JwtAuthGuard,
-    DeviceOwnershipGuard,
     TuningSseTicketService,
     TuningSseTicketCleanupService,
     TuningSseTicketGuard,

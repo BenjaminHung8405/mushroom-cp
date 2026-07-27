@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   ServiceUnavailableException,
-  UseGuards,
 } from '@nestjs/common';
 import { AnalyticsAvailabilityService } from '../../influx/services/analytics-availability.service';
 import {
@@ -14,8 +13,6 @@ import {
 } from '../../analytics/services/control-analytics.service';
 import { TuningRecommenderEngine } from '../../analytics/services/tuning-recommender-engine.service';
 import type { RecommendationResult } from '../../analytics/interfaces/tuning-advisory.interface';
-import { DeviceOwnershipGuard } from '../guards/device-ownership.guard';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import {
   TuningRecommendationResponseDto,
   type TuningRecommendationBlockReason,
@@ -35,7 +32,6 @@ export class TuningRecommendationController {
   ) {}
 
   @Get(':id/analytics/tuning-recommendations')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
   async getTuningRecommendations(
     @Param('id') deviceId: string,
     @Query('window') window: string | undefined,

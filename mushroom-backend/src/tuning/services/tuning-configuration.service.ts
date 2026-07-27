@@ -40,6 +40,7 @@ import { TuningMqttOutboxDispatcher } from './tuning-mqtt-outbox-dispatcher.serv
 const COMMAND_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const MAX_TUNING_HISTORY_OFFSET = 10_000;
+const NON_USER_TUNING_ACTOR = 'non-user';
 
 /** Identity derived from a verified JWT; never accept this data from a DTO. */
 export interface TuningPrincipal {
@@ -214,6 +215,25 @@ export class TuningConfigurationService
       commandId,
       undefined,
       ownerUserId,
+    );
+    await this.outboxDispatcher.dispatchDue();
+    return pending;
+  }
+
+  /** Creates a durable tuning command for the non-user dashboard mode. */
+  async createPendingCommandNonUser(
+    deviceId: string,
+    config: TuningConfigSnapshot,
+    commandId: string,
+  ): Promise<DeviceTuningConfiguration> {
+    const normalizedDeviceId = this.validDeviceId(deviceId);
+    this.validateCommandId(commandId);
+    this.validateSnapshot(config);
+    const pending = await this.createOrGetPending(
+      NON_USER_TUNING_ACTOR,
+      normalizedDeviceId,
+      config,
+      commandId,
     );
     await this.outboxDispatcher.dispatchDue();
     return pending;

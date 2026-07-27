@@ -1,6 +1,5 @@
 import { TuningCommandController } from './tuning-command.controller';
 import { TuningConfigurationService } from '../services/tuning-configuration.service';
-import type { JwtAuthenticatedRequest } from '../guards/jwt-auth.guard';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { BadRequestException } from '@nestjs/common';
 import { EventEmitter } from 'node:events';
@@ -11,12 +10,12 @@ import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
 import { DataSource } from 'typeorm';
 
 describe('TuningCommandController', () => {
-  const createPendingCommandByOwner = jest.fn();
+  const createPendingCommandNonUser = jest.fn();
   const getLatestByDeviceId = jest.fn();
   const getTuningHistory = jest.fn();
   const tuningSync$ = new Subject<TuningSyncEvent>();
   const service = {
-    createPendingCommandByOwner,
+    createPendingCommandNonUser,
     getLatestByDeviceId,
     getTuningHistory,
     tuningSync$,
@@ -40,7 +39,7 @@ describe('TuningCommandController', () => {
       query: jest.fn(),
     } as unknown as DataSource);
     controller = new TuningCommandController(service, ticketService);
-    createPendingCommandByOwner.mockResolvedValue({
+    createPendingCommandNonUser.mockResolvedValue({
       commandId,
       status: 'PENDING',
     });
@@ -53,24 +52,13 @@ describe('TuningCommandController', () => {
     });
   });
 
-  it('delegates durable command creation with the verified actor email', async () => {
-    const request = {
-      user: {
-        sub: 'user-1',
-        email: 'operator@example.com',
-        allowedHouseIds: ['house-1'],
-      },
-    } as unknown as JwtAuthenticatedRequest;
-
+  it('delegates durable command creation in non-user mode', async () => {
     const result = await controller.createTuningConfiguration(
       'device-1',
       dto,
-      request,
     );
 
-    expect(createPendingCommandByOwner).toHaveBeenCalledWith(
-      'user-1',
-      'operator@example.com',
+    expect(createPendingCommandNonUser).toHaveBeenCalledWith(
       'device-1',
       config,
       commandId,
@@ -78,18 +66,7 @@ describe('TuningCommandController', () => {
     expect(result).toEqual({ commandId, status: 'PENDING' });
   });
 
-  it('rejects the request if the verified JWT does not contain an email claim', async () => {
-    const request = {
-      user: { sub: 'user-1', allowedHouseIds: ['house-1'] },
-    } as unknown as JwtAuthenticatedRequest;
-
-    await expect(
-      controller.createTuningConfiguration('device-1', dto, request),
-    ).rejects.toThrow('JWT email is required for tuning commands.');
-    expect(createPendingCommandByOwner).not.toHaveBeenCalled();
-  });
-
-  it('returns the latest durable configuration state for the guarded device', async () => {
+  it('returns the latest durable configuration state', async () => {
     const latestConfiguration = {
       commandId,
       deviceId: 'device-1',
@@ -156,19 +133,15 @@ describe('TuningCommandController', () => {
       expect(getTuningHistory).not.toHaveBeenCalled();
     },
   );
-  it('mints a signed, short-lived ticket only after JWT authentication and ownership guards', () => {
-    const request = {
-      user: { sub: 'user-1', allowedHouseIds: ['house-1'] },
-    } as unknown as JwtAuthenticatedRequest;
-
-    const result = controller.createTuningStreamTicket('device-1', request);
+  it('mints a signed, short-lived ticket for the non-user stream', () => {
+    const result = controller.createTuningStreamTicket('device-1');
 
     expect(result).toMatchObject({ expiresInSeconds: 30 });
     expect(result.ticket).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u);
   });
 
   it('streams tuning configuration sync events filtered by deviceId', (done) => {
-    const request = new EventEmitter() as unknown as JwtAuthenticatedRequest;
+    const request = new EventEmitter() as never;
     const result$ = controller.streamTuningConfigurations('device-1', request);
     const emitted: TuningSyncEvent[] = [];
     result$.subscribe({

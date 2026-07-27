@@ -10,7 +10,6 @@ import {
   Query,
   Req,
   Sse,
-  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
@@ -18,13 +17,8 @@ import type { Request } from 'express';
 import { fromEvent, Observable } from 'rxjs';
 import { filter, map, takeUntil } from 'rxjs/operators';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
-import { DeviceOwnershipGuard } from '../guards/device-ownership.guard';
-import { TuningSseTicketGuard } from '../guards/tuning-sse-ticket.guard';
-import {
-  JwtAuthGuard,
-  type JwtAuthenticatedRequest,
-} from '../guards/jwt-auth.guard';
 import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
+import { TuningSseTicketGuard } from '../guards/tuning-sse-ticket.guard';
 import {
   MAX_TUNING_HISTORY_OFFSET,
   TuningConfigurationService,
@@ -38,22 +32,13 @@ export class TuningCommandController {
   ) {}
 
   @Post(':id/tuning-configurations')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async createTuningConfiguration(
     @Param('id') deviceId: string,
     @Body() dto: CreateTuningConfigurationDto,
-    @Req() request: JwtAuthenticatedRequest,
   ): Promise<{ commandId: string; status: 'PENDING' }> {
-    const actor = this.actorEmail(request);
-    const ownerUserId = request.user!.sub;
-
-    // The service repeats the ownership check inside its write transaction.
-    // This closes the interval between DeviceOwnershipGuard and persistence.
     const pending =
-      await this.tuningConfigurationService.createPendingCommandByOwner(
-        ownerUserId,
-        actor,
+      await this.tuningConfigurationService.createPendingCommandNonUser(
         deviceId,
         dto.config,
         dto.commandId,
@@ -66,22 +51,18 @@ export class TuningCommandController {
   }
 
   /**
-   * Returns the most recent persisted command state. Authentication and
-   * ownership are enforced by the route guards; the state itself must always
-   * come from the durable configuration store, never MQTT retained state.
+   * Returns the most recent persisted command state from the durable
+   * configuration store, never MQTT retained state.
    */
   @Get(':id/tuning-configurations/latest')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
   async getLatestTuningConfiguration(@Param('id') deviceId: string) {
     return this.tuningConfigurationService.getLatestByDeviceId(deviceId);
   }
 
   /**
-   * Returns a bounded page of durable audit records. The guards run before
-   * this method, so only the verified owner of the route device can read it.
+   * Returns a bounded page of durable audit records.
    */
   @Get(':id/tuning-history')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
   async getTuningHistory(
     @Param('id') deviceId: string,
     @Query('limit') limit: unknown,
@@ -102,31 +83,26 @@ export class TuningCommandController {
   }
 
   /**
-   * Mints the only credential accepted by the native EventSource route. The
-   * bearer JWT stays in the authenticated POST request and is never placed in
-   * a URL. Ownership is checked before a ticket can be issued.
+   * Mints the short-lived credential accepted by the native EventSource route.
+   * Non-user mode deliberately does not require a browser identity; the
+   * ticket still keeps arbitrary URLs from opening a stream indefinitely.
    */
   @Post(':id/tuning-configurations/stream-ticket')
-  @UseGuards(JwtAuthGuard, DeviceOwnershipGuard)
   @HttpCode(HttpStatus.CREATED)
   createTuningStreamTicket(
     @Param('id') deviceId: string,
-    @Req() request: JwtAuthenticatedRequest,
   ): { ticket: string; expiresInSeconds: number } {
     return {
-      ticket: this.tuningSseTicketService.createTicket(
-        request.user!.sub,
-        deviceId,
-      ),
+      ticket: this.tuningSseTicketService.createTicket('non-user', deviceId),
       expiresInSeconds: 30,
     };
   }
 
   /**
    * Streams durable configuration state changes via Server-Sent Events (SSE).
-   * Native EventSource authenticates with a short-lived, one-time opaque
-   * ticket bound to this device. The shared source is strictly filtered to
-   * prevent cross-device broadcasts and unsubscribes on disconnect.
+   * Native EventSource uses a short-lived, one-time opaque ticket bound to
+   * this device. The shared source is strictly filtered to prevent
+   * cross-device broadcasts and unsubscribes on disconnect.
    */
   @Sse(':id/tuning-configurations/stream')
   @UseGuards(TuningSseTicketGuard)
@@ -139,19 +115,6 @@ export class TuningCommandController {
       map((event) => ({ data: event })),
       takeUntil(fromEvent(request, 'close')),
     );
-  }
-
-  private actorEmail(request: JwtAuthenticatedRequest): string {
-    // JwtAuthGuard guarantees a verified JWT subject; email, when present, is
-    // exclusively a verified claim and is used as the durable audit actor.
-    const actor = request.user?.email;
-    if (!actor) {
-      throw new UnauthorizedException(
-        'JWT email is required for tuning commands.',
-      );
-    }
-
-    return actor;
   }
 
   private parsePagination(

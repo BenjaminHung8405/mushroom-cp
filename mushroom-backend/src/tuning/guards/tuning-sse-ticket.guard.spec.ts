@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { TuningSseTicketGuard } from './tuning-sse-ticket.guard';
 import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
@@ -6,8 +6,7 @@ import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
 describe('TuningSseTicketGuard', () => {
   const consumeTicket = jest.fn();
   const tickets = { consumeTicket } as unknown as TuningSseTicketService;
-  const isDeviceOwnedByUser = jest.fn();
-  const guard = new TuningSseTicketGuard(tickets, { isDeviceOwnedByUser });
+  const guard = new TuningSseTicketGuard(tickets);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -15,24 +14,21 @@ describe('TuningSseTicketGuard', () => {
       userId: 'owner-a',
       deviceId: 'device-a',
     });
-    isDeviceOwnedByUser.mockResolvedValue(true);
   });
 
-  it('allows native EventSource only after consuming a device-bound ticket and rechecking current ownership', async () => {
+  it('allows native EventSource after consuming a device-bound ticket', async () => {
     await expect(
       guard.canActivate(
         contextFor({ params: { id: 'device-a' }, query: { ticket: 'ticket' } }),
       ),
     ).resolves.toBe(true);
-    expect(isDeviceOwnedByUser).toHaveBeenCalledWith('device-a', 'owner-a');
   });
 
-  it('rejects anonymous EventSource without calling ownership lookup', async () => {
+  it('rejects anonymous EventSource', async () => {
     consumeTicket.mockRejectedValue(new UnauthorizedException());
     await expect(
       guard.canActivate(contextFor({ params: { id: 'device-a' }, query: {} })),
     ).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(isDeviceOwnedByUser).not.toHaveBeenCalled();
   });
 
   it('rejects a cross-device ticket without leaking device data', async () => {
@@ -42,16 +38,6 @@ describe('TuningSseTicketGuard', () => {
         contextFor({ params: { id: 'device-b' }, query: { ticket: 'ticket' } }),
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(isDeviceOwnedByUser).not.toHaveBeenCalled();
-  });
-
-  it('rejects a stream if ownership changed after ticket minting without leaking device existence', async () => {
-    isDeviceOwnedByUser.mockResolvedValue(false);
-    await expect(
-      guard.canActivate(
-        contextFor({ params: { id: 'device-a' }, query: { ticket: 'ticket' } }),
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 
