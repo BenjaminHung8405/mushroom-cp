@@ -100,6 +100,13 @@ Frontend:
 - Backend: Controller chỉ validate DTO + gọi Service; Service chứa business logic
 - Frontend: Component không gọi API trực tiếp; dùng custom hook hoặc provider
 
+**Giới hạn kích thước hàm (≤50 dòng) & miễn trừ có chủ đích:**
+- Quy tắc mặc định: mọi hàm production/hook/service/component ≤ 50 dòng; hàm dài phải tách theo trách nhiệm (đã áp cho K1–K7 và phần còn lại của codebase).
+- **Miễn trừ chính thức (deliberate exemption):** `mushroom-iot-firmware/test/run_tests.cpp::main()` được **miễn trừ** khỏi giới hạn 50 dòng/hàm.
+  - **Lý do:** Đây là host regression harness legacy chạy tuần tự (`--- All Unit Tests Passed Successfully! ---`), gồm hàng trăm block assert dùng chung trạng thái local (`storage`, `loaded_back`, `latches`, `states`) và mock global khai báo một lần rồi tái sử dụng xuyên suốt. Tách cơ học thành ~90+ hàm con sẽ buộc tái tạo/khởi tạo lại trạng thái dùng chung, tạo rủi ro regression cao trên một suite đang xanh mà **không** mang lại giá trị chức năng.
+  - **Phạm vi miễn trừ:** chỉ áp cho `run_tests.cpp::main()` (test runner tuần tự). Không mở rộng cho bất kỳ file production, service, hook, component hay validation logic nào; các file đó vẫn tuân thủ giới hạn 50 dòng.
+  - **Điều kiện:** đây là quyết định có chủ đích, được ghi nhận tại đây và trong `PROGRESS.md`/`WALKTHROUGH_LOG.md`, không phải im lặng bỏ qua. Khi bổ sung suite mới, ưu tiên tách thành `runXxxSuite()` free-function ≤50 dòng thay vì nhồi thêm vào `main()`.
+
 ### 3.2 Quy Tắc Đặt Tên
 
 **Firmware (C++17):**

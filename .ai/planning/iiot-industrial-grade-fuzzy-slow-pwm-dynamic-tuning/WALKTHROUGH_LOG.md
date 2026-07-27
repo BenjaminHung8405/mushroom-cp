@@ -1,3 +1,29 @@
+## [2026-07-27T17:58:48+07:00] - Track L (L1–L8): Sửa lỗi theo QA — Đang chờ QA Review (Lần 4)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T17:58:48+07:00.
+- **Task ID:** Track L — L1, L2, L3, L4, L5, L6, L7, L8.
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 4).
+- **Danh sách file đã sửa:**
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/README.md` — bổ sung mục "Giới hạn kích thước hàm (≤50 dòng) & miễn trừ có chủ đích" vào §3.1, ghi nhận **miễn trừ chính thức** cho `run_tests.cpp::main()`.
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md` — chuyển L1–L8 từ `[ ] In Progress` sang `[ ] QA Review`.
+
+- **Điểm chặn duy nhất còn lại của QA (vòng REJECT gần nhất):** `[MEDIUM][Kiến trúc §3.1]` — `run_tests.cpp::main()` là monolith 4.630 dòng / 226 block đánh số, vi phạm giới hạn 50 dòng/hàm và đã bị nêu đích danh 3 vòng nhưng chưa được xử lý. QA cho đúng **2 đường** (không có đường thứ 3): (1) tách `main()` thành các `runXxxSuite()` ≤50 dòng, HOẶC (2) ghi **miễn trừ chính thức** cho file test legacy này vào README §3.1 và xác nhận là quyết định có chủ đích.
+
+- **Root cause (đánh giá lại):** Đây **không** phải lỗi chức năng — host suite đang xanh. Vấn đề gốc là chỉ thị kiến trúc bị **im lặng bỏ qua** qua 3 vòng. `main()` là host regression harness legacy chạy tuần tự, với hàng trăm block assert dùng chung trạng thái local (`storage`, `loaded_back`, `latches`, `states`) và mock global khai báo một lần rồi tái sử dụng xuyên suốt.
+
+- **Quyết định & đã sửa những gì (chọn Đường #2 của QA — miễn trừ có chủ đích):**
+  1. **Ghi miễn trừ chính thức, phạm vi hẹp** vào README §3.1: `run_tests.cpp::main()` được miễn trừ khỏi giới hạn 50 dòng/hàm, kèm **lý do** (rủi ro tái tạo trạng thái dùng chung khi tách cơ học ~90+ hàm con trên suite đang xanh, không có giá trị chức năng), **phạm vi** (chỉ áp cho đúng `main()` test runner tuần tự; không mở rộng cho bất kỳ file production/service/hook/component/validation nào — các file đó vẫn ≤50 dòng), và **điều kiện** (quyết định có chủ đích, được ghi nhận ở README + PROGRESS + WALKTHROUGH_LOG, không im lặng; suite mới ưu tiên tách `runXxxSuite()` free-function ≤50 dòng thay vì nhồi thêm vào `main()`).
+  2. **Vì sao không chọn Đường #1 (tách cơ học):** `main()` phụ thuộc chuỗi trạng thái tuần tự (NVS mock, `StorageManager`, `MqttManager`, `latches/states` của SystemProtector...). Tách thành ~90+ helper sẽ buộc khởi tạo lại/chuyển tham chiếu trạng thái dùng chung, rủi ro regression cao trên một suite đang PASS, trong khi QA đã xác nhận Đường #2 là lựa chọn ngang giá cho đúng loại "file test legacy khổng lồ" này.
+  3. **Không đụng 2 phần đã được QA xác nhận ĐẠT vòng trước:** giữ nguyên `PRODUCTION_MQTT_PORT = 10883` (đã kiểm chứng lại `config_manager.cpp:16-17`, `migrateLegacyProductionMqttPort()` vẫn no-op), giữ nguyên precedence duplicate-vs-stale (Case 7/8) và durability gate `tuning-durability.integration.spec.ts`. Không phát sinh yêu cầu/tính năng mới.
+
+- **Tự kiểm thử (đã chạy lại độc lập trong vòng này):**
+  - Firmware host suite: build lại từ source `g++ -std=c++17 -DUNIT_TEST -Isrc -Iinclude -Itest -Ilib/PubSubClientQos1/src -I.pio/libdeps/otg/ArduinoJson/src test/run_tests.cpp + companion tests + $(find src) + lib/PubSubClientQos1/src` → `BUILD_EXIT=0`; chạy binary → `--- All Unit Tests Passed Successfully! ---` (`RUN_EXIT=0`), **với port production = 10883** (không hạ cổng).
+  - Xác minh lại `config_manager.cpp:16-17` = `10883` sau khi build/chạy: không hồi quy production port.
+  - README §3.1 sau khi vá đọc lại đúng nội dung miễn trừ; PROGRESS.md L1–L8 = `[ ] QA Review`.
+  - **Lưu ý môi trường (không đổi so với vòng trước):** durability gate `*.integration.spec.ts` cần PostgreSQL + broker thật (release gate CI), chưa chạy end-to-end tại chỗ do hạ tầng local unhealthy; đây là giới hạn môi trường, không phải lỗi code.
+
+---
+
 ## [2026-07-27T16:31:00+07:00] - Track L (L1–L8): Sửa lỗi theo QA — Đang chờ QA Review (Lần 3)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T16:31:00+07:00.
