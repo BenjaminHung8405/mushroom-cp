@@ -89,51 +89,62 @@ export function TuningPanelActions({
   )
 }
 
-export function useTuningAdvisoryPanelState(deviceId: string | null | undefined) {
-  const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-
-  const handleReconnect = useCallback(async () => {
-    await refetch()
-  }, [refetch])
-
-  const { event: tuningEvent } = useTuningStatus(deviceId, handleReconnect)
-  const {
-    pendingCommand,
-    isSubmitting,
-    submissionError,
-    setSubmissionError,
-    submitRecommendation,
-    resyncDurableState,
-  } = usePendingTuningCommand(deviceId, tuningEvent)
-
-  const advisory = data?.advisory ?? null
-  const currentConfig = data?.currentConfig ?? null
-  const isBlocked =
-    !deviceId ||
-    !data ||
-    isTuningRecommendationBlocked(data.blockReason) ||
-    advisory === null
-
-  const isCommandPending = pendingCommand?.state === 'PENDING'
-  const confirmDisabled = isBlocked || isSubmitting || isCommandPending
-
+function useTuningPanelHandlers(
+  advisory: TuningAdvisory | null,
+  confirmDisabled: boolean,
+  refetch: () => Promise<unknown>,
+  resyncDurableState: () => Promise<void>,
+  submitRecommendation: (config: TuningConfigSnapshot) => Promise<boolean>,
+  setSubmissionError: (error: string | null) => void,
+  setConfirmOpen: React.Dispatch<React.SetStateAction<boolean>>,
+) {
   const requestConfirmation = useCallback(() => {
     if (confirmDisabled) return
     setSubmissionError(null)
     setConfirmOpen(true)
-  }, [confirmDisabled, setSubmissionError])
+  }, [confirmDisabled, setSubmissionError, setConfirmOpen])
 
   const handleConfirmSubmit = useCallback(async () => {
     if (!advisory) return
     const success = await submitRecommendation(advisory.suggestedConfig)
     if (success) setConfirmOpen(false)
-  }, [advisory, submitRecommendation])
+  }, [advisory, submitRecommendation, setConfirmOpen])
 
   const handleManualRefresh = useCallback(async () => {
     await refetch()
     await resyncDurableState()
   }, [refetch, resyncDurableState])
+
+  return { requestConfirmation, handleConfirmSubmit, handleManualRefresh }
+}
+
+export function useTuningAdvisoryPanelState(deviceId: string | null | undefined) {
+  const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const handleReconnect = useCallback(async () => {
+    await refetch()
+  }, [refetch])
+
+  const { event: tuningEvent } = useTuningStatus(deviceId, handleReconnect)
+  const cmd = usePendingTuningCommand(deviceId, tuningEvent)
+
+  const advisory = data?.advisory ?? null
+  const currentConfig = data?.currentConfig ?? null
+  const isBlocked =
+    !deviceId || !data || isTuningRecommendationBlocked(data.blockReason) || advisory === null
+
+  const isCommandPending = cmd.pendingCommand?.state === 'PENDING'
+  const confirmDisabled = isBlocked || cmd.isSubmitting || isCommandPending
+
+  const handlers = useTuningPanelHandlers(
+    advisory,
+    confirmDisabled,
+    refetch,
+    cmd.resyncDurableState,
+    cmd.submitRecommendation,
+    cmd.setSubmissionError,
+    setConfirmOpen,
+  )
 
   return {
     data,
@@ -144,15 +155,55 @@ export function useTuningAdvisoryPanelState(deviceId: string | null | undefined)
     advisory,
     currentConfig,
     isBlocked,
-    pendingCommand,
-    isSubmitting,
-    submissionError,
+    pendingCommand: cmd.pendingCommand,
+    isSubmitting: cmd.isSubmitting,
+    submissionError: cmd.submissionError,
     isCommandPending,
     confirmDisabled,
-    requestConfirmation,
-    handleConfirmSubmit,
-    handleManualRefresh,
+    ...handlers,
   }
+}
+
+export function TuningPanelBody({
+  panel,
+}: {
+  panel: ReturnType<typeof useTuningAdvisoryPanelState>
+}) {
+  return (
+    <>
+      {panel.isLoading && !panel.data && (
+        <p className="text-sm text-muted-foreground">Đang phân tích dữ liệu vận hành…</p>
+      )}
+      {panel.error && (
+        <p role="alert" className="rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
+          {panel.error.message}
+        </p>
+      )}
+      {panel.data && (
+        <CoverageWarning
+          blockReason={panel.data.blockReason}
+          detail={panel.data.blockReasonDetail}
+        />
+      )}
+      {panel.advisory && (
+        <div className="space-y-4">
+          <AdvisorySummary advisory={panel.advisory} />
+          {panel.currentConfig && (
+            <TuningDiffView
+              currentConfig={panel.currentConfig}
+              suggestedConfig={panel.advisory.suggestedConfig}
+              delta={panel.advisory.delta}
+            />
+          )}
+        </div>
+      )}
+      {panel.submissionError && (
+        <p role="alert" className="mt-4 rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
+          {panel.submissionError}
+        </p>
+      )}
+    </>
+  )
 }
 
 /**
@@ -166,43 +217,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   return (
     <Card className="border border-slate-700/50 bg-slate-950/40 p-6">
       <TuningPanelHeader pendingCommand={panel.pendingCommand} />
-
-      {panel.isLoading && !panel.data && (
-        <p className="text-sm text-muted-foreground">Đang phân tích dữ liệu vận hành…</p>
-      )}
-
-      {panel.error && (
-        <p role="alert" className="rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
-          {panel.error.message}
-        </p>
-      )}
-
-      {panel.data && (
-        <CoverageWarning
-          blockReason={panel.data.blockReason}
-          detail={panel.data.blockReasonDetail}
-        />
-      )}
-
-      {panel.advisory && (
-        <div className="space-y-4">
-          <AdvisorySummary advisory={panel.advisory} />
-          {panel.currentConfig && (
-            <TuningDiffView
-              currentConfig={panel.currentConfig}
-              suggestedConfig={panel.advisory.suggestedConfig}
-              delta={panel.advisory.delta}
-            />
-          )}
-        </div>
-      )}
-
-      {panel.submissionError && (
-        <p role="alert" className="mt-4 rounded-md border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-200">
-          {panel.submissionError}
-        </p>
-      )}
-
+      <TuningPanelBody panel={panel} />
       <TuningPanelActions
         confirmDisabled={panel.confirmDisabled}
         isSubmitting={panel.isSubmitting}
@@ -212,7 +227,6 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
         onRequestConfirmation={panel.requestConfirmation}
         onManualRefresh={() => void panel.handleManualRefresh()}
       />
-
       {panel.confirmOpen && panel.advisory && (
         <ConfirmationDialog
           onCancel={() => panel.setConfirmOpen(false)}

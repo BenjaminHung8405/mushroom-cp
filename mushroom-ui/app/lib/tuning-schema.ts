@@ -155,57 +155,65 @@ export function parsePartialTuningSnapshot(
   return result
 }
 
+function hasValidKpiFields(rec: Record<string, unknown>): boolean {
+  return (
+    typeof rec.deviceId === 'string' &&
+    rec.deviceId.trim().length > 0 &&
+    typeof rec.windowStart === 'string' &&
+    rec.windowStart.trim().length > 0 &&
+    typeof rec.windowEnd === 'string' &&
+    rec.windowEnd.trim().length > 0 &&
+    isFiniteNumber(rec.tempRmse) &&
+    isFiniteNumber(rec.humidRmse) &&
+    isFiniteNumber(rec.mistSwitchCountPerHour) &&
+    isFiniteNumber(rec.mistOnDurationSec) &&
+    isFiniteNumber(rec.lampDutyCyclePercent) &&
+    isFiniteNumber(rec.lampAvgOnDurationSec) &&
+    isFiniteNumber(rec.overshootDurationSec) &&
+    isFiniteNumber(rec.undershootDurationSec) &&
+    isFiniteNumber(rec.dataCoveragePercent) &&
+    isFiniteNumber(rec.sampleCount) &&
+    isNullableFiniteNumber(rec.configRevision) &&
+    typeof rec.dataQualityWarning === 'boolean'
+  )
+}
+
 export function parseKpiMetrics(
   value: unknown,
   expectedDeviceId?: string | null,
 ): KpiMetrics | null {
-  if (value === null) return null
-  if (!isRecord(value)) return null
-
-  if (
-    typeof value.deviceId !== 'string' ||
-    !value.deviceId.trim() ||
-    typeof value.windowStart !== 'string' ||
-    !value.windowStart.trim() ||
-    typeof value.windowEnd !== 'string' ||
-    !value.windowEnd.trim() ||
-    !isFiniteNumber(value.tempRmse) ||
-    !isFiniteNumber(value.humidRmse) ||
-    !isFiniteNumber(value.mistSwitchCountPerHour) ||
-    !isFiniteNumber(value.mistOnDurationSec) ||
-    !isFiniteNumber(value.lampDutyCyclePercent) ||
-    !isFiniteNumber(value.lampAvgOnDurationSec) ||
-    !isFiniteNumber(value.overshootDurationSec) ||
-    !isFiniteNumber(value.undershootDurationSec) ||
-    !isFiniteNumber(value.dataCoveragePercent) ||
-    !isFiniteNumber(value.sampleCount) ||
-    !isNullableFiniteNumber(value.configRevision) ||
-    typeof value.dataQualityWarning !== 'boolean'
-  ) {
-    return null
-  }
-
-  if (expectedDeviceId && value.deviceId !== expectedDeviceId) {
-    return null
-  }
+  if (!isRecord(value) || !hasValidKpiFields(value)) return null
+  if (expectedDeviceId && value.deviceId !== expectedDeviceId) return null
 
   return {
-    deviceId: value.deviceId,
-    windowStart: value.windowStart,
-    windowEnd: value.windowEnd,
-    tempRmse: value.tempRmse,
-    humidRmse: value.humidRmse,
-    mistSwitchCountPerHour: value.mistSwitchCountPerHour,
-    mistOnDurationSec: value.mistOnDurationSec,
-    lampDutyCyclePercent: value.lampDutyCyclePercent,
-    lampAvgOnDurationSec: value.lampAvgOnDurationSec,
-    overshootDurationSec: value.overshootDurationSec,
-    undershootDurationSec: value.undershootDurationSec,
-    dataCoveragePercent: value.dataCoveragePercent,
-    sampleCount: value.sampleCount,
-    configRevision: value.configRevision,
-    dataQualityWarning: value.dataQualityWarning,
+    deviceId: value.deviceId as string,
+    windowStart: value.windowStart as string,
+    windowEnd: value.windowEnd as string,
+    tempRmse: value.tempRmse as number,
+    humidRmse: value.humidRmse as number,
+    mistSwitchCountPerHour: value.mistSwitchCountPerHour as number,
+    mistOnDurationSec: value.mistOnDurationSec as number,
+    lampDutyCyclePercent: value.lampDutyCyclePercent as number,
+    lampAvgOnDurationSec: value.lampAvgOnDurationSec as number,
+    overshootDurationSec: value.overshootDurationSec as number,
+    undershootDurationSec: value.undershootDurationSec as number,
+    dataCoveragePercent: value.dataCoveragePercent as number,
+    sampleCount: value.sampleCount as number,
+    configRevision: value.configRevision as number | null,
+    dataQualityWarning: value.dataQualityWarning as boolean,
   }
+}
+
+function hasValidAdvisoryMetadata(rec: Record<string, unknown>): boolean {
+  return (
+    Array.isArray(rec.triggeredRules) &&
+    rec.triggeredRules.every((r) => typeof r === 'string') &&
+    isAdvisoryConfidence(rec.confidence) &&
+    typeof rec.rulesetVersion === 'string' &&
+    rec.rulesetVersion.trim().length > 0 &&
+    typeof rec.expectedBenefit === 'string' &&
+    typeof rec.observationWindowRequired === 'boolean'
+  )
 }
 
 export function parseTuningAdvisory(
@@ -213,51 +221,34 @@ export function parseTuningAdvisory(
   expectedDeviceId?: string | null,
   topLevelCurrentConfig?: TuningConfigSnapshot | null,
 ): TuningAdvisory | null {
-  if (value === null) return null
   if (!isRecord(value)) return null
 
   const suggestedConfig = parseTuningSnapshot(value.suggestedConfig)
-  if (suggestedConfig === null) return null
-
   const currentConfig = parseTuningSnapshot(value.currentConfig)
-  if (currentConfig === null) return null
+  if (!suggestedConfig || !currentConfig) return null
 
   if (topLevelCurrentConfig && !isSnapshotEqual(currentConfig, topLevelCurrentConfig)) {
     return null
   }
 
   const delta = parsePartialTuningSnapshot(value.delta)
-  if (delta === null) return null
-
-  if (!isDeltaConsistent(currentConfig, suggestedConfig, delta)) {
+  if (!delta || !isDeltaConsistent(currentConfig, suggestedConfig, delta)) {
     return null
   }
 
   const kpiSnapshot = parseKpiMetrics(value.kpiSnapshot, expectedDeviceId)
-  if (kpiSnapshot === null) return null
-
-  if (
-    !Array.isArray(value.triggeredRules) ||
-    !value.triggeredRules.every((r) => typeof r === 'string') ||
-    !isAdvisoryConfidence(value.confidence) ||
-    typeof value.rulesetVersion !== 'string' ||
-    !value.rulesetVersion.trim() ||
-    typeof value.expectedBenefit !== 'string' ||
-    typeof value.observationWindowRequired !== 'boolean'
-  ) {
-    return null
-  }
+  if (!kpiSnapshot || !hasValidAdvisoryMetadata(value)) return null
 
   return {
-    rulesetVersion: value.rulesetVersion,
+    rulesetVersion: value.rulesetVersion as string,
     currentConfig,
     suggestedConfig,
     delta,
-    triggeredRules: value.triggeredRules,
-    confidence: value.confidence,
-    expectedBenefit: value.expectedBenefit,
+    triggeredRules: value.triggeredRules as string[],
+    confidence: value.confidence as AdvisoryConfidence,
+    expectedBenefit: value.expectedBenefit as string,
     kpiSnapshot,
-    observationWindowRequired: value.observationWindowRequired,
+    observationWindowRequired: value.observationWindowRequired as boolean,
   }
 }
 

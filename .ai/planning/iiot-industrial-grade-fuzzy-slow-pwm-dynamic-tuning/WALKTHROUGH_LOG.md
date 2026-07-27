@@ -1,3 +1,31 @@
+## [2026-07-27T13:25:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 2 - Khắc phục vi phạm quy tắc độ dài hàm > 50 dòng)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:25:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **Danh sách file đã sửa:**
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `mushroom-ui/app/lib/tuning-schema.ts`
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình ngắn gọn giải pháp khắc phục dựa trên feedback của QA:**
+  1. **Khắc phục triệt để vi phạm quy tắc độ dài hàm (> 50 dòng) cho tất cả các file:**
+     - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`: Trích xuất hàm `executeCommandSubmission` và sub-hook `useSubmitRecommendation`, tái cấu trúc `usePendingTuningCommand` xuống còn 43 dòng.
+     - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`: Trích xuất sub-hook `useTuningPanelHandlers` và sub-component `TuningPanelBody`, đưa `useTuningAdvisoryPanelState` xuống 45 dòng và component `TuningAdvisoryPanel` xuống 27 dòng.
+     - `mushroom-ui/app/lib/tuning-schema.ts`: Trích xuất hàm trợ lý validation `hasValidKpiFields` và `hasValidAdvisoryMetadata`, rút gọn `parseKpiMetrics` xuống 25 dòng và `parseTuningAdvisory` xuống 35 dòng.
+     - `mushroom-ui/app/hooks/useTuningStatus.ts`: Trích xuất `handleConnectError` và `createInitialConnectionState`, rút gọn `connectStream` xuống 38 dòng và `useTuningStatus` xuống 34 dòng.
+  2. **Bảo toàn 100% logic nghiệp vụ & kiểm thử:**
+     - Giữ nguyên toàn bộ logic Race Condition Protection, validation hard bounds, hysteresis, error boundary và durable state reconciliation đã làm đúng.
+     - Đã xác minh qua AST parser script: **Chiều dài tối đa của tất cả hàm/hook trong cả 4 file đều <= 45 dòng (đạt 100% quy chuẩn dự án < 50 dòng).**
+- **Kết quả tự kiểm tra:**
+  - `pnpm run lint` (mushroom-ui): **PASS (0 errors, 0 warnings)**.
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS (zero errors)**.
+  - `pnpm test` (mushroom-ui): **PASS (6 suites, 54 tests passing)**.
+
+---
+
 ## [2026-07-27T13:09:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Đã khắc phục 2 lỗi từ Chuyên gia Kiểm toán QA)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T13:09:00+07:00.

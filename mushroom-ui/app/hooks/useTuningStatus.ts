@@ -128,6 +128,31 @@ function scheduleReconnect(
   }, delay)
 }
 
+function handleConnectError(
+  cause: unknown,
+  deviceId: string,
+  state: ConnectionState,
+  onReconnectRef: React.RefObject<Refetch | undefined>,
+  setEvent: (ev: TuningStatusEvent | null) => void,
+  setIsConnected: (connected: boolean) => void,
+  setError: (err: Error | null) => void,
+): void {
+  setIsConnected(false)
+  setError(
+    cause instanceof Error
+      ? cause
+      : new Error('Không thể mở luồng trạng thái tinh chỉnh.'),
+  )
+  scheduleReconnect(
+    deviceId,
+    state,
+    onReconnectRef,
+    setEvent,
+    setIsConnected,
+    setError,
+  )
+}
+
 async function connectStream(
   deviceId: string,
   state: ConnectionState,
@@ -150,7 +175,6 @@ async function connectStream(
     const streamUrl = buildStreamUrl(deviceId, ticket.ticket)
     const nextSource = new EventSource(streamUrl)
     state.source = nextSource
-
     setupEventSourceHandlers(
       nextSource,
       deviceId,
@@ -162,20 +186,7 @@ async function connectStream(
     )
   } catch (cause: unknown) {
     if (state.disposed || controller.signal.aborted) return
-    setIsConnected(false)
-    setError(
-      cause instanceof Error
-        ? cause
-        : new Error('Không thể mở luồng trạng thái tinh chỉnh.'),
-    )
-    scheduleReconnect(
-      deviceId,
-      state,
-      onReconnectRef,
-      setEvent,
-      setIsConnected,
-      setError,
-    )
+    handleConnectError(cause, deviceId, state, onReconnectRef, setEvent, setIsConnected, setError)
   } finally {
     if (state.ticketRequest === controller) state.ticketRequest = null
   }
@@ -244,6 +255,18 @@ function startConnectionLoop(
   )
 }
 
+function createInitialConnectionState(): ConnectionState {
+  return {
+    disposed: false,
+    source: null,
+    retryTimer: null,
+    ticketRequest: null,
+    reconnectAttempt: 0,
+    hasOpened: false,
+    reconnectScheduled: false,
+  }
+}
+
 /**
  * Keeps one device-scoped connection to the durable tuning-state stream.
  * A reconnect obtains a fresh, one-time EventSource ticket and refreshes the
@@ -263,27 +286,12 @@ export function useTuningStatus(
   }, [onReconnect])
 
   useEffect(() => {
-    if (!deviceId) {
-      setEvent(null)
-      setIsConnected(false)
-      setError(null)
-      return
-    }
-
-    const state: ConnectionState = {
-      disposed: false,
-      source: null,
-      retryTimer: null,
-      ticketRequest: null,
-      reconnectAttempt: 0,
-      hasOpened: false,
-      reconnectScheduled: false,
-    }
-
     setEvent(null)
     setIsConnected(false)
     setError(null)
+    if (!deviceId) return
 
+    const state = createInitialConnectionState()
     startConnectionLoop(
       deviceId,
       state,

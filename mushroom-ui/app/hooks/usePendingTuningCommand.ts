@@ -189,6 +189,66 @@ export function createCommandId(): string | null {
     : null
 }
 
+async function executeCommandSubmission(
+  deviceId: string,
+  commandId: string,
+  config: TuningConfigSnapshot,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+): Promise<void> {
+  const result = await postPendingCommand(deviceId, commandId, config)
+  if (result.commandId !== commandId) {
+    throw new Error('Máy chủ trả về xác nhận lệnh không hợp lệ.')
+  }
+
+  const pending: PendingCommand = {
+    commandId,
+    state: 'PENDING',
+    rejectionReason: null,
+  }
+  setPendingCommand(pending)
+
+  const latest = await fetchLatestState(deviceId)
+  if (latest && latest.commandId === commandId) {
+    const updated = applyDurableState(latest, pending)
+    if (updated && updated.state !== 'PENDING') {
+      setPendingCommand(updated)
+    }
+  }
+}
+
+function useSubmitRecommendation(
+  deviceId: string | null | undefined,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+  setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>,
+  setSubmissionError: React.Dispatch<React.SetStateAction<string | null>>,
+) {
+  return useCallback(
+    async (config: TuningConfigSnapshot): Promise<boolean> => {
+      if (!deviceId) return false
+      const commandId = createCommandId()
+      if (!commandId) {
+        setSubmissionError('Trình duyệt không hỗ trợ tạo mã lệnh an toàn.')
+        return false
+      }
+
+      setIsSubmitting(true)
+      setSubmissionError(null)
+
+      try {
+        await executeCommandSubmission(deviceId, commandId, config, setPendingCommand)
+        return true
+      } catch (cause: unknown) {
+        const msg = cause instanceof Error ? cause.message : 'Không thể tạo lệnh tinh chỉnh.'
+        setSubmissionError(msg)
+        return false
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [deviceId, setPendingCommand, setIsSubmitting, setSubmissionError],
+  )
+}
+
 export function usePendingTuningCommand(
   deviceId: string | null | undefined,
   tuningEvent: TuningStatusEvent | null,
@@ -208,63 +268,16 @@ export function usePendingTuningCommand(
     setSubmissionError(null)
   }, [deviceId])
 
-  const resyncDurableState = useDurableStateReconciler(
-    deviceId,
-    pendingCommandRef,
-    setPendingCommand,
-  )
-
+  const resyncDurableState = useDurableStateReconciler(deviceId, pendingCommandRef, setPendingCommand)
   useSseEventReconciler(pendingCommand, tuningEvent, setPendingCommand)
   usePendingTimeout(pendingCommand, setPendingCommand)
 
-  const submitRecommendation = useCallback(
-    async (config: TuningConfigSnapshot): Promise<boolean> => {
-      if (!deviceId) return false
-
-      const commandId = createCommandId()
-      if (!commandId) {
-        setSubmissionError('Trình duyệt không hỗ trợ tạo mã lệnh an toàn.')
-        return false
-      }
-
-      setIsSubmitting(true)
-      setSubmissionError(null)
-
-      try {
-        const result = await postPendingCommand(deviceId, commandId, config)
-        if (result.commandId !== commandId) {
-          throw new Error('Máy chủ trả về xác nhận lệnh không hợp lệ.')
-        }
-
-        const pending: PendingCommand = {
-          commandId,
-          state: 'PENDING',
-          rejectionReason: null,
-        }
-        setPendingCommand(pending)
-
-        const latest = await fetchLatestState(deviceId)
-        if (latest && latest.commandId === commandId) {
-          const updated = applyDurableState(latest, pending)
-          if (updated && updated.state !== 'PENDING') {
-            setPendingCommand(updated)
-          }
-        }
-        return true
-      } catch (cause: unknown) {
-        setSubmissionError(
-          cause instanceof Error
-            ? cause.message
-            : 'Không thể tạo lệnh tinh chỉnh.',
-        )
-        return false
-      } finally {
-        setIsSubmitting(false)
-      }
-    },
-    [deviceId],
+  const submitRecommendation = useSubmitRecommendation(
+    deviceId,
+    setPendingCommand,
+    setIsSubmitting,
+    setSubmissionError,
   )
-
   const resetPendingCommand = useCallback(() => {
     setPendingCommand(null)
   }, [])
