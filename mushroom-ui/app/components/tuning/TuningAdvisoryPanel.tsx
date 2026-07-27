@@ -1,7 +1,7 @@
 'use client'
 
 import { CheckCircle2, LoaderCircle, SlidersHorizontal } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -11,102 +11,52 @@ import {
   useTuningRecommendation,
 } from '@/app/hooks/useTuningRecommendation'
 import { useTuningStatus } from '@/app/hooks/useTuningStatus'
-import {
-  TuningStatusBadge,
-  type TuningCommandState,
-} from '@/app/components/tuning/TuningStatusBadge'
+import { usePendingTuningCommand } from '@/app/hooks/usePendingTuningCommand'
+import { TuningStatusBadge } from '@/app/components/tuning/TuningStatusBadge'
+import { TuningDiffView } from '@/app/components/tuning/TuningDiffView'
 import {
   CoverageWarning,
   isTuningRecommendationBlocked,
 } from '@/app/components/tuning/CoverageWarning'
 
-interface PendingCommand {
-  commandId: string
-  state: TuningCommandState
-  rejectionReason: string | null
-}
-
-interface CreateCommandResponse {
-  commandId: string
-  status: 'PENDING'
-}
-
 interface TuningAdvisoryPanelProps {
   deviceId: string | null | undefined
 }
 
-const COMMAND_CONFIRMATION_TIMEOUT_MS = 30_000
-
 /**
  * Presents a server-generated tuning recommendation and submits it only after
  * the operator explicitly confirms it. A 202 merely establishes a pending
- * command; terminal UI state is driven solely by a matching durable SSE event.
+ * command; terminal UI state is driven solely by a matching durable state event.
  */
 export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
-  const { event: tuningEvent } = useTuningStatus(deviceId, refetch)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submissionError, setSubmissionError] = useState<string | null>(null)
-  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null)
+
+  // Handled reconnect callback resyncs advisory recommendations & durable state.
+  const handleReconnect = useCallback(async () => {
+    await refetch()
+  }, [refetch])
+
+  const { event: tuningEvent } = useTuningStatus(deviceId, handleReconnect)
+  const {
+    pendingCommand,
+    isSubmitting,
+    submissionError,
+    setSubmissionError,
+    submitRecommendation,
+    resyncDurableState,
+  } = usePendingTuningCommand(deviceId, tuningEvent)
 
   const advisory = data?.advisory ?? null
+  const currentConfig = data?.currentConfig ?? null
   const isBlocked =
     !deviceId ||
     !data ||
     isTuningRecommendationBlocked(data.blockReason) ||
     advisory === null
+
   const isCommandPending = pendingCommand?.state === 'PENDING'
   const confirmDisabled = isBlocked || isSubmitting || isCommandPending
-
-  useEffect(() => {
-    setConfirmOpen(false)
-    setIsSubmitting(false)
-    setSubmissionError(null)
-    setPendingCommand(null)
-  }, [deviceId])
-
-  useEffect(() => {
-    if (!pendingCommand || !tuningEvent) return
-    if (tuningEvent.commandId !== pendingCommand.commandId) return
-
-    if (tuningEvent.status === 'IN_SYNC' && pendingCommand.state !== 'IN_SYNC') {
-      setPendingCommand({
-        commandId: pendingCommand.commandId,
-        state: 'IN_SYNC',
-        rejectionReason: null,
-      })
-    } else if (tuningEvent.status === 'REJECTED' && pendingCommand.state !== 'REJECTED') {
-      setPendingCommand({
-        commandId: pendingCommand.commandId,
-        state: 'REJECTED',
-        rejectionReason: 'Thiết bị đã từ chối cấu hình được đề xuất.',
-      })
-    } else if (
-      tuningEvent.status === 'PENDING' &&
-      pendingCommand.state === 'PENDING'
-    ) {
-      setPendingCommand((current) =>
-        current?.commandId === tuningEvent.commandId
-          ? { ...current, state: 'PENDING' }
-          : current,
-      )
-    }
-  }, [pendingCommand, tuningEvent])
-
-  useEffect(() => {
-    if (!pendingCommand || pendingCommand.state !== 'PENDING') return
-
-    const timeout = window.setTimeout(() => {
-      setPendingCommand((current) =>
-        current?.commandId === pendingCommand.commandId && current.state === 'PENDING'
-          ? { ...current, state: 'TIMEOUT' }
-          : current,
-      )
-    }, COMMAND_CONFIRMATION_TIMEOUT_MS)
-
-    return () => window.clearTimeout(timeout)
-  }, [pendingCommand])
 
   const requestConfirmation = () => {
     if (confirmDisabled) return
@@ -114,49 +64,17 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
     setConfirmOpen(true)
   }
 
-  const submitRecommendation = async () => {
-    if (!deviceId || !advisory || confirmDisabled) return
-
-    const commandId = createCommandId()
-    if (!commandId) {
-      setSubmissionError('Trình duyệt không hỗ trợ tạo mã lệnh an toàn.')
-      return
-    }
-
-    setIsSubmitting(true)
-    setSubmissionError(null)
-
-    try {
-      const response = await fetch(
-        `/api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations`,
-        {
-          method: 'POST',
-          cache: 'no-store',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ commandId, config: advisory.suggestedConfig }),
-        },
-      )
-
-      if (!response.ok) {
-        throw new Error(`Không thể tạo lệnh tinh chỉnh (HTTP ${response.status}).`)
-      }
-
-      const result = parseCreateCommandResponse(await response.json())
-      if (!result || result.commandId !== commandId) {
-        throw new Error('Máy chủ trả về xác nhận lệnh không hợp lệ.')
-      }
-
-      // HTTP 202 is not device success. It only lets the panel wait for the
-      // durable, command-scoped SSE transition.
-      setPendingCommand({ commandId, state: 'PENDING', rejectionReason: null })
+  const handleConfirmSubmit = async () => {
+    if (!advisory) return
+    const success = await submitRecommendation(advisory.suggestedConfig)
+    if (success) {
       setConfirmOpen(false)
-    } catch (cause: unknown) {
-      setSubmissionError(
-        cause instanceof Error ? cause.message : 'Không thể tạo lệnh tinh chỉnh.',
-      )
-    } finally {
-      setIsSubmitting(false)
     }
+  }
+
+  const handleManualRefresh = async () => {
+    await refetch()
+    await resyncDurableState()
   }
 
   return (
@@ -199,7 +117,16 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
       )}
 
       {advisory && (
-        <AdvisorySummary advisory={advisory} />
+        <div className="space-y-4">
+          <AdvisorySummary advisory={advisory} />
+          {currentConfig && (
+            <TuningDiffView
+              currentConfig={currentConfig}
+              suggestedConfig={advisory.suggestedConfig}
+              delta={advisory.delta}
+            />
+          )}
+        </div>
       )}
 
       {submissionError && (
@@ -217,7 +144,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
           )}
           Xác nhận áp dụng
         </Button>
-        <Button variant="outline" onClick={() => void refetch()} disabled={!deviceId || isSubmitting}>
+        <Button variant="outline" onClick={() => void handleManualRefresh()} disabled={!deviceId || isSubmitting}>
           Làm mới đề xuất
         </Button>
         {(isBlocked || isCommandPending) && (
@@ -230,7 +157,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
       {confirmOpen && advisory && (
         <ConfirmationDialog
           onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => void submitRecommendation()}
+          onConfirm={() => void handleConfirmSubmit()}
           isSubmitting={isSubmitting}
           config={advisory.suggestedConfig}
         />
@@ -296,24 +223,4 @@ function ConfigPreview({ config }: { config: TuningConfigSnapshot }) {
       <dt className="text-muted-foreground">Mist OFF</dt><dd className="text-right font-mono text-slate-100">{config.mist_off_threshold.toFixed(2)}</dd>
     </dl>
   )
-}
-
-function createCommandId(): string | null {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : null
-}
-
-function parseCreateCommandResponse(value: unknown): CreateCommandResponse | null {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('commandId' in value) ||
-    !('status' in value) ||
-    typeof value.commandId !== 'string' ||
-    value.status !== 'PENDING'
-  ) {
-    return null
-  }
-  return { commandId: value.commandId, status: 'PENDING' }
 }

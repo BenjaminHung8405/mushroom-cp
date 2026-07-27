@@ -139,12 +139,7 @@ export async function endBatch(id: string, status: EndBatchStatus): Promise<void
 }
 
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = 'simulated-jwt-token-placeholder'
-  const headers = new Headers(options.headers)
-  if (!headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-  return fetch(url, { ...options, headers })
+  return fetch(url, options)
 }
 
 export async function updateBatchCheckpoints(

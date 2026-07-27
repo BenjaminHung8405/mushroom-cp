@@ -1,3 +1,96 @@
+## [2026-07-27T12:12:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 3 - Khắc phục phản hồi QA Reviewer)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:12:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 3).
+- **Danh sách file đã sửa đổi:**
+  - `mushroom-ui/app/lib/tuning-schema.ts`
+  - `mushroom-ui/app/lib/__tests__/tuning-schema.test.ts`
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/api/backend/[...path]/__tests__/route-auth.test.ts`
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `mushroom-ui/app/hooks/__tests__/useTuningStatus.test.ts`
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts`
+  - `mushroom-ui/app/components/tuning/__tests__/TuningAdvisoryPanel.test.tsx`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp khắc phục triệt để 5 vấn đề do QA Reviewer phản hồi:**
+  1. **Contract Backend/Frontend & Partial Delta (Critical):**
+     - Đồng bộ chính xác `KpiMetrics`, `TuningAdvisory` và `TuningRecommendationResponseDto` theo backend schema.
+     - Hàm `parsePartialTuningSnapshot` cho phép `delta` chỉ chứa các key thay đổi trong allow-list (`lamp_gain_scale`, `mist_gain_scale`, `mist_on_threshold`, `mist_off_threshold`) với kiểu số hữu hạn (`finite number`), không bắt buộc đủ cả 4 tham số.
+     - Bổ sung unit tests & regression fixtures phản ánh đúng payload controller từ backend.
+  2. **BFF Auth Isolation (Critical):**
+     - Loại bỏ hoàn toàn fallback `process.env.BFF_JWT_TOKEN` khỏi route handler `resolveBearerToken`. Requests từ browser không có danh tính Bearer/Cookie bị từ chối 401 ngay tại BFF proxy.
+     - Bổ sung unit tests đảm bảo request anonymous luôn nhận 401 kể cả khi có biến môi trường `BFF_JWT_TOKEN`.
+  3. **SSRF & Open Proxy Defense (High):**
+     - Xây dựng `validateAndSanitizePath()` kiểm tra strict top-level prefix allow-list (`devices`, `analytics`, `health`), từ chối mọi path rỗng, `.`, `..`, slash, backslash, encoded separator (`%2F`, `%5C`), null bytes hoặc path traversal.
+     - Kiểm tra bắt buộc `upstreamUrl.origin === targetOrigin` để đảm bảo upstream fetch luôn hướng về `API_INTERNAL_URL`.
+     - Thêm unit test regression cho các payload tấn công traversal & cross-origin proxy.
+  4. **Preserve Durable Rejection Reason (High):**
+     - Cập nhật `TuningStatusEvent` (SSE) và `LatestTuningStateResponse` để lưu giữ trường `rejectionReason: string | null`.
+     - `applyDurableState()` truyền nguyên lý do từ chối cụ thể từ API/SSE sang `PendingCommand` và `TuningStatusBadge`; chỉ fallback thông báo mặc định khi backend trả `null`.
+     - Bổ sung unit test xác nhận hiển thị `rejectionReason` bền vững khi bị reject.
+  5. **Refactoring & DRY (Medium):**
+     - Tách nhỏ và định kiểu rõ ràng cho 3 helper functions: `postPendingCommand`, `fetchLatestState`, `applyDurableState`.
+     - Tái sử dụng `applyDurableState` đồng nhất giữa `resyncDurableState`, `submitRecommendation` và SSE event listener.
+     - Thêm guard kiểm tra `latest.commandId === commandId` nhằm chống race condition và stale state update.
+- **Kết quả tự kiểm tra:**
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS** (zero errors).
+  - `pnpm test` (mushroom-ui): **PASS** (6 suites, 38 tests).
+  - `pnpm test` (mushroom-backend): **PASS** (41 suites, 373 tests).
+  - `git diff --check`: **PASS** (zero whitespace issues).
+
+---
+
+## [2026-07-27T12:10:00+07:00] - Security/Architecture QA Review: REJECTED (Track K, K1–K7, vòng 2)
+
+- **Kết quả:** **Từ chối duyệt.** Đã chuyển toàn bộ K1–K7 trong `PROGRESS.md` từ `[ ] QA Review` về `[ ] In Progress`; không task nào được chuyển sang `[x] Done`.
+- **Phạm vi:** Toàn bộ source khai báo ở entry `2026-07-27T12:01:00+07:00`, đối chiếu `README.md` §§3.1–3.6, `sprint_2.md` Track K và yêu cầu K1–K7 trong `PROGRESS.md`.
+- **Lỗi chặn phát hành:**
+  1. **[Critical][K1/K3/K4/K6 – contract/runtime] Frontend schema không tương thích API backend thật, nên reject mọi advisory hợp lệ.** `mushroom-ui/app/lib/tuning-schema.ts:23–31` định nghĩa KPI `tempMean`, `humidityMean`, … trong khi backend trả `KpiMetrics` có `deviceId`, `windowStart`, `tempRmse`, `humidRmse`, `dataCoveragePercent`, …; nghiêm trọng hơn, `:128–140` gọi `parseTuningSnapshot(value.delta)` buộc `delta` đủ cả 4 key, trái contract backend `Partial<TuningConfigSnapshot>` (`mushroom-backend/src/analytics/interfaces/tuning-advisory.interface.ts:15`, recommender chỉ ghi key thay đổi). Vì vậy payload advisory hợp lệ sẽ thành `null`, UI báo malformed và khóa Confirm. **Chỉ thị:** không tự tạo DTO frontend rút gọn; chia sẻ/copy chính xác public response contract từ backend. Parse `delta` là partial với key allow-list + finite number, giữ snapshot đầy đủ chỉ cho `currentConfig`/`suggestedConfig`; validate đầy đủ `KpiMetrics`, `confidence` enum, timestamp ISO-8601 và invariant advisory/block reason. Bổ sung fixture từ controller backend thật cho R1/R2/R3 và regression xác nhận advisory partial delta render/submit được.
+  2. **[Critical][Security / BFF authz] Fallback `BFF_JWT_TOKEN` cấp quyền backend cho request browser không có danh tính.** `mushroom-ui/app/api/backend/[...path]/route.ts:34–35` tự chèn bearer server-side khi request không có `Authorization` hay cookie. Nếu biến này là token service/admin/owner, bất kỳ client unauthenticated nào gọi BFF đều thực thi dưới principal đó, phá vỡ JWT + `DeviceOwnershipGuard` zero-trust của README §3.4. **Chỉ thị:** gỡ fallback credential cho browser proxy; khi không có verified browser session/token phải trả 401 tại BFF. Nếu cần service-to-service route, tách route nội bộ không browser-accessible, scope tối thiểu và không dùng chung catch-all. Thêm test có `BFF_JWT_TOKEN` vẫn trả 401 với request anonymous và test không thể truy cập device ngoài quyền session.
+  3. **[High][Security / SSRF] Catch-all proxy ghép trực tiếp path client-controlled vào `new URL()`.** `mushroom-ui/app/api/backend/[...path]/route.ts:49–50` dùng ``new URL(`/${path.join('/')}`, backendBaseUrl)`` mà không validate segment. Khi segment đầu có slash (ví dụ decoded `//host`), URL bắt đầu `//host` sẽ thay host, biến BFF thành SSRF/open proxy. **Chỉ thị:** validate từng segment trước khi tạo URL: reject rỗng, `.`, `..`, `/`, `\\`, encoded separator sau decode và chỉ allow route grammar cần thiết; hoặc map explicit prefix allow-list. Tạo URL bằng pathname đã encode an toàn, đồng thời thêm regression payload `//host`, `%2F%2Fhost`, traversal và query injection, assert không có upstream fetch ngoài `API_INTERNAL_URL` origin.
+  4. **[High][K5 / logic] UI không thể hiển thị rejection reason từ durable API/SSE.** `mushroom-ui/app/hooks/useTuningStatus.ts:210–240` và `usePendingTuningCommand.ts:246–259` discard `rejectionReason`; các transition tại `:83–88`, `:106–111`, `:184–188` thay bằng string generic. Điều này trái K5 yêu cầu hiển thị rejection reason cụ thể từ API/SSE. **Chỉ thị:** bổ sung `rejectionReason: string | null` vào public latest/SSE DTO, validate bounded stable reason code, chuyển nguyên giá trị đã validate vào `PendingCommand`; fallback generic chỉ khi backend trả `null`. Thêm test REJECTED qua SSE và durable resync có reason cụ thể.
+  5. **[Medium][Architecture/DRY] `submitRecommendation()` dài 80 dòng và lặp durable-state reconciliation.** `mushroom-ui/app/hooks/usePendingTuningCommand.ts:130–209` vừa tạo ID, POST, parse, fetch latest, map state, error handling; logic GET/parse/map bị lặp với `resyncDurableState()` tại `:55–93`. **Chỉ thị:** tách helpers typed `postPendingCommand`, `fetchLatestState`, `applyDurableState`; để hook chỉ điều phối state/effects. Cả immediate resync và reconnect/manual resync phải dùng cùng một helper có guard chống stale device/command response.
+- **Kiểm tra đạt:** Không thấy hard-code secret production trong source mới; values được render bằng React text node nên không có XSS trực tiếp; AbortController, EventSource cleanup, no polling và timeout 30s có mặt; không phát hiện N+1 query/nested loop trong Track K.
+- **Xác minh độc lập:** `pnpm exec tsc --noEmit` **PASS**; `pnpm test` **PASS (6 suites, 31 tests)**; `git diff --check` **PASS**. Lệnh ESLint explicit **không thể chạy** vì `mushroom-ui` không khai báo/cài `eslint` (pnpm báo `Command "eslint" not found`), do đó claim quality gate/lint chưa có bằng chứng tái lập được.
+
+---
+
+## [2026-07-27T12:01:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 2)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:01:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 2).
+- **Danh sách file đã tạo mới và sửa đổi:**
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/api/backend/[...path]/__tests__/route-auth.test.ts` (mới)
+  - `mushroom-ui/app/lib/tuning-schema.ts` (mới)
+  - `mushroom-ui/app/lib/__tests__/tuning-schema.test.ts` (mới)
+  - `mushroom-ui/app/hooks/useTuningRecommendation.ts`
+  - `mushroom-ui/app/hooks/__tests__/useTuningRecommendation.test.ts` (mới)
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts` (mới)
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts` (mới)
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `mushroom-ui/app/hooks/__tests__/useTuningStatus.test.ts` (mới)
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `mushroom-ui/app/components/tuning/__tests__/TuningAdvisoryPanel.test.tsx` (mới)
+  - `mushroom-ui/lib/batch-api.ts`
+  - `mushroom-ui/vitest.config.mts` (mới)
+  - `mushroom-ui/vitest.setup.ts` (mới)
+  - `mushroom-ui/package.json`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình:**
+  1. (Critical - Auth): Cập nhật BFF proxy (`route.ts`) trích xuất Bearer JWT từ Authorization header, HttpOnly cookies (`session_token`, `auth_token`, `jwt`, `token`, `access_token`) và server-side environment fallback `BFF_JWT_TOKEN`, chuyển tiếp `Authorization: Bearer <token>` tới NestJS backend. Loại bỏ hardcode placeholder token trong `batch-api.ts`. Viết bộ test integration kiểm tra đủ 4 auth cases (401 unauthenticated, 200/201/202 owner, 403 non-owner, stream ticket authn + ownership check).
+  2. (High - SSE Race Condition & Durable State Resync): Phân tách state machine điều khiển lệnh ra hook `usePendingTuningCommand`. Sau khi POST HTTP 202 trả về, lập tức fetch durable status từ `GET /devices/:id/tuning-configurations/latest`; nếu ACK/SSE đến nhanh trước/trong khi set state, state chuyển ngay sang `IN_SYNC`/`REJECTED` mà không bị TIMEOUT sai. Khi SSE kết nối lại (`useTuningStatus`), callback `onReconnect` đồng thời resync cả recommendation và durable command state.
+  3. (Medium - Runtime Validation): Xây dựng parser schema ngặt nghèo `parseTuningRecommendationResponse` trong `app/lib/tuning-schema.ts`. Kiểm tra strictly deviceId matching, blockReason union (`INSUFFICIENT_DATA`, `DEVICE_OFFLINE`, `NO_SUGGESTION`, `CONFLICT`), finite number cho config/kpi/delta, và array string cho `triggeredRules`. Malformed payload sẽ fail-safe set error, giữ data null và disable nút Confirm.
+  4. (Medium - Comprehensive Test Suite & Modularization): Thiết lập Vitest + React Testing Library + JSDOM trong `mushroom-ui`. Viết 6 file test suite phủ toàn bộ unit & integration cases (31/31 tests PASS): abort request khi unmount/đổi device, backoff ticket SSE reconnect, clean cleanup EventSource/timer/AbortController, cross-device message filtering, HTTP 202 pending & durable resolution, 30s timeout, và malformed API safety.
+- **Kết quả tự kiểm tra:** `pnpm exec tsc --noEmit` **PASS**; `pnpm run build` **PASS**; `pnpm test` (mushroom-ui) **PASS (6 suites, 31 tests)**; `pnpm test` (mushroom-backend) **PASS (41 suites, 373 tests)**; `git diff --check` **PASS**.
+
+---
+
 ### 2026-07-26 22:39:53 +0700
 - **Task ID:** K7
 - **Status:** Đang chờ QA Review

@@ -1,57 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  parseTuningRecommendationResponse,
+  type KpiMetrics,
+  type TuningAdvisory,
+  type TuningBlockReason,
+  type TuningConfigSnapshot,
+  type TuningRecommendationResponseDto,
+} from '@/app/lib/tuning-schema'
 
-export interface TuningConfigSnapshot {
-  lamp_gain_scale: number
-  mist_gain_scale: number
-  mist_on_threshold: number
-  mist_off_threshold: number
-}
-
-export interface KpiMetrics {
-  deviceId: string
-  windowStart: string
-  windowEnd: string
-  tempRmse: number
-  humidRmse: number
-  mistSwitchCountPerHour: number
-  lampDutyCyclePercent: number
-  lampAvgOnDurationSec: number
-  overshootDurationSec: number
-  undershootDurationSec: number
-  dataCoveragePercent: number
-  sampleCount: number
-  configRevision: number | null
-  dataQualityWarning: boolean
-}
-
-export interface TuningAdvisory {
-  rulesetVersion: string
-  currentConfig: TuningConfigSnapshot
-  suggestedConfig: TuningConfigSnapshot
-  delta: Partial<TuningConfigSnapshot>
-  triggeredRules: string[]
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW'
-  expectedBenefit: string
-  kpiSnapshot: KpiMetrics
-  observationWindowRequired: boolean
-}
-
-export type TuningRecommendationBlockReason =
-  | 'INSUFFICIENT_DATA'
-  | 'DEVICE_OFFLINE'
-  | 'NO_SUGGESTION'
-  | 'CONFLICT'
-
-export interface TuningRecommendationResponseDto {
-  deviceId: string
-  kpi: KpiMetrics | null
-  currentConfig: TuningConfigSnapshot | null
-  advisory: TuningAdvisory | null
-  blockReason: TuningRecommendationBlockReason | null
-  blockReasonDetail: string | null
-  generatedAt: string
+export type {
+  KpiMetrics,
+  TuningAdvisory,
+  TuningBlockReason,
+  TuningBlockReason as TuningRecommendationBlockReason,
+  TuningConfigSnapshot,
+  TuningRecommendationResponseDto,
 }
 
 export interface UseTuningRecommendationResult {
@@ -61,83 +26,85 @@ export interface UseTuningRecommendationResult {
   refetch: () => Promise<void>
 }
 
-/**
- * Loads one advisory snapshot for the selected device. The hook deliberately
- * does not poll: advisory refreshes are initiated by mount, device changes, or
- * an explicit caller action.
- */
 export function useTuningRecommendation(
   deviceId: string | null | undefined,
 ): UseTuningRecommendationResult {
   const [data, setData] = useState<TuningRecommendationResponseDto | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
-  const activeRequestRef = useRef<AbortController | null>(null)
 
-  const load = useCallback(async (): Promise<void> => {
-    activeRequestRef.current?.abort()
+  const abortControllerRef = useRef<AbortController | null>(null)
 
+  const fetchAdvisory = useCallback(async () => {
     if (!deviceId) {
-      activeRequestRef.current = null
+      setData(null)
+      setIsLoading(false)
+      setError(null)
       return
     }
 
+    abortControllerRef.current?.abort()
     const controller = new AbortController()
-    activeRequestRef.current = controller
+    abortControllerRef.current = controller
+
     setIsLoading(true)
     setError(null)
 
     try {
       const response = await fetch(
         `/api/backend/devices/${encodeURIComponent(deviceId)}/analytics/tuning-recommendations`,
-        { cache: 'no-store', signal: controller.signal },
+        {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        },
       )
 
       if (!response.ok) {
         throw new Error(
-          `Không thể tải khuyến nghị tinh chỉnh (HTTP ${response.status}).`,
+          `Không thể tải đề xuất tinh chỉnh (HTTP ${response.status}).`,
         )
       }
 
       const payload: unknown = await response.json()
-      if (!controller.signal.aborted) {
-        setData(payload as TuningRecommendationResponseDto)
+      if (controller.signal.aborted) return
+
+      const validated = parseTuningRecommendationResponse(payload, deviceId)
+      if (!validated) {
+        setData(null)
+        setError(new Error('Máy chủ trả về dữ liệu đề xuất không hợp lệ.'))
+      } else {
+        setData(validated)
+        setError(null)
       }
     } catch (cause: unknown) {
-      if (!controller.signal.aborted) {
-        setError(
-          cause instanceof Error
-            ? cause
-            : new Error('Không thể tải khuyến nghị tinh chỉnh.'),
-        )
-      }
+      if (controller.signal.aborted) return
+      setData(null)
+      setError(
+        cause instanceof Error
+          ? cause
+          : new Error('Không thể tải đề xuất tinh chỉnh.'),
+      )
     } finally {
-      if (activeRequestRef.current === controller) {
-        activeRequestRef.current = null
-        if (!controller.signal.aborted) {
-          setIsLoading(false)
-        }
+      if (abortControllerRef.current === controller) {
+        setIsLoading(false)
       }
     }
   }, [deviceId])
 
   useEffect(() => {
-    if (!deviceId) {
-      activeRequestRef.current?.abort()
-      activeRequestRef.current = null
-      setData(null)
-      setError(null)
-      setIsLoading(false)
-      return
-    }
-
-    void load()
+    void fetchAdvisory()
 
     return () => {
-      activeRequestRef.current?.abort()
-      activeRequestRef.current = null
+      abortControllerRef.current?.abort()
     }
-  }, [deviceId, load])
+  }, [fetchAdvisory])
 
-  return { data, isLoading, error, refetch: load }
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchAdvisory,
+  }
 }

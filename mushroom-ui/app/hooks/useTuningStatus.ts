@@ -22,6 +22,7 @@ export interface TuningStatusEvent {
   publishedAt: string | null
   createdAt: string
   updatedAt: string
+  rejectionReason: string | null
 }
 
 export interface UseTuningStatusResult {
@@ -43,20 +44,20 @@ const MAX_RECONNECT_DELAY_MS = 10_000
 /**
  * Keeps one device-scoped connection to the durable tuning-state stream.
  * A reconnect obtains a fresh, one-time EventSource ticket and refreshes the
- * caller's durable snapshot exactly once after the stream opens again.
+ * caller's durable snapshot and recommendations after the stream opens.
  */
 export function useTuningStatus(
   deviceId: string | null | undefined,
-  refetch: Refetch,
+  onReconnect?: Refetch,
 ): UseTuningStatusResult {
   const [event, setEvent] = useState<TuningStatusEvent | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)
-  const refetchRef = useRef<Refetch>(refetch)
+  const onReconnectRef = useRef<Refetch | undefined>(onReconnect)
 
   useEffect(() => {
-    refetchRef.current = refetch
-  }, [refetch])
+    onReconnectRef.current = onReconnect
+  }, [onReconnect])
 
   useEffect(() => {
     if (!deviceId) {
@@ -144,9 +145,9 @@ export function useTuningStatus(
           setIsConnected(true)
           setError(null)
 
-          if (wasReconnect) {
-            void Promise.resolve(refetchRef.current()).catch(() => {
-              // The advisory hook owns and renders its own fetch errors.
+          if (wasReconnect && onReconnectRef.current) {
+            void Promise.resolve(onReconnectRef.current()).catch(() => {
+              // Caller handles refetch errors.
             })
           }
         }
@@ -207,7 +208,7 @@ function parseStreamTicket(value: unknown): StreamTicketResponse {
   return { ticket: value.ticket, expiresInSeconds: value.expiresInSeconds }
 }
 
-function parseTuningStatusEvent(value: unknown): TuningStatusEvent | null {
+export function parseTuningStatusEvent(value: unknown): TuningStatusEvent | null {
   if (typeof value !== 'string') return null
 
   try {
@@ -222,7 +223,8 @@ function parseTuningStatusEvent(value: unknown): TuningStatusEvent | null {
       !isTuningSnapshot(payload.config) ||
       !isNullableString(payload.publishedAt) ||
       typeof payload.createdAt !== 'string' ||
-      typeof payload.updatedAt !== 'string'
+      typeof payload.updatedAt !== 'string' ||
+      !isNullableString(payload.rejectionReason)
     ) {
       return null
     }
@@ -237,6 +239,7 @@ function parseTuningStatusEvent(value: unknown): TuningStatusEvent | null {
       publishedAt: payload.publishedAt,
       createdAt: payload.createdAt,
       updatedAt: payload.updatedAt,
+      rejectionReason: payload.rejectionReason ?? null,
     }
   } catch {
     return null
