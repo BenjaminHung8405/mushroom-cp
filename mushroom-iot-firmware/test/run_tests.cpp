@@ -4226,13 +4226,14 @@ int main() {
             }
         }
 
-        // S2-H: Control/safety telemetry holdover (transient NaN dropout).
-        // Root cause fix: a transient I2C dropout blanks humidity to NaN and the
-        // MIST gate fail-closes (RejectedNAN) for a full sensor cycle even though
-        // the sensor is healthy. The control pipeline feeds a holdover-backed
-        // telemetry view to the gate; publish/web keep the raw NaN.
+        // S2-H: CONTROL-ONLY telemetry holdover (transient NaN dropout).
+        // These cases exercise the holdover helper directly and its composition
+        // with the gate given a finite/NaN input. Note: in production the manual
+        // safety gate and SystemProtector consume the RAW telemetry (fail-closed
+        // per README §1.3); only the fuzzy/inertia CONTROL path uses the
+        // holdover-backed view. Publish/web always keep the raw NaN.
         {
-            Serial.println("[TEST] Starting Track C - Telemetry Holdover (control/safety) Unit Tests...");
+            Serial.println("[TEST] Starting Track C - Telemetry Holdover (CONTROL-only) Unit Tests...");
 
             constexpr uint32_t MAX_AGE = 15000UL;  // mirrors CONTROL_HOLDOVER_MAX_AGE_MS
             Trajectory::SetpointPod hp = {};

@@ -4,17 +4,22 @@
 #include <cmath>
 
 // ---------------------------------------------------------------------------
-// Last-known-good telemetry holdover for the control/safety pipeline ONLY.
+// Last-known-good telemetry holdover for the CONTROL pipeline ONLY
+// (fuzzy engine + inertia compensation).
 //
 // A transient I2C dropout blanks a sensor reading to NaN. Without holdover the
-// manual safety gate fail-closes (e.g. MIST -> RejectedNAN) for up to a full
-// sensor cycle, wrongly refusing a valid actuator command even though the
-// sensor is actually healthy. We keep a bounded-age last-good sample and reuse
-// it while it is fresh; once it goes stale we fall back to NaN so the gate
-// still fails closed on genuinely missing data.
+// fuzzy engine loses its error input for a full sensor cycle and its relay
+// demand chatters even though the sensor is actually healthy. We keep a
+// bounded-age last-good sample and reuse it while it is fresh; once it goes
+// stale we fall back to NaN.
 //
-// Publish/web paths must keep the RAW telemetry so dashboards/InfluxDB report
-// the dropout truthfully — this helper is not for them.
+// SAFETY MUST NOT use this helper. Per README §1.3 the SystemProtector
+// interlock and the manual safety gate are fail-closed by design and consume
+// the RAW telemetry: a genuine sensor failure must trip an emergency cutoff
+// immediately, never delayed by up to 15 s of stale last-good data.
+//
+// Publish/web paths must also keep the RAW telemetry so dashboards/InfluxDB
+// report the dropout truthfully — this helper is not for them.
 //
 // Header-only + free functions so the host unit-test build can exercise it
 // without extra translation units.

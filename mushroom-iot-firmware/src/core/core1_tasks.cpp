@@ -183,12 +183,13 @@ SharedSystemState getSharedSystemState()
 // raise this to 5 minutes.
 static constexpr unsigned long SENSOR_READ_INTERVAL_MS = 5000UL;
 
-// Maximum age of a last-known-good SHT30 sample that the control/safety
-// pipeline may reuse when the current read drops to NaN. A transient I2C/EMI
-// dropout (relay switching noise, momentarily stuck bus) must not fail-close
-// the manual safety gate. Beyond this bound the data is treated as stale and
-// the gate returns to fail-closed. Publish/web paths always keep raw values.
-// 15 s ≈ 3 sensor read cycles (SENSOR_READ_INTERVAL_MS = 5 s).
+// Maximum age of a last-known-good SHT30 sample that the CONTROL pipeline
+// (fuzzy + inertia) may reuse when the current read drops to NaN. A transient
+// I2C/EMI dropout (relay switching noise, momentarily stuck bus) must not make
+// the fuzzy demand chatter. Beyond this bound the data is treated as stale and
+// the control input returns to NaN. The SAFETY interlock/manual gate never use
+// this holdover; they stay fail-closed on raw telemetry. Publish/web paths
+// always keep raw values. 15 s ≈ 3 sensor read cycles (SENSOR_READ_INTERVAL_MS = 5 s).
 static constexpr uint32_t CONTROL_HOLDOVER_MAX_AGE_MS = 15000UL;
 
 // ===========================================================================
@@ -809,22 +810,29 @@ static void runControlPipelineStep(
     }
 
     // -----------------------------------------------------------------------
-    // Last-known-good holdover for the control/safety pipeline ONLY.
+    // Last-known-good holdover for the CONTROL pipeline ONLY (fuzzy + inertia).
     // A transient I2C dropout blanks telemetry.{temp_air,humidity_air} to NaN;
-    // without holdover the manual safety gate fail-closes (RejectedNAN) for up
-    // to a full sensor cycle, wrongly refusing e.g. MIST ON. We keep an
-    // independent last-good sample per field (temperature can be blanked by the
-    // active defog heater while humidity stays valid, so they must not share a
-    // slot) and reuse it while it is younger than CONTROL_HOLDOVER_MAX_AGE_MS.
-    // Publish/web paths keep the raw `telemetry` so dashboards/InfluxDB report
-    // the dropout truthfully.
+    // without holdover the fuzzy engine loses its error input for a full sensor
+    // cycle and its relay demand chatters. We keep an independent last-good
+    // sample per field (temperature can be blanked by the active defog heater
+    // while humidity stays valid, so they must not share a slot) and reuse it
+    // while it is younger than CONTROL_HOLDOVER_MAX_AGE_MS.
+    //
+    // SAFETY MUST NOT use this holdover view. Per README §1.3 the SystemProtector
+    // interlock, the cross-core FIFO drain and the manual safety gate are
+    // fail-closed by design: they consume the RAW `telemetry` so a genuine
+    // sensor failure trips an emergency relay cutoff immediately, never delayed
+    // by up to 15 s of stale last-good data.
+    //
+    // Publish/web paths also keep the raw `telemetry` so dashboards/InfluxDB
+    // report the dropout truthfully.
     static telemetry_holdover::LastGoodSample lastGoodTemp;
     static telemetry_holdover::LastGoodSample lastGoodHumid;
 
     telemetry_holdover::updateLastGood(lastGoodTemp, telemetry.temp_air, now);
     telemetry_holdover::updateLastGood(lastGoodHumid, telemetry.humidity_air, now);
 
-    // controlTelemetry is the holdover-backed view consumed by control + safety.
+    // controlTelemetry is the holdover-backed view consumed by CONTROL only.
     TelemetryData controlTelemetry = telemetry;
     controlTelemetry.temp_air = telemetry_holdover::holdoverValue(
         telemetry.temp_air, lastGoodTemp, now, CONTROL_HOLDOVER_MAX_AGE_MS);
@@ -890,8 +898,10 @@ static void runControlPipelineStep(
     static protector::SystemProtector systemProtector;
 
     // All cross-core commands are applied by this Core-1-owned FIFO before
-    // constructing the tick's base demand or entering SystemProtector.
-    drainControlEvents(now, controlTelemetry, setpoints, manualLatch, systemProtector);
+    // constructing the tick's base demand or entering SystemProtector. This is
+    // a SAFETY path: it consumes RAW telemetry (fail-closed on NaN), never the
+    // control holdover view.
+    drainControlEvents(now, telemetry, setpoints, manualLatch, systemProtector);
 
     const config::OperatingMode operatingMode = config::GLOBAL_OPERATING_MODE;
 
@@ -934,7 +944,9 @@ static void runControlPipelineStep(
 
     manual::ManualLatchArray prevLatch = manualLatch;
 
-    manual::applyManualLatchToOutputs(outputs, manualLatch, now, controlTelemetry, setpoints, rtcTimeBeforeLatch, cropDay);
+    // SAFETY path: the manual latch gate is fail-closed on NaN, so it reads RAW
+    // telemetry (not the control holdover view).
+    manual::applyManualLatchToOutputs(outputs, manualLatch, now, telemetry, setpoints, rtcTimeBeforeLatch, cropDay);
 
     // Check for auto-releases and push events
     for (size_t i = 0; i < manualLatch.size(); ++i) {
@@ -969,12 +981,15 @@ static void runControlPipelineStep(
     relay_control::hardwareProtectionOverride(outputs, rtcTime);
     relay_control::applyDirectOutputs(outputs, s_activeTuning, relayState);
 
-    // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and transitions
+    // Run the SystemProtector safety gate to enforce cooldowns, bio-rules, and
+    // transitions. SAFETY path: the over-temp/over-humidity interlock consumes
+    // RAW telemetry so a genuine sensor failure trips the emergency cutoff
+    // immediately (never delayed by the control holdover).
     systemProtector.update(
         now,
         fuzzyEnabled,
-        controlTelemetry.temp_air,
-        controlTelemetry.humidity_air,
+        telemetry.temp_air,
+        telemetry.humidity_air,
         relay_control::isSafetyBlackoutActive(rtcTime),
         manualLatch,
         relayState

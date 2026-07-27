@@ -1,3 +1,36 @@
+## [2026-07-27T18:20:00+07:00] - Security/Architecture QA Review: LGTM (Track L, L1–L8) — sau khi áp Option B
+
+- **Reviewer:** Chuyên gia Kiểm toán Mã nguồn (Security Auditor & Senior Code Reviewer).
+- **Trạng thái Task:** L1–L8 chuyển `[x] Done`.
+- **Bối cảnh:** Vòng "Lần 4" bị chặn bởi 1 điểm CRITICAL về scope/safety: commit `2b333cc5` (telemetry holdover) đã fed giá trị holdover vào `SystemProtector.update()`, `drainControlEvents()` và `applyManualLatchToOutputs()` — vi phạm README §1.3 (nghiêm cấm chạm `SystemProtector`) và Mục tiêu #6 (bảo toàn interlock, không được trễ fail-closed tới 15 s). Kiến trúc sư Hệ thống chốt **Option B (tách luồng CONTROL/SAFETY)**.
+
+- **Đã sửa (Option B — auditor thực thi theo quyết định kiến trúc):**
+  - `mushroom-iot-firmware/src/core/core1_tasks.cpp`:
+    - **SAFETY path dùng RAW `telemetry` (fail-closed nguyên bản):** `drainControlEvents(now, telemetry, …)` (~:900), `applyManualLatchToOutputs(…, telemetry, …)` (~:948), `systemProtector.update(…, telemetry.temp_air, telemetry.humidity_air, …)` (~:987). Cảm biến hỏng thật → cutoff khẩn cấp tức thì, không trễ 15 s.
+    - **CONTROL path (fuzzy + inertia) giữ `controlTelemetry` holdover:** `getControlSetpointsAndErrors()`, `tempComp/humidComp` inertia, rate-of-change filter. Dập chattering do nhiễu I2C thoáng qua.
+    - Cập nhật comment `CONTROL_HOLDOVER_MAX_AGE_MS` và block holdover cho đúng phạm vi CONTROL-only + ghi rõ SAFETY dùng raw.
+  - `mushroom-iot-firmware/src/core/telemetry_holdover.h`: sửa header contract — helper CHỈ cho CONTROL; SAFETY không được dùng (trích dẫn §1.3).
+  - `mushroom-iot-firmware/test/run_tests.cpp`: sửa comment Track C holdover cho khớp wiring mới (gate/SystemProtector đọc raw; test vẫn kiểm tra helper trực tiếp + tổ hợp với gate khi input finite/NaN).
+
+- **Vì sao Option B đạt chuẩn:** nguyên nhân gốc (nhiễu EMI khi đóng cắt relay làm sụt bus I2C) đã được giảm mạnh ngay tầng đọc `sensors.cpp` (1 retry + `vTaskDelay(20ms)` nhường CPU, không busy-wait trên Core 1 tick). Holdover chỉ còn phục vụ ổn định đầu ra fuzzy, không đụng interlock — tuân thủ 100% §1.3 và Mục tiêu #6.
+
+- **Xác minh độc lập (auditor tự chạy):**
+  - Host suite: `g++ -std=c++17 -DUNIT_TEST … test/*.cpp $(find src) lib/PubSubClientQos1/src` → `BUILD_EXIT=0`; chạy binary → `--- All Unit Tests Passed Successfully! ---` (`RUN_EXIT=0`).
+  - `git grep` xác nhận không còn `controlTelemetry` trong bất kỳ call SAFETY nào (drain/manual gate/protector đều `telemetry` raw).
+  - Diff sạch, chỉ chạm đúng phạm vi (core1_tasks.cpp, telemetry_holdover.h, run_tests.cpp comment).
+
+- **Các điểm đạt khác đã xác minh trong vòng này:**
+  - **L1/L2/L3 durability gate** `tuning-durability.integration.spec.ts`: PostgreSQL thật + broker retained/QoS-1 thật; re-read qua DataSource mới (proof commit sống sót restart); idempotent duplicate ACK (updatedAt/audit/SSE không đổi); latest-pending guard giữ retained B khi ACK A đến trễ. Đúng release-gate CI (tách khỏi `npm test` mặc định).
+  - **L4 split-brain:** `hydrateFromNvs()` chỉ load `_durable_receipt_command_id` khi committed slot hợp lệ; fallback xóa receipt → hết false `DUPLICATE/persisted`.
+  - **L6 identity không canonical:** firmware `mqtt_manager.cpp:1579+` → `DEFER_REDELIVERY` (không phát terminal report mà backend drop); test đã chuyển `not-a-uuid` sang `assertDeferredWithoutMutation`; các assert `REJECTED` còn lại thuộc nhánh canonical-UUID-payload-sai (hợp lệ). Khép kín hai đầu.
+  - **Backend ACK log** `mqtt.service.ts`: log non-SUCCESS ACK, không rò rỉ secret, không SQLi.
+  - **`sensors.cpp`:** `delay(50)`→`vTaskDelay(20)` tuân thủ ràng buộc no-busy-wait Core 1.
+  - **Miễn trừ 50 dòng cho `run_tests.cpp::main()`** ghi tại README §3.1: hợp lệ, phạm vi hẹp cho host regression harness tuần tự.
+
+- **Checklist kiểm toán:** Kiến trúc/Clean layering ✔ (SAFETY vs CONTROL tách rõ, Core-1/Core-0 boundary giữ nguyên); Bảo mật ✔ (không hardcode secret, escapeFluxString, JWT actor, parameterized query, canonical-UUID fail-closed); Logic/edge-case ✔ (fail-closed trên NaN, millis() wrap-safe, idempotent ACK, out-of-order guard); Tối ưu ✔ (không N+1, không nested loop vô lý, không heap alloc trên control path, no busy-wait tick).
+
+---
+
 ## [2026-07-27T17:58:48+07:00] - Track L (L1–L8): Sửa lỗi theo QA — Đang chờ QA Review (Lần 4)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T17:58:48+07:00.
