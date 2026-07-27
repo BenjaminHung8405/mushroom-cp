@@ -115,6 +115,80 @@ export function applyDurableState(
   return null
 }
 
+function useDurableStateReconciler(
+  deviceId: string | null | undefined,
+  pendingCommandRef: React.RefObject<PendingCommand | null>,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+) {
+  return useCallback(async () => {
+    const currentPending = pendingCommandRef.current
+    if (!deviceId || !currentPending || currentPending.state !== 'PENDING') {
+      return
+    }
+
+    const latest = await fetchLatestState(deviceId)
+    if (!latest) return
+
+    if (pendingCommandRef.current?.commandId !== currentPending.commandId) return
+
+    const updated = applyDurableState(latest, currentPending)
+    if (updated && updated.state !== currentPending.state) {
+      setPendingCommand(updated)
+    }
+  }, [deviceId, pendingCommandRef, setPendingCommand])
+}
+
+function useSseEventReconciler(
+  pendingCommand: PendingCommand | null,
+  tuningEvent: TuningStatusEvent | null,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+) {
+  useEffect(() => {
+    if (!pendingCommand || !tuningEvent) return
+    if (tuningEvent.commandId !== pendingCommand.commandId) return
+
+    const sseLatest: LatestTuningStateResponse = {
+      commandId: tuningEvent.commandId,
+      status: tuningEvent.status,
+      rejectionReason: tuningEvent.rejectionReason,
+    }
+
+    const updated = applyDurableState(sseLatest, pendingCommand)
+    if (
+      updated &&
+      (updated.state !== pendingCommand.state ||
+        updated.rejectionReason !== pendingCommand.rejectionReason)
+    ) {
+      setPendingCommand(updated)
+    }
+  }, [pendingCommand, tuningEvent, setPendingCommand])
+}
+
+function usePendingTimeout(
+  pendingCommand: PendingCommand | null,
+  setPendingCommand: React.Dispatch<React.SetStateAction<PendingCommand | null>>,
+) {
+  useEffect(() => {
+    if (!pendingCommand || pendingCommand.state !== 'PENDING') return
+
+    const timeout = window.setTimeout(() => {
+      setPendingCommand((current) =>
+        current?.commandId === pendingCommand.commandId && current.state === 'PENDING'
+          ? { ...current, state: 'TIMEOUT' }
+          : current,
+      )
+    }, COMMAND_CONFIRMATION_TIMEOUT_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [pendingCommand, setPendingCommand])
+}
+
+export function createCommandId(): string | null {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : null
+}
+
 export function usePendingTuningCommand(
   deviceId: string | null | undefined,
   tuningEvent: TuningStatusEvent | null,
@@ -134,59 +208,14 @@ export function usePendingTuningCommand(
     setSubmissionError(null)
   }, [deviceId])
 
-  const resyncDurableState = useCallback(async () => {
-    const currentPending = pendingCommandRef.current
-    if (!deviceId || !currentPending || currentPending.state !== 'PENDING') {
-      return
-    }
+  const resyncDurableState = useDurableStateReconciler(
+    deviceId,
+    pendingCommandRef,
+    setPendingCommand,
+  )
 
-    const latest = await fetchLatestState(deviceId)
-    if (!latest) return
-
-    // Stale guard against device or command change while fetching
-    if (pendingCommandRef.current?.commandId !== currentPending.commandId) return
-
-    const updated = applyDurableState(latest, currentPending)
-    if (updated && updated.state !== currentPending.state) {
-      setPendingCommand(updated)
-    }
-  }, [deviceId])
-
-  // Process matching SSE events.
-  useEffect(() => {
-    if (!pendingCommand || !tuningEvent) return
-    if (tuningEvent.commandId !== pendingCommand.commandId) return
-
-    const sseLatest: LatestTuningStateResponse = {
-      commandId: tuningEvent.commandId,
-      status: tuningEvent.status,
-      rejectionReason: tuningEvent.rejectionReason,
-    }
-
-    const updated = applyDurableState(sseLatest, pendingCommand)
-    if (
-      updated &&
-      (updated.state !== pendingCommand.state ||
-        updated.rejectionReason !== pendingCommand.rejectionReason)
-    ) {
-      setPendingCommand(updated)
-    }
-  }, [pendingCommand, tuningEvent])
-
-  // Handle 30-second timeout for pending command confirmation.
-  useEffect(() => {
-    if (!pendingCommand || pendingCommand.state !== 'PENDING') return
-
-    const timeout = window.setTimeout(() => {
-      setPendingCommand((current) =>
-        current?.commandId === pendingCommand.commandId && current.state === 'PENDING'
-          ? { ...current, state: 'TIMEOUT' }
-          : current,
-      )
-    }, COMMAND_CONFIRMATION_TIMEOUT_MS)
-
-    return () => window.clearTimeout(timeout)
-  }, [pendingCommand])
+  useSseEventReconciler(pendingCommand, tuningEvent, setPendingCommand)
+  usePendingTimeout(pendingCommand, setPendingCommand)
 
   const submitRecommendation = useCallback(
     async (config: TuningConfigSnapshot): Promise<boolean> => {
@@ -214,7 +243,6 @@ export function usePendingTuningCommand(
         }
         setPendingCommand(initialPending)
 
-        // Immediately check durable state in case completion happened rapidly.
         try {
           const latest = await fetchLatestState(deviceId)
           if (latest && latest.commandId === commandId) {
@@ -224,7 +252,7 @@ export function usePendingTuningCommand(
             }
           }
         } catch {
-          // If check fails, SSE stream and 30s timeout remain active.
+          // SSE stream and timeout handle fallback
         }
 
         return true
@@ -255,12 +283,6 @@ export function usePendingTuningCommand(
     resyncDurableState,
     resetPendingCommand,
   }
-}
-
-function createCommandId(): string | null {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : null
 }
 
 export function parseCreateCommandResponse(value: unknown): CreateCommandResponse | null {

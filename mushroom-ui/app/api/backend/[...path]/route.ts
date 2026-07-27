@@ -10,7 +10,13 @@ const backendBaseUrl = (
   'http://localhost:6002'
 ).replace(/\/$/, '')
 
-const ALLOWED_TOP_LEVEL_PREFIXES = new Set(['devices', 'analytics', 'health'])
+const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
+  'devices',
+  'batches',
+  'analytics',
+  'offline-sync',
+  'health',
+])
 
 /**
  * Resolves Bearer JWT strictly from browser context:
@@ -45,8 +51,7 @@ export function validateAndSanitizePath(pathSegments: string[]): string[] | null
 
   const sanitized: string[] = []
   for (const seg of pathSegments) {
-    if (!seg) return null
-    if (seg === '.' || seg === '..') return null
+    if (!seg || seg === '.' || seg === '..') return null
     if (seg.includes('/') || seg.includes('\\')) return null
 
     try {
@@ -72,14 +77,7 @@ export function validateAndSanitizePath(pathSegments: string[]): string[] | null
   return sanitized
 }
 
-/**
- * Same-origin proxy gateway to NestJS. Validates browser identity and path segments
- * before forwarding requests to the internal API URL.
- */
-async function proxy(
-  request: NextRequest,
-  context: { params: Promise<{ path: string[] }> },
-) {
+export function authenticateBrowserRequest(request: NextRequest): { token: string } | NextResponse {
   const token = resolveBearerToken(request)
   if (!token) {
     return NextResponse.json(
@@ -87,8 +85,10 @@ async function proxy(
       { status: 401, headers: { 'Cache-Control': 'no-store' } },
     )
   }
+  return { token }
+}
 
-  const { path } = await context.params
+export function buildValidatedUpstreamUrl(path: string[], search: string): { url: URL } | NextResponse {
   const sanitizedPath = validateAndSanitizePath(path)
   if (!sanitizedPath) {
     return NextResponse.json(
@@ -99,9 +99,8 @@ async function proxy(
 
   const safePath = '/' + sanitizedPath.join('/')
   const upstreamUrl = new URL(safePath, backendBaseUrl)
-
-  // Enforce upstream origin safety to defend against open proxy / SSRF attacks.
   const targetOrigin = new URL(backendBaseUrl).origin
+
   if (upstreamUrl.origin !== targetOrigin) {
     return NextResponse.json(
       { message: 'Địa chỉ đích proxy bị cấm.' },
@@ -109,18 +108,58 @@ async function proxy(
     )
   }
 
-  upstreamUrl.search = request.nextUrl.search
+  upstreamUrl.search = search
+  return { url: upstreamUrl }
+}
+
+export function buildForwardHeaders(request: NextRequest, token: string): Record<string, string> {
+  return {
+    Accept: request.headers.get('accept') ?? 'application/json',
+    Authorization: `Bearer ${token}`,
+    ...(request.headers.get('content-type')
+      ? { 'Content-Type': request.headers.get('content-type')! }
+      : {}),
+  }
+}
+
+export function forwardUpstreamResponse(response: Response): Response {
+  const isEventStream = response.headers
+    .get('content-type')
+    ?.includes('text/event-stream')
+
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      'Content-Type': response.headers.get('content-type') ?? 'application/json',
+      'Cache-Control': isEventStream ? 'no-cache, no-transform' : 'no-store',
+      ...(isEventStream
+        ? {
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          }
+        : {}),
+    },
+  })
+}
+
+/**
+ * Same-origin proxy gateway to NestJS. Validates browser identity and path segments
+ * before forwarding requests to the internal API URL.
+ */
+async function proxy(
+  request: NextRequest,
+  context: { params: Promise<{ path: string[] }> },
+) {
+  const authResult = authenticateBrowserRequest(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  const { path } = await context.params
+  const urlResult = buildValidatedUpstreamUrl(path, request.nextUrl.search)
+  if (urlResult instanceof NextResponse) return urlResult
 
   try {
-    const headers: Record<string, string> = {
-      Accept: request.headers.get('accept') ?? 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(request.headers.get('content-type')
-        ? { 'Content-Type': request.headers.get('content-type')! }
-        : {}),
-    }
-
-    const response = await fetch(upstreamUrl, {
+    const headers = buildForwardHeaders(request, authResult.token)
+    const response = await fetch(urlResult.url, {
       method: request.method,
       headers,
       body:
@@ -129,24 +168,7 @@ async function proxy(
           : await request.arrayBuffer(),
       cache: 'no-store',
     })
-
-    const isEventStream = response.headers
-      .get('content-type')
-      ?.includes('text/event-stream')
-
-    return new Response(response.body, {
-      status: response.status,
-      headers: {
-        'Content-Type': response.headers.get('content-type') ?? 'application/json',
-        'Cache-Control': isEventStream ? 'no-cache, no-transform' : 'no-store',
-        ...(isEventStream
-          ? {
-              Connection: 'keep-alive',
-              'X-Accel-Buffering': 'no',
-            }
-          : {}),
-      },
-    })
+    return forwardUpstreamResponse(response)
   } catch {
     return NextResponse.json(
       { message: 'Không thể kết nối tới dịch vụ backend.' },
@@ -159,3 +181,4 @@ export const GET = proxy
 export const POST = proxy
 export const PUT = proxy
 export const PATCH = proxy
+export const DELETE = proxy

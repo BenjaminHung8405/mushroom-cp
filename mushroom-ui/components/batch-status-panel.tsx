@@ -217,7 +217,7 @@ export function BatchStatusPanel() {
             </optgroup>
             {Object.keys(customProfiles).length > 0 && (
               <optgroup label="Hồ sơ tùy chỉnh" className="bg-slate-900 text-slate-300">
-                {Object.entries(customProfiles).map(([key, profile]: [string, any]) => (
+                {Object.entries(customProfiles).map(([key, profile]: [string, { name: string }]) => (
                   <option key={key} value={key}>{profile.name}</option>
                 ))}
               </optgroup>

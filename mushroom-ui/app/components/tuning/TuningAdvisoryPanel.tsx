@@ -11,7 +11,10 @@ import {
   useTuningRecommendation,
 } from '@/app/hooks/useTuningRecommendation'
 import { useTuningStatus } from '@/app/hooks/useTuningStatus'
-import { usePendingTuningCommand } from '@/app/hooks/usePendingTuningCommand'
+import {
+  type PendingCommand,
+  usePendingTuningCommand,
+} from '@/app/hooks/usePendingTuningCommand'
 import { TuningStatusBadge } from '@/app/components/tuning/TuningStatusBadge'
 import { TuningDiffView } from '@/app/components/tuning/TuningDiffView'
 import {
@@ -23,6 +26,69 @@ interface TuningAdvisoryPanelProps {
   deviceId: string | null | undefined
 }
 
+export function TuningPanelHeader({ pendingCommand }: { pendingCommand: PendingCommand | null }) {
+  return (
+    <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="flex gap-3">
+        <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
+          <SlidersHorizontal className="size-5" aria-hidden="true" />
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Chỉ áp dụng sau khi người vận hành xác nhận và thiết bị ghi nhận bền vững.
+          </p>
+        </div>
+      </div>
+      {pendingCommand && (
+        <TuningStatusBadge
+          state={pendingCommand.state}
+          rejectionReason={pendingCommand.rejectionReason}
+        />
+      )}
+    </div>
+  )
+}
+
+export function TuningPanelActions({
+  confirmDisabled,
+  isSubmitting,
+  isCommandPending,
+  isBlocked,
+  deviceId,
+  onRequestConfirmation,
+  onManualRefresh,
+}: {
+  confirmDisabled: boolean
+  isSubmitting: boolean
+  isCommandPending: boolean
+  isBlocked: boolean
+  deviceId: string | null | undefined
+  onRequestConfirmation: () => void
+  onManualRefresh: () => void
+}) {
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-3">
+      <Button onClick={onRequestConfirmation} disabled={confirmDisabled}>
+        {isSubmitting || isCommandPending ? (
+          <LoaderCircle className="animate-spin" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 aria-hidden="true" />
+        )}
+        Xác nhận áp dụng
+      </Button>
+      <Button variant="outline" onClick={onManualRefresh} disabled={!deviceId || isSubmitting}>
+        Làm mới đề xuất
+      </Button>
+      {(isBlocked || isCommandPending) && (
+        <span className="text-xs text-muted-foreground">
+          {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Xác nhận bị khóa cho đến khi đủ điều kiện.'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /**
  * Presents a server-generated tuning recommendation and submits it only after
  * the operator explicitly confirms it. A 202 merely establishes a pending
@@ -32,7 +98,6 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const { data, isLoading, error, refetch } = useTuningRecommendation(deviceId)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  // Handled reconnect callback resyncs advisory recommendations & durable state.
   const handleReconnect = useCallback(async () => {
     await refetch()
   }, [refetch])
@@ -79,25 +144,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
 
   return (
     <Card className="border border-slate-700/50 bg-slate-950/40 p-6">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="flex gap-3">
-          <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
-            <SlidersHorizontal className="size-5" aria-hidden="true" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Chỉ áp dụng sau khi người vận hành xác nhận và thiết bị ghi nhận bền vững.
-            </p>
-          </div>
-        </div>
-        {pendingCommand && (
-          <TuningStatusBadge
-            state={pendingCommand.state}
-            rejectionReason={pendingCommand.rejectionReason}
-          />
-        )}
-      </div>
+      <TuningPanelHeader pendingCommand={pendingCommand} />
 
       {isLoading && !data && (
         <p className="text-sm text-muted-foreground">Đang phân tích dữ liệu vận hành…</p>
@@ -135,24 +182,15 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
         </p>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
-        <Button onClick={requestConfirmation} disabled={confirmDisabled}>
-          {isSubmitting || isCommandPending ? (
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
-          ) : (
-            <CheckCircle2 aria-hidden="true" />
-          )}
-          Xác nhận áp dụng
-        </Button>
-        <Button variant="outline" onClick={() => void handleManualRefresh()} disabled={!deviceId || isSubmitting}>
-          Làm mới đề xuất
-        </Button>
-        {(isBlocked || isCommandPending) && (
-          <span className="text-xs text-muted-foreground">
-            {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Xác nhận bị khóa cho đến khi đủ điều kiện.'}
-          </span>
-        )}
-      </div>
+      <TuningPanelActions
+        confirmDisabled={confirmDisabled}
+        isSubmitting={isSubmitting}
+        isCommandPending={isCommandPending}
+        isBlocked={isBlocked}
+        deviceId={deviceId}
+        onRequestConfirmation={requestConfirmation}
+        onManualRefresh={() => void handleManualRefresh()}
+      />
 
       {confirmOpen && advisory && (
         <ConfirmationDialog
@@ -166,7 +204,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   )
 }
 
-function AdvisorySummary({ advisory }: { advisory: TuningAdvisory }) {
+export function AdvisorySummary({ advisory }: { advisory: TuningAdvisory }) {
   return (
     <div className="space-y-3 rounded-lg border border-slate-700/50 bg-slate-900/30 p-4">
       <p className="text-sm text-slate-100">{advisory.expectedBenefit}</p>
@@ -184,7 +222,7 @@ function AdvisorySummary({ advisory }: { advisory: TuningAdvisory }) {
   )
 }
 
-function ConfirmationDialog({
+export function ConfirmationDialog({
   config,
   isSubmitting,
   onCancel,
@@ -214,7 +252,7 @@ function ConfirmationDialog({
   )
 }
 
-function ConfigPreview({ config }: { config: TuningConfigSnapshot }) {
+export function ConfigPreview({ config }: { config: TuningConfigSnapshot }) {
   return (
     <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 rounded-md bg-slate-900/60 p-3 text-xs">
       <dt className="text-muted-foreground">Lamp gain</dt><dd className="text-right font-mono text-slate-100">{config.lamp_gain_scale.toFixed(2)}</dd>

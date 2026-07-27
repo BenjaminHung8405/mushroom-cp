@@ -1,10 +1,15 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyDurableState, usePendingTuningCommand } from '@/app/hooks/usePendingTuningCommand'
+import {
+  applyDurableState,
+  parseCreateCommandResponse,
+  parseLatestTuningState,
+  usePendingTuningCommand,
+} from '@/app/hooks/usePendingTuningCommand'
 import type { TuningStatusEvent } from '@/app/hooks/useTuningStatus'
 import type { TuningConfigSnapshot } from '@/app/lib/tuning-schema'
 
-describe('usePendingTuningCommand hook', () => {
+describe('usePendingTuningCommand hook & parsers', () => {
   const dummyConfig: TuningConfigSnapshot = {
     lamp_gain_scale: 1.0,
     mist_gain_scale: 1.0,
@@ -22,7 +27,23 @@ describe('usePendingTuningCommand hook', () => {
     vi.useRealTimers()
   })
 
-  describe('applyDurableState helper', () => {
+  describe('Durable State & Response Parsers', () => {
+    it('parseCreateCommandResponse parses valid PENDING command payload', () => {
+      expect(parseCreateCommandResponse({ commandId: 'c1', status: 'PENDING' })).toEqual({
+        commandId: 'c1',
+        status: 'PENDING',
+      })
+      expect(parseCreateCommandResponse({ commandId: 'c1', status: 'IN_SYNC' })).toBeNull()
+      expect(parseCreateCommandResponse(null)).toBeNull()
+    })
+
+    it('parseLatestTuningState parses valid latest state payload', () => {
+      expect(
+        parseLatestTuningState({ commandId: 'c1', status: 'IN_SYNC', rejectionReason: null }),
+      ).toEqual({ commandId: 'c1', status: 'IN_SYNC', rejectionReason: null })
+      expect(parseLatestTuningState({ invalid: 'payload' })).toBeNull()
+    })
+
     it('preserves specific rejectionReason when backend rejects command', () => {
       const pending = { commandId: 'cmd-1', state: 'PENDING' as const, rejectionReason: null }
       const res = applyDurableState(
@@ -50,130 +71,131 @@ describe('usePendingTuningCommand hook', () => {
     })
   })
 
-  it('submits recommendation via POST and sets pending state on HTTP 202', async () => {
-    const commandId = 'cmd-123-uuid'
-    vi.stubGlobal('crypto', { randomUUID: () => commandId })
+  describe('usePendingTuningCommand Hook lifecycle', () => {
+    it('submits recommendation via POST and sets pending state on HTTP 202', async () => {
+      const commandId = 'cmd-123-uuid'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING' }),
-      } as Response) // POST
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-      } as Response) // GET latest
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response) // POST
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
+        } as Response) // GET latest
 
-    const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
 
-    let success = false
-    await act(async () => {
-      success = await result.current.submitRecommendation(dummyConfig)
+      let success = false
+      await act(async () => {
+        success = await result.current.submitRecommendation(dummyConfig)
+      })
+
+      expect(success).toBe(true)
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'PENDING',
+        rejectionReason: null,
+      })
     })
 
-    expect(success).toBe(true)
-    expect(result.current.pendingCommand).toEqual({
-      commandId,
-      state: 'PENDING',
-      rejectionReason: null,
-    })
-  })
+    it('handles RACE CONDITION: immediately resolves to IN_SYNC if latest state is already IN_SYNC on POST completion', async () => {
+      const commandId = 'cmd-fast-ack'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-  it('handles RACE CONDITION: immediately resolves to IN_SYNC if latest state is already IN_SYNC on POST completion', async () => {
-    const commandId = 'cmd-fast-ack'
-    vi.stubGlobal('crypto', { randomUUID: () => commandId })
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response) // POST 202
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'IN_SYNC', rejectionReason: null }),
+        } as Response) // GET latest durable status arrives immediately
 
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING' }),
-      } as Response) // POST 202
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'IN_SYNC', rejectionReason: null }),
-      } as Response) // GET latest durable status arrives immediately
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
 
-    const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
 
-    await act(async () => {
-      await result.current.submitRecommendation(dummyConfig)
+      expect(result.current.pendingCommand?.state).toBe('IN_SYNC')
     })
 
-    expect(result.current.pendingCommand?.state).toBe('IN_SYNC')
-  })
+    it('transitions state and preserves rejectionReason when matching SSE REJECTED event is received', async () => {
+      const commandId = 'cmd-sse-test'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
 
-  it('transitions state and preserves rejectionReason when matching SSE REJECTED event is received', async () => {
-    const commandId = 'cmd-sse-test'
-    vi.stubGlobal('crypto', { randomUUID: () => commandId })
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
+        } as Response)
 
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING' }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-      } as Response)
+      const { result, rerender } = renderHook(
+        ({ event }: { event: TuningStatusEvent | null }) =>
+          usePendingTuningCommand('DEV_001', event),
+        { initialProps: { event: null as TuningStatusEvent | null } },
+      )
 
-    let sseEvent: TuningStatusEvent | null = null
-    const { result, rerender } = renderHook(
-      ({ event }: { event: TuningStatusEvent | null }) =>
-        usePendingTuningCommand('DEV_001', event),
-      { initialProps: { event: sseEvent as TuningStatusEvent | null } },
-    )
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
+      expect(result.current.pendingCommand?.state).toBe('PENDING')
 
-    await act(async () => {
-      await result.current.submitRecommendation(dummyConfig)
-    })
-    expect(result.current.pendingCommand?.state).toBe('PENDING')
+      const matchingEvent: TuningStatusEvent = {
+        id: 'event-1',
+        deviceId: 'DEV_001',
+        commandId,
+        revision: 2,
+        status: 'REJECTED',
+        config: dummyConfig,
+        publishedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rejectionReason: 'PERSISTENCE_NOT_CONFIRMED',
+      }
 
-    const matchingEvent: TuningStatusEvent = {
-      id: 'event-1',
-      deviceId: 'DEV_001',
-      commandId,
-      revision: 2,
-      status: 'REJECTED',
-      config: dummyConfig,
-      publishedAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      rejectionReason: 'PERSISTENCE_NOT_CONFIRMED',
-    }
-
-    rerender({ event: matchingEvent })
-    expect(result.current.pendingCommand).toEqual({
-      commandId,
-      state: 'REJECTED',
-      rejectionReason: 'PERSISTENCE_NOT_CONFIRMED',
-    })
-  })
-
-  it('transitions state to TIMEOUT after 30 seconds if still PENDING', async () => {
-    const commandId = 'cmd-timeout-test'
-    vi.stubGlobal('crypto', { randomUUID: () => commandId })
-
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING' }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
-      } as Response)
-
-    const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
-
-    await act(async () => {
-      await result.current.submitRecommendation(dummyConfig)
-    })
-    expect(result.current.pendingCommand?.state).toBe('PENDING')
-
-    act(() => {
-      vi.advanceTimersByTime(30_000)
+      rerender({ event: matchingEvent })
+      expect(result.current.pendingCommand).toEqual({
+        commandId,
+        state: 'REJECTED',
+        rejectionReason: 'PERSISTENCE_NOT_CONFIRMED',
+      })
     })
 
-    expect(result.current.pendingCommand?.state).toBe('TIMEOUT')
+    it('transitions state to TIMEOUT after 30 seconds if still PENDING', async () => {
+      const commandId = 'cmd-timeout-test'
+      vi.stubGlobal('crypto', { randomUUID: () => commandId })
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ commandId, status: 'PENDING', rejectionReason: null }),
+        } as Response)
+
+      const { result } = renderHook(() => usePendingTuningCommand('DEV_001', null))
+
+      await act(async () => {
+        await result.current.submitRecommendation(dummyConfig)
+      })
+      expect(result.current.pendingCommand?.state).toBe('PENDING')
+
+      act(() => {
+        vi.advanceTimersByTime(30_000)
+      })
+
+      expect(result.current.pendingCommand?.state).toBe('TIMEOUT')
+    })
   })
 })

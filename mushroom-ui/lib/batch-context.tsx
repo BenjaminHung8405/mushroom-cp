@@ -101,7 +101,7 @@ interface BatchContextType {
   activeBatchId: string | null
   activeBatchSyncVersion: number
   syncFromActiveBatch: (batch: ActiveBatch | null) => void
-  customProfiles: Record<string, any>
+  customProfiles: Record<string, { name: string }>
   saveAsNewProfile: (name: string) => void
 }
 

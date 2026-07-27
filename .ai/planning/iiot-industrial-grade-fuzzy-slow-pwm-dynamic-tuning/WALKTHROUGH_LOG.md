@@ -1,3 +1,49 @@
+## [2026-07-27T12:25:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 4 - Khắc phục phản hồi QA Reviewer)
+
+- **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:25:00+07:00.
+- **Task ID:** Track K (K1, K2, K3, K4, K5, K6, K7).
+- **Trạng thái hiện tại:** `[ ] QA Review` — Đang chờ QA Review (Lần 4).
+- **Danh sách file đã sửa đổi:**
+  - `mushroom-ui/package.json`
+  - `mushroom-ui/eslint.config.mjs` (tạo mới)
+  - `mushroom-ui/app/api/backend/[...path]/route.ts`
+  - `mushroom-ui/app/api/backend/[...path]/__tests__/route-auth.test.ts`
+  - `mushroom-ui/app/hooks/useTuningStatus.ts`
+  - `mushroom-ui/app/hooks/__tests__/useTuningStatus.test.ts`
+  - `mushroom-ui/app/hooks/usePendingTuningCommand.ts`
+  - `mushroom-ui/app/hooks/__tests__/usePendingTuningCommand.test.ts`
+  - `mushroom-ui/app/components/tuning/TuningAdvisoryPanel.tsx`
+  - `mushroom-ui/lib/batch-api.ts`
+  - `mushroom-ui/components/batch-status-panel.tsx`
+  - `mushroom-ui/lib/batch-context.tsx`
+  - `mushroom-ui/app/page.tsx`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/PROGRESS.md`
+  - `.ai/planning/iiot-industrial-grade-fuzzy-slow-pwm-dynamic-tuning/WALKTHROUGH_LOG.md`
+- **Giải trình giải pháp khắc phục triệt để các vấn đề do QA Reviewer chỉ ra:**
+  1. **Khắc phục Regression Allow-list BFF Proxy (`route.ts`):**
+     - Mở rộng `ALLOWED_TOP_LEVEL_PREFIXES` trong `route.ts` bao gồm đầy đủ các prefix UI hiện hữu (`devices`, `batches`, `analytics`, `offline-sync`, `health`), đảm bảo các request tới `/api/backend/batches/**` và các endpoint khác không bị chặn bởi HTTP 400.
+     - Giữ nguyên toàn bộ cơ chế bảo vệ SSRF / path traversal (từ chối segment rỗng, `.`, `..`, raw/decoded slashes, null bytes, và kiểm tra `upstreamUrl.origin === targetOrigin`).
+     - Bổ sung regression tests đầy đủ cho từng nhóm endpoint hợp lệ (`GET /devices`, `GET/POST/PATCH /batches/**`, `GET/POST /analytics/**`, `GET /offline-sync/**`, `GET /health`, và SSE routes) khẳng định request hợp lệ được forward chính xác và request bất hợp pháp bị từ chối 400/401.
+  2. **Phân rã hàm > 50 dòng thành các module/helper độc lập (< 50 dòng):**
+     - `route.ts`: Tách `proxy()` thành `authenticateBrowserRequest`, `buildValidatedUpstreamUrl`, `buildForwardHeaders`, `forwardUpstreamResponse`.
+     - `useTuningStatus.ts`: Tách `useTuningStatus()` thành `calculateBackoffDelay`, `fetchStreamTicket`, `buildStreamUrl`, `cleanupConnectionState`, `scheduleReconnect`, `connectStream`, `setupEventSourceHandlers`. Giữ đúng semantics exponential backoff `500ms -> 1s -> 2s -> cap 10s`.
+     - `usePendingTuningCommand.ts`: Tách `usePendingTuningCommand()` thành `useDurableStateReconciler`, `useSseEventReconciler`, `usePendingTimeout`, `createCommandId`, `applyDurableState`, `parseCreateCommandResponse`, `parseLatestTuningState`.
+     - `TuningAdvisoryPanel.tsx`: Tách `TuningAdvisoryPanel` thành `TuningPanelHeader`, `TuningPanelActions`, `AdvisorySummary`, `ConfirmationDialog`, `ConfigPreview`.
+     - Bổ sung unit tests cho tất cả helper functions sau khi phân rã.
+  3. **Khôi phục Lint Gate & ESLint Configuration:**
+     - Cài đặt `eslint`, `@eslint/js`, `typescript-eslint`, `globals` và `eslint-config-next` trong `devDependencies` của `mushroom-ui`.
+     - Tạo file cấu hình ESLint chuẩn `mushroom-ui/eslint.config.mjs`.
+     - Sửa toàn bộ lỗi lint trong codebase (`lib/batch-api.ts`, `app/page.tsx`, `useTuningStatus.test.ts`, `route-auth.test.ts`, `batch-status-panel.tsx`, `batch-context.tsx`).
+     - Đảm bảo `pnpm run lint` chạy thực sự và pass 100% cleanly (0 errors, 0 warnings).
+- **Kết quả tự kiểm tra:**
+  - `pnpm run lint` (mushroom-ui): **PASS (0 errors, 0 warnings)**.
+  - `pnpm exec tsc --noEmit` (mushroom-ui): **PASS (zero errors)**.
+  - `pnpm test` (mushroom-ui): **PASS (6 suites, 46 tests)**.
+  - `pnpm run build` (mushroom-ui): **PASS (Turbopack compiled successfully)**.
+  - `git diff --check`: **PASS (zero whitespace issues)**.
+
+---
+
 ## [2026-07-27T12:12:00+07:00] - Track K (K1-K7): Đang chờ QA Review (Lần 3 - Khắc phục phản hồi QA Reviewer)
 
 - **Thời gian thực hiện sửa lỗi:** 2026-07-27T12:12:00+07:00.

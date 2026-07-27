@@ -88,7 +88,7 @@ export async function fetchDeviceMapping(deviceId: string): Promise<DeviceMappin
     return data
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể tải thông tin thiết bị.')
+    throw new Error('Không thể tải thông tin thiết bị.', { cause })
   }
 }
 
@@ -100,7 +100,7 @@ export async function fetchActiveBatch(houseId: string): Promise<ActiveBatch | n
     return data
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể tải trạng thái vụ.')
+    throw new Error('Không thể tải trạng thái vụ.', { cause })
   }
 }
 
@@ -120,7 +120,7 @@ export async function createBatch(input: CreateBatchInput): Promise<ActiveBatch>
     return data
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể bắt đầu vụ.')
+    throw new Error('Không thể bắt đầu vụ.', { cause })
   }
 }
 
@@ -134,7 +134,7 @@ export async function endBatch(id: string, status: EndBatchStatus): Promise<void
     if (!response.ok) throw new Error(await getErrorMessage(response))
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể kết thúc vụ.')
+    throw new Error('Không thể kết thúc vụ.', { cause })
   }
 }
 
@@ -161,7 +161,7 @@ export async function updateBatchCheckpoints(
     return data
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể cập nhật checkpoints.')
+    throw new Error('Không thể cập nhật checkpoints.', { cause })
   }
 }
 
@@ -184,6 +184,6 @@ export async function updateBatchLightSchedule(
     return data
   } catch (cause) {
     if (cause instanceof Error) throw cause
-    throw new Error('Không thể cập nhật lịch bật đèn.')
+    throw new Error('Không thể cập nhật lịch bật đèn.', { cause })
   }
 }

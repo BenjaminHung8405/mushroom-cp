@@ -33,13 +33,216 @@ export interface UseTuningStatusResult {
 
 type Refetch = () => void | Promise<void>
 
-interface StreamTicketResponse {
+export interface StreamTicketResponse {
   ticket: string
   expiresInSeconds: number
 }
 
 const INITIAL_RECONNECT_DELAY_MS = 500
 const MAX_RECONNECT_DELAY_MS = 10_000
+
+export function calculateBackoffDelay(attempt: number): number {
+  return Math.min(
+    INITIAL_RECONNECT_DELAY_MS * 2 ** attempt,
+    MAX_RECONNECT_DELAY_MS,
+  )
+}
+
+export async function fetchStreamTicket(
+  deviceId: string,
+  signal: AbortSignal,
+): Promise<StreamTicketResponse> {
+  const response = await fetch(
+    `/api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations/stream-ticket`,
+    {
+      method: 'POST',
+      cache: 'no-store',
+      signal,
+    },
+  )
+  if (!response.ok) {
+    throw new Error(
+      `Không thể mở luồng trạng thái tinh chỉnh (HTTP ${response.status}).`,
+    )
+  }
+  return parseStreamTicket(await response.json())
+}
+
+export function buildStreamUrl(deviceId: string, ticket: string): string {
+  const url = new URL(
+    `/api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations/stream`,
+    window.location.origin,
+  )
+  url.searchParams.set('ticket', ticket)
+  return url.toString()
+}
+
+interface ConnectionState {
+  disposed: boolean
+  source: EventSource | null
+  retryTimer: ReturnType<typeof setTimeout> | null
+  ticketRequest: AbortController | null
+  reconnectAttempt: number
+  hasOpened: boolean
+  reconnectScheduled: boolean
+}
+
+function closeEventSource(state: ConnectionState): void {
+  if (state.source) {
+    state.source.close()
+    state.source = null
+  }
+}
+
+export function cleanupConnectionState(state: ConnectionState): void {
+  state.disposed = true
+  state.ticketRequest?.abort()
+  closeEventSource(state)
+  if (state.retryTimer) clearTimeout(state.retryTimer)
+}
+
+function scheduleReconnect(
+  deviceId: string,
+  state: ConnectionState,
+  onReconnectRef: React.RefObject<Refetch | undefined>,
+  setEvent: (ev: TuningStatusEvent | null) => void,
+  setIsConnected: (connected: boolean) => void,
+  setError: (err: Error | null) => void,
+): void {
+  if (state.disposed || state.reconnectScheduled) return
+
+  state.reconnectScheduled = true
+  const delay = calculateBackoffDelay(state.reconnectAttempt)
+  state.reconnectAttempt += 1
+  state.retryTimer = setTimeout(() => {
+    state.retryTimer = null
+    state.reconnectScheduled = false
+    void connectStream(
+      deviceId,
+      state,
+      onReconnectRef,
+      setEvent,
+      setIsConnected,
+      setError,
+    )
+  }, delay)
+}
+
+async function connectStream(
+  deviceId: string,
+  state: ConnectionState,
+  onReconnectRef: React.RefObject<Refetch | undefined>,
+  setEvent: (ev: TuningStatusEvent | null) => void,
+  setIsConnected: (connected: boolean) => void,
+  setError: (err: Error | null) => void,
+): Promise<void> {
+  state.ticketRequest?.abort()
+  closeEventSource(state)
+  setIsConnected(false)
+
+  const controller = new AbortController()
+  state.ticketRequest = controller
+
+  try {
+    const ticket = await fetchStreamTicket(deviceId, controller.signal)
+    if (state.disposed || controller.signal.aborted) return
+
+    const streamUrl = buildStreamUrl(deviceId, ticket.ticket)
+    const nextSource = new EventSource(streamUrl)
+    state.source = nextSource
+
+    setupEventSourceHandlers(
+      nextSource,
+      deviceId,
+      state,
+      onReconnectRef,
+      setEvent,
+      setIsConnected,
+      setError,
+    )
+  } catch (cause: unknown) {
+    if (state.disposed || controller.signal.aborted) return
+    setIsConnected(false)
+    setError(
+      cause instanceof Error
+        ? cause
+        : new Error('Không thể mở luồng trạng thái tinh chỉnh.'),
+    )
+    scheduleReconnect(
+      deviceId,
+      state,
+      onReconnectRef,
+      setEvent,
+      setIsConnected,
+      setError,
+    )
+  } finally {
+    if (state.ticketRequest === controller) state.ticketRequest = null
+  }
+}
+
+function setupEventSourceHandlers(
+  nextSource: EventSource,
+  deviceId: string,
+  state: ConnectionState,
+  onReconnectRef: React.RefObject<Refetch | undefined>,
+  setEvent: (ev: TuningStatusEvent | null) => void,
+  setIsConnected: (connected: boolean) => void,
+  setError: (err: Error | null) => void,
+): void {
+  nextSource.onopen = () => {
+    if (state.disposed || state.source !== nextSource) return
+    const wasReconnect = state.hasOpened
+    state.hasOpened = true
+    state.reconnectAttempt = 0
+    setIsConnected(true)
+    setError(null)
+
+    if (wasReconnect && onReconnectRef.current) {
+      void Promise.resolve(onReconnectRef.current()).catch(() => {})
+    }
+  }
+
+  nextSource.onmessage = (message) => {
+    if (state.disposed || state.source !== nextSource) return
+    const parsed = parseTuningStatusEvent(message.data)
+    if (!parsed || parsed.deviceId !== deviceId) return
+    setEvent(parsed)
+  }
+
+  nextSource.onerror = () => {
+    if (state.disposed || state.source !== nextSource) return
+    closeEventSource(state)
+    setIsConnected(false)
+    setError(new Error('Luồng trạng thái tinh chỉnh đã bị ngắt.'))
+    scheduleReconnect(
+      deviceId,
+      state,
+      onReconnectRef,
+      setEvent,
+      setIsConnected,
+      setError,
+    )
+  }
+}
+
+function startConnectionLoop(
+  deviceId: string,
+  state: ConnectionState,
+  onReconnectRef: React.RefObject<Refetch | undefined>,
+  setEvent: (ev: TuningStatusEvent | null) => void,
+  setIsConnected: (connected: boolean) => void,
+  setError: (err: Error | null) => void,
+): void {
+  void connectStream(
+    deviceId,
+    state,
+    onReconnectRef,
+    setEvent,
+    setIsConnected,
+    setError,
+  )
+}
 
 /**
  * Keeps one device-scoped connection to the durable tuning-state stream.
@@ -67,128 +270,30 @@ export function useTuningStatus(
       return
     }
 
-    let disposed = false
-    let source: EventSource | null = null
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-    let ticketRequest: AbortController | null = null
-    let reconnectAttempt = 0
-    let hasOpened = false
-    let reconnectScheduled = false
+    const state: ConnectionState = {
+      disposed: false,
+      source: null,
+      retryTimer: null,
+      ticketRequest: null,
+      reconnectAttempt: 0,
+      hasOpened: false,
+      reconnectScheduled: false,
+    }
 
     setEvent(null)
     setIsConnected(false)
     setError(null)
 
-    const closeSource = () => {
-      if (source) {
-        source.close()
-        source = null
-      }
-    }
+    startConnectionLoop(
+      deviceId,
+      state,
+      onReconnectRef,
+      setEvent,
+      setIsConnected,
+      setError,
+    )
 
-    const scheduleReconnect = () => {
-      if (disposed || reconnectScheduled) return
-
-      reconnectScheduled = true
-      const delay = Math.min(
-        INITIAL_RECONNECT_DELAY_MS * 2 ** reconnectAttempt,
-        MAX_RECONNECT_DELAY_MS,
-      )
-      reconnectAttempt += 1
-      retryTimer = setTimeout(() => {
-        retryTimer = null
-        reconnectScheduled = false
-        void connect()
-      }, delay)
-    }
-
-    const connect = async (): Promise<void> => {
-      ticketRequest?.abort()
-      closeSource()
-      setIsConnected(false)
-
-      const controller = new AbortController()
-      ticketRequest = controller
-
-      try {
-        const response = await fetch(
-          `/api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations/stream-ticket`,
-          {
-            method: 'POST',
-            cache: 'no-store',
-            signal: controller.signal,
-          },
-        )
-        if (!response.ok) {
-          throw new Error(
-            `Không thể mở luồng trạng thái tinh chỉnh (HTTP ${response.status}).`,
-          )
-        }
-
-        const ticket = parseStreamTicket(await response.json())
-        if (disposed || controller.signal.aborted) return
-
-        const url = new URL(
-          `/api/backend/devices/${encodeURIComponent(deviceId)}/tuning-configurations/stream`,
-          window.location.origin,
-        )
-        url.searchParams.set('ticket', ticket.ticket)
-
-        const nextSource = new EventSource(url.toString())
-        source = nextSource
-        nextSource.onopen = () => {
-          if (disposed || source !== nextSource) return
-
-          const wasReconnect = hasOpened
-          hasOpened = true
-          reconnectAttempt = 0
-          setIsConnected(true)
-          setError(null)
-
-          if (wasReconnect && onReconnectRef.current) {
-            void Promise.resolve(onReconnectRef.current()).catch(() => {
-              // Caller handles refetch errors.
-            })
-          }
-        }
-        nextSource.onmessage = (message) => {
-          if (disposed || source !== nextSource) return
-
-          const parsed = parseTuningStatusEvent(message.data)
-          if (!parsed || parsed.deviceId !== deviceId) return
-          setEvent(parsed)
-        }
-        nextSource.onerror = () => {
-          if (disposed || source !== nextSource) return
-
-          closeSource()
-          setIsConnected(false)
-          setError(new Error('Luồng trạng thái tinh chỉnh đã bị ngắt.'))
-          scheduleReconnect()
-        }
-      } catch (cause: unknown) {
-        if (disposed || controller.signal.aborted) return
-
-        setIsConnected(false)
-        setError(
-          cause instanceof Error
-            ? cause
-            : new Error('Không thể mở luồng trạng thái tinh chỉnh.'),
-        )
-        scheduleReconnect()
-      } finally {
-        if (ticketRequest === controller) ticketRequest = null
-      }
-    }
-
-    void connect()
-
-    return () => {
-      disposed = true
-      ticketRequest?.abort()
-      closeSource()
-      if (retryTimer) clearTimeout(retryTimer)
-    }
+    return () => cleanupConnectionState(state)
   }, [deviceId])
 
   return { event, isConnected, error }
