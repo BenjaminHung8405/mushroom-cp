@@ -1,0 +1,65 @@
+# CODEX INSTRUCTIONS FOR MUSHROOM UI DEVELOPMENT
+
+## 1. REFERENCE DOCUMENTATION & SINGLE SOURCE OF TRUTH
+Always strictly reference specifications in `mushroom-ui/docs/`:
+- `mushroom-ui/docs/BIOLOGICAL_RULES.md`: Biological thresholds & hardware protection rules.
+- `mushroom-ui/docs/BUSINESS_DESCRIPTION.md`: Business logic, UI layout, & feature specs.
+- `mushroom-ui/docs/DATA_STRUCTURES.md`: TypeScript schemas, graph math, & JSON contract.
+
+## 2. DOMAIN & INFRASTRUCTURE CONTEXT
+- **Target Crop**: Tropical Straw Mushroom (*Volvariella volvacea*) cultivation in Mekong Delta.
+- **Facility Layout**: Standard indoor house (4m x 6m) holding exactly 35 growing pillars.
+- **Crop Cycle**: Multi-week optimization (default 21 days; customizable from 10 to 45 days).
+  - Mycelial Growth Phase (Giai đoạn nuôi tơ): Days 1–8.
+  - Fruiting Body Phase (Giai đoạn ra quả thể): Days 9–21.
+
+## 3. STRICT BIOLOGICAL GUARDRAILS & SENSOR STATUS MAPPINGS
+- **Substrate Temperature (DS18B20 Probe)**: Display range 20.0°C – 40.0°C.
+  - Mycelial Growth (Days 1–8): Optimal 30.0°C – 35.0°C.
+  - Fruiting Body (Days 9–21): Optimal 28.0°C – 30.0°C.
+  - UI Status Mappings:
+    - Optimal (Emerald): 28.0°C – 35.0°C.
+    - Warning (Amber): 20.0°C – 27.0°C (slow growth) or 36.0°C – 38.0°C (heat stress).
+    - Critical (Crimson): <20.0°C (Dangerous Frost / mycelium death) or >38.0°C.
+- **Air Humidity RH (SHT30 Sensor)**: Display range 50.0% – 100.0%.
+  - Target: 70.0% – 90.0% across all growth stages.
+  - UI Status Mappings:
+    - Optimal (Emerald): 70.0% – 90.0%.
+    - Warning (Amber): 60.0% – 69.0% (drying risk) or 91.0% – 95.0% (oversaturation risk).
+    - Critical (Crimson): <60.0% or >95.0% (pinhead abortion, contamination).
+- **Ventilation CO2 (SCD30 Sensor)**: Display range 400 – 3000 ppm.
+  - Target: 800 – 1200 ppm.
+  - UI Status Mappings:
+    - Optimal (Emerald): 800 – 1200 ppm.
+    - Warning (Amber): 1201 – 1500 ppm (inadequate fresh air interchange).
+    - Critical (Crimson): >1500 ppm (high risk of elongated, deformed stalks).
+
+## 4. ACTUATOR HARDWARE & PROTECTION RULES
+- **Movable Rail Mister**: 6-viss ultrasonic mist generator on ceiling rail track (4m x 6m room). Driven by 220V reversible motor at 60 RPM.
+  - UI Controls & State: Direction flags (`FORWARD`, `BACKWARD`, `IDLE`), Position Tracker Slider (0% to 100%), End-Limit Switch Indicators (`forwardHit`, `backwardHit` with auto-reversal UI trigger).
+- **Convection Fans**: PWM duty cycle (0–100% intensity output) linked directly to fuzzy inferences.
+- **Heating Lamps**: 2 dedicated bulbs (`h_lamp_duty`). Active ONLY during spawn-running phase (Days 1–8). Forced lockout (`forcedLockout = true` / switch locked to OFF) when `cropDay >= 9` (Fruiting phase) to prevent premature drying.
+- **Scheduled Blackout Zones (Protection Windows)**:
+  - Mist & HWat (Heating Water) are STRICTLY LOCKED during **08:00–16:00** and **18:00–06:00** ICT (Asia/Ho_Chi_Minh).
+  - Safe operating windows: **06:01–07:59** and **16:01–17:59**.
+  - Show active biological protection badge on dashboard when locked (`middayMistingBlackoutActive`).
+
+## 5. HARDWARE HEALTH & TELEMETRY DISPLAY
+- **Power Telemetry (UPS Integration)**: Header status showing `Grid Power` (Emerald) vs `UPS Battery Active` (Amber flashing alert on grid failure).
+- **Data Continuity Tracker**: Display `SD CARD: OK (LOGGING LOCAL)` (local logging every 5 mins) and `CLOUD DATABASES: SYNCED`.
+- **Telemetry Card Math**: Display Measured value ($SM_{đo}$), Target setpoint ($SM_{set}$), Error Delta ($E = SM_{set} - SM_{đo}$), Trend, and PWM %.
+- **Number Formatting**: Use `.toFixed(1)` for temperature/humidity, and `Math.round()` with 0 decimals for CO2.
+
+## 6. STRICT UI/UX, EQUALIZER & DATA SCHEMAS
+- **Design System & Touch Targets**:
+  - NO emojis as icons: Use `lucide-react` SVG icons exclusively.
+  - Touch targets: All interactive controls MUST be >= 44x44px (`min-h-[44px] min-w-[44px]`).
+  - Always add `cursor-pointer` to interactive elements.
+- **Fuzzy Equalizer Graph**:
+  - Clamping: Substrate Temp clamped to `20.0`–`40.0`°C; Air Humidity clamped to `50.0`–`100.0`%.
+  - Snapping: Y-axis values snapped to 0.5 step (`Math.round(val * 2) / 2`); X-axis snapped to integer days (`Math.round(day)`).
+  - Anchor Protection: Day 1 (Start Anchor) and Final Day (e.g. Day 21 Target Anchor) are locked on X-axis and immune to deletion.
+- **Light Schedule Timeline**: Video-editor style timeline with continuous, non-overlapping binary ON/OFF blocks covering Day 1 to Day 21.
+- **Profile Presets**: Dry Season (Tối ưu mùa khô), Rainy Season (Tối ưu mùa mưa), Quick Fruiting (Kích quả nhanh).
+- **Dev Sandbox Drawer**: IoT simulation drawer for virtual sensor overrides and 1x to 60x time speed multiplier.
+- **TypeScript Schemas**: Strictly enforce interfaces from `mushroom-ui/docs/DATA_STRUCTURES.md`: `SensorTelemetry`, `ActuatorSystemState`, `ChartCheckpoint`, `LightTimelineBlock`, `MushroomGrowthProfile`, and `FarmHouseConfig`.

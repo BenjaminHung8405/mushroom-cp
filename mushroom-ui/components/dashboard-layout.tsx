@@ -1,33 +1,25 @@
 'use client'
 
-import { Sidebar } from './sidebar'
+import type { RefObject, ReactNode } from 'react'
+
 import { Header } from './header'
 
 interface DashboardLayoutProps {
-  children: React.ReactNode
+  children: ReactNode
+  onOpenAlerts: () => void
+  activeAlertCount: number
+  alertTriggerRef: RefObject<HTMLButtonElement | null>
 }
 
-export function DashboardLayout({ children }: DashboardLayoutProps) {
+export function DashboardLayout({ children, onOpenAlerts, activeAlertCount, alertTriggerRef }: DashboardLayoutProps) {
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-background">
-      {/* Sidebar */}
-      <Sidebar />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <Header />
-
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto">
-          <div className="container mx-auto px-4 py-6 lg:px-8 max-w-7xl">
-            {/* Grid Container for Dashboard Widgets */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max">
-              {children}
-            </div>
-          </div>
-        </main>
-      </div>
+    <div className="min-h-screen bg-background">
+      <Header onOpenAlerts={onOpenAlerts} activeAlertCount={activeAlertCount} alertTriggerRef={alertTriggerRef} />
+      <main className="min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-8">
+        <div className="mx-auto w-full max-w-[1400px] px-3 py-4 sm:px-5 sm:py-6 lg:px-8">
+          {children}
+        </div>
+      </main>
     </div>
   )
 }

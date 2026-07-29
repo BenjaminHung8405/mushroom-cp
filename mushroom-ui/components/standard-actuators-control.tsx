@@ -1,9 +1,11 @@
 'use client'
 
 import { Card } from '@/components/ui/card'
-import { CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react'
+import { CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, Circle, Cpu, UserRound, XCircle } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { postActuatorOverride, postSetOperatingMode } from '@/lib/telemetry-api'
+import { useBatch } from '@/lib/batch-context'
+import { isMistingAllowed, mistingLockReason } from '@/app/lib/operational-safety'
 import { useState, useEffect } from 'react'
 
 type EdgeState = boolean | null
@@ -61,7 +63,7 @@ function ActuatorStatusRow({
           <div className={`mt-1.5 flex items-center gap-1 text-[11px] font-medium ${
             source === 'safety' ? 'text-red-400' : source === 'user' ? 'text-amber-300' : source === 'ai' ? 'text-cyan-300' : 'text-slate-400'
           }`}>
-            {source === 'safety' ? <ShieldAlert size={12} /> : <span className="text-sm leading-none">{source === 'user' ? '🔌' : source === 'ai' ? '●' : '○'}</span>}
+            {source === 'safety' ? <ShieldAlert size={12} /> : source === 'user' ? <UserRound size={12} /> : source === 'ai' ? <Cpu size={12} /> : <Circle size={10} />}
             <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Lệnh từ người dùng' : source === 'ai' ? 'Điều khiển bởi AI' : 'Chưa xác định nguồn điều khiển'}</span>
           </div>
           {locked && lockReason && (
@@ -81,7 +83,7 @@ function ActuatorStatusRow({
           disabled={actionDisabled}
           onClick={onAction}
           title={locked ? lockReason : actionLabel}
-          className="min-w-28 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-h-11 min-w-28 cursor-pointer rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 transition-colors duration-200 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
         >{isPending ? 'Đang gửi...' : locked ? 'Khóa an toàn' : actionLabel}</button>
       </div>
     </div>
@@ -114,7 +116,9 @@ export function StandardActuatorsControl() {
     middayBlackoutActive: blackoutActive,
     refreshTelemetry,
   } = useRealTelemetry()
+  const { spawnRunningEndDay } = useBatch()
   const cropDayInt = snapshot?.cropDayInt ?? 0
+  const [now, setNow] = useState(() => new Date())
   const [showManualConfirm, setShowManualConfirm] = useState(false)
   const [modePending, setModePending] = useState<'AI' | 'MANUAL' | null>(null)
   const [actionPending, setActionPending] = useState<PendingRelayAction | null>(null)
@@ -125,6 +129,11 @@ export function StandardActuatorsControl() {
     const timer = window.setTimeout(() => setToast(null), 3500)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const pendingRelayHasApplied = actionPending !== null && (
     (actionPending.actuator === 'fan' && fanActive === actionPending.target) ||
@@ -190,6 +199,26 @@ export function StandardActuatorsControl() {
 
   const applyAction = async (actuator: 'fan' | 'lamp' | 'mist', state: EdgeState) => {
     if (!monitoredDeviceId || state === null || operatingMode === null || controlsBlocked) return
+    if (actuator === 'mist' && (blackoutActive === true || !isMistingAllowed(now) || humidityCurrent !== null && humidityCurrent >= 90)) {
+      setToast({
+        message: blackoutActive === true
+          ? 'ESP32 đang khóa Mist/HWat theo cửa sổ bảo vệ sinh học.'
+          : !isMistingAllowed(now)
+            ? mistingLockReason(now)
+            : 'Không thể bật phun sương khi độ ẩm đã từ 90% trở lên.',
+        type: 'error',
+      })
+      return
+    }
+    if (actuator === 'lamp' && (cropDayInt > spawnRunningEndDay || temperatureCurrent !== null && temperatureCurrent >= 35)) {
+      setToast({
+        message: cropDayInt > spawnRunningEndDay
+          ? 'Đèn nhiệt đã bị khóa trong giai đoạn ra quả thể.'
+          : 'Không thể bật đèn nhiệt khi nhiệt độ đã từ 35°C trở lên.',
+        type: 'error',
+      })
+      return
+    }
     const target = !state
     setActionPending({ actuator, target })
     const result = await postActuatorOverride(monitoredDeviceId, actuator, target)
@@ -208,24 +237,28 @@ export function StandardActuatorsControl() {
     setActionPending({ actuator: 'fan', target: true })
     const requests: Promise<{ success: boolean; message: string }>[] = []
     if (fanActive === false) requests.push(postActuatorOverride(monitoredDeviceId, 'fan', true))
-    if (lampStageActive === false && cropDayInt <= 8) requests.push(postActuatorOverride(monitoredDeviceId, 'lamp', true))
-    if (mistActive === false && blackoutActive !== true && humidityCurrent !== null && humidityCurrent < 90) requests.push(postActuatorOverride(monitoredDeviceId, 'mist', true))
+    if (lampStageActive === false && cropDayInt <= spawnRunningEndDay) requests.push(postActuatorOverride(monitoredDeviceId, 'lamp', true))
+    if (mistActive === false && !mistControlsLocked && humidityCurrent !== null && humidityCurrent < 90) requests.push(postActuatorOverride(monitoredDeviceId, 'mist', true))
     const results = await Promise.all(requests)
     await refreshTelemetry()
     setActionPending(null)
     setToast({ message: results.every((item) => item.success) ? 'Đã gửi lệnh khởi động thiết bị khả dụng.' : 'Một số thiết bị không thể khởi động do giới hạn an toàn.', type: results.every((item) => item.success) ? 'success' : 'error' })
   }
 
-  const lampLockReason = cropDayInt > 8
+  const lampLockReason = cropDayInt > spawnRunningEndDay
     ? 'Đã khóa trong giai đoạn ra quả thể'
     : temperatureCurrent !== null && temperatureCurrent >= 35
       ? `Quá nhiệt (>${35}°C)`
       : undefined
+  const clientMistingLockReason = !isMistingAllowed(now) ? mistingLockReason(now) : undefined
   const mistLockReason = blackoutActive === true
-    ? 'Tạm ngưng phun sương giờ trưa'
-    : humidityCurrent !== null && humidityCurrent >= 90
-      ? 'Độ ẩm vượt giới hạn an toàn (90%)'
-      : undefined
+    ? 'ESP32 đang khóa Mist/HWat theo cửa sổ bảo vệ'
+    : clientMistingLockReason
+      ? clientMistingLockReason
+      : humidityCurrent !== null && humidityCurrent >= 90
+        ? 'Độ ẩm vượt giới hạn an toàn (90%)'
+        : undefined
+  const mistControlsLocked = Boolean(mistLockReason)
   const lastTelemetryLabel = lastTelemetryAt
     ? new Date(lastTelemetryAt).toLocaleString('vi-VN')
     : 'Chưa nhận được'
@@ -268,11 +301,11 @@ export function StandardActuatorsControl() {
           <p className="text-xs text-muted-foreground mt-1">Trạng thái vật lý và nguồn điều khiển có hiệu lực.</p>
         </div>
         <div className={`rounded-lg border px-3 py-2 text-xs ${isFuzzyOff ? 'border-amber-500/30 bg-amber-950/20' : 'border-cyan-500/30 bg-cyan-950/20'}`}>
-          <div className="font-bold text-foreground">{isFuzzyOff ? '🔌 Fuzzy Logic: OFF' : '● Fuzzy Logic: ON'}</div>
+          <div className="flex items-center gap-1.5 font-bold text-foreground">{isFuzzyOff ? <UserRound className="size-3.5" /> : <Cpu className="size-3.5" />}{isFuzzyOff ? 'Fuzzy Logic: OFF' : 'Fuzzy Logic: ON'}</div>
           <div className="mt-0.5 text-muted-foreground">{isFuzzyOff ? 'Lệnh manual được giữ; Safety Protector vẫn có quyền ép bật/tắt, giới hạn 3 phút và cooldown.' : 'Fuzzy tạo output nền; lệnh manual đảo relay 30 giây rồi trả quyền cho Fuzzy. Safety Protector luôn có quyền chặn.'}</div>
           <div className="mt-2 flex gap-2">
-            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="rounded bg-amber-500/20 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">{actionPending ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
-            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending !== null || controlsBlocked} className="rounded bg-slate-800 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{modePending ? 'Đang chuyển...' : fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
+            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="min-h-11 cursor-pointer rounded bg-amber-500/20 px-3 py-1 font-bold text-amber-200 transition-colors duration-200 hover:bg-amber-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40">{actionPending ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
+            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending !== null || controlsBlocked} className="min-h-11 cursor-pointer rounded bg-slate-800 px-3 py-1 font-bold text-slate-200 transition-colors duration-200 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">{modePending ? 'Đang chuyển...' : fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
           </div>
         </div>
       </div>
@@ -286,7 +319,7 @@ export function StandardActuatorsControl() {
       <div className="space-y-3">
         <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending?.actuator === 'fan'} telemetryDetails={relayTelemetryDetails('relay_2')} onAction={() => void applyAction('fan', fanActive)} />
         <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending?.actuator === 'lamp'} telemetryDetails={relayTelemetryDetails('relay_4')} onAction={() => void applyAction('lamp', lampStageActive)} />
-        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={Boolean(mistLockReason)} lockReason={mistLockReason} isPending={actionPending?.actuator === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
+        <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={mistControlsLocked} lockReason={mistLockReason} isPending={actionPending?.actuator === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
       </div>
 
       {showManualConfirm && (
@@ -295,8 +328,8 @@ export function StandardActuatorsControl() {
             <h4 className="font-semibold text-foreground">Tắt Fuzzy Logic?</h4>
             <p className="mt-2 text-sm text-slate-400">Fuzzy sẽ dừng tạo output nền. Relay giữ trạng thái hiện tại; lệnh manual sẽ được giữ cho đến lệnh mới. Safety Protector vẫn luôn có quyền ép bật/tắt để bảo vệ thiết bị và nấm.</p>
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setShowManualConfirm(false)} className="rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Quay lại</button>
-              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending !== null || controlsBlocked} className="rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
+              <button onClick={() => setShowManualConfirm(false)} className="min-h-11 cursor-pointer rounded border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition-colors duration-200 hover:bg-slate-800">Quay lại</button>
+              <button onClick={() => void setOperatingMode('MANUAL')} disabled={modePending !== null || controlsBlocked} className="min-h-11 cursor-pointer rounded bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 transition-colors duration-200 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40">{modePending ? 'Đang chuyển...' : 'Xác nhận tắt Fuzzy'}</button>
             </div>
           </div>
         </div>

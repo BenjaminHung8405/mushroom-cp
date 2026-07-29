@@ -104,6 +104,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   // LWT truth is never written by the stale path.
   const [lwtStatus, setLwtStatus] = useState<LwtStatus>('unknown')
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('UNKNOWN')
+  const [statusLastTelemetryAt, setStatusLastTelemetryAt] = useState<string | null>(null)
 
   const refreshTelemetry = useCallback(async () => {
     const requestedDeviceId = selectedDeviceId
@@ -123,6 +124,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
     prevSnapshotRef.current = null
     setLwtStatus('unknown')
     setDeviceStatus('UNKNOWN')
+    setStatusLastTelemetryAt(null)
   }, [selectedDeviceId])
 
   // Initial snapshot and live telemetry are tied to the selected device.
@@ -155,6 +157,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
       if (ev.deviceId === selectedDeviceId) {
         setLwtStatus(ev.status)
         setDeviceStatus(ev.health)
+        setStatusLastTelemetryAt(ev.lastTelemetryAt)
 
       }
     })
@@ -183,7 +186,7 @@ export function RealTelemetryProvider({ children }: { children: React.ReactNode 
   const temperatureCurrent = hasFreshTelemetry ? (snapshot?.temperatureMeasured ?? null) : null
   const co2Current = hasFreshTelemetry ? (snapshot?.co2Measured ?? null) : null
   const isLoading = snapshot === null && lwtStatus === 'unknown'
-  const lastTelemetryAt = snapshot?.time ?? null
+  const lastTelemetryAt = snapshot?.time ?? statusLastTelemetryAt
 
   const humidityTrend = useMemo(() => {
     if (!prevSnapshotRef.current || !snapshot) return null
