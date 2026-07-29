@@ -37,6 +37,20 @@ public:
         bool lamp_schedule_allowed = true
     );
 
+    /**
+     * @brief Preflight a manual FORCE_ON request against protector-owned guards.
+     *
+     * This is intentionally called before a manual latch is created. It keeps a
+     * request that the protector would immediately reject from ever becoming a
+     * relay demand, eliminating a transient ON pulse at the GPIO boundary.
+     */
+    ManualDecision evaluateManualForceOnGuard(
+        AppChannel ch,
+        uint32_t now,
+        float temp_air,
+        float humidity_air,
+        bool scheduled_blackout_active) const;
+
     bool isChannelLocked(AppChannel ch, uint32_t now) const;
 
     void reset();

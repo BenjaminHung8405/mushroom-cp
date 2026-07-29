@@ -111,7 +111,7 @@ void SystemProtector::update(
         // Priority 3: Absolute Bio Bounds Guarding
         if (ch == AppChannel::LAMP && std::isfinite(temp_air)) {
             if (temp_air >= config::hardware::ThTOP) {
-                // Over-temp: Turn OFF heating lamp and Lock for 5 minutes (300,000ms)
+                // Over-temp: Turn OFF heating lamp and Lock for 30 seconds.
                 set_channel_state(relay_states, ch, false);
                 clearManualLatch(manual_latches[i]);
                 state.lock_until_ms = now + config::hardware::LAMP_OVER_TEMP_COOLDOWN_MS;
@@ -179,6 +179,32 @@ void SystemProtector::update(
             state.on_start_ms = 0;
         }
     }
+}
+
+ManualDecision SystemProtector::evaluateManualForceOnGuard(
+    AppChannel ch,
+    uint32_t now,
+    float temp_air,
+    float humidity_air,
+    bool scheduled_blackout_active) const {
+    if (isChannelLocked(ch, now)) {
+        return ManualDecision::RejectedLocked;
+    }
+
+    // This duplicates the non-bypassable branches in update() as a preflight,
+    // rather than allowing a newly-created latch to be cleared one tick later.
+    if ((ch == AppChannel::MIST || ch == AppChannel::HWAT) && scheduled_blackout_active) {
+        return ManualDecision::RejectedBlackout;
+    }
+    if (ch == AppChannel::LAMP && std::isfinite(temp_air) &&
+        temp_air >= config::hardware::ThTOP) {
+        return ManualDecision::RejectedTemp;
+    }
+    if (ch == AppChannel::MIST && std::isfinite(humidity_air) &&
+        humidity_air >= config::hardware::HmTOP) {
+        return ManualDecision::RejectedHumi;
+    }
+    return ManualDecision::Accepted;
 }
 
 bool SystemProtector::isChannelLocked(AppChannel ch, uint32_t now) const {

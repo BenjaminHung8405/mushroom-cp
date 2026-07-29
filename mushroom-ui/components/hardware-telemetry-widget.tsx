@@ -1,14 +1,8 @@
 'use client'
 
-import { AlertTriangle, Cloud, HardDrive, Timer, Wifi, WifiOff } from 'lucide-react'
+import { AlertTriangle, Wifi, WifiOff } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import type { DeviceStatus } from '@/lib/simulation-context'
-import { DataAgeTicker } from '@/components/data-age-ticker'
-
-interface HardwareTelemetryWidgetProps {
-  sdLoggingActive?: boolean | null
-  cloudSynced?: boolean | null
-}
 
 function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
   if (status === 'OFFLINE') {
@@ -74,23 +68,11 @@ function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
   )
 }
 
-export function HardwareTelemetryWidget({
-  sdLoggingActive = null,
-  cloudSynced = null,
-}: HardwareTelemetryWidgetProps) {
-  const { deviceStatus, lastTelemetryAt } = useRealTelemetry()
-  const lastUpdated = lastTelemetryAt
-
-  const neutralChip = 'border-slate-700/70 bg-slate-900/60 text-slate-400'
-  const sdLabel = sdLoggingActive === null ? 'SD: Chưa xác minh' : sdLoggingActive ? 'SD: Đang lưu' : 'SD: Lỗi lưu trữ'
-  const cloudLabel = cloudSynced === null ? 'Cloud: Chưa xác minh' : cloudSynced ? 'Cloud: Đã đồng bộ' : 'Cloud: Đang chờ'
-
+export function HardwareTelemetryWidget() {
+  const { deviceStatus } = useRealTelemetry()
   return (
-    <div aria-label="Trạng thái hệ thống" className="flex flex-wrap items-center gap-1.5">
-      <div title="Trạng thái ghi log SD card chỉ được xác nhận khi telemetry cung cấp dữ liệu." className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] font-medium ${sdLoggingActive === null ? neutralChip : sdLoggingActive ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-red-500/35 bg-red-950/25 text-red-300'}`}><HardDrive className="size-3.5" />{sdLabel}</div>
-      <div title="Trạng thái đồng bộ cloud chỉ được xác nhận khi telemetry cung cấp dữ liệu." className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] font-medium ${cloudSynced === null ? neutralChip : cloudSynced ? 'border-cyan-500/30 bg-cyan-950/20 text-cyan-300' : 'border-amber-500/35 bg-amber-950/20 text-amber-300'}`}><Cloud className="size-3.5" />{cloudLabel}</div>
+    <div aria-label="Trạng thái kết nối thiết bị" className="flex items-center">
       <DeviceStatusIndicator status={deviceStatus} />
-      <div className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] ${lastUpdated ? 'border-slate-700/70 bg-slate-900/60 text-slate-300' : neutralChip}`}><Timer className="size-3.5" />{lastUpdated ? <><span className="hidden xl:inline">Dữ liệu</span><DataAgeTicker timestamp={lastUpdated} /></> : 'Dữ liệu: Chưa có'}</div>
     </div>
   )
 }

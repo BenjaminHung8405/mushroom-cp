@@ -4097,6 +4097,20 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
+        // The protector guard is evaluated before creating a manual latch.
+        // A mist request below the manual warning limit but above the absolute
+        // HmTOP limit must be rejected, never accepted then cleared next tick.
+        {
+            protector::SystemProtector sysProtector;
+            telemetry.humidity_air = config::hardware::HmTOP;
+            assert(manual::evaluateSafetyGate(
+                       {AppChannel::MIST, AppIntent::FORCE_ON, 1000UL},
+                       telemetry, setpoints, rtcTime, cropDay) == ManualDecision::Accepted);
+            assert(sysProtector.evaluateManualForceOnGuard(
+                       AppChannel::MIST, 1000UL, telemetry.temp_air,
+                       telemetry.humidity_air, false) == ManualDecision::RejectedHumi);
+        }
+
         // Test crop Day lock for lamp (> 8 days)
         /*
         {
@@ -4919,48 +4933,48 @@ int main() {
         states = {true, true, true, true};
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
 
-        // Over-Temp (36C >= ThTOP) -> Lamp forced OFF and locked in cooldown for 5 mins
+        // Over-Temp (36C >= ThTOP) -> Lamp forced OFF and locked for 30 seconds.
         sys_protector.update(1000UL, true, 36.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
-        // Attempting to turn Lamp ON during 5-minute cooldown (at 2 mins) must fail
+        // Attempting to turn Lamp ON during the 30-second cooldown must fail.
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(121000UL, true, 25.0f, 70.0f, false, latches, states, true);
+        sys_protector.update(20000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
-        // After cooldown expires (5 minutes + 1s = 301,000ms elapsed) -> Lamp can turn ON again
+        // After 30 seconds expires -> Lamp can turn ON again.
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(302000UL, true, 25.0f, 70.0f, false, latches, states, true);
+        sys_protector.update(32000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
-        // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked in cooldown for 10 mins
+        // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked for 30 seconds.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(303000UL, true, 25.0f, 81.0f, false, latches, states, true);
+        sys_protector.update(33000UL, true, 25.0f, 81.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // Attempting to turn Mist ON during 10-minute cooldown (at 4 mins)
+        // Attempting to turn Mist ON during the 30-second cooldown
         // — cooldown priority always wins. Humidity kept high (85%) so
         // over-humidity does NOT override the forced-OFF from this assertion.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(543000UL, true, 25.0f, 85.0f, false, latches, states, true);
+        sys_protector.update(50000UL, true, 25.0f, 85.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // After cooldown expires (10 mins + 1s) -> Mist can be commanded ON.
+        // After 30 seconds expires -> Mist can be commanded ON.
         // Use fresh pod/state so bio-safety checks don't interfere.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
         sys_protector.reset();
         relay_control::RelayStatePod s2 = {true, true, true, true};
         manual::ManualLatchArray l2{};
-        sys_protector.update(904000UL, true, 25.0f, 70.0f, false, l2, s2, true);
+        sys_protector.update(64000UL, true, 25.0f, 70.0f, false, l2, s2, true);
         assert(s2.mist_active == true);
 
         // 41.5 Priority 1 Bio Bounds (Under-Limit Force ON)

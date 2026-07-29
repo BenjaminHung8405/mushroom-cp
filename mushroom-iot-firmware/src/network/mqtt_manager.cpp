@@ -1231,6 +1231,9 @@ bool MqttManager::resolveManualAck(const ManualAck& ack)
     } else if (ack.decision == ManualDecision::RejectedNAN) {
         error_code = "SENSOR_INVALID";
         error_message = "Request rejected because required sensor data is invalid";
+    } else if (ack.decision == ManualDecision::RejectedLocked) {
+        error_code = "PROTECTOR_COOLDOWN";
+        error_message = "Request rejected while the actuator is in safety cooldown";
     }
     const bool published = publishCommandAck(last_cmd_.id, "FAILED", latency_ms, last_cmd_.relay_id,
                                              false, error_code, error_message);

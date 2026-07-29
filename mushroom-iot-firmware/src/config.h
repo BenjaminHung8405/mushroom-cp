@@ -147,8 +147,11 @@ namespace config
         // Continuous-operation safety lock for every relay channel.
         constexpr uint32_t MAX_ON_DURATION_MS = 180000;
         constexpr uint32_t COOLDOWN_DURATION_MS = 30000;
-        constexpr uint32_t LAMP_OVER_TEMP_COOLDOWN_MS = 300000;
-        constexpr uint32_t MIST_OVER_HUMIDITY_COOLDOWN_MS = 600000;
+        // Biological-limit trips use the same 30-second recovery interval as
+        // the continuous-runtime guard so operators are not locked out for
+        // several minutes after the environment returns to a safe range.
+        constexpr uint32_t LAMP_OVER_TEMP_COOLDOWN_MS = 30000;
+        constexpr uint32_t MIST_OVER_HUMIDITY_COOLDOWN_MS = 30000;
 
         // NVS Keys for Bio Thresholds
         constexpr const char *KEY_BIO_T_MAX = "bio_t_max";

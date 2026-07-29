@@ -623,11 +623,16 @@ void applyManualControlEvent(
         request, telemetry, setpoints, rtcTime, getCurrentCropDay());
 
     if (decision == ManualDecision::Accepted && request.intent == AppIntent::FORCE_ON) {
-        if (protector.isChannelLocked(request.channel, now)) {
-            if (request.channel == AppChannel::LAMP) decision = ManualDecision::RejectedTemp;
-            else if (request.channel == AppChannel::MIST) decision = ManualDecision::RejectedHumi;
-            else decision = ManualDecision::RejectedLocked;
-        }
+        // A latch is allowed to become a relay demand only after both the
+        // request safety gate and the protector's current guard state pass.
+        // Do not defer this decision to SystemProtector::update(), because
+        // that would create an Accepted -> immediately released UX flow.
+        decision = protector.evaluateManualForceOnGuard(
+            request.channel,
+            now,
+            telemetry.temp_air,
+            telemetry.humidity_air,
+            relay_control::isSafetyBlackoutActive(rtcTime));
     }
 
     ManualAck ack{};
