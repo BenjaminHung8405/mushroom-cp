@@ -1,13 +1,13 @@
 'use client'
 
-import { Cloud, HardDrive, Wifi, WifiOff, AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Cloud, HardDrive, Timer, Wifi, WifiOff } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import type { DeviceStatus } from '@/lib/simulation-context'
 import { DataAgeTicker } from '@/components/data-age-ticker'
 
 interface HardwareTelemetryWidgetProps {
-  sdLoggingActive?: boolean
-  cloudSynced?: boolean
+  sdLoggingActive?: boolean | null
+  cloudSynced?: boolean | null
 }
 
 function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
@@ -75,45 +75,22 @@ function DeviceStatusIndicator({ status }: { status: DeviceStatus }) {
 }
 
 export function HardwareTelemetryWidget({
-  sdLoggingActive = true,
-  cloudSynced = true,
+  sdLoggingActive = null,
+  cloudSynced = null,
 }: HardwareTelemetryWidgetProps) {
   const { deviceStatus, lastTelemetryAt } = useRealTelemetry()
   const lastUpdated = lastTelemetryAt
 
+  const neutralChip = 'border-slate-700/70 bg-slate-900/60 text-slate-400'
+  const sdLabel = sdLoggingActive === null ? 'SD: Chưa xác minh' : sdLoggingActive ? 'SD: Đang lưu' : 'SD: Lỗi lưu trữ'
+  const cloudLabel = cloudSynced === null ? 'Cloud: Chưa xác minh' : cloudSynced ? 'Cloud: Đã đồng bộ' : 'Cloud: Đang chờ'
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2">
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50 hover:border-slate-600/50 cursor-pointer transition-colors">
-        <HardDrive className="w-4 h-4 text-blue-400" />
-        <span className="text-xs text-muted-foreground">
-          Lưu dữ liệu:{' '}
-          <span className={sdLoggingActive ? 'text-blue-400 font-semibold' : 'text-red-400'}>
-            {sdLoggingActive ? 'Đang lưu' : 'Không hoạt động'}
-          </span>
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-900/40 border border-slate-700/50 hover:border-slate-600/50 cursor-pointer transition-colors">
-        <Cloud className="w-4 h-4 text-cyan-400" />
-        <span className="text-xs text-muted-foreground">
-          Đồng bộ dữ liệu:{' '}
-          <span className={cloudSynced ? 'text-cyan-400 font-semibold' : 'text-amber-400'}>
-            {cloudSynced ? 'Đã cập nhật' : 'Đang chờ'}
-          </span>
-        </span>
-      </div>
-
+    <div aria-label="Trạng thái hệ thống" className="flex flex-wrap items-center gap-1.5">
+      <div title="Trạng thái ghi log SD card chỉ được xác nhận khi telemetry cung cấp dữ liệu." className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] font-medium ${sdLoggingActive === null ? neutralChip : sdLoggingActive ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-red-500/35 bg-red-950/25 text-red-300'}`}><HardDrive className="size-3.5" />{sdLabel}</div>
+      <div title="Trạng thái đồng bộ cloud chỉ được xác nhận khi telemetry cung cấp dữ liệu." className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] font-medium ${cloudSynced === null ? neutralChip : cloudSynced ? 'border-cyan-500/30 bg-cyan-950/20 text-cyan-300' : 'border-amber-500/35 bg-amber-950/20 text-amber-300'}`}><Cloud className="size-3.5" />{cloudLabel}</div>
       <DeviceStatusIndicator status={deviceStatus} />
-
-      {lastUpdated && (
-        <span
-          className={`text-[10px] hidden lg:inline ${
-            deviceStatus === 'DEGRADED_LATENCY' || deviceStatus === 'SENSOR_FAULT' ? 'text-amber-400 font-semibold' : 'text-slate-500'
-          }`}
-        >
-          Dữ liệu <DataAgeTicker timestamp={lastUpdated} />
-        </span>
-      )}
+      <div className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 font-mono text-[11px] ${lastUpdated ? 'border-slate-700/70 bg-slate-900/60 text-slate-300' : neutralChip}`}><Timer className="size-3.5" />{lastUpdated ? <><span className="hidden xl:inline">Dữ liệu</span><DataAgeTicker timestamp={lastUpdated} /></> : 'Dữ liệu: Chưa có'}</div>
     </div>
   )
 }

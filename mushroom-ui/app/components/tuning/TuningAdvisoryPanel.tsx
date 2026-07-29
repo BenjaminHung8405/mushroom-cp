@@ -28,15 +28,14 @@ interface TuningAdvisoryPanelProps {
 
 export function TuningPanelHeader({ pendingCommand }: { pendingCommand: PendingCommand | null }) {
   return (
-    <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="mb-4 flex items-start justify-between gap-4">
       <div className="flex gap-3">
         <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
           <SlidersHorizontal className="size-5" aria-hidden="true" />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Đề xuất tinh chỉnh cho thiết bị</p>
-          <p className="text-xs text-muted-foreground">Chỉ áp dụng khi bạn xác nhận và thiết bị chạy ổn định.</p>
+          <h3 className="text-base font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Chỉ hiện lệnh áp dụng sau khi hệ thống có đủ dữ liệu tin cậy.</p>
         </div>
       </div>
       {pendingCommand && (
@@ -68,20 +67,22 @@ export function TuningPanelActions({
 }) {
   return (
     <div className="mt-5 flex flex-wrap items-center gap-3">
-      <Button onClick={onRequestConfirmation} disabled={confirmDisabled}>
-        {isSubmitting || isCommandPending ? (
-          <LoaderCircle className="animate-spin" aria-hidden="true" />
-        ) : (
-          <CheckCircle2 aria-hidden="true" />
-        )}
-        Áp dụng đề xuất
-      </Button>
-      <Button variant="outline" onClick={onManualRefresh} disabled={!deviceId || isSubmitting}>
+      {!isBlocked && (
+        <Button onClick={onRequestConfirmation} disabled={confirmDisabled}>
+          {isSubmitting || isCommandPending ? (
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 aria-hidden="true" />
+          )}
+          Áp dụng đề xuất
+        </Button>
+      )}
+      <Button variant="outline" onClick={onManualRefresh} disabled={!deviceId || isSubmitting} className={`min-h-11 ${isBlocked ? 'border-slate-700 bg-slate-900/50 text-slate-200 hover:bg-slate-800' : ''}`}>
         Tải lại đề xuất
       </Button>
       {(isBlocked || isCommandPending) && (
         <span className="text-xs text-muted-foreground">
-          {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Chưa đủ dữ liệu tin cậy để đề xuất. Hãy để hệ thống chạy thêm rồi thử lại.'}
+          {isCommandPending ? 'Đang chờ thiết bị phản hồi.' : 'Hệ thống sẽ đánh giá lại khi nhận đủ telemetry hợp lệ.'}
         </span>
       )}
     </div>
@@ -209,6 +210,9 @@ export function TuningPanelBody({
           detail={panel.data.blockReasonDetail}
         />
       )}
+      {panel.isBlocked && panel.data?.generatedAt && (
+        <p className="mt-2 text-[11px] text-slate-500">Đánh giá gần nhất: {new Date(panel.data.generatedAt).toLocaleString('vi-VN')}</p>
+      )}
       {panel.advisory && (
         <div className="space-y-4">
           <AdvisorySummary advisory={panel.advisory} />
@@ -234,7 +238,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
   const panel = useTuningAdvisoryPanelState(deviceId)
 
   return (
-    <Card className="border border-slate-700/50 bg-slate-950/40 p-6">
+    <Card className="border border-slate-800 bg-slate-950/50 p-4 md:p-5">
       <TuningPanelHeader pendingCommand={panel.pendingCommand} />
       <TuningPanelBody panel={panel} />
       <TuningPanelActions

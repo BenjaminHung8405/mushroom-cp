@@ -1,7 +1,7 @@
 'use client'
 
 import { Card } from '@/components/ui/card'
-import { CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, Circle, Cpu, UserRound, XCircle } from 'lucide-react'
+import { ChevronDown, CloudFog, Wind, Zap, ShieldAlert, CheckCircle2, Circle, Cpu, UserRound, XCircle } from 'lucide-react'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { postActuatorOverride, postSetOperatingMode } from '@/lib/telemetry-api'
 import { useBatch } from '@/lib/batch-context'
@@ -18,7 +18,6 @@ interface ActuatorStatusRowProps {
   mode: 'AI' | 'MANUAL' | null
   locked?: boolean
   lockReason?: string
-  uninstalled?: boolean
   isPending?: boolean
   telemetryDetails?: React.ReactNode
   onAction: () => void
@@ -32,7 +31,6 @@ function ActuatorStatusRow({
   mode,
   locked = false,
   lockReason,
-  uninstalled = false,
   isPending = false,
   telemetryDetails,
   onAction,
@@ -44,48 +42,43 @@ function ActuatorStatusRow({
     : state
       ? 'Tắt thiết bị'
       : 'Bật thiết bị'
-  const actionDisabled = unavailable || uninstalled || locked || mode === null || isPending
+  const actionDisabled = unavailable || locked || mode === null || isPending
+  const stateLabel = unavailable ? 'Chưa xác nhận' : state ? 'Đang chạy' : 'Đang tắt'
+  const stateStyle = locked
+    ? 'border-red-500/35 bg-red-950/30 text-red-200'
+    : state === true
+      ? 'border-emerald-500/35 bg-emerald-950/25 text-emerald-200'
+      : 'border-slate-700 bg-slate-900/70 text-slate-400'
 
   return (
-    <div className={`p-4 rounded-lg border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-      state === true ? 'border-emerald-500/50 bg-emerald-950/10' : locked ? 'border-red-500/40 bg-red-950/10' : 'border-slate-700/50 bg-slate-900/20'
-    }`}>
-      <div className="flex items-start gap-3">
-        <div className={`p-2 rounded-lg shrink-0 ${state === true ? 'bg-emerald-500/20' : locked ? 'bg-red-950/30' : 'bg-slate-700/30'}`}>
-          {icon}
-        </div>
-        <div>
-          <h4 className="font-semibold text-foreground text-sm flex items-center gap-1.5 flex-wrap">
-            {name}
-            {uninstalled && <span className="text-[9px] font-bold uppercase bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">Chưa lắp</span>}
-          </h4>
-          <p className="text-xs mt-0.5 text-muted-foreground">{description}</p>
-          <div className={`mt-1.5 flex items-center gap-1 text-[11px] font-medium ${
-            source === 'safety' ? 'text-red-400' : source === 'user' ? 'text-amber-300' : source === 'ai' ? 'text-cyan-300' : 'text-slate-400'
-          }`}>
-            {source === 'safety' ? <ShieldAlert size={12} /> : source === 'user' ? <UserRound size={12} /> : source === 'ai' ? <Cpu size={12} /> : <Circle size={10} />}
-            <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Lệnh từ người dùng' : source === 'ai' ? 'Điều khiển bởi AI' : 'Chưa xác định nguồn điều khiển'}</span>
+    <div className="rounded-xl border border-slate-800 bg-slate-950/50 transition-colors duration-200 hover:border-slate-700">
+      <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center md:grid-cols-[minmax(190px,1.45fr)_112px_minmax(150px,1fr)_128px] md:gap-4 md:px-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={`mt-0.5 rounded-lg p-2 ${locked ? 'bg-red-950/30' : state ? 'bg-emerald-950/30' : 'bg-slate-900'}`}>{icon}</div>
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-foreground">{name}</h4>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
           </div>
-          {locked && lockReason && (
-            <div className="flex items-center gap-1 text-[11px] text-red-300 font-medium mt-1">
-              <ShieldAlert size={12} /><span>Bảo vệ: {lockReason}. Thiết bị chưa thể bật lại.</span>
-            </div>
-          )}
-          {telemetryDetails}
-          {unavailable && !uninstalled && <p className="text-[11px] text-slate-500 mt-1">Chưa nhận được dữ liệu xác nhận từ ESP32</p>}
         </div>
+        <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${stateStyle}`}>{stateLabel}</span>
+        <div className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium ${source === 'safety' ? 'text-red-300' : source === 'user' ? 'text-amber-300' : source === 'ai' ? 'text-cyan-300' : 'text-slate-400'}`}>
+          {source === 'safety' ? <ShieldAlert size={13} /> : source === 'user' ? <UserRound size={13} /> : source === 'ai' ? <Cpu size={13} /> : <Circle size={10} />}
+          <span>{source === 'safety' ? 'Khóa an toàn' : source === 'user' ? 'Thủ công' : source === 'ai' ? 'Fuzzy AI' : 'Chưa xác định'}</span>
+        </div>
+        <button disabled={actionDisabled} onClick={onAction} title={locked ? lockReason : actionLabel} className="min-h-11 w-full cursor-pointer rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 transition-colors duration-200 hover:border-slate-600 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40 md:w-auto">
+          {isPending ? 'Đang gửi…' : locked ? 'Đang khóa' : actionLabel}
+        </button>
       </div>
-      <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-        <div className={`min-w-20 text-center px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
-          state === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : locked ? 'bg-red-500/20 text-red-300 border-red-500/25' : 'bg-slate-800 text-slate-400 border-slate-700'
-        }`}>{unavailable ? '—' : state ? 'Đang chạy' : 'Đang tắt'}</div>
-        <button
-          disabled={actionDisabled}
-          onClick={onAction}
-          title={locked ? lockReason : actionLabel}
-          className="min-h-11 min-w-28 cursor-pointer rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 transition-colors duration-200 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >{isPending ? 'Đang gửi...' : locked ? 'Khóa an toàn' : actionLabel}</button>
-      </div>
+      <details className="group border-t border-slate-800">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 text-xs text-slate-400 transition-colors duration-200 hover:bg-slate-900/60 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 md:px-4">
+          <span>{locked && lockReason ? `Bảo vệ: ${lockReason}` : unavailable ? 'Chưa nhận được xác nhận relay từ ESP32' : 'Chi tiết relay và telemetry'}</span>
+          <ChevronDown className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-slate-800 bg-slate-950/65 px-3 py-2.5 md:px-4">
+          {locked && lockReason && <p className="mb-2 text-xs text-red-200">Thiết bị không thể bật lại cho đến khi điều kiện bảo vệ được gỡ.</p>}
+          {telemetryDetails}
+        </div>
+      </details>
     </div>
   )
 }
@@ -294,21 +287,20 @@ export function StandardActuatorsControl() {
     : null
 
   return (
-    <Card className="p-6 border border-slate-700/50 bg-slate-950/40 relative">
-      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="relative border border-slate-800 bg-slate-950/50 p-4 md:p-5">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="font-semibold text-foreground text-lg">Thiết bị trong phòng nấm</h3>
-          <p className="text-xs text-muted-foreground mt-1">Trạng thái vật lý và nguồn điều khiển có hiệu lực.</p>
+          <h3 className="text-base font-semibold text-foreground">Điều khiển thiết bị</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Trạng thái vật lý, nguồn lệnh hiệu lực và khóa an toàn.</p>
         </div>
-        <div className={`rounded-lg border px-3 py-2 text-xs ${isFuzzyOff ? 'border-amber-500/30 bg-amber-950/20' : 'border-cyan-500/30 bg-cyan-950/20'}`}>
-          <div className="flex items-center gap-1.5 font-bold text-foreground">{isFuzzyOff ? <UserRound className="size-3.5" /> : <Cpu className="size-3.5" />}{isFuzzyOff ? 'Fuzzy Logic: OFF' : 'Fuzzy Logic: ON'}</div>
-          <div className="mt-0.5 text-muted-foreground">{isFuzzyOff ? 'Lệnh manual được giữ; Safety Protector vẫn có quyền ép bật/tắt, giới hạn 3 phút và cooldown.' : 'Fuzzy tạo output nền; lệnh manual đảo relay 30 giây rồi trả quyền cho Fuzzy. Safety Protector luôn có quyền chặn.'}</div>
-          <div className="mt-2 flex gap-2">
-            <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="min-h-11 cursor-pointer rounded bg-amber-500/20 px-3 py-1 font-bold text-amber-200 transition-colors duration-200 hover:bg-amber-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40">{actionPending ? 'Đang gửi...' : 'Khởi động tất cả'}</button>
-            <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending !== null || controlsBlocked} className="min-h-11 cursor-pointer rounded bg-slate-800 px-3 py-1 font-bold text-slate-200 transition-colors duration-200 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">{modePending ? 'Đang chuyển...' : fuzzyEnabled ? 'Tắt Fuzzy' : 'Bật Fuzzy'}</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold ${isFuzzyOff ? 'border-amber-500/30 bg-amber-950/20 text-amber-200' : 'border-cyan-500/30 bg-cyan-950/20 text-cyan-200'}`}>
+            {isFuzzyOff ? <UserRound className="size-3.5" /> : <Cpu className="size-3.5" />}{isFuzzyOff ? 'Fuzzy: Thủ công' : 'Fuzzy: Tự động'}
+          </div>
+          <button onClick={() => void startAll()} disabled={actionPending !== null || operatingMode === null || controlsBlocked} className="min-h-11 cursor-pointer rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 text-xs font-semibold text-amber-100 transition-colors duration-200 hover:bg-amber-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40">{actionPending ? 'Đang gửi…' : 'Khởi động khả dụng'}</button>
+          <button onClick={() => fuzzyEnabled ? setShowManualConfirm(true) : void setOperatingMode('AI')} disabled={modePending !== null || controlsBlocked} className="min-h-11 cursor-pointer rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-slate-100 transition-colors duration-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">{modePending ? 'Đang chuyển…' : fuzzyEnabled ? 'Chuyển thủ công' : 'Bật Fuzzy'}</button>
           </div>
         </div>
-      </div>
 
       {activeTimedAck && (
         <p className="mb-3 rounded border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-200">
@@ -316,7 +308,7 @@ export function StandardActuatorsControl() {
         </p>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         <ActuatorStatusRow name="Quạt đối lưu" description="Giúp không khí lưu thông, hạ nhiệt và giảm CO₂" icon={<Wind className="w-5 h-5 text-cyan-400" />} state={fanActive} mode={operatingMode} isPending={actionPending?.actuator === 'fan'} telemetryDetails={relayTelemetryDetails('relay_2')} onAction={() => void applyAction('fan', fanActive)} />
         <ActuatorStatusRow name="Đèn nhiệt sưởi ấm (HLamp)" description="Tự động sưởi khi phòng nấm cần tăng nhiệt" icon={<Zap className="w-5 h-5 text-amber-400" />} state={lampStageActive} mode={operatingMode} locked={Boolean(lampLockReason)} lockReason={lampLockReason} isPending={actionPending?.actuator === 'lamp'} telemetryDetails={relayTelemetryDetails('relay_4')} onAction={() => void applyAction('lamp', lampStageActive)} />
         <ActuatorStatusRow name="Máy tạo ẩm siêu âm" description="Tự động phun sương theo độ ẩm" icon={<CloudFog className="w-5 h-5 text-teal-400" />} state={mistActive} mode={operatingMode} locked={mistControlsLocked} lockReason={mistLockReason} isPending={actionPending?.actuator === 'mist'} telemetryDetails={relayTelemetryDetails('relay_1')} onAction={() => void applyAction('mist', mistActive)} />
@@ -335,7 +327,7 @@ export function StandardActuatorsControl() {
         </div>
       )}
 
-      {toast && <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-md ${toast.type === 'success' ? 'bg-gradient-to-r from-emerald-900/80 to-teal-900/80 border-emerald-500/30 text-emerald-200' : 'bg-gradient-to-r from-red-950/80 to-pink-950/80 border-red-500/30 text-red-200'}`}>
+      {toast && <div className={`fixed bottom-24 right-4 z-50 flex max-w-sm items-center gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-md md:bottom-6 md:right-6 ${toast.type === 'success' ? 'border-emerald-500/30 bg-emerald-950/95 text-emerald-100' : 'border-red-500/30 bg-red-950/95 text-red-100'}`}>
         {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /> : <XCircle className="w-5 h-5 text-red-400 shrink-0" />}<span className="text-xs font-medium">{toast.message}</span>
       </div>}
     </Card>

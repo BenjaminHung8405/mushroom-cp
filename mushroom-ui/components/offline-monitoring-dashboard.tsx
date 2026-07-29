@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Droplets,
@@ -9,13 +9,10 @@ import {
 } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
-import { useSelectedDevice } from '@/lib/selected-device-context'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { useBatch } from '@/lib/batch-context'
-import {
-  fetchOfflineMonitoringHistory,
-  type OfflineMonitoringPoint,
-} from '@/lib/offline-monitoring-api'
+import type { OfflineMonitoringPoint } from '@/lib/offline-monitoring-api'
+import type { OperationalHistoryState } from '@/app/lib/operational-history'
 import {
   computeDegradedIntervals,
   detectChatteringWindows,
@@ -36,7 +33,6 @@ import {
 import { SystemHealthCard } from './system-health-card'
 
 const MAX_RENDERED_POINTS = 720
-const RANGE_MS = 24 * 60 * 60 * 1000
 const TEMP_AXIS = { min: 20, max: 40 } // °C
 const HUM_AXIS = { min: 50, max: 100 } // %
 
@@ -719,8 +715,8 @@ function buildDutyBuckets(
   return buckets
 }
 
-function ActuatorTimeline(props: ActuatorTimelineProps) {
-  const { rawPoints, degradedIntervals, rangeStart, rangeEnd } = props
+function ActuatorTimeline(props: ActuatorTimelineProps & { focusChatterAt?: number | null }) {
+  const { rawPoints, degradedIntervals, rangeStart, rangeEnd, focusChatterAt = null } = props
   const scrubber = useScrubber()
 
   const mistSegments = useMemo(
@@ -747,6 +743,9 @@ function ActuatorTimeline(props: ActuatorTimelineProps) {
     [chatteringPoints],
   )
   const anyChattering = mistChattering.length + lampChattering.length > 0
+  const focusedChatter = focusChatterAt === null
+    ? null
+    : [...mistChattering, ...lampChattering].find((window) => focusChatterAt >= window.startMs && focusChatterAt <= window.endMs) ?? null
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
@@ -775,7 +774,7 @@ function ActuatorTimeline(props: ActuatorTimelineProps) {
       : null
 
   return (
-    <Card className="col-span-1 border border-slate-700/60 bg-slate-950/50 p-5 md:col-span-2">
+    <Card className={`col-span-1 border bg-slate-950/50 p-5 md:col-span-2 ${focusedChatter ? 'border-red-500/60 shadow-[0_0_0_1px_rgba(239,68,68,0.18)]' : 'border-slate-700/60'}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold">Lịch sử hoạt động thiết bị</h3>
@@ -790,6 +789,7 @@ function ActuatorTimeline(props: ActuatorTimelineProps) {
           </span>
         )}
       </div>
+      {focusedChatter && <p className="mb-3 rounded-lg border border-red-500/35 bg-red-950/25 px-3 py-2 text-xs text-red-100">Đang đánh dấu đoạn đóng ngắt {focusedChatter.count} lần trong 10 phút từ Attention Strip.</p>}
 
       {isEmpty ? (
         <EmptyChart label="Chưa có dữ liệu hoạt động thiết bị trong 24 giờ." />
@@ -1068,8 +1068,13 @@ function ChatteringHint({
 // Top-level wiring
 // ---------------------------------------------------------------------------
 
-export function OfflineMonitoringDashboard() {
-  const { selectedDeviceId } = useSelectedDevice()
+export function OfflineMonitoringDashboard({
+  history,
+  focusChatterAt = null,
+}: {
+  history: OperationalHistoryState
+  focusChatterAt?: number | null
+}) {
   const {
     deviceStatus,
     temperatureSetpoint,
@@ -1078,43 +1083,10 @@ export function OfflineMonitoringDashboard() {
     snapshot,
   } = useRealTelemetry()
   const { tempOptimalRange, humidityOptimalRange } = useBatch()
-  const [points, setPoints] = useState<OfflineMonitoringPoint[]>([])
-  const [loading, setLoading] = useState(false)
-  const [historyError, setHistoryError] = useState<string | null>(null)
-  const [range, setRange] = useState(() => {
-    const end = Date.now()
-    return { start: end - RANGE_MS, end }
-  })
-
-  useEffect(() => {
-    if (!selectedDeviceId) {
-      setPoints([])
-      setLoading(false)
-      setHistoryError(null)
-      return
-    }
-    let cancelled = false
-    const end = Date.now()
-    const nextRange = { start: end - RANGE_MS, end }
-    setRange(nextRange)
-    setLoading(true)
-    setHistoryError(null)
-    fetchOfflineMonitoringHistory(selectedDeviceId, new Date(nextRange.start), new Date(nextRange.end))
-      .then((next) => { if (!cancelled) setPoints(next) })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setPoints([])
-          setHistoryError(error instanceof Error ? error.message : 'Không thể tải lịch sử vi khí hậu.')
-        }
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [selectedDeviceId])
-
-  const rawPoints = useMemo(() => buildRawPoints(points), [points])
+  const rawPoints = useMemo(() => buildRawPoints(history.points), [history.points])
   const chartPoints = useMemo(
-    () => makeChartPoints(rawPoints, range.start, range.end),
-    [rawPoints, range],
+    () => makeChartPoints(rawPoints, history.range.start, history.range.end),
+    [rawPoints, history.range],
   )
   const degradedIntervals = useMemo(
     () => computeDegradedIntervals(rawPoints),
@@ -1125,15 +1097,18 @@ export function OfflineMonitoringDashboard() {
   const latestDeltaTimeS = rawPoints.at(-1)?.deltaTimeS ?? null
 
   return (
-    <ScrubberProvider rangeStart={range.start} rangeEnd={range.end}>
-      {loading ? (
+    <ScrubberProvider rangeStart={history.range.start} rangeEnd={history.range.end}>
+      <Card className="col-span-1 border border-slate-700/60 bg-slate-950/50 p-4 md:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-mono text-xs font-semibold text-slate-200">Tóm tắt dữ liệu 24 giờ</p><p className="mt-1 text-xs text-slate-400">{history.summary.totalPoints} mẫu · {history.summary.trustedPoints} mẫu tin cậy · {history.summary.chattering.length} vùng relay cần kiểm tra</p></div><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${history.summary.latestQuality === 'trusted' ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>{history.summary.latestQuality === 'trusted' ? 'Dữ liệu tin cậy' : 'Chưa đủ dữ liệu tin cậy'}</span></div>
+      </Card>
+      {history.loading ? (
         <div className="col-span-1 flex items-center gap-2 text-xs text-slate-400 md:col-span-2">
           <LoaderCircle className="h-4 w-4 animate-spin" /> Đang tải dữ liệu 24 giờ…
         </div>
       ) : null}
-      {historyError ? (
+      {history.error ? (
         <div className="col-span-1 rounded-lg border border-red-500/50 bg-red-950/30 px-4 py-3 text-sm text-red-200 md:col-span-2">
-          {historyError} Biểu đồ chưa thể xác nhận trạng thái dữ liệu.
+          {history.error} Biểu đồ chưa thể xác nhận trạng thái dữ liệu.
         </div>
       ) : null}
       <SystemHealthCard latestPoint={latest} status={deviceStatus} />
@@ -1141,8 +1116,8 @@ export function OfflineMonitoringDashboard() {
         chartPoints={chartPoints}
         rawPoints={rawPoints}
         degradedIntervals={degradedIntervals}
-        rangeStart={range.start}
-        rangeEnd={range.end}
+        rangeStart={history.range.start}
+        rangeEnd={history.range.end}
         tempOptimalRange={tempOptimalRange}
         humidityOptimalRange={humidityOptimalRange}
         temperatureSetpoint={temperatureSetpoint}
@@ -1154,8 +1129,9 @@ export function OfflineMonitoringDashboard() {
       <ActuatorTimeline
         rawPoints={rawPoints}
         degradedIntervals={degradedIntervals}
-        rangeStart={range.start}
-        rangeEnd={range.end}
+        rangeStart={history.range.start}
+        rangeEnd={history.range.end}
+        focusChatterAt={focusChatterAt}
       />
     </ScrubberProvider>
   )

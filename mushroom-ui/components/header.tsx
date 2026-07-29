@@ -30,8 +30,8 @@ export function Header({
   alertTriggerRef: RefObject<HTMLButtonElement | null>
 }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-3 px-3 py-3 sm:px-5 lg:px-8">
+    <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/95 backdrop-blur-xl">
+      <div className="mx-auto grid w-full max-w-[1400px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-3 py-3 sm:px-5 lg:grid-cols-[minmax(220px,1fr)_minmax(0,auto)_auto] lg:px-8">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 text-emerald-300"><Leaf className="size-5" /></div>
           <div className="min-w-0">
@@ -39,8 +39,8 @@ export function Header({
             <p className="mt-0.5 truncate text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Khu trồng số 1 · 35 trụ</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <div className="hidden lg:block"><HardwareTelemetryWidget /></div>
+        <div className="order-3 col-span-2 flex min-w-0 justify-start lg:order-2 lg:col-span-1 lg:justify-center"><HardwareTelemetryWidget /></div>
+        <div className="order-2 flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 lg:order-3">
           <div className="hidden sm:block"><DeviceSelector /></div>
           <button ref={alertTriggerRef} type="button" onClick={onOpenAlerts} className="relative flex size-11 cursor-pointer items-center justify-center rounded-xl border border-slate-700 bg-slate-900/70 text-slate-300 transition-colors duration-200 hover:border-slate-500 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" aria-label={`Mở trung tâm cảnh báo${activeAlertCount > 0 ? `, ${activeAlertCount} cảnh báo đang hoạt động` : ''}`}>
             <BellRing className="size-5" />

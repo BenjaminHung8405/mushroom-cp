@@ -93,7 +93,7 @@ describe('TuningAdvisoryPanel component', () => {
     expect(confirmButton).not.toBeDisabled()
   })
 
-  it('disables confirm button when blockReason is active', async () => {
+  it('hides the apply action when blockReason is active and keeps refresh secondary', async () => {
     const blockedData = {
       deviceId: 'DEV_001',
       kpi: null,
@@ -123,11 +123,11 @@ describe('TuningAdvisoryPanel component', () => {
       expect(screen.getByText(/Thiết bị ngoại tuyến/i)).toBeInTheDocument()
     })
 
-    const confirmButton = screen.getByRole('button', { name: /Áp dụng đề xuất/i })
-    expect(confirmButton).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Áp dụng đề xuất/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Tải lại đề xuất/i })).toBeEnabled()
   })
 
-  it('renders error message and disables confirm button when response payload is malformed', async () => {
+  it('renders an error and hides the apply action when the response payload is malformed', async () => {
     vi.mocked(fetch).mockImplementation(async (url) => {
       if (typeof url === 'string' && url.includes('tuning-recommendations')) {
         return {
@@ -147,7 +147,7 @@ describe('TuningAdvisoryPanel component', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument()
     })
 
-    const confirmButton = screen.getByRole('button', { name: /Áp dụng đề xuất/i })
-    expect(confirmButton).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Áp dụng đề xuất/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Tải lại đề xuất/i })).toBeEnabled()
   })
 })

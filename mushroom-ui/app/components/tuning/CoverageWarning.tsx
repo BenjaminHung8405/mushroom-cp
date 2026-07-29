@@ -87,13 +87,13 @@ export function CoverageWarning({ blockReason, detail = null }: CoverageWarningP
   return (
     <div
       role="alert"
-      className="rounded-md border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100"
+      className="rounded-lg border border-amber-500/30 bg-amber-950/15 px-3 py-2.5 text-sm text-amber-100"
     >
       <div className="flex items-start gap-2">
         <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <div>
           <p className="font-semibold">{title}</p>
-          <p className="mt-1 leading-5">{safeDetail || description}</p>
+          <p className="mt-0.5 leading-5">{safeDetail || description}</p>
         </div>
       </div>
     </div>

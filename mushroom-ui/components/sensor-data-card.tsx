@@ -124,7 +124,7 @@ export function SensorDataCard({
 
       <div className="mb-2 md:mb-3">
         <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-2xl md:text-3xl font-bold text-foreground">
+          <span className="font-mono text-2xl font-bold tabular-nums text-foreground md:text-3xl">
             {formattedCurrent}
           </span>
           {hasValue && (
@@ -147,7 +147,7 @@ export function SensorDataCard({
       <div className="bg-slate-900/40 rounded px-2 py-2 mb-2 md:mb-3 border border-slate-700/50">
         <div className="flex justify-between items-center mb-1">
           <span className="text-xs text-muted-foreground">Chênh lệch</span>
-          <span className="text-xs font-semibold text-foreground">
+          <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
             {errorDelta !== null && errorDelta > 0 ? '+' : ''}
             {formattedError}
             {errorDelta !== null ? unit : ''}
@@ -165,8 +165,8 @@ export function SensorDataCard({
           <span
             className={
               actuatorActive
-                ? 'text-emerald-400 font-semibold'
-                : 'text-slate-500 font-semibold'
+                ? 'font-mono font-semibold text-emerald-400'
+                : 'font-mono font-semibold text-slate-500'
             }
           >
             {actuatorActive ? 'Bật' : 'Tắt'}

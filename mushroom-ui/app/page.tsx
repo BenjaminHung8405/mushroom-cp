@@ -10,8 +10,12 @@ import { OfflineMonitoringDashboard } from '@/components/offline-monitoring-dash
 import { TuningAdvisoryPanel } from '@/app/components/tuning/TuningAdvisoryPanel'
 import { MobileActionDock } from '@/app/components/mobile-action-dock'
 import { OperationalAlertCenter } from '@/app/components/operational-alert-center'
+import { OperationalAttentionStrip } from '@/app/components/operational-attention-strip'
 import { OperationalSection } from '@/app/components/operational-section'
+import { buildOperationalAttention, type OperationalAttentionItem } from '@/app/lib/operational-attention'
 import { useOperationalAlerts } from '@/app/lib/operational-alerts'
+import { useOperationalHistory } from '@/app/lib/operational-history'
+import { usePersistedDeviceSection } from '@/app/lib/use-persisted-device-section'
 import { BatchProvider, useBatch } from '@/lib/batch-context'
 import { SimulationProvider } from '@/lib/simulation-context'
 import { SelectedDeviceProvider, useSelectedDevice } from '@/lib/selected-device-context'
@@ -29,35 +33,6 @@ function getStatus(
   if (critical && (current < critical[0] || current > critical[1])) return 'critical'
   if (current < min || current > max) return 'warning'
   return 'optimal'
-}
-
-function TelemetrySyncBadge({
-  configSync,
-}: {
-  configSync: ReturnType<typeof useRealTelemetry>['configSync']
-}) {
-  const cfgColor =
-    configSync?.status === 'APPLIED' ? 'border-emerald-500/40 text-emerald-400' :
-    configSync?.status === 'ACKED' ? 'border-cyan-500/40 text-cyan-400' :
-    configSync?.status === 'TIMEOUT' ? 'border-red-500/40 text-red-400' :
-    configSync?.status === 'FAILED' ? 'border-orange-500/40 text-orange-400' :
-    'border-slate-700/50 text-slate-400'
-
-  const cfgLabel =
-    configSync?.status === 'APPLIED' ? `Đã áp dụng (rev ${configSync.appliedRevision})` :
-    configSync?.status === 'ACKED' ? `Thiết bị đã xác nhận (rev ${configSync.desiredRevision})` :
-    configSync?.status === 'TIMEOUT' ? 'Thiết bị không phản hồi' :
-    configSync?.status === 'FAILED' ? `Lỗi: ${configSync.error?.code ?? 'UNKNOWN'}` :
-    configSync?.kind && (configSync.status === 'PENDING' || configSync.status === 'OUT_OF_SYNC')
-      ? `${configSync.kind === 'baseline_setpoint' ? 'Setpoint' : 'Crop Profile'} chưa đồng bộ`
-      : 'Không có lệnh nào đang chờ'
-
-  return (
-    <div className={`h-full rounded-xl border bg-slate-950/45 px-4 py-3 ${cfgColor}`} title={configSync?.error?.message ?? ''}>
-      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75">Đồng bộ thiết bị</span>
-      <p className="mt-1 text-xs font-medium">{cfgLabel}</p>
-    </div>
-  )
 }
 
 function HumiditySensorCard() {
@@ -138,12 +113,15 @@ function DashboardContent() {
   const { selectedDeviceId } = useSelectedDevice()
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [alertTab, setAlertTab] = useState<'critical' | 'warning' | 'system'>('critical')
-  const [analysisOpen, setAnalysisOpen] = useState(false)
-  const [curvesOpen, setCurvesOpen] = useState(false)
   const [sandboxOpen, setSandboxOpen] = useState(false)
+  const [focusedChatterAt, setFocusedChatterAt] = useState<number | null>(null)
   const alertTriggerRef = useRef<HTMLButtonElement>(null)
   const controlsRef = useRef<HTMLElement>(null)
+  const analysisRef = useRef<HTMLElement>(null)
   const curvesRef = useRef<HTMLElement>(null)
+  const analysisSection = usePersistedDeviceSection('analysis', selectedDeviceId)
+  const curvesSection = usePersistedDeviceSection('curves', selectedDeviceId)
+  const history = useOperationalHistory(selectedDeviceId)
   const entries = useOperationalAlerts({
     deviceId: selectedDeviceId,
     temperature: telemetry.temperatureCurrent,
@@ -155,6 +133,10 @@ function DashboardContent() {
     configSyncStatus: telemetry.configSync?.status,
   })
   const activeAlertCount = useMemo(() => entries.filter((entry) => entry.active && entry.severity !== 'system').length, [entries])
+  const attentionItems = useMemo(
+    () => buildOperationalAttention(entries, history.summary),
+    [entries, history.summary],
+  )
 
   const openAlerts = () => {
     setAlertTab(entries.some((entry) => entry.active && entry.severity === 'critical') ? 'critical' : 'warning')
@@ -162,35 +144,53 @@ function DashboardContent() {
   }
   const scrollTo = (ref: React.RefObject<HTMLElement | null>) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   const openCurves = () => {
-    setCurvesOpen(true)
+    curvesSection.setOpen(true)
   }
 
   useEffect(() => {
-    if (!curvesOpen) return
+    if (!curvesSection.open) return
     const frame = window.requestAnimationFrame(() => scrollTo(curvesRef))
     return () => window.cancelAnimationFrame(frame)
-  }, [curvesOpen])
+  }, [curvesSection.open])
+
+  const handleAttention = (item: OperationalAttentionItem) => {
+    if (item.target === 'alerts') {
+      openAlerts()
+      return
+    }
+    if (item.target === 'curves') {
+      setFocusedChatterAt(null)
+      curvesSection.setOpen(true)
+      window.requestAnimationFrame(() => scrollTo(curvesRef))
+      return
+    }
+    setFocusedChatterAt(item.focusChatterAt ?? null)
+    analysisSection.setOpen(true)
+    window.requestAnimationFrame(() => scrollTo(analysisRef))
+  }
 
   return (
     <DashboardLayout onOpenAlerts={openAlerts} activeAlertCount={activeAlertCount} alertTriggerRef={alertTriggerRef}>
       <CriticalAlertBanner entries={entries} onOpenAlerts={openAlerts} />
       {telemetry.isLoading && <div className="mb-4 rounded-xl border border-slate-700/50 bg-slate-950/50 px-4 py-3 text-xs text-slate-400">Đang kết nối để nhận dữ liệu từ phòng nấm…</div>}
+      <OperationalAttentionStrip items={attentionItems} onSelect={handleAttention} />
 
       <section id="overview" aria-label="Tổng quan vận hành" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:gap-4">
-        <div className="lg:col-span-3"><TelemetrySyncBadge configSync={telemetry.configSync} /></div>
-        <div className="lg:col-span-3"><TemperatureSensorCard /></div>
-        <div className="lg:col-span-3"><HumiditySensorCard /></div>
-        <div className="lg:col-span-3"><Co2SensorCard /></div>
+        <div className="lg:col-span-4"><TemperatureSensorCard /></div>
+        <div className="lg:col-span-4"><HumiditySensorCard /></div>
+        <div className="lg:col-span-4"><Co2SensorCard /></div>
         <div className="lg:col-span-4"><BatchStatusPanel /></div>
         <section ref={controlsRef} id="controls" className="scroll-mt-24 lg:col-span-8"><StandardActuatorsControl /></section>
       </section>
 
       <div className="mt-4 space-y-4">
-        <OperationalSection id="operations-analysis" title="Phân tích vận hành" description="Vi khí hậu 24 giờ, lịch sử thiết bị và sức khỏe hệ thống" open={analysisOpen} onOpenChange={setAnalysisOpen}>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><OfflineMonitoringDashboard /></div>
-        </OperationalSection>
+        <section ref={analysisRef} className="scroll-mt-24">
+          <OperationalSection id="operations-analysis" title="Phân tích vận hành" description="Vi khí hậu 24 giờ, lịch sử thiết bị và sức khỏe hệ thống" open={analysisSection.open} onOpenChange={analysisSection.setOpen}>
+            {analysisSection.open && <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><OfflineMonitoringDashboard history={history} focusChatterAt={focusedChatterAt} /></div>}
+          </OperationalSection>
+        </section>
         <section ref={curvesRef} className="scroll-mt-24">
-          <OperationalSection id="curves-and-tuning" title="Đường cong & tinh chỉnh" description="Cấu hình Fuzzy Logic và khuyến nghị điều chỉnh" open={curvesOpen} onOpenChange={setCurvesOpen}>
+          <OperationalSection id="curves-and-tuning" title="Đường cong & tinh chỉnh" description="Cấu hình Fuzzy Logic và khuyến nghị điều chỉnh" open={curvesSection.open} onOpenChange={curvesSection.setOpen}>
             <div className="space-y-4"><TuningAdvisoryPanel deviceId={selectedDeviceId} /><FuzzyLogicEqualizer /></div>
           </OperationalSection>
         </section>
