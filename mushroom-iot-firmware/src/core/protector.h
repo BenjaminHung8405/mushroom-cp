@@ -33,7 +33,8 @@ public:
         float humidity_air,
         bool scheduled_blackout_active,
         manual::ManualLatchArray& manual_latches,
-        relay_control::RelayStatePod& relay_states
+        relay_control::RelayStatePod& relay_states,
+        bool lamp_schedule_allowed = true
     );
 
     bool isChannelLocked(AppChannel ch, uint32_t now) const;

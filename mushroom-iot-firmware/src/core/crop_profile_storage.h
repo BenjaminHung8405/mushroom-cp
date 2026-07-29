@@ -20,6 +20,9 @@ public:
     bool saveProfileConfigRevision(uint32_t revision);
     bool loadProfileConfigRevision(uint32_t &revision);
 
+    bool saveLastKnownCropDay(uint16_t cropDay);
+    bool loadLastKnownCropDay(uint16_t &cropDay);
+
     bool saveTimeState(const PersistedTimeState &state);
     bool loadTimeState(PersistedTimeState &state);
     bool clearTimeState();

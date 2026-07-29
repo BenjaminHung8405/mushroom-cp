@@ -16,6 +16,10 @@ bool isLockActive(uint32_t now, uint32_t lock_until_ms) {
     return static_cast<int32_t>(lock_until_ms - now) > 0;
 }
 
+bool isActiveForceOn(const manual::ManualLatchEntry& latch) {
+    return latch.active && latch.forced_state == AppIntent::FORCE_ON;
+}
+
 void clearManualLatch(manual::ManualLatchEntry& latch) {
     latch.active = false;
     latch.forced_state = AppIntent::AUTO;
@@ -60,7 +64,8 @@ void SystemProtector::update(
     float humidity_air,
     bool scheduled_blackout_active,
     manual::ManualLatchArray& manual_latches,
-    relay_control::RelayStatePod& relay_states
+    relay_control::RelayStatePod& relay_states,
+    bool lamp_schedule_allowed
 ) {
     // A startup in AOFF is not an AON -> AOFF transition. Capture the
     // initial mode first; actual runtime transitions are handled below.
@@ -113,7 +118,22 @@ void SystemProtector::update(
                 state.is_on = false;
                 state.on_start_ms = 0;
                 continue;
-            } else if (temp_air <= config::hardware::ThBOT) {
+            }
+        }
+
+        // The A250 schedule controls all automatic heating. A valid manual
+        // FORCE_ON is the sole schedule bypass; cooldown and over-temperature
+        // protection above remain non-bypassable.
+        if (ch == AppChannel::LAMP && !lamp_schedule_allowed &&
+            !isActiveForceOn(manual_latches[i])) {
+            set_channel_state(relay_states, ch, false);
+            state.is_on = false;
+            state.on_start_ms = 0;
+            continue;
+        }
+
+        if (ch == AppChannel::LAMP && std::isfinite(temp_air)) {
+            if (temp_air <= config::hardware::ThBOT) {
                 // Under-temp: Force heating Lamp ON
                 set_channel_state(relay_states, ch, true);
             }

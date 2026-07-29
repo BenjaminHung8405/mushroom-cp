@@ -22,6 +22,7 @@
 #include "core/telemetry_holdover.h"
 #include "core/crop_profile_storage.h"
 #include "core/crop_profile_validator.h"
+#include "core/light_schedule.h"
 #include "core/time_confidence.h"
 #include "network/ota_manager.h"
 #include "core/config_manager.h"
@@ -2579,7 +2580,9 @@ int main() {
     assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) > 0);
 
     assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
-    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+    // No active crop profile means there is no explicit ON schedule; auto
+    // A250 heating must remain fail-closed even for a cold sample.
+    assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
     assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
     // 19.8 E1: Core 1 adopts the latest POD tuning snapshot at the tick
@@ -3296,14 +3299,13 @@ int main() {
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_MIST) == 1);
         assert(mock_pin_modes.count(config::pins::PIN_RELAY_FAN) == 1);
 
-        // The SystemProtector's under-temperature rule forces only the air-heating
-        // lamp ON. At the default cold-and-dry fuzzy demand, water heat remains OFF.
+        // Without an active crop profile and explicit ON schedule, A250 auto
+        // heating is fail-closed even if the default sensor sample is cold.
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
 
-        // HAir and Exhaust are unaffected by the blackout interlock; LAMP is
-        // LOW because the default crop day (0.0) target (33.0C) is higher than mock temperature.
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+        // GPIO12 is active-low: schedule fail-closed means relay OFF = HIGH.
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
 
         // Verify no heap allocation or delay() was used — confirmed by static
@@ -4378,6 +4380,44 @@ int main() {
             assert(loadedProf.checkpoint_count == 3);
             assert(loadedProf.crc32 == validProf.crc32);
 
+            // 1a. Schedule policy is fail-closed for invalid days, missing
+            // blocks, and gaps. Only an explicit ON block permits A250 auto heat.
+            assert(schedule::isLampAllowedBySchedule(0U, validProf) == false);
+            assert(schedule::isLampAllowedBySchedule(11U, validProf) == false);
+            assert(schedule::isLampAllowedBySchedule(1U, validProf) == true);
+            PersistedCropProfile scheduleProfile = validProf;
+            scheduleProfile.light_schedule_count = 2U;
+            scheduleProfile.light_schedule[0] = {1U, 3U, 1U, 0U};
+            scheduleProfile.light_schedule[1] = {4U, 6U, 0U, 0U};
+            assert(schedule::isLampAllowedBySchedule(2U, scheduleProfile) == true);
+            assert(schedule::isLampAllowedBySchedule(4U, scheduleProfile) == false);
+            assert(schedule::isLampAllowedBySchedule(7U, scheduleProfile) == false);
+            scheduleProfile.light_schedule_count = 0U;
+            assert(schedule::isLampAllowedBySchedule(1U, scheduleProfile) == false);
+
+            // 1b. Last-known crop day persists independently of the profile blob.
+            // Absence is distinguishable from an invalid stored zero.
+            uint16_t storedCropDay = 0U;
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                (void)prefs.remove("crop_day");
+                prefs.end();
+            }
+            assert(cps.loadLastKnownCropDay(storedCropDay) == false);
+            assert(cps.saveLastKnownCropDay(0U) == false);
+            assert(cps.saveLastKnownCropDay(5U) == true);
+            assert(cps.loadLastKnownCropDay(storedCropDay) == true);
+            assert(storedCropDay == 5U);
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                assert(prefs.putUShort("crop_day", 11U) == sizeof(uint16_t));
+                prefs.end();
+            }
+            assert(cps.loadLastKnownCropDay(storedCropDay) == true);
+            assert(storedCropDay == 11U); // caller validates against total_crop_days
+
             // 2. Reject invalid checkpoints (NaN temp)
             PersistedCropProfile invalidProf1 = validProf;
             invalidProf1.checkpoints[1].temp_target_c = NAN;
@@ -4500,6 +4540,12 @@ int main() {
             // Clean up
             cps.clearProfile();
             cps.clearManualOverride(AppChannel::MIST);
+            {
+                Preferences prefs;
+                assert(prefs.begin(config::network::NVS_NAMESPACE, false) == true);
+                (void)prefs.remove("crop_day");
+                prefs.end();
+            }
         }
 
         // Sprint 4 Track B Time Confidence Unit Tests
@@ -4699,7 +4745,7 @@ int main() {
 
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == HIGH);
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW); // Forced ON by protector (25C <= ThBOT)
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH); // No active ON schedule: auto A250 remains OFF.
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
 
         // 3. Mock physical button press on Fan channel to FORCE_ON.
@@ -4718,8 +4764,8 @@ int main() {
 
         assert(mock_pin_values[config::pins::PIN_RELAY_MIST] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_FAN] == LOW); // LOW = ON for active-LOW SSR
-        // Protector remains authoritative in manual/AOFF: 25°C <= ThBOT forces lamp ON.
-        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == LOW);
+        // The schedule policy remains fail-closed for A250 auto demand.
+        assert(mock_pin_values[config::pins::PIN_RELAY_LAMP] == HIGH);
         assert(mock_pin_values[config::pins::PIN_RELAY_HWAT] == HIGH);
 
         // Restore default state
@@ -4856,12 +4902,12 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].expires_ms = 50000UL;
 
         // Fuzzy enabled is true, so no transition yet
-        sys_protector.update(1000UL, true, 25.0f, 70.0f, false, latches, states);
+        sys_protector.update(1000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == true);
 
         // Transition: fuzzy_enabled goes false -> bumpless transfer (latches and states are preserved)
-        sys_protector.update(2000UL, false, 25.0f, 70.0f, false, latches, states);
+        sys_protector.update(2000UL, false, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
         assert(states.mist_active == true);
         assert(states.fan_active == true);
@@ -4874,27 +4920,27 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
 
         // Over-Temp (36C >= ThTOP) -> Lamp forced OFF and locked in cooldown for 5 mins
-        sys_protector.update(1000UL, true, 36.0f, 70.0f, false, latches, states);
+        sys_protector.update(1000UL, true, 36.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // Attempting to turn Lamp ON during 5-minute cooldown (at 2 mins) must fail
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(121000UL, true, 25.0f, 70.0f, false, latches, states);
+        sys_protector.update(121000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // After cooldown expires (5 minutes + 1s = 301,000ms elapsed) -> Lamp can turn ON again
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(302000UL, true, 25.0f, 70.0f, false, latches, states);
+        sys_protector.update(302000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
         // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked in cooldown for 10 mins
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(303000UL, true, 25.0f, 81.0f, false, latches, states);
+        sys_protector.update(303000UL, true, 25.0f, 81.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
@@ -4903,7 +4949,7 @@ int main() {
         // over-humidity does NOT override the forced-OFF from this assertion.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(543000UL, true, 25.0f, 85.0f, false, latches, states);
+        sys_protector.update(543000UL, true, 25.0f, 85.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
@@ -4914,7 +4960,7 @@ int main() {
         sys_protector.reset();
         relay_control::RelayStatePod s2 = {true, true, true, true};
         manual::ManualLatchArray l2{};
-        sys_protector.update(904000UL, true, 25.0f, 70.0f, false, l2, s2);
+        sys_protector.update(904000UL, true, 25.0f, 70.0f, false, l2, s2, true);
         assert(s2.mist_active == true);
 
         // 41.5 Priority 1 Bio Bounds (Under-Limit Force ON)
@@ -4924,8 +4970,30 @@ int main() {
         latches[static_cast<size_t>(AppChannel::LAMP)].forced_state = AppIntent::FORCE_OFF;
 
         // Under-temp (28C <= ThBOT) -> Lamp is forced ON, ignoring the manual FORCE_OFF override
-        sys_protector.update(1000UL, true, 28.0f, 70.0f, false, latches, states);
+        sys_protector.update(1000UL, true, 28.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
+
+        // A250 schedule gate is evaluated before the under-temperature force-ON
+        // path. Auto demand must stay OFF during an OFF schedule.
+        sys_protector.reset();
+        states = {false, false, false, false};
+        latches[static_cast<size_t>(AppChannel::LAMP)] = {false, AppIntent::AUTO, 0U};
+        sys_protector.update(1100UL, true, 28.0f, 70.0f, false, latches, states, false);
+        assert(states.lamp_active == false);
+
+        // Manual FORCE_ON is the only schedule bypass, but it remains subject
+        // to the over-temperature guard and its cooldown lock.
+        latches[static_cast<size_t>(AppChannel::LAMP)] = {true, AppIntent::FORCE_ON, 0U};
+        sys_protector.update(1200UL, true, 28.0f, 70.0f, false, latches, states, false);
+        assert(states.lamp_active == true);
+        sys_protector.update(1300UL, true, 38.0f, 70.0f, false, latches, states, false);
+        assert(states.lamp_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
+        latches[static_cast<size_t>(AppChannel::LAMP)] = {true, AppIntent::FORCE_ON, 0U};
+        states.lamp_active = true;
+        sys_protector.update(2000UL, true, 28.0f, 70.0f, false, latches, states, true);
+        assert(states.lamp_active == false);
+        assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // Scheduled/fail-safe blackout runs before bio bounds: low humidity cannot
         // re-enable Mist or HWat, and both manual latches are released.
@@ -4933,7 +5001,7 @@ int main() {
         states.hwat_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 0U};
         latches[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
-        sys_protector.update(1500UL, true, 30.0f, 64.0f, true, latches, states);
+        sys_protector.update(1500UL, true, 30.0f, 64.0f, true, latches, states, true);
         assert(states.mist_active == false);
         assert(states.hwat_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
@@ -4941,7 +5009,7 @@ int main() {
 
         // Under-humidity (64% <= HmBOT) -> Mist is forced ON outside blackout
         states.mist_active = false;
-        sys_protector.update(2000UL, true, 30.0f, 64.0f, false, latches, states);
+        sys_protector.update(2000UL, true, 30.0f, 64.0f, false, latches, states, true);
         assert(states.mist_active == true);
 
         // 41.6 Priority 3 time-based limits (3-minute continuous ON -> 30s OFF cooldown)
@@ -4949,28 +5017,28 @@ int main() {
         states = {true, true, true, true};
 
         // Start tracking Lamp ON time
-        sys_protector.update(1000UL, true, 30.0f, 70.0f, false, latches, states);
+        sys_protector.update(1000UL, true, 30.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
         // Lamp remains ON for 2.9 minutes
-        sys_protector.update(179000UL, true, 30.0f, 70.0f, false, latches, states);
+        sys_protector.update(179000UL, true, 30.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
         // Lamp exceeds 3 minutes ON (180s) -> forced OFF and locked for 30s
-        sys_protector.update(182000UL, true, 30.0f, 70.0f, false, latches, states);
+        sys_protector.update(182000UL, true, 30.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
 
         // Attempting to turn Lamp ON during 30s cooldown must fail
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(192000UL, true, 30.0f, 70.0f, false, latches, states);
+        sys_protector.update(192000UL, true, 30.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == false);
         assert(latches[static_cast<size_t>(AppChannel::LAMP)].active == false);
 
         // After 30s cooldown passes, Lamp can turn ON again
         states.lamp_active = true;
         latches[static_cast<size_t>(AppChannel::LAMP)].active = true;
-        sys_protector.update(213000UL, true, 30.0f, 70.0f, false, latches, states);
+        sys_protector.update(213000UL, true, 30.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
         // 41.7 Active-LOW Output Mapping Verifications

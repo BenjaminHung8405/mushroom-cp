@@ -13,6 +13,7 @@
 #include "core/telemetry_holdover.h"
 #include "core/protector.h"
 #include "core/crop_profile_storage.h"
+#include "core/crop_profile_validator.h"
 #include "core/light_schedule.h"
 #include "core/time_confidence.h"
 #include "core/offline_storage.h"
@@ -81,6 +82,8 @@ config::OperatingMode getOperatingModeSnapshot()
 volatile bool shared_forceFullPublish = false;
 static PersistedCropProfile activeProfile;
 static bool hasActiveProfile = false;
+static uint16_t lastPersistedCropDay = 0U;
+static bool hasLastPersistedCropDay = false;
 #ifndef UNIT_TEST
 SemaphoreHandle_t xTelemetryMutex = nullptr;
 #endif
@@ -427,21 +430,39 @@ static float calculateCurrentCropDay()
 
 static uint16_t getCurrentCropDay()
 {
+    if (!hasActiveProfile || activeProfile.total_crop_days == 0U) {
+        return 0U;
+    }
+
     if (time_conf::getTimeConfidence() == TimeConfidence::Uncertain)
     {
-        return 0;
+        uint16_t storedCropDay = 0U;
+        if (storage::CropProfileStorage::getInstance().loadLastKnownCropDay(storedCropDay) &&
+            storedCropDay >= 1U && storedCropDay <= activeProfile.total_crop_days) {
+            return storedCropDay;
+        }
+        return 1U;
     }
-    if (hasActiveProfile)
-    {
-        time_t now_epoch_s = time(nullptr);
-        int64_t diff = now_epoch_s - activeProfile.crop_start_epoch_s;
-        int32_t day_val = 1 + (diff / 86400);
-        if (day_val < 1) day_val = 1;
-        if (day_val > activeProfile.total_crop_days) day_val = activeProfile.total_crop_days;
-        return static_cast<uint16_t>(day_val);
+
+    const time_t now_epoch_s = time(nullptr);
+    const int64_t diff = static_cast<int64_t>(now_epoch_s) - activeProfile.crop_start_epoch_s;
+    int32_t dayValue = 1 + static_cast<int32_t>(diff / 86400);
+    if (dayValue < 1) dayValue = 1;
+    if (dayValue > activeProfile.total_crop_days) dayValue = activeProfile.total_crop_days;
+
+    const uint16_t cropDay = static_cast<uint16_t>(dayValue);
+    if (!hasLastPersistedCropDay) {
+        uint16_t persistedCropDay = 0U;
+        if (storage::CropProfileStorage::getInstance().loadLastKnownCropDay(persistedCropDay)) {
+            lastPersistedCropDay = persistedCropDay;
+        }
+        hasLastPersistedCropDay = true;
     }
-    float currentDay = calculateCurrentCropDay();
-    return static_cast<uint16_t>(currentDay);
+    if (lastPersistedCropDay != cropDay &&
+        storage::CropProfileStorage::getInstance().saveLastKnownCropDay(cropDay)) {
+        lastPersistedCropDay = cropDay;
+    }
+    return cropDay;
 }
 
 static Trajectory::SetpointPod getControlSetpointsAndErrors(
@@ -728,11 +749,32 @@ static void runControlPipelineStep(
         PersistedCropProfile newProfile;
         if (xQueueReceive(g_profile_update_queue, &newProfile, 0) == pdTRUE)
         {
-            activeProfile = newProfile;
-            hasActiveProfile = true;
-            ScopedSerialLock guard(SerialLock::get_instance());
-            Serial.printf("[CORE1_TASK] Adopted new crop profile. Checkpoints: %u, Version: %u\n",
-                          activeProfile.checkpoint_count, activeProfile.schema_version);
+            if (!storage::CropProfileValidator::validate(newProfile)) {
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.println("[CORE1_TASK] ERROR: Rejected invalid crop profile snapshot.");
+            } else {
+                activeProfile = newProfile;
+                hasActiveProfile = true;
+                const size_t lampIndex = static_cast<size_t>(AppChannel::LAMP);
+                const bool lampLatchWasActive = manualLatch[lampIndex].active;
+                manualLatch[lampIndex].active = false;
+                manualLatch[lampIndex].forced_state = AppIntent::AUTO;
+                manualLatch[lampIndex].expires_ms = 0U;
+                (void)storage::CropProfileStorage::getInstance().clearManualOverride(AppChannel::LAMP);
+                if (lampLatchWasActive) {
+                    cabinet_buttons::notify_latch_released(AppChannel::LAMP);
+                }
+
+                lastPersistedCropDay = 1U;
+                hasLastPersistedCropDay = true;
+                if (!storage::CropProfileStorage::getInstance().saveLastKnownCropDay(1U)) {
+                    Serial.println("[CORE1_TASK] WARNING: Failed to reset last known crop day.");
+                }
+                setSharedForceFullPublish(true);
+                ScopedSerialLock guard(SerialLock::get_instance());
+                Serial.printf("[CORE1_TASK] Adopted new crop profile. Checkpoints: %u, Version: %u\n",
+                              activeProfile.checkpoint_count, activeProfile.schema_version);
+            }
         }
     }
     // Non-blocking drain baseline and override queues at the beginning of tick 50 ms
@@ -935,9 +977,10 @@ static void runControlPipelineStep(
     }
 
     const uint16_t cropDay = getCurrentCropDay();
-    if (hasActiveProfile && !schedule::isLampAllowedBySchedule(cropDay, activeProfile)) {
-        outputs.HLamp = 0.0f;
-    }
+    const bool lampScheduleAllowed = hasActiveProfile &&
+        schedule::isLampAllowedBySchedule(cropDay, activeProfile);
+    const float autoLampPwmOutput = outputs.HLamp;
+    outputs.HLamp = lampScheduleAllowed ? autoLampPwmOutput : 0.0f;
 
     // E3: Apply manual latch to outputs (handles expiration, warnings, releases)
     const relay_control::RtcTimePod rtcTimeBeforeLatch = readRtcTimeFailSafe();
@@ -992,7 +1035,8 @@ static void runControlPipelineStep(
         telemetry.humidity_air,
         relay_control::isSafetyBlackoutActive(rtcTime),
         manualLatch,
-        relayState
+        relayState,
+        lampScheduleAllowed
     );
 
     // Defense in depth at the final GPIO boundary. The interlock already ran
@@ -1097,6 +1141,8 @@ void taskCore1Control(void* /*pvParameters*/)
 
     // Load persisted crop profile once on boot
     hasActiveProfile = storage::CropProfileStorage::getInstance().loadProfile(activeProfile);
+    hasLastPersistedCropDay = false;
+    lastPersistedCropDay = 0U;
     if (hasActiveProfile) {
         uint32_t revision = 0;
         storage::CropProfileStorage::getInstance().loadProfileConfigRevision(revision);

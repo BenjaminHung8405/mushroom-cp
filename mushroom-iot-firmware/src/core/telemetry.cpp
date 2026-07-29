@@ -1,6 +1,7 @@
 #include "core/telemetry.h"
 #include "core/time_confidence.h"
 #include "core/crop_profile_storage.h"
+#include "core/light_schedule.h"
 #include <ArduinoJson.h>
 
 namespace Telemetry {
@@ -131,26 +132,28 @@ void buildFullPayload(const TelemetryData& current, JsonObject& root)
     root["profile_source"] = hasProfile ? "NVS" : "Default";
     root["offline_safe_mode"] = (conf == TimeConfidence::Uncertain);
 
-    // Calculate crop day based on time confidence
-    float day = 0.0f;
-    if (conf != TimeConfidence::Uncertain && hasProfile && activeProfile.crop_start_epoch_s > 0) {
-        time_t now_epoch_s = time(nullptr);
-        if (now_epoch_s >= activeProfile.crop_start_epoch_s) {
-            day = 1.0f + static_cast<float>(now_epoch_s - activeProfile.crop_start_epoch_s) / 86400.0f;
+    uint16_t cropDay = 0U;
+    if (hasProfile && activeProfile.total_crop_days > 0U) {
+        if (conf == TimeConfidence::Uncertain) {
+            uint16_t storedCropDay = 0U;
+            if (storage::CropProfileStorage::getInstance().loadLastKnownCropDay(storedCropDay) &&
+                storedCropDay >= 1U && storedCropDay <= activeProfile.total_crop_days) {
+                cropDay = storedCropDay;
+            } else {
+                cropDay = 1U;
+            }
+        } else {
+            const time_t nowEpochS = time(nullptr);
+            const int64_t elapsedSeconds = static_cast<int64_t>(nowEpochS) - activeProfile.crop_start_epoch_s;
+            int32_t calculatedDay = 1 + static_cast<int32_t>(elapsedSeconds / 86400);
+            if (calculatedDay < 1) calculatedDay = 1;
+            if (calculatedDay > activeProfile.total_crop_days) calculatedDay = activeProfile.total_crop_days;
+            cropDay = static_cast<uint16_t>(calculatedDay);
         }
     }
-    root["crop_day"] = day;
-    if (hasProfile && day >= 1.0f) {
-        const uint16_t cropDay = static_cast<uint16_t>(day);
-        bool lightScheduleActive = false;
-        for (uint16_t i = 0; i < activeProfile.light_schedule_count; ++i) {
-            const LightScheduleBlock& block = activeProfile.light_schedule[i];
-            if (cropDay >= block.start_day && cropDay <= block.end_day) {
-                lightScheduleActive = block.status == 1U;
-                break;
-            }
-        }
-        root["light_schedule_active"] = lightScheduleActive;
+    root["crop_day"] = cropDay;
+    if (hasProfile && cropDay >= 1U) {
+        root["light_schedule_active"] = schedule::isLampAllowedBySchedule(cropDay, activeProfile);
     } else {
         root["light_schedule_active"] = nullptr;
     }

@@ -11,6 +11,7 @@ namespace {
 
 constexpr uint32_t CROP_PROFILE_MAGIC = 0x43524F50;
 constexpr const char* CROP_PROFILE_KEY = "crop_profile";
+constexpr const char* LAST_KNOWN_CROP_DAY_KEY = "crop_day";
 
 struct LegacyPersistedCropProfileV1 {
     uint32_t magic;
@@ -188,6 +189,36 @@ bool CropProfileStorage::loadProfileConfigRevision(uint32_t &revision) {
     if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
     if (!prefs.isKey("prof_rev")) { prefs.end(); return false; }
     revision = prefs.getUInt("prof_rev", 0);
+    prefs.end();
+    return true;
+}
+
+bool CropProfileStorage::saveLastKnownCropDay(uint16_t cropDay) {
+    if (cropDay == 0U) return false;
+
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, false)) return false;
+    const size_t written = prefs.putUShort(LAST_KNOWN_CROP_DAY_KEY, cropDay);
+    prefs.end();
+    if (written != sizeof(cropDay)) return false;
+
+    Preferences verifyPrefs;
+    if (!verifyPrefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+    const bool hasKey = verifyPrefs.isKey(LAST_KNOWN_CROP_DAY_KEY);
+    const uint16_t verified = verifyPrefs.getUShort(LAST_KNOWN_CROP_DAY_KEY, 0U);
+    verifyPrefs.end();
+    return hasKey && verified == cropDay;
+}
+
+bool CropProfileStorage::loadLastKnownCropDay(uint16_t &cropDay) {
+    Preferences prefs;
+    if (!prefs.begin(config::network::NVS_NAMESPACE, true)) return false;
+    if (!prefs.isKey(LAST_KNOWN_CROP_DAY_KEY)) {
+        prefs.end();
+        return false;
+    }
+
+    cropDay = prefs.getUShort(LAST_KNOWN_CROP_DAY_KEY, 0U);
     prefs.end();
     return true;
 }
