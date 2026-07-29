@@ -23,7 +23,7 @@ export function DeviceSelector() {
       <span className="hidden sm:inline">Thiết bị</span>
       <select
         aria-label="Chọn thiết bị"
-        className="h-8 max-w-52 rounded-md border border-border bg-slate-950 px-2 text-xs text-foreground outline-none transition-colors focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-h-11 max-w-52 rounded-md border border-border bg-slate-950 px-2 text-xs text-foreground outline-none transition-colors focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
         value={selectedDeviceId ?? ''}
         onChange={(event) => selectDevice(event.target.value)}
       >
