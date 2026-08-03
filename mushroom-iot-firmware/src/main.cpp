@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifndef UNIT_TEST
+#include <WiFi.h>
+#endif
 #include <time.h>
 #include <cstdlib>
 
@@ -22,6 +25,10 @@ void setup()
 {
     // Initialize Serial interface
     Serial.begin(115200);
+#ifndef UNIT_TEST
+    // Print the immutable hardware STA MAC before loading any NVS identity override.
+    Serial.printf("[HW] WiFi STA MAC: %s\n", WiFi.macAddress().c_str());
+#endif
     // 1. Quy trình khởi tạo Fail-Safe: Khởi tạo GPIO cho các Relay ở mức HIGH (OFF) ngay lập tức
     actuators::init_actuators_gpio();
 

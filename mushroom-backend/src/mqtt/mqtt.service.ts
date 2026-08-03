@@ -41,6 +41,7 @@ import type { TuningConfigSnapshot } from '../tuning/entities/device-tuning-conf
 
 const CANONICAL_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const OPERATOR_OWNER_LOCK_KEY = 'mushroom:devices:operator-owner-allocation';
 
 export interface DeviceStatusEvent {
   deviceId: string;
@@ -386,16 +387,41 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           );
           return;
         }
-        device = this.deviceRepo.create({
-          deviceId,
-          houseId,
-          enabled: true,
-          mqttUsername: deviceId,
-          token: randomUUID(),
-          displayName: null,
-          lastSeenAt: null,
+        device = await this.deviceRepo.manager.transaction(async (manager) => {
+          // Serialize allocation across backend replicas so concurrent claims
+          // cannot receive the same operator-NNN owner ID.
+          await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+            OPERATOR_OWNER_LOCK_KEY,
+          ]);
+
+          // The first lookup may race with another claim for the same device.
+          const existing = await manager.findOne(Device, {
+            where: { deviceId },
+          });
+          if (existing) return existing;
+
+          const rows = await manager.query(
+            `SELECT COALESCE(MAX((substring(owner_user_id FROM '^operator-([0-9]+)$'))::integer), 0) AS max_operator_number
+             FROM devices
+             WHERE owner_user_id ~ '^operator-[0-9]+$'`,
+          );
+          const maxOperatorNumber = Number(rows[0]?.max_operator_number ?? 0);
+          const ownerUserId = `operator-${String(maxOperatorNumber + 1).padStart(3, '0')}`;
+
+          return manager.save(
+            Device,
+            manager.create(Device, {
+              deviceId,
+              houseId,
+              ownerUserId,
+              enabled: true,
+              mqttUsername: deviceId,
+              token: randomUUID(),
+              displayName: null,
+              lastSeenAt: null,
+            }),
+          );
         });
-        device = await this.deviceRepo.save(device);
         this.registry.upsertCache({
           deviceId: device.deviceId,
           houseId: device.houseId,
