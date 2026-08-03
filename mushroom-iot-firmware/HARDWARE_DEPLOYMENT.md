@@ -8,6 +8,21 @@ During bootloader execution, brown-in, watchdog reset, and power loss, ESP32 GPI
 
 The pull-down is mandatory hardware protection; firmware setting GPIO LOW after boot is not a substitute.
 
+## Shared I2C sensor and seven-segment display bus
+
+The SHT30 and the two-block seven-segment display share the firmware I2C bus:
+
+| Device | I2C address | ESP32-S3 pins |
+| --- | --- | --- |
+| SHT30 temperature/humidity sensor | `0x44` | SDA GPIO8, SCL GPIO9 |
+| Seven-segment display | `0x51` | SDA GPIO8, SCL GPIO9 |
+
+Connect both devices to the same 3.3 V and GND rails and ensure the bus has
+only the required pull-ups. The addresses must remain distinct. The firmware
+owns I2C initialization and recovery through the SHT30 sensor module; the
+display must not initialize a second I2C bus. The display shows humidity first
+and temperature second, each as a two-digit integer.
+
 ## Edge control safety
 
 - Core 1 owns SSR state through fuzzy control, output arbitration, hardware protection, and direct ON/OFF dispatch.

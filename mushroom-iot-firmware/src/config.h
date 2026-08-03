@@ -132,6 +132,11 @@ namespace config
 
     namespace hardware
     {
+        // I2C 7-segment display shares the SHT30 bus on GPIO8/GPIO9.
+        constexpr uint8_t I2C_DISPLAY_ADDR = 0x51;
+        // 0 = left-padding; 1 = reverse logical digits for installed wiring.
+        constexpr uint8_t I2C_DISPLAY_MODE = 1;
+
         // Nút bấm tủ điện vật lý (active-LOW, INPUT_PULLUP).
         // Cần thêm trở kéo ngoài 4.7kΩ + tụ lọc 100nF + trở debounce 10kΩ ở môi trường production.
         // Tất cả 3 chân theo cùng pattern: GPIO4 = chuẩn tham chiếu, 15 và 16 đồng bộ theo.

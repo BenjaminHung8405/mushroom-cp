@@ -7,6 +7,7 @@
 #include "core/system_manager.h"
 #include "core/models.h"
 #include "core/sensors.h"
+#include "core/seven_segment_display.h"
 #include "core/actuator_controller.h"
 #include "core/serial_mutex.h"
 #include "core/math_engine.h"
@@ -2395,6 +2396,38 @@ int main() {
     assert(!std::isnan(telemetry_mock.temp_air));
     assert(!std::isnan(telemetry_mock.humidity_air));
     assert(std::isnan(telemetry_mock.co2_level));
+
+    // 16.6 Seven-segment display formatting: val1=humidity, val2=temperature.
+    Serial.println("[TEST] Starting seven-segment display formatter tests...");
+    {
+        uint8_t display_payload[seven_segment_display::PAYLOAD_SIZE] = {};
+
+        // Mode 1 is the deployed controller byte order: humidity 83, temp 27.
+        seven_segment_display::buildPayload(83.9f, 27.8f, 1U, display_payload);
+        const uint8_t expected_two_digits[] = {7U, 2U, 3U, 8U, 0xFFU, 0xFFU, 0xFFU};
+        assert(std::memcmp(display_payload, expected_two_digits, sizeof(expected_two_digits)) == 0);
+
+        // Single digits retain blank tens positions and remain in val1/val2 order.
+        seven_segment_display::buildPayload(7.9f, 5.4f, 1U, display_payload);
+        const uint8_t expected_single_digits[] = {5U, 0xFFU, 7U, 0xFFU, 0xFFU, 0xFFU, 0xFFU};
+        assert(std::memcmp(display_payload, expected_single_digits, sizeof(expected_single_digits)) == 0);
+
+        // Values truncate toward zero and clamp to the physical 00..99 range.
+        seven_segment_display::buildPayload(100.0f, -1.7f, 1U, display_payload);
+        const uint8_t expected_clamped[] = {0U, 0xFFU, 9U, 9U, 0xFFU, 0xFFU, 0xFFU};
+        assert(std::memcmp(display_payload, expected_clamped, sizeof(expected_clamped)) == 0);
+
+        // Mode 0 keeps the exact same logical humidity/temperature order.
+        seven_segment_display::buildPayload(83.9f, 27.8f, 0U, display_payload);
+        const uint8_t expected_mode_zero[] = {0xFFU, 0xFFU, 0xFFU, 8U, 3U, 2U, 7U};
+        assert(std::memcmp(display_payload, expected_mode_zero, sizeof(expected_mode_zero)) == 0);
+
+        // A raw invalid channel blanks the entire display rather than showing holdover.
+        seven_segment_display::buildPayload(NAN, 27.0f, 1U, display_payload);
+        for (uint8_t digit : display_payload) {
+            assert(digit == seven_segment_display::BLANK_DIGIT);
+        }
+    }
 
     // 17. Test Task G1 - Actuators Mock & Fail-Safe init
     Serial.println("[TEST] Starting Task G1 - Actuators GPIO Initialization Unit Tests...");

@@ -1,5 +1,6 @@
 #include "core/system_manager.h"
 #include "core/sensors.h"
+#include "core/seven_segment_display.h"
 #include "core/actuator_controller.h"
 #include "config.h"
 #include "core/models.h"
@@ -853,6 +854,9 @@ static void runControlPipelineStep(
             relayState.lamp_active,
             relayState.hwat_active);
         lastSensorReadOk = sensors::read_all_telemetry(telemetry);
+        // The display consumes the raw SHT30 result once per sample. It never
+        // uses control holdover, so an invalid sample blanks all four digits.
+        seven_segment_display::update(telemetry.humidity_air, telemetry.temp_air);
         newSensorRead = true;
     }
 
