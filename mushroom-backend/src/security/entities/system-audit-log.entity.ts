@@ -18,13 +18,13 @@ export class SystemAuditLog {
   @Column({ type: 'varchar', length: 128 })
   actor!: string;
 
-  @Column({ type: 'varchar', length: 128, nullable: true })
+  @Column({ name: 'request_id', type: 'varchar', length: 128, nullable: true })
   requestId!: string | null;
 
-  @Column({ type: 'integer' })
+  @Column({ name: 'status_code', type: 'integer' })
   statusCode!: number;
 
-  @Column({ type: 'integer' })
+  @Column({ name: 'duration_ms', type: 'integer' })
   durationMs!: number;
 
   @Column({ type: 'varchar', length: 32 })
@@ -33,7 +33,7 @@ export class SystemAuditLog {
   @Column({ type: 'jsonb', nullable: true })
   payload!: Record<string, unknown> | null;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Column({ name: 'payload_hash', type: 'varchar', length: 64, nullable: true })
   payloadHash!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

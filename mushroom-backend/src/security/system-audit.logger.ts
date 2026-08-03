@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { from, Observable } from 'rxjs';
+import { from, Observable, of } from 'rxjs';
 import { catchError, map, mergeMap } from 'rxjs/operators';
 import { Repository } from 'typeorm';
 import { SystemAuditLog } from './entities/system-audit-log.entity';
@@ -73,7 +73,10 @@ export class SystemAuditLogger implements NestInterceptor {
       }),
     ).pipe(catchError((error: unknown) => {
       this.logger.error(`Failed to persist system audit record: ${error instanceof Error ? error.message : String(error)}`);
-      return from([]);
+      // Auditing is best effort: do not complete without an emission because
+      // Nest turns that into EmptyError ("no elements in sequence") and loses
+      // an otherwise successful control-plane response.
+      return of(null);
     }));
 
     return next.handle().pipe(
