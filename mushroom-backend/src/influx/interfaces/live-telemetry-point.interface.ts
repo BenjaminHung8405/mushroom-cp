@@ -11,4 +11,7 @@ export interface LiveTelemetryPoint {
   mistState: boolean | null;
   lampState: boolean | null;
   fanState: boolean | null;
+  telemetryIntervalSec: number | null;
+  publishReason: string | null;
+  provenance: 'live_mqtt' | 'offline_sync';
 }

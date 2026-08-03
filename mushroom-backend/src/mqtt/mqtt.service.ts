@@ -79,6 +79,9 @@ export interface TelemetryEvent {
   } | null;
   actuators: EdgeActuatorState | null;
   operatingMode?: 'AI' | 'MANUAL';
+  telemetryIntervalSec?: number | null;
+  publishReason?: 'interval' | 'actuator_change' | 'manual_test' | 'reconnect' | null;
+  provenance?: 'live_mqtt';
   receivedAt: Date;
   timestamp: string;
 }
@@ -580,6 +583,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         : null,
       actuators: this.parseActuators(data.actuator_states),
       operatingMode: data.operating_mode === 'MANUAL' ? 'MANUAL' : 'AI',
+      telemetryIntervalSec: this.telemetryInterval(data.telemetry_interval_sec),
+      publishReason: this.publishReason(data.publish_reason),
+      provenance: 'live_mqtt',
       receivedAt,
       timestamp: receivedAt.toISOString(),
     };
@@ -595,6 +601,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       event.control?.configRevision ?? null,
     );
     void this.registry.touchLastSeen(deviceId, receivedAt);
+  }
+
+  private telemetryInterval(value: unknown): number | null {
+    return typeof value === 'number' && Number.isInteger(value) && [30, 60, 300].includes(value) ? value : null;
+  }
+
+  private publishReason(value: unknown): TelemetryEvent['publishReason'] {
+    return value === 'interval' || value === 'actuator_change' || value === 'manual_test' || value === 'reconnect' ? value : null;
   }
 
   private handleProvisioning(

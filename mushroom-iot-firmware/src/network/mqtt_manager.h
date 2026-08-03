@@ -91,7 +91,8 @@ public:
     bool publishTelemetrySnapshot(const TelemetryData& telemetry, unsigned long now_ms);
 
     /** Publish a full telemetry snapshot immediately after a local state transition. */
-    bool publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms);
+    bool publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms,
+                                     const char* publish_reason = "actuator_change");
 
     /** Command acknowledgement QoS 1 (non-retained). */
     bool publishCommandAck(char* command_id, const char* status,
@@ -193,7 +194,8 @@ private:
     String resolveBootstrapMac() const;
 
     // Telemetry builder
-    void buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry);
+    void buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry,
+                               const char* publish_reason = "interval");
     void buildActuatorStates(JsonObject act_root) const;
 
     // Command dispatcher

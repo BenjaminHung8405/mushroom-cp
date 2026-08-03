@@ -6,11 +6,11 @@ import {
 } from '@nestjs/common';
 import {
   InfluxDB,
-  Point,
   QueryApi,
   WriteApi,
 } from '@influxdata/influxdb-client';
 import type { OfflineSyncBurst } from '../mqtt/offline-sync';
+import { OfflineCanonicalNormalizerService } from '../influx/services/offline-canonical-normalizer.service';
 
 @Injectable()
 export class OfflineSyncService implements OnModuleDestroy {
@@ -22,7 +22,7 @@ export class OfflineSyncService implements OnModuleDestroy {
   private readonly writeApi: WriteApi | null;
   private readonly queryApi: QueryApi | null;
 
-  constructor() {
+  constructor(private readonly normalizer: OfflineCanonicalNormalizerService = new OfflineCanonicalNormalizerService()) {
     if (
       !this.influxUrl ||
       !this.influxToken ||
@@ -59,13 +59,7 @@ export class OfflineSyncService implements OnModuleDestroy {
         'InfluxDB offline-sync writer is unavailable',
       );
 
-    for (const record of burst.records) {
-      const timestamp = new Date(
-        receivedAt.getTime() -
-          (burst.sessionLastDeltaS - record.deltaTimeS) * 1000,
-      );
-      this.writeRecord(deviceId, record, timestamp);
-    }
+    this.normalizer.writeBurst(this.writeApi, deviceId, burst, receivedAt);
     await this.writeApi.flush();
     this.logger.log(
       `Influx offline burst persisted device=${deviceId} boot=${burst.bootCount} chunk=${burst.chunkIndex} records=${burst.records.length}`,
@@ -118,34 +112,6 @@ export class OfflineSyncService implements OnModuleDestroy {
     }
   }
 
-  private writeRecord(
-    deviceId: string,
-    record: OfflineSyncBurst['records'][number],
-    timestamp: Date,
-  ): void {
-    const base = (measurement: string) =>
-      new Point(measurement)
-        .tag('device_id', deviceId)
-        .tag('data_quality', 'trusted')
-        .tag('boot_count', String(record.bootCount))
-        .timestamp(timestamp);
-
-    this.writeApi?.writePoint(
-      base('environment_telemetry')
-        .floatField('temperature_c', record.temp)
-        .floatField('humidity_percent', record.humid),
-    );
-    this.writeApi?.writePoint(
-      base('actuator_events')
-        .booleanField('mist_state', record.mistState)
-        .booleanField('lamp_state', record.lampState),
-    );
-    this.writeApi?.writePoint(
-      base('system_status')
-        .uintField('boot_count', record.bootCount)
-        .uintField('delta_time_s', record.deltaTimeS),
-    );
-  }
 }
 
 export interface OfflineHistoryPoint {

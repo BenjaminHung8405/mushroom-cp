@@ -741,12 +741,15 @@ void MqttManager::buildActuatorStates(JsonObject act_root) const
     act_root["relay_4"] = "UNKNOWN";
 }
 
-void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry)
+void MqttManager::buildTelemetryPayload(JsonObject root, const TelemetryData& telemetry,
+                                        const char* publish_reason)
 {
     root["$schema"] = "https://iot.acme.com/schema/v1/telemetry";
     root["device_id"] = device_id_;
     root["sequence_number"] = ++sequence_number_;
     root["uptime_sec"] = millis() / 1000UL;
+    root["telemetry_interval_sec"] = telemetry_interval_sec_;
+    root["publish_reason"] = publish_reason;
     root["operating_mode"] = getOperatingModeSnapshot() == config::OperatingMode::AI ? "AI" : "MANUAL";
     JsonObject readings = root.createNestedObject("readings");
     if (std::isnan(telemetry.temp_air)) readings["temperature_celsius"] = nullptr;
@@ -1389,17 +1392,18 @@ bool MqttManager::publishTelemetrySnapshot(const TelemetryData& telemetry, unsig
     if (last_telemetry_due_ != 0 && now_ms - last_telemetry_due_ < interval_ms) {
         return false;
     }
-    return publishTelemetrySnapshotNow(telemetry, now_ms);
+    return publishTelemetrySnapshotNow(telemetry, now_ms, "interval");
 }
 
-bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms)
+bool MqttManager::publishTelemetrySnapshotNow(const TelemetryData& telemetry, unsigned long now_ms,
+                                               const char* publish_reason)
 {
     if (!provisioned_ || !client_.connected()) {
         return false;
     }
 
     StaticJsonDocument<768> doc;
-    buildTelemetryPayload(doc.to<JsonObject>(), telemetry);
+    buildTelemetryPayload(doc.to<JsonObject>(), telemetry, publish_reason);
     String payload;
     serializeJson(doc, payload);
     if (!publishTelemetry(payload)) {

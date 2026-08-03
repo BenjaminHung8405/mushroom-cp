@@ -38,6 +38,11 @@ const WARNING_CONTENT: Record<TuningRecommendationBlockReason, WarningContent> =
       'Hệ thống không tự chọn giữa các thay đổi trái chiều; cần người vận hành xem xét thêm.',
     Icon: AlertTriangle,
   },
+  MIXED_INTERVAL: {
+    title: 'Chu kỳ telemetry không đồng nhất',
+    description: 'Dữ liệu đang dùng nhiều chu kỳ publish nên chưa thể tạo khuyến nghị production an toàn.',
+    Icon: AlertTriangle,
+  },
 }
 
 const BACKEND_ENGLISH_DETAILS = new Set([

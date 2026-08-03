@@ -289,7 +289,7 @@ void taskCore0Communication(void* /*pvParameters*/)
         unsigned long now = millis();
         if (consumeSharedForceFullPublish())
         {
-            mqtt::MqttManager::getInstance().publishTelemetrySnapshotNow(last_known_telemetry, now);
+            mqtt::MqttManager::getInstance().publishTelemetrySnapshotNow(last_known_telemetry, now, "actuator_change");
         }
         handleTelemetryScan(now, last_known_telemetry, telemetryState);
 

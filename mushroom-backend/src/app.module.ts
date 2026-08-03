@@ -13,10 +13,12 @@ import { InfluxModule } from './influx/influx.module';
 import { AppConfigModule } from './config/config.module';
 import { TuningModule } from './tuning/tuning.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     AppConfigModule,
+    ScheduleModule.forRoot(),
     DatabaseModule,
     MqttModule, // MQTT connection + LWT event streaming
     DeviceModule, // /devices/* REST + SSE endpoints

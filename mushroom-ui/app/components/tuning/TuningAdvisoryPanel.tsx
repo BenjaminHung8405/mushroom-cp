@@ -1,6 +1,6 @@
 'use client'
 
-import { CheckCircle2, LoaderCircle, SlidersHorizontal } from 'lucide-react'
+import { CheckCircle2, Clock3, Database, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,7 @@ interface TuningAdvisoryPanelProps {
   deviceId: string | null | undefined
 }
 
-export function TuningPanelHeader({ pendingCommand }: { pendingCommand: PendingCommand | null }) {
+export function TuningPanelHeader({ pendingCommand, observationDate, source, status }: { pendingCommand: PendingCommand | null; observationDate?: string; source?: string; status?: string }) {
   return (
     <div className="mb-4 flex items-start justify-between gap-4">
       <div className="flex gap-3">
@@ -36,6 +36,13 @@ export function TuningPanelHeader({ pendingCommand }: { pendingCommand: PendingC
         <div>
           <h3 className="text-base font-semibold text-foreground">Khuyến nghị tinh chỉnh</h3>
           <p className="mt-1 text-xs text-muted-foreground">Chỉ hiện lệnh áp dụng sau khi hệ thống có đủ dữ liệu tin cậy.</p>
+          {observationDate && (
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-1"><Clock3 className="size-3" aria-hidden="true" /> Ngày quan sát: {observationDate}</span>
+              {source && <span className="inline-flex items-center gap-1"><Database className="size-3" aria-hidden="true" /> {source === 'DAILY_SNAPSHOT' ? 'Snapshot hằng ngày' : 'Chẩn đoán'}</span>}
+              {status === 'APPLIED' && <span className="font-medium text-emerald-300">Đã áp dụng</span>}
+            </p>
+          )}
         </div>
       </div>
       {pendingCommand && (
@@ -152,8 +159,9 @@ export function useTuningAdvisoryPanelState(deviceId: string | null | undefined)
   const safeData = setup.data && deviceId && setup.data.deviceId === deviceId ? setup.data : null
   const advisory = safeData?.advisory ?? null
   const currentConfig = safeData?.currentConfig ?? null
+  const isApplied = safeData?.status === 'APPLIED'
   const isBlocked =
-    !deviceId || !safeData || isTuningRecommendationBlocked(safeData.blockReason) || advisory === null
+    !deviceId || !safeData || isApplied || isTuningRecommendationBlocked(safeData.blockReason) || advisory === null
 
   const isCommandPending =
     setup.cmd.pendingCommand?.state === 'PENDING' || setup.cmd.pendingCommand?.state === 'TIMEOUT'
@@ -180,6 +188,7 @@ export function useTuningAdvisoryPanelState(deviceId: string | null | undefined)
     advisory,
     currentConfig,
     isBlocked,
+    isApplied,
     pendingCommand: setup.cmd.pendingCommand,
     isSubmitting: setup.cmd.isSubmitting,
     submissionError: setup.cmd.submissionError,
@@ -210,7 +219,7 @@ export function TuningPanelBody({
           detail={panel.data.blockReasonDetail}
         />
       )}
-      {panel.isBlocked && panel.data?.generatedAt && (
+      {panel.data?.generatedAt && (
         <p className="mt-2 text-[11px] text-slate-500">Đánh giá gần nhất: {new Date(panel.data.generatedAt).toLocaleString('vi-VN')}</p>
       )}
       {panel.advisory && (
@@ -239,7 +248,7 @@ export function TuningAdvisoryPanel({ deviceId }: TuningAdvisoryPanelProps) {
 
   return (
     <Card className="border border-slate-800 bg-slate-950/50 p-4 md:p-5">
-      <TuningPanelHeader pendingCommand={panel.pendingCommand} />
+      <TuningPanelHeader pendingCommand={panel.pendingCommand} observationDate={panel.data?.observationDate} source={panel.data?.source} status={panel.data?.status} />
       <TuningPanelBody panel={panel} />
       <TuningPanelActions
         confirmDisabled={panel.confirmDisabled}

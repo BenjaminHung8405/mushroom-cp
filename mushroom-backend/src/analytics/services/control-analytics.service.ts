@@ -15,13 +15,14 @@ const MAX_WINDOW_HOURS = 168;
 const MIN_COVERAGE_PERCENT = 80;
 const MIN_TRUSTED_SAMPLES = 100;
 const DEVICE_ONLINE_WINDOW_MS = 5 * 60 * 1_000;
-const SAMPLES_PER_HOUR = 720;
+const MAX_SAMPLES_PER_HOUR = 120;
 const MAX_SAFE_METRIC = Number.MAX_SAFE_INTEGER;
 
 export type CoverageGateFailureReason =
   | 'COVERAGE_BELOW_80_PERCENT'
   | 'INSUFFICIENT_TRUSTED_SAMPLES'
   | 'CONFIG_REVISION_UNAVAILABLE'
+  | 'MIXED_INTERVAL'
   | 'INVALID_KPI_DATA';
 
 export type CoverageGateResult =
@@ -89,6 +90,8 @@ export class ControlAnalyticsService {
     if (kpi.dataCoveragePercent < MIN_COVERAGE_PERCENT) {
       return { allowed: false, reason: 'COVERAGE_BELOW_80_PERCENT' };
     }
+
+    if (kpi.mixedInterval) return { allowed: false, reason: 'MIXED_INTERVAL' };
 
     if (kpi.dataQualityWarning && kpi.sampleCount < MIN_TRUSTED_SAMPLES) {
       return { allowed: false, reason: 'INSUFFICIENT_TRUSTED_SAMPLES' };
@@ -162,6 +165,24 @@ export class ControlAnalyticsService {
     if (rows === null) return null;
     return aggregateKpiRows(deviceId, rows, windowStart, now, windowHours);
   }
+
+  /** Reads an explicitly bounded production observation window. */
+  async getKpiForDeviceInWindow(
+    deviceId: string,
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<KpiMetrics | null> {
+    const hours = (windowEnd.getTime() - windowStart.getTime()) / 3_600_000;
+    validateKpiQuery(deviceId, hours, windowEnd);
+    if (!this.analyticsAvailability.getState().available) {
+      throw new ServiceUnavailableException('InfluxDB analytics is temporarily unavailable');
+    }
+    const queryApi = this.influxDbService.getQueryApi();
+    const analyticsBucket = this.configService.get('INFLUXDB_ANALYTICS_BUCKET')?.trim();
+    if (!queryApi || !analyticsBucket) throw new ServiceUnavailableException('InfluxDB analytics query is unavailable');
+    const rows = await queryKpiRows(queryApi, buildKpiQuery(deviceId, analyticsBucket, windowStart, windowEnd));
+    return rows === null ? null : aggregateKpiRows(deviceId, rows, windowStart, windowEnd, hours);
+  }
 }
 
 async function queryKpiRows(
@@ -220,7 +241,7 @@ function validateKpiWindowTotals(
   total: KpiTotal,
   windowHours: number,
 ): boolean {
-  const expectedWindowSamples = windowHours * SAMPLES_PER_HOUR;
+  const expectedWindowSamples = windowHours * MAX_SAMPLES_PER_HOUR;
   const maxWindowDurationSec = windowHours * SECONDS_PER_HOUR;
   return (
     total.sampleCount > 0 &&
@@ -254,7 +275,7 @@ function buildKpiMetrics(
   total: KpiTotal,
   configRevision: number | null,
 ): KpiMetrics {
-  const expectedWindowSamples = windowHours * SAMPLES_PER_HOUR;
+  const expectedWindowSamples = windowHours * MAX_SAMPLES_PER_HOUR;
   return {
     deviceId,
     windowStart,
@@ -345,11 +366,11 @@ function validateHourlyKpiValues(values: HourlyNumericValues): boolean {
     !Number.isInteger(lampSessionCount) ||
     !Number.isInteger(expectedSamples) ||
     !Number.isInteger(validSamples) ||
-    sampleCount > SAMPLES_PER_HOUR ||
+    sampleCount > MAX_SAMPLES_PER_HOUR ||
     sampleCount > validSamples ||
     sampleCount > expectedSamples ||
     expectedSamples < 1 ||
-    expectedSamples > SAMPLES_PER_HOUR ||
+    expectedSamples > MAX_SAMPLES_PER_HOUR ||
     validSamples > expectedSamples ||
     mistSwitchCount > sampleCount ||
     lampSessionCount > sampleCount ||

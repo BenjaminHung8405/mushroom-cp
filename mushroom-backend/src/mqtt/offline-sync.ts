@@ -1,6 +1,9 @@
 export const OFFLINE_BURST_MAGIC = 0x4d535442;
-export const OFFLINE_BURST_VERSION = 1;
-export const OFFLINE_BURST_HEADER_BYTES = 24;
+export const OFFLINE_BURST_VERSION = 2;
+export const OFFLINE_BURST_HEADER_BYTES_V1 = 24;
+export const OFFLINE_BURST_HEADER_BYTES_V2 = 32;
+/** Legacy test/consumer alias. New v2 encoders must use the explicit v2 constant. */
+export const OFFLINE_BURST_HEADER_BYTES = OFFLINE_BURST_HEADER_BYTES_V1;
 export const OFFLINE_TELEMETRY_BYTES = 18;
 export const OFFLINE_MAX_RECORDS_PER_BURST = 96;
 
@@ -11,6 +14,10 @@ export interface OfflineTelemetryRecord {
   humid: number;
   mistState: boolean;
   lampState: boolean;
+  tempTarget?: number | null;
+  humidTarget?: number | null;
+  configRevision?: number | null;
+  publishIntervalSec?: number | null;
 }
 
 export interface OfflineSyncBurst {
@@ -18,6 +25,8 @@ export interface OfflineSyncBurst {
   chunkIndex: number;
   sessionLastDeltaS: number;
   chunkCrc32: number;
+  sessionEndEpochMs?: number;
+  schemaVersion?: number;
   records: OfflineTelemetryRecord[];
 }
 
@@ -33,21 +42,22 @@ export function crc32(bytes: Buffer): number {
 }
 
 export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
-  if (payload.length < OFFLINE_BURST_HEADER_BYTES)
+  if (payload.length < OFFLINE_BURST_HEADER_BYTES_V1)
     throw new Error('payload too short');
   if (payload.readUInt32LE(0) !== OFFLINE_BURST_MAGIC)
     throw new Error('invalid magic');
+  const schemaVersion = payload.readUInt8(4);
   if (
-    payload.readUInt8(4) !== OFFLINE_BURST_VERSION ||
-    payload.readUInt8(5) !== OFFLINE_BURST_HEADER_BYTES
+    (schemaVersion !== 1 && schemaVersion !== OFFLINE_BURST_VERSION) ||
+    payload.readUInt8(5) !== (schemaVersion === 2 ? OFFLINE_BURST_HEADER_BYTES_V2 : OFFLINE_BURST_HEADER_BYTES_V1)
   ) {
     throw new Error('unsupported schema');
   }
   const recordCount = payload.readUInt16LE(6);
   if (recordCount === 0 || recordCount > OFFLINE_MAX_RECORDS_PER_BURST)
     throw new Error('invalid record count');
-  const expectedLength =
-    OFFLINE_BURST_HEADER_BYTES + recordCount * OFFLINE_TELEMETRY_BYTES;
+  const headerBytes = schemaVersion === 2 ? OFFLINE_BURST_HEADER_BYTES_V2 : OFFLINE_BURST_HEADER_BYTES_V1;
+  const expectedLength = headerBytes + recordCount * OFFLINE_TELEMETRY_BYTES;
   if (payload.length !== expectedLength)
     throw new Error('invalid payload length');
 
@@ -55,13 +65,13 @@ export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
   const chunkIndex = payload.readUInt32LE(12);
   const sessionLastDeltaS = payload.readUInt32LE(16);
   const chunkCrc32 = payload.readUInt32LE(20);
-  const body = payload.subarray(OFFLINE_BURST_HEADER_BYTES);
+  const body = payload.subarray(headerBytes);
   if (crc32(body) !== chunkCrc32) throw new Error('invalid chunk crc');
 
   const records: OfflineTelemetryRecord[] = [];
   let previousDelta = -1;
   for (let i = 0; i < recordCount; i += 1) {
-    const offset = OFFLINE_BURST_HEADER_BYTES + i * OFFLINE_TELEMETRY_BYTES;
+    const offset = headerBytes + i * OFFLINE_TELEMETRY_BYTES;
     const recordBootCount = payload.readUInt32LE(offset);
     const deltaTimeS = payload.readUInt32LE(offset + 4);
     const temp = payload.readFloatLE(offset + 8);
@@ -89,5 +99,6 @@ export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
       lampState: lampState === 1,
     });
   }
-  return { bootCount, chunkIndex, sessionLastDeltaS, chunkCrc32, records };
+  const sessionEndEpochMs = schemaVersion === 2 ? Number(payload.readBigUInt64LE(24)) : undefined;
+  return { bootCount, chunkIndex, sessionLastDeltaS, chunkCrc32, records, schemaVersion, sessionEndEpochMs };
 }

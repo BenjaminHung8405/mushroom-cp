@@ -3,6 +3,7 @@ export type TuningBlockReason =
   | 'DEVICE_OFFLINE'
   | 'NO_SUGGESTION'
   | 'CONFLICT'
+  | 'MIXED_INTERVAL'
 
 export type AdvisoryConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 
@@ -51,6 +52,11 @@ export interface TuningRecommendationResponseDto {
   blockReason: TuningBlockReason | null
   blockReasonDetail: string | null
   generatedAt: string
+  observationDate?: string
+  source?: 'DAILY_SNAPSHOT' | 'DIAGNOSTIC'
+  windowHours?: number
+  timezone?: 'Asia/Ho_Chi_Minh'
+  status?: 'PENDING' | 'APPLIED' | 'INSUFFICIENT_DATA'
 }
 
 
@@ -276,7 +282,7 @@ export function parseTuningRecommendationResponse(
 
   if (value.blockReason !== null && advisory !== null) return null
 
-  return {
+  const parsed: TuningRecommendationResponseDto = {
     deviceId: value.deviceId,
     kpi,
     currentConfig,
@@ -285,6 +291,12 @@ export function parseTuningRecommendationResponse(
     blockReasonDetail: value.blockReasonDetail,
     generatedAt: value.generatedAt,
   }
+  if (typeof value.observationDate === 'string') parsed.observationDate = value.observationDate
+  if (value.source === 'DAILY_SNAPSHOT' || value.source === 'DIAGNOSTIC') parsed.source = value.source
+  if (typeof value.windowHours === 'number') parsed.windowHours = value.windowHours
+  if (value.timezone === 'Asia/Ho_Chi_Minh') parsed.timezone = value.timezone
+  if (value.status === 'PENDING' || value.status === 'APPLIED' || value.status === 'INSUFFICIENT_DATA') parsed.status = value.status
+  return parsed
 }
 
 function isBlockReason(value: unknown): value is TuningBlockReason | null {
@@ -293,7 +305,8 @@ function isBlockReason(value: unknown): value is TuningBlockReason | null {
     value === 'INSUFFICIENT_DATA' ||
     value === 'DEVICE_OFFLINE' ||
     value === 'NO_SUGGESTION' ||
-    value === 'CONFLICT'
+    value === 'CONFLICT' ||
+    value === 'MIXED_INTERVAL'
   )
 }
 

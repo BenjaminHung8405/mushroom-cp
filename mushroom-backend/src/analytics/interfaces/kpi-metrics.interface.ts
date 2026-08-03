@@ -20,6 +20,13 @@ export interface KpiMetrics {
   undershootDurationSec: number;
   dataCoveragePercent: number;
   sampleCount: number;
+  expectedSamples?: number;
+  validSamples?: number;
+  configuredIntervalSec?: number | null;
+  observedIntervalSec?: number | null;
+  forcedPublishCount?: number;
+  duplicateSlotCount?: number;
+  mixedInterval?: boolean;
   configRevision: number | null;
   dataQualityWarning: boolean;
 }

@@ -7,6 +7,7 @@ import { TuningConfigurationService } from './services/tuning-configuration.serv
 import { DeviceTuningConfiguration } from './entities/device-tuning-configuration.entity';
 import { TuningAuditLog } from './entities/tuning-audit-log.entity';
 import { TuningMqttOutbox } from './entities/tuning-mqtt-outbox.entity';
+import { TuningRecommendation } from './entities/tuning-recommendation.entity';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { MqttService } from '../mqtt/mqtt.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
@@ -23,6 +24,7 @@ describe('TuningModule', () => {
   let mockAuditRepo: unknown;
   let mockMqttService: unknown;
   let mockOutboxRepo: unknown;
+  let mockRecommendationRepo: unknown;
 
   beforeEach(() => {
     process.env.TUNING_SSE_TICKET_SECRET = 't'.repeat(32);
@@ -51,6 +53,7 @@ describe('TuningModule', () => {
       save: jest.fn(),
       create: jest.fn(),
     };
+    mockRecommendationRepo = { find: jest.fn(), findOne: jest.fn(), save: jest.fn(), create: jest.fn() };
   });
 
   it('should compile TuningModule and provide TuningConfigurationService', async () => {
@@ -141,6 +144,8 @@ describe('TuningModule', () => {
       .useValue(mockAuditRepo)
       .overrideProvider(getRepositoryToken(TuningMqttOutbox))
       .useValue(mockOutboxRepo)
+      .overrideProvider(getRepositoryToken(TuningRecommendation))
+      .useValue(mockRecommendationRepo)
       .compile();
 
     expect(moduleRef).toBeDefined();

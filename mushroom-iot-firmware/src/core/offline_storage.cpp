@@ -283,8 +283,13 @@ bool OfflineStorage::prepareNextBurst(uint8_t*& payload, size_t& length, uint32_
     while (same_session < records_loaded && records[same_session].boot_count == session_boot) ++same_session;
     records_loaded = same_session;
     const uint32_t body_crc = crc32(reinterpret_cast<const uint8_t*>(records), records_loaded * sizeof(OfflineTelemetryStruct));
+    const time_t epoch_seconds = time(nullptr);
+    const uint64_t session_end_epoch_ms = epoch_seconds > 0
+        ? static_cast<uint64_t>(epoch_seconds) * 1000ULL
+        : 0ULL;
     *header = {kBurstMagic, kBurstSchemaVersion, sizeof(OfflineBurstHeader), static_cast<uint16_t>(records_loaded),
-               session_boot, next_chunk_index_, records[records_loaded - 1].delta_time_s, body_crc};
+               session_boot, next_chunk_index_, records[records_loaded - 1].delta_time_s, body_crc,
+               session_end_epoch_ms};
     length = sizeof(OfflineBurstHeader) + records_loaded * sizeof(OfflineTelemetryStruct);
     payload = burst_buffer_;
     burst_in_flight_ = true;

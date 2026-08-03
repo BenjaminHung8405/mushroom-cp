@@ -137,6 +137,9 @@ export class ControlHistoryInfluxWriter
       mistState: raw.actuators?.mist_active ?? null,
       lampState: raw.actuators?.lamp_stage_active ?? null,
       fanState: raw.actuators?.fan_active ?? null,
+      telemetryIntervalSec: raw.telemetryIntervalSec ?? null,
+      publishReason: raw.publishReason ?? null,
+      provenance: raw.provenance ?? 'live_mqtt',
     };
   }
 
@@ -147,11 +150,13 @@ export class ControlHistoryInfluxWriter
 
     const influxPoint = new Point('controller_history')
       .tag('device_id', point.deviceId)
-      .tag('data_quality', point.dataQuality);
+      .tag('data_quality', point.dataQuality)
+      .tag('provenance', point.provenance);
 
     if (point.controlSource !== null) {
       influxPoint.tag('control_source', point.controlSource);
     }
+    if (point.publishReason !== null) influxPoint.tag('publish_reason', point.publishReason);
 
     // Set fields
     influxPoint.timestamp(point.timestamp);
@@ -171,6 +176,7 @@ export class ControlHistoryInfluxWriter
     if (point.configRevision !== null) {
       influxPoint.intField('config_revision', point.configRevision);
     }
+    if (point.telemetryIntervalSec !== null) influxPoint.intField('telemetry_interval_sec', point.telemetryIntervalSec);
 
     if (point.mistState !== null) {
       influxPoint.booleanField('mist_state', point.mistState);

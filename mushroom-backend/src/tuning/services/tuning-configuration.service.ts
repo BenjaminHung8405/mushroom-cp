@@ -9,6 +9,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   Inject,
+  Optional,
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -36,6 +37,7 @@ import {
   isTuningRejectionReasonCode,
 } from '../constants/tuning-contract.constants';
 import { TuningMqttOutboxDispatcher } from './tuning-mqtt-outbox-dispatcher.service';
+import { TuningRecommendationService } from './tuning-recommendation.service';
 
 const COMMAND_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -84,6 +86,7 @@ export class TuningConfigurationService
     @Inject(forwardRef(() => MqttService))
     private readonly mqttService: MqttService,
     private readonly outboxDispatcher: TuningMqttOutboxDispatcher,
+    @Optional() private readonly recommendationService?: TuningRecommendationService,
   ) {}
 
   onModuleInit(): void {
@@ -452,6 +455,12 @@ export class TuningConfigurationService
     result: AckTransactionResult,
   ): Promise<void> {
     if (result.event) this.tuningSync$.next(result.event);
+    if (result.event?.status === SyncStatus.IN_SYNC && this.recommendationService) {
+      await this.recommendationService.markAppliedForConfiguration(
+        result.event.deviceId,
+        result.event.id,
+      );
+    }
     if (result.updated && result.isLatest)
       await this.outboxDispatcher.dispatchDue();
   }

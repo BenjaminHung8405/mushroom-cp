@@ -26,12 +26,13 @@ struct __attribute__((packed)) OfflineBurstHeader {
     uint32_t chunk_index;
     uint32_t session_last_delta_s;
     uint32_t chunk_crc32;
+    uint64_t session_end_epoch_ms;
 };
-static_assert(sizeof(OfflineBurstHeader) == 24, "Offline burst header ABI must remain 24 bytes");
+static_assert(sizeof(OfflineBurstHeader) == 32, "Offline burst header ABI must remain 32 bytes");
 
 namespace offline_storage {
 constexpr uint32_t kBurstMagic = 0x4D535442U; // "BTSM" in little-endian byte order
-constexpr uint8_t kBurstSchemaVersion = 1;
+constexpr uint8_t kBurstSchemaVersion = 2;
 constexpr size_t kRingCapacity = 262144;
 constexpr size_t kMaxRecordsPerBurst = 96;
 constexpr size_t kMaxBurstBytes = sizeof(OfflineBurstHeader) + kMaxRecordsPerBurst * sizeof(OfflineTelemetryStruct);

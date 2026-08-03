@@ -14,6 +14,13 @@ import { TuningCommandController } from './controllers/tuning-command.controller
 import { TuningSseTicketService } from './services/tuning-sse-ticket.service';
 import { TuningSseTicketCleanupService } from './services/tuning-sse-ticket-cleanup.service';
 import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
+import { TuningRecommendation } from './entities/tuning-recommendation.entity';
+import { TuningRecommendationService } from './services/tuning-recommendation.service';
+import { TuningObservationClockService } from './services/tuning-observation-clock.service';
+import { TuningAdvisoryCronService } from './services/tuning-advisory-cron.service';
+import { Device } from '../device/entities/device.entity';
+import { TuningDiagnosticRecommendationController } from './controllers/tuning-diagnostic-recommendation.controller';
+import { JwtRolesGuard } from './guards/jwt-roles.guard';
 
 /**
  * TuningModule — Manages IIoT Direct-Relay Fuzzy Dynamic Tuning configurations and audit logs.
@@ -25,20 +32,28 @@ import { TuningSseTicketGuard } from './guards/tuning-sse-ticket.guard';
       DeviceTuningConfiguration,
       TuningAuditLog,
       TuningMqttOutbox,
+      TuningRecommendation,
     ]),
     forwardRef(() => MqttModule),
     AnalyticsModule,
     InfluxModule,
     DeviceModule,
   ],
-  controllers: [TuningRecommendationController, TuningCommandController],
+  controllers: [TuningRecommendationController, TuningDiagnosticRecommendationController, TuningCommandController],
   providers: [
-    TuningConfigurationService,
+    {
+      provide: TuningConfigurationService,
+      useClass: TuningConfigurationService,
+    },
     TuningMqttOutboxDispatcher,
     TuningSseTicketService,
     TuningSseTicketCleanupService,
     TuningSseTicketGuard,
+    TuningRecommendationService,
+    TuningObservationClockService,
+    TuningAdvisoryCronService,
+    JwtRolesGuard,
   ],
-  exports: [TuningConfigurationService, TypeOrmModule],
+  exports: [TuningConfigurationService, TuningRecommendationService, TypeOrmModule],
 })
 export class TuningModule {}
