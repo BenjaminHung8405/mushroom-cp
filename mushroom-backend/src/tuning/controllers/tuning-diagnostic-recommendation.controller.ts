@@ -2,12 +2,10 @@ import { BadRequestException, Controller, Get, Logger, Param, Query, UseGuards }
 import { ControlAnalyticsService } from '../../analytics/services/control-analytics.service';
 import { TuningRecommenderEngine } from '../../analytics/services/tuning-recommender-engine.service';
 import { TuningConfigurationService } from '../services/tuning-configuration.service';
-import { JwtRolesGuard } from '../guards/jwt-roles.guard';
 import { TuningObservationClockService, TUNING_TIMEZONE } from '../services/tuning-observation-clock.service';
 import type { TuningRecommendationResponseDto } from '../dtos/tuning-recommendation-response.dto';
 
 @Controller('devices')
-@UseGuards(JwtRolesGuard)
 export class TuningDiagnosticRecommendationController {
   private readonly logger = new Logger(TuningDiagnosticRecommendationController.name);
   constructor(private readonly analytics: ControlAnalyticsService, private readonly engine: TuningRecommenderEngine, private readonly configurations: TuningConfigurationService, private readonly clock: TuningObservationClockService) {}

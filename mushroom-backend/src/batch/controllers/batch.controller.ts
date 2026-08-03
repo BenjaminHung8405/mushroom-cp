@@ -21,6 +21,7 @@ import { UpdateLightScheduleDto } from '../dto/update-light-schedule.dto';
 import { LightScheduleBlock } from '../entities/light-schedule-block.entity';
 
 import { BatchIdParamsDto, HouseIdParamsDto } from '../dto/batch.params.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('batches')
 export class BatchController {
@@ -29,11 +30,13 @@ export class BatchController {
   constructor(private readonly batchService: BatchService) {}
 
   @Post()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async create(@Body() createBatchDto: CreateBatchDto): Promise<CropBatch> {
     return await this.batchService.createBatch(createBatchDto);
   }
 
   @Patch(':id/end')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async end(
     @Param() params: BatchIdParamsDto,
     @Body() updateBatchDto: UpdateBatchDto,
@@ -51,6 +54,7 @@ export class BatchController {
   }
 
   @Put(':id/checkpoints')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseGuards(CheckpointOwnerGuard)
   async updateCheckpoints(
     @Param() params: BatchIdParamsDto,
@@ -71,6 +75,7 @@ export class BatchController {
   }
 
   @Put(':id/light-schedule')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async updateLightSchedule(
     @Param() params: BatchIdParamsDto,
     @Body() dto: UpdateLightScheduleDto,

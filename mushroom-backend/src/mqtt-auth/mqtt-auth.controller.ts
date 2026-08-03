@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { MqttAuthService } from './mqtt-auth.service';
 import type { MqttAclRequest, MqttAuthRequest } from './mqtt-auth.service';
+import { Public } from '../security/public.decorator';
 
 @Controller('api/mqtt')
+@Public()
 export class MqttAuthController {
   constructor(private readonly mqttAuthService: MqttAuthService) {}
 

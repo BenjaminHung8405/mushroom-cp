@@ -1,12 +1,14 @@
+// @vitest-environment node
 import { NextRequest } from 'next/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { decodeJwt, decodeProtectedHeader } from 'jose'
 import {
   GET,
   PATCH,
   buildForwardHeaders,
   buildValidatedUpstreamUrl,
   forwardUpstreamResponse,
-  resolveBearerToken,
+  signSystemToken,
   validateAndSanitizePath,
   validateMutationOrigin,
 } from '@/app/api/backend/[...path]/route'
@@ -14,38 +16,33 @@ import {
 describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
-    delete process.env.BFF_JWT_TOKEN
+    process.env.SYSTEM_JWT_SECRET = 's'.repeat(32)
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    delete process.env.BFF_JWT_TOKEN
+    delete process.env.SYSTEM_JWT_SECRET
   })
 
-  describe('resolveBearerToken helper', () => {
-    it('extracts token from Authorization Bearer header', () => {
-      const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001', {
-        headers: { Authorization: 'Bearer token-header-123' },
+  describe('SystemTokenSigner', () => {
+    it('signs the fixed workload claims with an exact five-minute expiry', async () => {
+      const token = await signSystemToken(1_700_000_000)
+      expect(decodeProtectedHeader(token)).toEqual({ alg: 'HS256', typ: 'JWT' })
+      expect(decodeJwt(token)).toMatchObject({
+        sub: 'mushroom-ui-bff',
+        iss: 'mushroom-ui',
+        aud: 'mushroom-backend',
+        roles: ['SYSTEM'],
+        iat: 1_700_000_000,
+        exp: 1_700_000_300,
       })
-      expect(resolveBearerToken(req)).toBe('token-header-123')
     })
 
-    it('extracts token from cookies if Authorization header is missing', () => {
-      const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001', {
-        headers: { cookie: 'session_token=cookie-token-456' },
-      })
-      expect(resolveBearerToken(req)).toBe('cookie-token-456')
-    })
-
-    it('does NOT use BFF_JWT_TOKEN env fallback (returns null)', () => {
-      process.env.BFF_JWT_TOKEN = 'env-token-789'
-      const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001')
-      expect(resolveBearerToken(req)).toBeNull()
-    })
-
-    it('returns null if no token is available', () => {
-      const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001')
-      expect(resolveBearerToken(req)).toBeNull()
+    it('fails closed when the System JWT secret is absent or too short', async () => {
+      delete process.env.SYSTEM_JWT_SECRET
+      await expect(signSystemToken()).rejects.toThrow('SYSTEM_JWT_SECRET')
+      process.env.SYSTEM_JWT_SECRET = 'short'
+      await expect(signSystemToken()).rejects.toThrow('SYSTEM_JWT_SECRET')
     })
   })
 
@@ -100,21 +97,16 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
       expect('status' in badResult && badResult.status).toBe(400)
     })
 
-    it('buildForwardHeaders builds headers with Bearer token', () => {
+    it('buildForwardHeaders signs a System JWT instead of forwarding browser credentials', async () => {
       const req = new NextRequest('http://localhost:3000/api/backend/batches', {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       })
-      const headers = buildForwardHeaders(req, 'token-123')
-      expect(headers).toEqual({
-        Accept: 'application/json',
-        Authorization: 'Bearer token-123',
-        'Content-Type': 'application/json',
-      })
-    })
-
-    it('buildForwardHeaders omits Authorization when the client did not provide a token', () => {
-      const req = new NextRequest('http://localhost:3000/api/backend/devices')
-      expect(buildForwardHeaders(req, null)).toEqual({ Accept: 'application/json' })
+      const headers = await buildForwardHeaders(req)
+      const token = headers.Authorization.slice('Bearer '.length)
+      expect(headers.Accept).toBe('application/json')
+      expect(headers['Content-Type']).toBe('application/json')
+      expect(token).not.toBe('token-123')
+      expect(decodeJwt(token)).toMatchObject({ sub: 'mushroom-ui-bff', roles: ['SYSTEM'] })
     })
 
     it('accepts a mutation from the public forwarded origin behind a reverse proxy', () => {
@@ -151,7 +143,7 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
   })
 
   describe('Proxy Security & Route Coverage Cases', () => {
-    it('Case 0: Anonymous SSE request forwards without Authorization', async () => {
+    it('Case 0: Anonymous SSE request forwards with a System JWT', async () => {
       let forwardedAuthorization: string | null | undefined
       vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
         forwardedAuthorization = new Headers(init?.headers).get('Authorization')
@@ -166,15 +158,15 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
       const res = await GET(req, { params })
 
       expect(res.status).toBe(200)
-      expect(forwardedAuthorization).toBeNull()
+      expect(forwardedAuthorization).toMatch(/^Bearer /)
     })
 
-    it('Case 1: Anonymous request to a formerly guarded route forwards without Authorization', async () => {
+    it('Case 1: Anonymous request receives a System JWT', async () => {
       let forwardedAuthorization: string | null | undefined
       vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
         forwardedAuthorization = new Headers(init?.headers).get('Authorization')
-        return new Response(JSON.stringify({ message: 'Bearer JWT is required.' }), {
-          status: 401,
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
       })
@@ -183,11 +175,9 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
       const req = new NextRequest('http://localhost:3000/api/backend/devices/DEV_001/tuning-configurations')
       const res = await GET(req, { params })
 
-      expect(res.status).toBe(401)
+      expect(res.status).toBe(200)
       expect(fetch).toHaveBeenCalledOnce()
-      expect(forwardedAuthorization).toBeNull()
-      const data = await res.json()
-      expect(data.message).toBe('Bearer JWT is required.')
+      expect(forwardedAuthorization).toMatch(/^Bearer /)
     })
 
     it('Case 2: Authenticated batches request forwards request and token to /batches/active/house-1', async () => {
@@ -209,7 +199,8 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
       const res = await GET(req, { params })
 
       expect(requestedUrl).toBe('http://localhost:6002/batches/active/house-1')
-      expect(forwardedAuthorization).toBe('Bearer valid-jwt')
+      expect(forwardedAuthorization).toMatch(/^Bearer /)
+      expect(forwardedAuthorization).not.toBe('Bearer valid-jwt')
       expect(res.status).toBe(200)
     })
 
@@ -234,7 +225,7 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
       const res = await PATCH(req, { params })
 
       expect(requestedUrl).toBe('http://localhost:6002/batches/batch-1/end')
-      expect(forwardedAuthorization).toBeNull()
+      expect(forwardedAuthorization).toMatch(/^Bearer /)
       expect(res.status).toBe(204)
     })
 

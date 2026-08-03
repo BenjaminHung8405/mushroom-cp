@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { AnalyticsAvailabilityService } from './influx/services/analytics-availability.service';
+import { Public } from './security/public.decorator';
 
 @Controller()
 export class AppController {
@@ -15,6 +16,7 @@ export class AppController {
   }
 
   @Get('health')
+  @Public()
   getHealth(): object {
     const analytics = this.analyticsAvailability.getState();
     return {

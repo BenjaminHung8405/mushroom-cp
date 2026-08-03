@@ -27,6 +27,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { toZonedTime } from 'date-fns-tz';
+import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
@@ -306,6 +307,7 @@ export class DeviceController {
    * Manual production control is intentionally not exposed here.
    */
   @Post(':id/setpoint')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(202)
   async publishSetpoint(
     @Param() params: DeviceParamsDto,
@@ -341,6 +343,7 @@ export class DeviceController {
    * Subject to server-side bio-safety guardrail validation.
    */
   @Post(':id/operating-mode')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(202)
   async publishOperatingMode(
     @Param() params: DeviceParamsDto,
@@ -361,6 +364,7 @@ export class DeviceController {
   }
 
   @Post(':id/apply-crop-profile')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(202)
   async applyCropProfile(
     @Param() params: DeviceParamsDto,
@@ -407,6 +411,7 @@ export class DeviceController {
   }
 
   @Post(':id/actuator-override')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(202)
   async publishActuatorOverride(
     @Param() params: DeviceParamsDto,

@@ -20,7 +20,6 @@ import { TuningObservationClockService } from './services/tuning-observation-clo
 import { TuningAdvisoryCronService } from './services/tuning-advisory-cron.service';
 import { Device } from '../device/entities/device.entity';
 import { TuningDiagnosticRecommendationController } from './controllers/tuning-diagnostic-recommendation.controller';
-import { JwtRolesGuard } from './guards/jwt-roles.guard';
 
 /**
  * TuningModule — Manages IIoT Direct-Relay Fuzzy Dynamic Tuning configurations and audit logs.
@@ -52,7 +51,6 @@ import { JwtRolesGuard } from './guards/jwt-roles.guard';
     TuningRecommendationService,
     TuningObservationClockService,
     TuningAdvisoryCronService,
-    JwtRolesGuard,
   ],
   exports: [TuningConfigurationService, TuningRecommendationService, TypeOrmModule],
 })

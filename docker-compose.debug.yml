@@ -1,0 +1,4 @@
+services:
+  mushroom-backend:
+    ports:
+      - "127.0.0.1:6002:3001"

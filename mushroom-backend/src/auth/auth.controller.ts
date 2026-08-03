@@ -11,6 +11,8 @@ import {
 import { AuthService } from './auth.service';
 import type { AuthTokenResponse } from './auth.service';
 import { RequestTokenDto } from './dto/request-token.dto';
+import { Public } from '../security/public.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 /**
  * AuthController — device bootstrap endpoints.
@@ -25,6 +27,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('auth/token')
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(200)
   issueToken(@Body() body: RequestTokenDto): AuthTokenResponse {
     this.logger.log(
@@ -35,6 +39,7 @@ export class AuthController {
   }
 
   @Get('v1/auth/device-token')
+  @Public()
   @HttpCode(200)
   issueDeviceToken(
     @Headers('x-device-id') deviceId: string,

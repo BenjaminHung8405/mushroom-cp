@@ -19,6 +19,7 @@ import { filter, map, takeUntil } from 'rxjs/operators';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
 import { TuningSseTicketGuard } from '../guards/tuning-sse-ticket.guard';
+import { Throttle } from '@nestjs/throttler';
 import {
   MAX_TUNING_HISTORY_OFFSET,
   TuningConfigurationService,
@@ -32,6 +33,7 @@ export class TuningCommandController {
   ) {}
 
   @Post(':id/tuning-configurations')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @HttpCode(HttpStatus.ACCEPTED)
   async createTuningConfiguration(
     @Param('id') deviceId: string,
@@ -88,6 +90,7 @@ export class TuningCommandController {
    * ticket still keeps arbitrary URLs from opening a stream indefinitely.
    */
   @Post(':id/tuning-configurations/stream-ticket')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @HttpCode(HttpStatus.CREATED)
   createTuningStreamTicket(
     @Param('id') deviceId: string,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { SignJWT } from 'jose'
 
 // SSE must be streamed through this gateway; never statically cache or buffer it.
 export const dynamic = 'force-dynamic'
@@ -6,11 +7,19 @@ export const runtime = 'nodejs'
 
 export const MAX_PROXY_BODY_BYTES = 64 * 1024 // 64 KB
 
-const backendBaseUrl = (
-  process.env.API_INTERNAL_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  'http://localhost:6002'
-).replace(/\/$/, '')
+function getBackendBaseUrl(): string {
+  const configuredBackendBaseUrl =
+    process.env.API_INTERNAL_URL ??
+    (process.env.NODE_ENV === 'production'
+      ? undefined
+      : process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:6002')
+
+  if (!configuredBackendBaseUrl) {
+    throw new Error('API_INTERNAL_URL is required in production.')
+  }
+
+  return configuredBackendBaseUrl.replace(/\/$/, '')
+}
 
 const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
   'devices',
@@ -20,22 +29,32 @@ const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
   'health',
 ])
 
-export function resolveBearerToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7).trim()
-    if (token) return token
+export const SYSTEM_TOKEN_TTL_SECONDS = 5 * 60
+export const SYSTEM_ISSUER = 'mushroom-ui'
+export const SYSTEM_AUDIENCE = 'mushroom-backend'
+export const SYSTEM_SUBJECT = 'mushroom-ui-bff'
+
+export function getSystemJwtSecret(): Uint8Array {
+  const secret = process.env.SYSTEM_JWT_SECRET?.trim()
+
+  if (!secret || Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('SYSTEM_JWT_SECRET must be at least 32 bytes.')
   }
 
-  const cookieNames = ['session_token', 'auth_token', 'jwt', 'token', 'access_token']
-  for (const name of cookieNames) {
-    const val = request.cookies.get(name)?.value
-    if (val && val.trim()) {
-      return val.trim()
-    }
-  }
+  return new TextEncoder().encode(secret)
+}
 
-  return null
+export async function signSystemToken(
+  now = Math.floor(Date.now() / 1000),
+): Promise<string> {
+  return new SignJWT({ roles: ['SYSTEM'] })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setSubject(SYSTEM_SUBJECT)
+    .setIssuer(SYSTEM_ISSUER)
+    .setAudience(SYSTEM_AUDIENCE)
+    .setIssuedAt(now)
+    .setExpirationTime(now + SYSTEM_TOKEN_TTL_SECONDS)
+    .sign(getSystemJwtSecret())
 }
 
 export function validateAndSanitizePath(pathSegments: string[]): string[] | null {
@@ -81,6 +100,7 @@ export function buildValidatedUpstreamUrl(path: string[], search: string): { url
   }
 
   const safePath = '/' + sanitizedPath.join('/')
+  const backendBaseUrl = getBackendBaseUrl()
   const upstreamUrl = new URL(safePath, backendBaseUrl)
   const targetOrigin = new URL(backendBaseUrl).origin
 
@@ -95,10 +115,12 @@ export function buildValidatedUpstreamUrl(path: string[], search: string): { url
   return { url: upstreamUrl }
 }
 
-export function buildForwardHeaders(request: NextRequest, token: string | null): Record<string, string> {
+export async function buildForwardHeaders(request: NextRequest): Promise<Record<string, string>> {
+  const systemToken = await signSystemToken()
+
   return {
     Accept: request.headers.get('accept') ?? 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    Authorization: `Bearer ${systemToken}`,
     ...(request.headers.get('content-type')
       ? { 'Content-Type': request.headers.get('content-type')! }
       : {}),
@@ -244,9 +266,9 @@ async function proxy(
   if (bodyResult instanceof NextResponse) return bodyResult
 
   try {
-    // Non-user mode: an optional client token is preserved when supplied, but
-    // the BFF does not require one before forwarding to the backend.
-    const headers = buildForwardHeaders(request, resolveBearerToken(request))
+    // System-only mode: the BFF ignores browser credentials and signs its own
+    // short-lived workload JWT for every upstream request.
+    const headers = await buildForwardHeaders(request)
     const response = await fetch(urlResult.url, {
       method: request.method,
       headers,

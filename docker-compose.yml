@@ -96,14 +96,13 @@ services:
       dockerfile: Dockerfile
     container_name: mushroom_backend
     restart: always
-    ports:
-      - "${BE_HOST_PORT:-6002}:3001"
     env_file:
       - .env
     environment:
       - NODE_ENV=development
       - CI=true
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET:?SYSTEM_JWT_SECRET is required}
       - TUNING_SSE_TICKET_SECRET=${TUNING_SSE_TICKET_SECRET:?TUNING_SSE_TICKET_SECRET is required}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-mushroom_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@mushroom-db:5432/${POSTGRES_DB:-mushroom_iot_db}
       - MQTT_HOST=mushroom-mqtt
@@ -154,8 +153,9 @@ services:
     environment:
       - NODE_ENV=production
       - CI=true
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:6002}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/backend}
       - API_INTERNAL_URL=http://mushroom-backend:3001
+      - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET:?SYSTEM_JWT_SECRET is required}
       - NEXT_PUBLIC_DEVICE_ID=${NEXT_PUBLIC_DEVICE_ID:-}
     depends_on:
       mushroom-backend:
