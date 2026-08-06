@@ -8,6 +8,7 @@
 #include "core/config_manager.h"
 #include "network/web_interface/index_html.h"
 #include <ArduinoJson.h>
+#include <time.h>
 
 #ifndef UNIT_TEST
 #include <esp_sntp.h>
@@ -53,6 +54,23 @@ namespace wifi
     {
         if (timeval != nullptr && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
             time_conf::onTimeSyncSuccess(static_cast<int64_t>(timeval->tv_sec));
+
+            struct tm localTime {};
+            const time_t epoch = static_cast<time_t>(timeval->tv_sec);
+            if (localtime_r(&epoch, &localTime) != nullptr) {
+                char formattedTime[32] = {};
+                strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%d %H:%M:%S", &localTime);
+                Serial.printf(
+                    "[WIFI] SNTP sync: epoch=%lld local=%s TZ=%s\n",
+                    static_cast<long long>(timeval->tv_sec),
+                    formattedTime,
+                    config::network::TIMEZONE_ICT);
+            } else {
+                Serial.printf(
+                    "[WIFI] SNTP sync: epoch=%lld local-time conversion failed TZ=%s\n",
+                    static_cast<long long>(timeval->tv_sec),
+                    config::network::TIMEZONE_ICT);
+            }
         }
     }
 #endif
@@ -584,7 +602,7 @@ namespace wifi
                 Serial.printf("[WIFI] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
 #ifndef UNIT_TEST
                 sntp_set_time_sync_notification_cb(on_sntp_sync);
-                configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+                configTzTime(config::network::TIMEZONE_ICT, "pool.ntp.org", "time.nist.gov");
 #endif
                 reconnect_attempts = 0;
                 set_state(WifiState::STA_CONNECTED);

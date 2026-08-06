@@ -2,8 +2,6 @@
 #ifndef UNIT_TEST
 #include <WiFi.h>
 #endif
-#include <time.h>
-#include <cstdlib>
 
 #include "config.h"
 #include "core/actuator_controller.h"
@@ -43,8 +41,6 @@ void setup()
     }
 
     Serial.println("[MAIN] ESP32 Firmware Starting...");
-    setenv("TZ", "UTC-7", 1);
-    tzset();
 
     // 2. Khởi tạo I2C bus và cảm biến SHT30
     sensors::init_sensors_placeholder();

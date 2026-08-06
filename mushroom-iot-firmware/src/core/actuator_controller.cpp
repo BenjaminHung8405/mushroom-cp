@@ -184,7 +184,7 @@ bool isScheduledBlackout(const RtcTimePod& rtcTime) {
     const uint16_t minuteOfDay =
         static_cast<uint16_t>(rtcTime.hour) * 60U + rtcTime.minute;
     const bool isDayBlackout =
-        minuteOfDay >= DAY_BLACKOUT_START_MIN && minuteOfDay <= DAY_BLACKOUT_END_MIN;
+        minuteOfDay >= DAY_BLACKOUT_START_MIN && minuteOfDay < DAY_BLACKOUT_END_MIN;
     const bool isNightBlackout =
         minuteOfDay >= NIGHT_BLACKOUT_START_MIN || minuteOfDay <= NIGHT_BLACKOUT_END_MIN;
 

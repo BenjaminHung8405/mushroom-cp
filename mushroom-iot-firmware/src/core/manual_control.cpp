@@ -117,15 +117,13 @@ void autoClearOnSensorViolation(
     const relay_control::RtcTimePod &rtcTime)
 {
     const size_t mistIdx = static_cast<size_t>(AppChannel::MIST);
-    // A safety blackout invalidates every Mist latch, including FORCE_OFF.
-    // This lets Core 1 emit the normal release acknowledgement and erase the
-    // persisted override before SystemProtector reaches the physical relay.
+    // A blackout invalidates a Mist FORCE_ON request but preserves FORCE_OFF
+    // operator intent; the latter is already safe and must remain persistent.
     const bool mistBlackout = relay_control::isSafetyBlackoutActive(rtcTime);
     if (latch[mistIdx].active &&
-        (mistBlackout ||
-         (latch[mistIdx].forced_state == AppIntent::FORCE_ON &&
-          (!std::isfinite(telemetry.humidity_air) ||
-           telemetry.humidity_air >= MIST_WARNING_LIMIT_RH))))
+        latch[mistIdx].forced_state == AppIntent::FORCE_ON &&
+        (mistBlackout || !std::isfinite(telemetry.humidity_air) ||
+         telemetry.humidity_air >= MIST_WARNING_LIMIT_RH))
     {
         latch[mistIdx].active = false;
         latch[mistIdx].forced_state = AppIntent::AUTO;

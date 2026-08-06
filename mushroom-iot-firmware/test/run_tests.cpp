@@ -37,6 +37,7 @@ using storage::TuningNvsRecord;
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <ctime>
 #include <new>
 
 namespace test_ingress { void run_all_tests(); }
@@ -3185,7 +3186,7 @@ int main() {
         };
         const BlackoutCase blackoutCases[] = {
             {7U, 59U, false}, {8U, 0U, true}, {12U, 0U, true},
-            {16U, 0U, true}, {16U, 1U, false}, {17U, 0U, false},
+            {15U, 59U, true}, {16U, 0U, false}, {16U, 1U, false}, {17U, 0U, false},
             {17U, 59U, false}, {18U, 0U, true}, {23U, 59U, true},
             {0U, 0U, true}, {3U, 0U, true}, {6U, 0U, true},
             {6U, 1U, false},
@@ -3211,6 +3212,19 @@ int main() {
         relay_control::hardwareProtectionOverride(untrustedTimeOut, RtcTimePod{true, 7U, 0U});
         assert(untrustedTimeOut.HWat == 0.0f && untrustedTimeOut.Mist == 0.0f);
         time_conf::setTimeConfidence(TimeConfidence::Trusted);
+
+        // The fixed UTC epoch for 2026-08-06 06:00:00 must convert to 13:00 ICT.
+        // This is the local time consumed by readRtcTimeFailSafe() on the device.
+        assert(setenv("TZ", config::network::TIMEZONE_ICT, 1) == 0);
+        tzset();
+        const time_t ictEpoch = static_cast<time_t>(1785996000LL);
+        struct tm ictTime {};
+        assert(localtime_r(&ictEpoch, &ictTime) != nullptr);
+        assert(ictTime.tm_hour == 13);
+        assert(ictTime.tm_min == 0);
+        assert(relay_control::isScheduledBlackout(
+                   RtcTimePod{true, static_cast<uint8_t>(ictTime.tm_hour),
+                              static_cast<uint8_t>(ictTime.tm_min)}) == true);
 
         // Table-driven pure hysteresis contract, including both threshold
         // boundaries, hold band, and fail-safe invalid inputs.
@@ -4100,18 +4114,23 @@ int main() {
             assert(dec == ManualDecision::Accepted);
         }
 
-        // Blackout gates both Mist and HWat, clearing active latches.
+        // Blackout clears Mist FORCE_ON and HWat latches, but retains Mist FORCE_OFF.
         {
             relay_control::RtcTimePod blackoutTime{true, 12U, 0U};
             ManualRequest hwatReq = { AppChannel::HWAT, AppIntent::FORCE_ON, 1000UL };
             assert(manual::evaluateSafetyGate(hwatReq, telemetry, setpoints, blackoutTime, cropDay) ==
                    ManualDecision::RejectedBlackout);
             manual::ManualLatchArray latch{};
-            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_OFF, 0U};
+            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_ON, 1000U};
             latch[static_cast<size_t>(AppChannel::HWAT)] = {true, AppIntent::FORCE_ON, 0U};
             manual::autoClearOnSensorViolation(latch, telemetry, setpoints, blackoutTime);
             assert(!latch[static_cast<size_t>(AppChannel::MIST)].active);
             assert(!latch[static_cast<size_t>(AppChannel::HWAT)].active);
+
+            latch[static_cast<size_t>(AppChannel::MIST)] = {true, AppIntent::FORCE_OFF, 0U};
+            manual::autoClearOnSensorViolation(latch, telemetry, setpoints, blackoutTime);
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].active);
+            assert(latch[static_cast<size_t>(AppChannel::MIST)].forced_state == AppIntent::FORCE_OFF);
         }
 
         // S2-G4: Test gate Lamp block khi temp >= setpoint target
@@ -4984,24 +5003,34 @@ int main() {
         sys_protector.update(32000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.lamp_active == true);
 
-        // Over-Humidity (81% >= HmTOP) -> Mist forced OFF and locked for 30 seconds.
+        // Over-humidity (81% >= HmTOP) -> Mist forced OFF and locked for 10 minutes.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
         sys_protector.update(33000UL, true, 25.0f, 81.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // Attempting to turn Mist ON during the 30-second cooldown
-        // — cooldown priority always wins. Humidity kept high (85%) so
-        // over-humidity does NOT override the forced-OFF from this assertion.
+        // Cooldown priority blocks retry attempts for the entire 10-minute interval.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
-        sys_protector.update(50000UL, true, 25.0f, 85.0f, false, latches, states, true);
+        sys_protector.update(63000UL, true, 25.0f, 70.0f, false, latches, states, true);
         assert(states.mist_active == false);
         assert(latches[static_cast<size_t>(AppChannel::MIST)].active == false);
 
-        // After 30 seconds expires -> Mist can be commanded ON.
-        // Use fresh pod/state so bio-safety checks don't interfere.
+        states.mist_active = true;
+        sys_protector.update(333000UL, true, 25.0f, 70.0f, false, latches, states, true);
+        assert(states.mist_active == false);
+
+        states.mist_active = true;
+        sys_protector.update(632999UL, true, 25.0f, 70.0f, false, latches, states, true);
+        assert(states.mist_active == false);
+
+        // At exactly +10 minutes, safe humidity can command Mist ON again.
+        states.mist_active = true;
+        sys_protector.update(633000UL, true, 25.0f, 70.0f, false, latches, states, true);
+        assert(states.mist_active == true);
+
+        // A reset has no pending lock and accepts safe Mist demand.
         states.mist_active = true;
         latches[static_cast<size_t>(AppChannel::MIST)].active = true;
         sys_protector.reset();
