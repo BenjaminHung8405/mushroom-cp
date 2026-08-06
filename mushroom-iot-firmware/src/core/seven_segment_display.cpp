@@ -9,6 +9,8 @@
 #include <Wire.h>
 
 #include "core/serial_mutex.h"
+#else
+#include "Arduino.h"
 #endif
 
 namespace seven_segment_display
@@ -43,8 +45,6 @@ void buildPayload(float humidity, float temperature, uint8_t display_mode,
         output[i] = BLANK_DIGIT;
     }
 
-    // The display is intentionally driven from raw telemetry, never control
-    // holdover: stale sensor data must not remain visible after a failed read.
     if (!std::isfinite(humidity) || !std::isfinite(temperature)) {
         return;
     }
@@ -67,6 +67,31 @@ void buildPayload(float humidity, float temperature, uint8_t display_mode,
     }
 }
 
+DisplayDataState buildPayloadWithHoldover(
+    float humidity, float temperature, uint32_t now_ms,
+    LastGoodDisplaySample& last_good, uint8_t display_mode,
+    uint8_t output[PAYLOAD_SIZE], uint32_t max_age_ms)
+{
+    if (std::isfinite(humidity) && std::isfinite(temperature)) {
+        last_good.humidity = humidity;
+        last_good.temperature = temperature;
+        last_good.timestamp_ms = now_ms;
+        last_good.valid = true;
+        buildPayload(humidity, temperature, display_mode, output);
+        return DisplayDataState::FRESH;
+    }
+
+    // Unsigned subtraction intentionally remains correct across millis() wrap.
+    if (last_good.valid &&
+        static_cast<uint32_t>(now_ms - last_good.timestamp_ms) <= max_age_ms) {
+        buildPayload(last_good.humidity, last_good.temperature, display_mode, output);
+        return DisplayDataState::HOLDOVER;
+    }
+
+    buildPayload(NAN, NAN, display_mode, output);
+    return DisplayDataState::BLANKED;
+}
+
 bool writePayload(const uint8_t payload[PAYLOAD_SIZE])
 {
 #ifndef UNIT_TEST
@@ -81,13 +106,36 @@ bool writePayload(const uint8_t payload[PAYLOAD_SIZE])
 
 bool update(float humidity, float temperature)
 {
+    static LastGoodDisplaySample last_good;
+    static DisplayDataState previous_state = DisplayDataState::BLANKED;
+    static uint32_t holdover_started_ms = 0U;
+
+    const uint32_t now = static_cast<uint32_t>(millis());
     uint8_t payload[PAYLOAD_SIZE];
-    buildPayload(humidity, temperature, config::hardware::I2C_DISPLAY_MODE, payload);
+    const DisplayDataState state = buildPayloadWithHoldover(
+        humidity, temperature, now, last_good, config::hardware::I2C_DISPLAY_MODE, payload);
+
+#ifndef UNIT_TEST
+    if (state == DisplayDataState::HOLDOVER && previous_state != DisplayDataState::HOLDOVER) {
+        holdover_started_ms = now;
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[DISPLAY] WARN: SHT30 sample invalid; holding last complete sample (age=%lu ms).\n",
+                      static_cast<unsigned long>(now - last_good.timestamp_ms));
+    } else if (state == DisplayDataState::BLANKED && previous_state != DisplayDataState::BLANKED) {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[DISPLAY] WARN: Display holdover expired; blanking digits after %lu ms.\n",
+                      static_cast<unsigned long>(now - last_good.timestamp_ms));
+    } else if (state == DisplayDataState::FRESH && previous_state == DisplayDataState::HOLDOVER) {
+        ScopedSerialLock guard(SerialLock::get_instance());
+        Serial.printf("[DISPLAY] INFO: SHT30 recovered; fresh display sample after %lu ms holdover.\n",
+                      static_cast<unsigned long>(now - holdover_started_ms));
+    }
+#endif
+    previous_state = state;
 
     const bool sent = writePayload(payload);
 #ifndef UNIT_TEST
     static unsigned long last_error_log_ms = 0U;
-    const unsigned long now = millis();
     if (!sent && (last_error_log_ms == 0U || now - last_error_log_ms >= 60000UL)) {
         ScopedSerialLock guard(SerialLock::get_instance());
         Serial.printf("[DISPLAY] WARN: I2C write to 0x%02X failed.\n",

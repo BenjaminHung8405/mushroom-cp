@@ -854,8 +854,9 @@ static void runControlPipelineStep(
             relayState.lamp_active,
             relayState.hwat_active);
         lastSensorReadOk = sensors::read_all_telemetry(telemetry);
-        // The display consumes the raw SHT30 result once per sample. It never
-        // uses control holdover, so an invalid sample blanks all four digits.
+        // The display consumes raw SHT30 telemetry and owns an independent,
+        // bounded 15 s pair holdover. Safety, control telemetry and publishing
+        // remain raw/fail-closed; display continuity cannot mask a sensor fault.
         seven_segment_display::update(telemetry.humidity_air, telemetry.temp_air);
         newSensorRead = true;
     }

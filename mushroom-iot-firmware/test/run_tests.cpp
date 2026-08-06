@@ -2428,6 +2428,48 @@ int main() {
         for (uint8_t digit : display_payload) {
             assert(digit == seven_segment_display::BLANK_DIGIT);
         }
+
+        // Display holdover is pair-based: never mix a fresh channel with an old one.
+        seven_segment_display::LastGoodDisplaySample display_last_good{};
+        const uint8_t expected_fresh[] = {7U, 2U, 3U, 8U, 0xFFU, 0xFFU, 0xFFU};
+        const auto fresh_state = seven_segment_display::buildPayloadWithHoldover(
+            83.9f, 27.8f, 1000U, display_last_good, 1U, display_payload);
+        assert(fresh_state == seven_segment_display::DisplayDataState::FRESH);
+        assert(std::memcmp(display_payload, expected_fresh, sizeof(expected_fresh)) == 0);
+
+        // One invalid channel, including infinity, keeps the complete prior pair.
+        const auto holdover_state = seven_segment_display::buildPayloadWithHoldover(
+            NAN, 99.0f, 6000U, display_last_good, 1U, display_payload);
+        assert(holdover_state == seven_segment_display::DisplayDataState::HOLDOVER);
+        assert(std::memcmp(display_payload, expected_fresh, sizeof(expected_fresh)) == 0);
+        const auto infinity_holdover_state = seven_segment_display::buildPayloadWithHoldover(
+            INFINITY, NAN, 15000U, display_last_good, 1U, display_payload);
+        assert(infinity_holdover_state == seven_segment_display::DisplayDataState::HOLDOVER);
+        assert(std::memcmp(display_payload, expected_fresh, sizeof(expected_fresh)) == 0);
+
+        // At age > 15 s the display blanks; invalid input before any good sample does too.
+        const auto blanked_state = seven_segment_display::buildPayloadWithHoldover(
+            NAN, NAN, 16001U, display_last_good, 1U, display_payload);
+        assert(blanked_state == seven_segment_display::DisplayDataState::BLANKED);
+        for (uint8_t digit : display_payload) assert(digit == seven_segment_display::BLANK_DIGIT);
+        seven_segment_display::LastGoodDisplaySample no_display_sample{};
+        assert(seven_segment_display::buildPayloadWithHoldover(
+                   NAN, 27.0f, 1000U, no_display_sample, 1U, display_payload) ==
+               seven_segment_display::DisplayDataState::BLANKED);
+
+        // A recovered complete pair replaces the held pair, including across millis() wrap.
+        const auto recovered_state = seven_segment_display::buildPayloadWithHoldover(
+            55.0f, 22.0f, 17000U, display_last_good, 1U, display_payload);
+        const uint8_t expected_recovered[] = {2U, 2U, 5U, 5U, 0xFFU, 0xFFU, 0xFFU};
+        assert(recovered_state == seven_segment_display::DisplayDataState::FRESH);
+        assert(std::memcmp(display_payload, expected_recovered, sizeof(expected_recovered)) == 0);
+        seven_segment_display::LastGoodDisplaySample wrap_sample{};
+        assert(seven_segment_display::buildPayloadWithHoldover(
+                   80.0f, 25.0f, 0xFFFFFF00U, wrap_sample, 1U, display_payload) ==
+               seven_segment_display::DisplayDataState::FRESH);
+        assert(seven_segment_display::buildPayloadWithHoldover(
+                   NAN, NAN, 0x00001000U, wrap_sample, 1U, display_payload) ==
+               seven_segment_display::DisplayDataState::HOLDOVER);
     }
 
     // 17. Test Task G1 - Actuators Mock & Fail-Safe init
