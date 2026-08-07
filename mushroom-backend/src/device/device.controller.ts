@@ -10,10 +10,13 @@ import {
   HttpCode,
   NotFoundException,
   BadRequestException,
+  Req,
+  Optional,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { Response } from 'express';
-import { Observable, merge, of } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
+import { Observable, merge, of, fromEvent } from 'rxjs';
+import { filter, map, takeUntil } from 'rxjs/operators';
 import {
   IsNumber,
   IsOptional,
@@ -28,10 +31,13 @@ import {
 } from 'class-validator';
 import { toZonedTime } from 'date-fns-tz';
 import { Throttle } from '@nestjs/throttler';
+import type { AuthPrincipal } from '../auth/auth.types';
+import { UserRole } from '../auth/entities/user.entity';
 import { Type } from 'class-transformer';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DeviceRegistryService } from './device-registry.service';
 import { BatchService } from '../batch/services/batch.service';
+import { AuthService } from '../auth/auth.service';
 
 /**
  * Kiểm tra xem minutesSinceMidnight có nằm trong cửa sổ blackout không.
@@ -195,17 +201,23 @@ export class DeviceController {
     private readonly mqttService: MqttService,
     private readonly deviceRegistryService: DeviceRegistryService,
     private readonly batchService: BatchService,
+    @Optional() private readonly authService?: AuthService,
   ) {}
 
   /**
    * SSE endpoint: streams real-time device status events to the Next.js UI.
    */
   @Sse('status/stream')
-  streamDeviceStatus(): Observable<MessageEvent> {
+  streamDeviceStatus(@Req() request: Request & { authUser?: AuthPrincipal }): Observable<MessageEvent> {
     this.logger.log('SSE client connected → /devices/status/stream');
 
-    const seedEvents$ = of(...this.mqttService.getAllDeviceStatuses());
-    const liveEvents$ = this.mqttService.deviceStatus$;
+    const principal = request.authUser;
+    const allowed = (deviceId: string) => !principal || principal.role === UserRole.ADMIN || principal.houseIds.some((houseId) => {
+      const device = this.deviceRegistryService.get(deviceId);
+      return device?.houseId === houseId;
+    });
+    const seedEvents$ = of(...this.mqttService.getAllDeviceStatuses().filter((event) => allowed(event.deviceId)));
+    const liveEvents$ = this.mqttService.deviceStatus$.pipe(filter((event) => allowed(event.deviceId)));
 
     return merge(seedEvents$, liveEvents$).pipe(
       map(
@@ -215,19 +227,26 @@ export class DeviceController {
             data: event,
           }) satisfies MessageEvent,
       ),
+      takeUntil(merge(this.revokedFor(principal), fromEvent(request, 'close'))),
     );
   }
 
   @Sse(':id/config-sync/stream')
-  streamConfigSync(@Param() params: DeviceParamsDto): Observable<MessageEvent> {
+  streamConfigSync(@Param() params: DeviceParamsDto, @Req() request: Request & { authUser?: AuthPrincipal }): Observable<MessageEvent> {
     const cached = this.mqttService.getConfigSync(params.id);
     const updates$ = this.mqttService.configSync$.pipe(
       filter((event) => event.deviceId === params.id),
       map((event) => ({ data: event }) satisfies MessageEvent),
     );
-    return cached
+    return (cached
       ? merge(of({ data: cached } as MessageEvent), updates$)
-      : updates$;
+      : updates$).pipe(takeUntil(merge(this.revokedFor(request.authUser), fromEvent(request, 'close'))));
+  }
+
+  private revokedFor(principal?: AuthPrincipal) {
+    return (principal && this.authService
+      ? this.authService.userSessionsRevoked$.pipe(filter((userId) => userId === principal.id))
+      : new Observable<never>(() => undefined));
   }
 
   @Get(':id/config-sync')
@@ -251,8 +270,9 @@ export class DeviceController {
    * fields; MQTT credentials, tokens, and internal timestamps stay private.
    */
   @Get()
-  listDevices() {
-    return this.deviceRegistryService.listCached().map((device) => ({
+  listDevices(@Req() request: Request & { authUser?: AuthPrincipal }) {
+    const principal = request.authUser;
+    return this.deviceRegistryService.listCached().filter((device) => !principal || principal.role === UserRole.ADMIN || principal.houseIds.includes(device.houseId)).map((device) => ({
       deviceId: device.deviceId,
       displayName: device.displayName,
       houseId: device.houseId,

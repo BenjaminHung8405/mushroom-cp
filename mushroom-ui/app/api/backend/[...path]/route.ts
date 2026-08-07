@@ -22,6 +22,8 @@ function getBackendBaseUrl(): string {
 }
 
 const ALLOWED_TOP_LEVEL_PREFIXES = new Set([
+  'auth',
+  'admin',
   'devices',
   'batches',
   'analytics',
@@ -116,11 +118,13 @@ export function buildValidatedUpstreamUrl(path: string[], search: string): { url
 }
 
 export async function buildForwardHeaders(request: NextRequest): Promise<Record<string, string>> {
-  const systemToken = await signSystemToken()
+  const mode = process.env.AUTH_ENFORCEMENT_MODE?.trim().toLowerCase() ?? 'shadow'
+  const systemToken = mode === 'enforced' ? null : await signSystemToken()
 
   return {
     Accept: request.headers.get('accept') ?? 'application/json',
-    Authorization: `Bearer ${systemToken}`,
+    ...(systemToken ? { Authorization: `Bearer ${systemToken}` } : {}),
+    ...(request.headers.get('cookie') ? { Cookie: request.headers.get('cookie')! } : {}),
     ...(request.headers.get('content-type')
       ? { 'Content-Type': request.headers.get('content-type')! }
       : {}),
@@ -137,6 +141,7 @@ export function forwardUpstreamResponse(response: Response): Response {
     headers: {
       'Content-Type': response.headers.get('content-type') ?? 'application/json',
       'Cache-Control': isEventStream ? 'no-cache, no-transform' : 'no-store',
+      ...(response.headers.get('set-cookie') ? { 'Set-Cookie': response.headers.get('set-cookie')! } : {}),
       ...(isEventStream
         ? {
             Connection: 'keep-alive',

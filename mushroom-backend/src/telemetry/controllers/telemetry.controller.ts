@@ -7,8 +7,12 @@ import {
   NotFoundException,
   MessageEvent,
 } from '@nestjs/common';
-import { Observable, of, concat } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
+import { Observable, of, concat, fromEvent, merge } from 'rxjs';
+import { filter, map, takeUntil } from 'rxjs/operators';
+import { Optional, Req } from '@nestjs/common';
+import type { Request } from 'express';
+import type { AuthPrincipal } from '../../auth/auth.types';
+import { AuthService } from '../../auth/auth.service';
 import { TelemetryService } from '../services/telemetry.service';
 import type { TelemetrySnapshot } from '../services/telemetry.service';
 import {
@@ -18,7 +22,7 @@ import {
 
 @Controller('devices')
 export class TelemetryController {
-  constructor(private readonly telemetryService: TelemetryService) {}
+  constructor(private readonly telemetryService: TelemetryService, @Optional() private readonly authService?: AuthService) {}
 
   @Get(':id/telemetry')
   async getLatest(
@@ -36,6 +40,7 @@ export class TelemetryController {
   @Sse(':id/telemetry/stream')
   async streamTelemetry(
     @Param() params: DeviceIdParamsDto,
+    @Req() request: Request & { authUser?: AuthPrincipal },
   ): Promise<Observable<MessageEvent>> {
     const initial = await this.telemetryService.getLatestTelemetry(params.id);
 
@@ -46,10 +51,12 @@ export class TelemetryController {
     );
 
     if (initial) {
-      return concat(of({ data: initial } as MessageEvent), updates$);
+      return concat(of({ data: initial } as MessageEvent), updates$).pipe(takeUntil(merge(this.revokedFor(request?.authUser), request ? fromEvent(request, 'close') : new Observable<never>(() => undefined))));
     }
-    return updates$;
+    return updates$.pipe(takeUntil(merge(this.revokedFor(request?.authUser), request ? fromEvent(request, 'close') : new Observable<never>(() => undefined))));
   }
+
+  private revokedFor(principal?: AuthPrincipal) { return principal && this.authService ? this.authService.userSessionsRevoked$.pipe(filter((userId) => userId === principal.id)) : new Observable<never>(() => undefined); }
 
   @Get(':id/telemetry/history')
   async getHistory(

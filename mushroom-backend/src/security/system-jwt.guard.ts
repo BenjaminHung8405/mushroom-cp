@@ -48,6 +48,13 @@ export class SystemJwtGuard implements CanActivate {
     const request = context
       .switchToHttp()
       .getRequest<Request & { user?: SystemJwtPayload }>();
+    // The session guard is the browser authentication layer. Validate a
+    // SYSTEM JWT when supplied, but do not require it: this lets a browser
+    // transition to cookie sessions while shadow-mode BFF calls continue to
+    // use their existing SYSTEM identity.
+    if (!request.headers.authorization) {
+      return true;
+    }
     const token = extractBearerToken(request.headers.authorization);
 
     try {

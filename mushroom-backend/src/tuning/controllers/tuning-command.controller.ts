@@ -10,11 +10,12 @@ import {
   Query,
   Req,
   Sse,
+  Optional,
   UseGuards,
 } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
 import type { Request } from 'express';
-import { fromEvent, Observable } from 'rxjs';
+import { fromEvent, merge, Observable } from 'rxjs';
 import { filter, map, takeUntil } from 'rxjs/operators';
 import { CreateTuningConfigurationDto } from '../dtos/create-tuning-configuration.dto';
 import { TuningSseTicketService } from '../services/tuning-sse-ticket.service';
@@ -24,12 +25,16 @@ import {
   MAX_TUNING_HISTORY_OFFSET,
   TuningConfigurationService,
 } from '../services/tuning-configuration.service';
+import type { AuthPrincipal } from '../../auth/auth.types';
+import { UserRole } from '../../auth/entities/user.entity';
+import { AuthService } from '../../auth/auth.service';
 
 @Controller('devices')
 export class TuningCommandController {
   constructor(
     private readonly tuningConfigurationService: TuningConfigurationService,
     private readonly tuningSseTicketService: TuningSseTicketService,
+    @Optional() private readonly authService?: AuthService,
   ) {}
 
   @Post(':id/tuning-configurations')
@@ -38,13 +43,16 @@ export class TuningCommandController {
   async createTuningConfiguration(
     @Param('id') deviceId: string,
     @Body() dto: CreateTuningConfigurationDto,
+    @Req() request: Request & { authUser?: AuthPrincipal },
   ): Promise<{ commandId: string; status: 'PENDING' }> {
-    const pending =
-      await this.tuningConfigurationService.createPendingCommandNonUser(
-        deviceId,
-        dto.config,
-        dto.commandId,
-      );
+    const principal = request?.authUser;
+    const pending = principal
+      ? await this.tuningConfigurationService.createPendingCommand(
+          this.tuningPrincipal(principal), deviceId, dto.config, dto.commandId,
+        )
+      : await this.tuningConfigurationService.createPendingCommandNonUser(
+          deviceId, dto.config, dto.commandId,
+        );
 
     return {
       commandId: pending.commandId,
@@ -57,8 +65,10 @@ export class TuningCommandController {
    * configuration store, never MQTT retained state.
    */
   @Get(':id/tuning-configurations/latest')
-  async getLatestTuningConfiguration(@Param('id') deviceId: string) {
-    return this.tuningConfigurationService.getLatestByDeviceId(deviceId);
+  async getLatestTuningConfiguration(@Param('id') deviceId: string, @Req() request?: Request & { authUser?: AuthPrincipal }) {
+    return request?.authUser
+      ? this.tuningConfigurationService.getLatestForPrincipal(this.tuningPrincipal(request.authUser), deviceId)
+      : this.tuningConfigurationService.getLatestByDeviceId(deviceId);
   }
 
   /**
@@ -69,19 +79,20 @@ export class TuningCommandController {
     @Param('id') deviceId: string,
     @Query('limit') limit: unknown,
     @Query('offset') offset: unknown,
+    @Req() request?: Request & { authUser?: AuthPrincipal },
   ) {
-    return this.tuningConfigurationService.getTuningHistory(
-      deviceId,
-      this.parsePagination(limit, 20, 1, 100, 'limit'),
-      this.parsePagination(
+    const parsedLimit = this.parsePagination(limit, 20, 1, 100, 'limit');
+    const parsedOffset = this.parsePagination(
         offset,
         0,
         0,
         MAX_TUNING_HISTORY_OFFSET,
         'offset',
         false,
-      ),
-    );
+      );
+    return request?.authUser
+      ? this.tuningConfigurationService.getHistoryForPrincipal(this.tuningPrincipal(request.authUser), deviceId, parsedLimit, parsedOffset)
+      : this.tuningConfigurationService.getTuningHistory(deviceId, parsedLimit, parsedOffset);
   }
 
   /**
@@ -94,9 +105,10 @@ export class TuningCommandController {
   @HttpCode(HttpStatus.CREATED)
   createTuningStreamTicket(
     @Param('id') deviceId: string,
+    @Req() request?: Request & { authUser?: AuthPrincipal },
   ): { ticket: string; expiresInSeconds: number } {
     return {
-      ticket: this.tuningSseTicketService.createTicket('non-user', deviceId),
+      ticket: this.tuningSseTicketService.createTicket(request?.authUser?.sessionId ?? 'non-user', deviceId),
       expiresInSeconds: 30,
     };
   }
@@ -113,10 +125,14 @@ export class TuningCommandController {
     @Param('id') deviceId: string,
     @Req() request: Request,
   ): Observable<MessageEvent> {
+    const principal = (request as Request & { authUser?: AuthPrincipal }).authUser;
+    const closed$ = principal && this.authService
+      ? merge(fromEvent(request, 'close'), this.authService.userSessionsRevoked$.pipe(filter((userId) => userId === principal.id)))
+      : fromEvent(request, 'close');
     return this.tuningConfigurationService.tuningSync$.pipe(
       filter((event) => event.deviceId === deviceId),
       map((event) => ({ data: event })),
-      takeUntil(fromEvent(request, 'close')),
+      takeUntil(closed$),
     );
   }
 
@@ -155,5 +171,9 @@ export class TuningCommandController {
     // A zero limit is normalized to one rather than relying on ORM-specific
     // take(0) behaviour, which may be interpreted as an unbounded query.
     return Math.max(minimum, Math.min(parsed, maximum));
+  }
+
+  private tuningPrincipal(principal: AuthPrincipal) {
+    return { subject: principal.id, allowedHouseIds: principal.houseIds, isAdmin: principal.role === UserRole.ADMIN };
   }
 }

@@ -50,8 +50,8 @@ describe('SystemJwtGuard', () => {
     delete process.env.SYSTEM_JWT_SECRET;
   });
 
-  it('rejects missing Authorization', async () => {
-    await expect(guard.canActivate(context())).rejects.toBeInstanceOf(UnauthorizedException);
+  it('allows an absent Authorization header so session auth can run', async () => {
+    await expect(guard.canActivate(context())).resolves.toBe(true);
   });
 
   it('rejects a signed token without exp', async () => {

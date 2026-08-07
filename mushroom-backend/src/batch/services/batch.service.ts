@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
@@ -20,6 +21,8 @@ import {
   MetricType,
 } from '../dto/update-checkpoints.dto';
 import { LightScheduleBlockDto } from '../dto/update-light-schedule.dto';
+import type { AuthPrincipal } from '../../auth/auth.types';
+import { UserRole } from '../../auth/entities/user.entity';
 
 export interface BatchContext {
   batchId: string | null;
@@ -139,6 +142,11 @@ export class BatchService {
     });
   }
 
+  async getBatchLightScheduleForPrincipal(principal: AuthPrincipal, id: string): Promise<LightScheduleBlock[]> {
+    const batch = await this.findBatchInScope(principal, id);
+    return this.lightScheduleBlockRepository.find({ where: { batchId: batch.id }, order: { startDay: 'ASC' } });
+  }
+
   async updateBatchLightSchedule(
     id: string,
     blocks: LightScheduleBlockDto[],
@@ -161,6 +169,18 @@ export class BatchService {
         manager.create(LightScheduleBlock, { ...block, batchId: id }),
       );
       return manager.save(LightScheduleBlock, records);
+    });
+  }
+
+  async updateBatchLightScheduleForPrincipal(principal: AuthPrincipal, id: string, blocks: LightScheduleBlockDto[]): Promise<LightScheduleBlock[]> {
+    this.assertWriteRole(principal);
+    return this.cropBatchRepository.manager.transaction(async (manager) => {
+      const batch = await manager.findOne(CropBatch, { where: { id }, lock: { mode: 'pessimistic_write' } });
+      this.assertBatchInScope(principal, batch);
+      if (batch.status !== 'ACTIVE') throw new BadRequestException('Only ACTIVE batches can have light schedules updated.');
+      this.validateLightSchedule(blocks, batch.totalCropDays);
+      await manager.delete(LightScheduleBlock, { batchId: id });
+      return manager.save(LightScheduleBlock, blocks.map((block) => manager.create(LightScheduleBlock, { ...block, batchId: id })));
     });
   }
 
@@ -455,6 +475,12 @@ export class BatchService {
     );
   }
 
+  async createBatchForPrincipal(principal: AuthPrincipal, dto: CreateBatchDto): Promise<CropBatch> {
+    this.assertWriteRole(principal);
+    if (principal.role !== UserRole.ADMIN && !principal.houseIds.includes(dto.houseId)) throw new NotFoundException(`Mushroom house with ID '${dto.houseId}' not found.`);
+    return this.createBatch(dto);
+  }
+
   private createBatchId(): string {
     return `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
@@ -479,6 +505,17 @@ export class BatchService {
 
     batch.status = status;
     return await this.cropBatchRepository.save(batch);
+  }
+
+  async endBatchForPrincipal(principal: AuthPrincipal, id: string, status: 'COMPLETED' | 'ABORTED'): Promise<CropBatch> {
+    this.assertWriteRole(principal);
+    return this.cropBatchRepository.manager.transaction(async (manager) => {
+      const batch = await manager.findOne(CropBatch, { where: { id }, lock: { mode: 'pessimistic_write' } });
+      this.assertBatchInScope(principal, batch);
+      if (batch.status !== 'ACTIVE') throw new ConflictException(`Cannot end batch '${id}' — current status is '${batch.status}'. Only ACTIVE batches can be ended.`);
+      batch.status = status;
+      return manager.save(CropBatch, batch);
+    });
   }
 
   /**
@@ -533,6 +570,27 @@ export class BatchService {
       },
     );
   }
+
+  async updateBatchCheckpointsForPrincipal(principal: AuthPrincipal, id: string, dto: UpdateCheckpointsDto): Promise<CurveCheckpoint[]> {
+    this.assertWriteRole(principal);
+    return this.cropBatchRepository.manager.transaction(async (manager) => {
+      const batch = await manager.findOne(CropBatch, { where: { id }, lock: { mode: 'pessimistic_write' } });
+      this.assertBatchInScope(principal, batch);
+      if (batch.status !== 'ACTIVE') throw new BadRequestException(`Cannot update checkpoints for batch '${id}' — current status is '${batch.status}'. Only ACTIVE batches can have checkpoints updated.`);
+      this.validateCheckpointsList(batch, dto.checkpoints);
+      await manager.delete(CurveCheckpoint, { batchId: id });
+      return manager.save(CurveCheckpoint, dto.checkpoints.map((cp) => manager.create(CurveCheckpoint, { batchId: id, metricType: cp.metricType, cropDay: cp.cropDay, targetValue: cp.targetValue })));
+    });
+  }
+
+  async getActiveBatchStatusForPrincipal(principal: AuthPrincipal, houseId: string): Promise<ActiveBatchResponseDto | null> {
+    if (principal.role !== UserRole.ADMIN && !principal.houseIds.includes(houseId)) throw new NotFoundException(`Mushroom house with ID '${houseId}' not found.`);
+    return this.getActiveBatchStatusByHouseId(houseId);
+  }
+
+  private assertWriteRole(principal: AuthPrincipal): void { if (principal.role === UserRole.AUDITOR) throw new ForbiddenException('AUDITOR accounts are read-only.'); }
+  private async findBatchInScope(principal: AuthPrincipal, id: string): Promise<CropBatch> { const batch = await this.cropBatchRepository.findOne({ where: { id } }); this.assertBatchInScope(principal, batch); return batch; }
+  private assertBatchInScope(principal: AuthPrincipal, batch: CropBatch | null): asserts batch is CropBatch { if (!batch || (principal.role !== UserRole.ADMIN && !principal.houseIds.includes(batch.houseId))) throw new NotFoundException('Crop batch not found.'); }
 
   private validateBounds(
     checkpoints: CheckpointDto[],

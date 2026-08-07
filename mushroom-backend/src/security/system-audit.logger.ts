@@ -49,9 +49,10 @@ export class SystemAuditLogger implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') return next.handle();
-    const request = context.switchToHttp().getRequest<Request & { user?: { sub?: string } }>();
+    const request = context.switchToHttp().getRequest<Request & { user?: { sub?: string }; authUser?: { id: string; role: string; sessionId: string } }>();
     const response = context.switchToHttp().getResponse<Response>();
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) || !request.user?.sub) {
+    const actor = request.authUser?.id ?? request.user?.sub;
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) || !actor) {
       return next.handle();
     }
 
@@ -63,12 +64,12 @@ export class SystemAuditLogger implements NestInterceptor {
       this.repository.insert({
         method: request.method,
         route: request.originalUrl ?? request.url,
-        actor: request.user?.sub ?? 'unknown',
+        actor,
         requestId,
         statusCode,
         durationMs: Date.now() - startedAt,
         result,
-        payload: payload as unknown as Record<string, never> | null,
+        payload: payload ? { ...payload, _auth: request.authUser ? { role: request.authUser.role, sessionId: request.authUser.sessionId } : undefined } as unknown as Record<string, never> : null,
         payloadHash: hash,
       }),
     ).pipe(catchError((error: unknown) => {

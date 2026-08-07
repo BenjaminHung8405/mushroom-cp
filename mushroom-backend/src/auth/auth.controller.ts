@@ -1,55 +1,37 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  Logger,
-  Post,
-  Get,
-  Headers,
-  BadRequestException,
-} from '@nestjs/common';
-import { AuthService } from './auth.service';
-import type { AuthTokenResponse } from './auth.service';
-import { RequestTokenDto } from './dto/request-token.dto';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { Public } from '../security/public.decorator';
+import { AuthService } from './auth.service';
+import { CurrentUser } from './auth.decorators';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { LoginDto } from './dto/login.dto';
+import type { AuthPrincipal } from './auth.types';
+import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from './auth.types';
+import { RequestTokenDto } from './dto/request-token.dto';
 import { Throttle } from '@nestjs/throttler';
 
-/**
- * AuthController — device bootstrap endpoints.
- *
- * ESP32 firmware posts to POST /auth/token after WiFi connects and
- * uses the returned token as the MQTT password.
- */
 @Controller()
 export class AuthController {
-  private readonly logger = new Logger(AuthController.name);
+  constructor(private readonly auth: AuthService) {}
 
-  constructor(private readonly authService: AuthService) {}
-
-  @Post('auth/token')
-  @Public()
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @HttpCode(200)
-  issueToken(@Body() body: RequestTokenDto): AuthTokenResponse {
-    this.logger.log(
-      `Token request from clientId='${body.clientId}'` +
-        (body.mqttUser ? ` mqttUser='${body.mqttUser}'` : ''),
-    );
-    return this.authService.issueDeviceToken(body.clientId, body.mqttUser);
+  @Post('auth/login') @Public() @Throttle({ default: { limit: 20, ttl: 60_000 } }) @HttpCode(200)
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.login(dto.email, dto.password, { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null });
+    res.cookie(SESSION_COOKIE_NAME, result.token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: SESSION_MAX_AGE_MS });
+    res.setHeader('Cache-Control', 'no-store');
+    return { user: this.publicUser(result.principal) };
   }
 
-  @Get('v1/auth/device-token')
-  @Public()
-  @HttpCode(200)
-  issueDeviceToken(
-    @Headers('x-device-id') deviceId: string,
-  ): AuthTokenResponse {
-    if (!deviceId) {
-      throw new BadRequestException('X-Device-Id header is required');
-    }
-    this.logger.log(
-      `Token request from GET device-token, deviceId='${deviceId}'`,
-    );
-    return this.authService.issueDeviceToken(deviceId);
-  }
+  @Post('auth/logout') @HttpCode(204)
+  async logout(@CurrentUser() principal: AuthPrincipal, @Res({ passthrough: true }) res: Response): Promise<void> { await this.auth.logout(principal.sessionId, principal.id); res.clearCookie(SESSION_COOKIE_NAME, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/' }); res.setHeader('Cache-Control', 'no-store'); }
+  @Get('auth/me') getMe(@CurrentUser() principal: AuthPrincipal) { return this.publicUser(principal); }
+  @Post('auth/change-password') @HttpCode(204)
+  async changePassword(@CurrentUser() principal: AuthPrincipal, @Body() dto: ChangePasswordDto): Promise<void> { await this.auth.changePassword(principal, dto.currentPassword, dto.newPassword); }
+
+  // Legacy device bootstrap endpoints remain public and separate from operator auth.
+  @Post('auth/token') @Public() @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200)
+  issueToken(@Body() body: RequestTokenDto) { return this.auth.issueDeviceToken(body.clientId, body.mqttUser); }
+  @Get('v1/auth/device-token') @Public() issueDeviceToken(@Headers('x-device-id') deviceId: string) { if (!deviceId) throw new BadRequestException('X-Device-Id header is required'); return this.auth.issueDeviceToken(deviceId); }
+
+  private publicUser(principal: AuthPrincipal) { return { id: principal.id, email: principal.email, role: principal.role, houseIds: principal.houseIds, mustChangePassword: principal.mustChangePassword }; }
 }
