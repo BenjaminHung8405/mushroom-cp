@@ -17,13 +17,13 @@ export class SessionAuthGuard implements CanActivate {
     if (mode === 'shadow' && request.user?.roles?.includes('SYSTEM') && !request.path.startsWith('/admin')) return true;
     const cookieName = process.env.AUTH_SESSION_COOKIE_NAME?.trim() || 'sid';
     const principal = await this.auth.authenticate(this.cookie(request.headers.cookie, cookieName));
-    if (principal.mustChangePassword && !this.isPasswordRecoveryRoute(request)) throw new ForbiddenException('Password change is required.');
+    if (principal.mustSetPin && !this.isPinRecoveryRoute(request)) throw new ForbiddenException('PIN change is required.');
     request.authUser = principal;
     const roles = this.reflector.getAllAndOverride<UserRole[]>(AUTH_ROLES_KEY, [context.getHandler(), context.getClass()]);
     if (roles && !roles.includes(principal.role)) throw new ForbiddenException('Insufficient role.');
     return true;
   }
-  private isPasswordRecoveryRoute(request: Request): boolean { return request.path === '/auth/me' || request.path === '/auth/change-password' || request.path === '/auth/logout'; }
+  private isPinRecoveryRoute(request: Request): boolean { return request.path === '/auth/me' || request.path === '/auth/set-pin' || request.path === '/auth/logout'; }
   private cookie(header: string | undefined, name: string): string | undefined {
     const encoded = header?.split(';').map((entry) => entry.trim()).find((entry) => entry.startsWith(`${name}=`))?.slice(name.length + 1);
     if (!encoded) return undefined;

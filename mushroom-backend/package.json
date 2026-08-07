@@ -89,7 +89,13 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^argon2$": "<rootDir>/__mocks__/argon2.js",
+      "^redis$": "<rootDir>/__mocks__/redis.js",
+      "^@nestjs/schedule$": "<rootDir>/__mocks__/@nestjs/schedule.js",
+      "^@nestjs/throttler$": "<rootDir>/__mocks__/@nestjs/throttler.js"
+    }
   },
   "pnpm": {
     "onlyBuiltDependencies": [

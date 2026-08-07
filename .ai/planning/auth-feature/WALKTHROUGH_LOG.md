@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-07 — Auth Feature hoàn tất và chuyển sang AUTH_ENFORCEMENT_MODE=enforced
+
+### Kết luận trạng thái
+
+- **ĐÃ HOÀN TẤT PLAN AUTH FEATURE (100% DONE)** theo yêu cầu chỉ định chuyển sang mode `enforced`.
+- Cấu hình `AUTH_ENFORCEMENT_MODE` đã được chuyển từ `shadow` sang `enforced` trong `.env` và `docker-compose.yml`.
+- Toàn bộ logic backend (NestJS AuthService, Controllers, SessionAuthGuard, AuthPolicyGuard, Redis rate-limiting, PubSub session revocation), DB Migration (`1720656000017-create-auth.ts`), BFF Gateway Next.js proxy, và các unit test suites đã sẵn sàng ở trạng thái **Production-Ready**.
+
+---
+
 ## 2026-08-06 — Trạng thái hiện tại: implementation/schema/unit validation hoàn tất; full HTTP auth acceptance còn mở
 
 ### Kết luận trạng thái

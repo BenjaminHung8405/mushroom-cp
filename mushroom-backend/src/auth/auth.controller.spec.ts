@@ -31,6 +31,9 @@ describe('AuthController', () => {
     expect(service).toBeDefined();
   });
 
+  // ---------------------------------------------------------------------------
+  // Device token endpoints (unchanged — legacy MQTT bootstrap)
+  // ---------------------------------------------------------------------------
   it('POST /auth/token should return token from MQTT_ESP32_PASS', () => {
     const result = controller.issueToken({
       clientId: 'esp32_mushroom_client',
@@ -61,3 +64,4 @@ describe('AuthController', () => {
     ).toThrow(BadRequestException);
   });
 });
+

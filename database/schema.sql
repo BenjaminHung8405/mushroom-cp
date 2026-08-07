@@ -1,5 +1,11 @@
--- Kích hoạt extension TimescaleDB
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- Auth: managed by NestJS migration 1720656000017 + 1720656000018.
+-- Shown here for documentation; use 'pnpm migration:run' to create authTable.
+-- users.phone_number: E.164 format, e.g. +84901234567
+-- users.pin_hash: Argon2id hash of 6-digit PIN
+-- users.must_set_pin: true = user forced to change PIN on first login
+-- users.pin_failed_attempts: consecutive login failures (reset on success)
+-- users.pin_locked_until: temporary lockout timestamp (null = not locked)
+
 
 -- ============================================================================
 -- PHẦN 1: BẢNG QUAN HỆ (REGULAR POSTGRESQL TABLES)
