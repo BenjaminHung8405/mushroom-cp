@@ -264,11 +264,15 @@ namespace wifi
         resp += "\"wifi_state\":" + String((int)current_state) + ",";
         resp += "\"ap_clients\":" + String(WiFi.softAPgetStationNum());
         resp += "}";
-            static void handle_root()
+    static void handle_root()
     {
         mark_softap_activity();
         storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
-        String html = captive_html;
+        
+        // Pre-reserve memory capacity upfront to prevent ESP32 heap fragmentation from repeated reallocations
+        String html;
+        html.reserve(strlen(captive_html) + 512);
+        html = captive_html;
         html.replace("%SSID%", cfg.getWifiSSID());
         html.replace("%PASS%", cfg.getWifiPass());
         html.replace("%MQTT_BROKER%", cfg.getMqttBroker());
@@ -277,6 +281,7 @@ namespace wifi
         html.replace("%MQTT_PASS%", cfg.getMqttPass());
         html.replace("%BACKEND_URL%", "");
         html.replace("%AP_SSID%", config::network::get_dynamic_ap_ssid());
+
         webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         webServer.sendHeader("Pragma", "no-cache");
         webServer.sendHeader("Connection", "close");

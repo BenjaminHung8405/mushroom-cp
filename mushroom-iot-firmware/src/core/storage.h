@@ -4,6 +4,11 @@
 #include <vector>
 #include "config.h"
 
+#ifndef UNIT_TEST
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
+
 namespace storage
 {
     /**
@@ -58,6 +63,20 @@ namespace storage
         // Disable copy and assignment operations
         StorageManager(const StorageManager &) = delete;
         StorageManager &operator=(const StorageManager &) = delete;
+
+        /**
+         * @brief Acquire FreeRTOS mutex for thread-safe NVS and known WiFi vector access.
+         */
+        void lock();
+
+        /**
+         * @brief Release FreeRTOS mutex.
+         */
+        void unlock();
+
+        #ifdef UNIT_TEST
+        int lock_count() const { return lock_count_; }
+        #endif
 
         /**
          * @brief Initializes NVS storage by opening and closing preferences to verify access.
@@ -293,7 +312,29 @@ namespace storage
         bool factory_reset();
 
     private:
+    private:
         StorageManager() = default;
         ~StorageManager() = default;
+
+        #ifndef UNIT_TEST
+        SemaphoreHandle_t mutex_ = nullptr;
+        #else
+        int lock_count_ = 0;
+        #endif
+    };
+
+    /**
+     * @brief RAII Guard for StorageManager mutex locking.
+     */
+    class ScopedStorageLock
+    {
+    public:
+        explicit ScopedStorageLock(StorageManager &mgr) : mgr_(mgr) { mgr_.lock(); }
+        ~ScopedStorageLock() { mgr_.unlock(); }
+        ScopedStorageLock(const ScopedStorageLock &) = delete;
+        ScopedStorageLock &operator=(const ScopedStorageLock &) = delete;
+
+    private:
+        StorageManager &mgr_;
     };
 } // namespace storage

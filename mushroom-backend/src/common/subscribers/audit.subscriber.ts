@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   EventSubscriber,
   EntitySubscriberInterface,
@@ -19,8 +20,17 @@ export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
  */
 @EventSubscriber()
 export class AuditSubscriber implements EntitySubscriberInterface {
+  private readonly logger = new Logger(AuditSubscriber.name);
+
   beforeInsert(event: InsertEvent<Record<string, unknown>>): void {
-    const userId = RequestContextService.getUserId() ?? SYSTEM_USER_ID;
+    const contextUserId = RequestContextService.getUserId();
+    if (!contextUserId) {
+      const entityName = event.metadata?.name ?? 'UnknownEntity';
+      this.logger.warn(
+        `[AuditContext] Missing request context userId on insert for ${entityName}. Falling back to SYSTEM_USER_ID (${SYSTEM_USER_ID}).`,
+      );
+    }
+    const userId = contextUserId ?? SYSTEM_USER_ID;
     if (event.entity) {
       if ('createdBy' in event.entity && !event.entity.createdBy) {
         event.entity.createdBy = userId;
@@ -32,7 +42,14 @@ export class AuditSubscriber implements EntitySubscriberInterface {
   }
 
   beforeUpdate(event: UpdateEvent<Record<string, unknown>>): void {
-    const userId = RequestContextService.getUserId() ?? SYSTEM_USER_ID;
+    const contextUserId = RequestContextService.getUserId();
+    if (!contextUserId) {
+      const entityName = event.metadata?.name ?? 'UnknownEntity';
+      this.logger.warn(
+        `[AuditContext] Missing request context userId on update for ${entityName}. Falling back to SYSTEM_USER_ID (${SYSTEM_USER_ID}).`,
+      );
+    }
+    const userId = contextUserId ?? SYSTEM_USER_ID;
     if (event.entity && 'updatedBy' in event.entity) {
       event.entity.updatedBy = userId;
     }
@@ -50,10 +67,17 @@ export async function updateWithAudit<
   criteria: any,
   partialEntity: Record<string, unknown>,
 ): Promise<any> {
-  const userId = RequestContextService.getUserId() ?? SYSTEM_USER_ID;
+  const contextUserId = RequestContextService.getUserId();
+  if (!contextUserId) {
+    new Logger('updateWithAudit').warn(
+      `[AuditContext] Missing request context userId on updateWithAudit. Falling back to SYSTEM_USER_ID (${SYSTEM_USER_ID}).`,
+    );
+  }
+  const userId = contextUserId ?? SYSTEM_USER_ID;
   const entityWithAudit = {
     ...partialEntity,
     updatedBy: partialEntity.updatedBy ?? userId,
   };
   return repository.update(criteria, entityWithAudit);
 }
+

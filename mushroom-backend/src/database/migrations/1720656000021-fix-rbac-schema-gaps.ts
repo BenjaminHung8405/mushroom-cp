@@ -4,7 +4,22 @@ export class FixRbacSchemaGaps1720656000021 implements MigrationInterface {
   name = 'FixRbacSchemaGaps1720656000021';
 
   async up(q: QueryRunner): Promise<void> {
-    // 1. Devices: drop NOT NULL and old check constraint, cast to UUID safely with regex, add FK ON DELETE SET NULL
+    // 1. Devices: drop NOT NULL and old check constraint, backup invalid legacy owner_user_id values, cast to UUID safely with regex, add FK ON DELETE SET NULL
+    await q.query(`
+      CREATE TABLE IF NOT EXISTS devices_invalid_owner_backup (
+        device_id VARCHAR(255) PRIMARY KEY,
+        legacy_owner_user_id TEXT,
+        archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `);
+    await q.query(`
+      INSERT INTO devices_invalid_owner_backup (device_id, legacy_owner_user_id)
+      SELECT id, owner_user_id 
+      FROM devices 
+      WHERE owner_user_id IS NOT NULL 
+        AND owner_user_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      ON CONFLICT (device_id) DO NOTHING
+    `);
     await q.query(
       `ALTER TABLE devices DROP CONSTRAINT IF EXISTS chk_devices_owner_user_id_nonblank`,
     );

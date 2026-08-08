@@ -64,6 +64,36 @@ function isValidUUIDv4(value: string): boolean {
   return UUID_V4_REGEX.test(value);
 }
 
+export const KIOSK_STORAGE_EVENT = 'kiosk-storage-change';
+
+function notifyKioskStorageChange(key?: string): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(KIOSK_STORAGE_EVENT, { detail: { key } }));
+  }
+}
+
+export function subscribeToKioskStorage(callback: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  const handleStorage = (e: StorageEvent) => {
+    if (!e.key || e.key.startsWith('kiosk_')) {
+      callback();
+    }
+  };
+
+  const handleCustomEvent = () => {
+    callback();
+  };
+
+  window.addEventListener('storage', handleStorage);
+  window.addEventListener(KIOSK_STORAGE_EVENT, handleCustomEvent);
+
+  return () => {
+    window.removeEventListener('storage', handleStorage);
+    window.removeEventListener(KIOSK_STORAGE_EVENT, handleCustomEvent);
+  };
+}
+
 export const kioskStorage = {
   /**
    * Returns the persistent UUID v4 device token stored in localStorage.
@@ -101,6 +131,7 @@ export const kioskStorage = {
           ? crypto.randomUUID()
           : generateUUIDv4Fallback();
       localStorage.setItem(STORAGE_KEYS.DEVICE_TOKEN, token);
+      notifyKioskStorageChange(STORAGE_KEYS.DEVICE_TOKEN);
     }
     return token;
   },
@@ -146,6 +177,7 @@ export const kioskStorage = {
     }
 
     localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(users));
+    notifyKioskStorageChange(STORAGE_KEYS.REGISTERED_USERS);
   },
 
   updateRegisteredUserProfile(
@@ -173,17 +205,20 @@ export const kioskStorage = {
     };
 
     localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(users));
+    notifyKioskStorageChange(STORAGE_KEYS.REGISTERED_USERS);
   },
 
   removeRegisteredUser(userId: string): void {
     if (typeof window === 'undefined') return;
     const users = kioskStorage.getRegisteredUsers().filter((u) => u.userId !== userId);
     localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(users));
+    notifyKioskStorageChange(STORAGE_KEYS.REGISTERED_USERS);
   },
 
   removeDeviceToken(): void {
     if (typeof window === 'undefined') return;
     localStorage.removeItem(STORAGE_KEYS.DEVICE_TOKEN);
+    notifyKioskStorageChange(STORAGE_KEYS.DEVICE_TOKEN);
   },
 
   hasRegisteredUser(userId: string): boolean {

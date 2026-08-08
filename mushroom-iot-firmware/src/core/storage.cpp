@@ -12,8 +12,38 @@ namespace storage
         return instance;
     }
 
+    void StorageManager::lock()
+    {
+#ifndef UNIT_TEST
+        if (mutex_ != nullptr)
+        {
+            xSemaphoreTake(mutex_, portMAX_DELAY);
+        }
+#else
+        ++lock_count_;
+#endif
+    }
+
+    void StorageManager::unlock()
+    {
+#ifndef UNIT_TEST
+        if (mutex_ != nullptr)
+        {
+            xSemaphoreGive(mutex_);
+        }
+#else
+        if (lock_count_ > 0) --lock_count_;
+#endif
+    }
+
     bool StorageManager::init()
     {
+#ifndef UNIT_TEST
+        if (mutex_ == nullptr)
+        {
+            mutex_ = xSemaphoreCreateMutex();
+        }
+#endif
         Preferences prefs;
         if (prefs.begin(config::network::NVS_NAMESPACE, false))
         {
@@ -115,6 +145,7 @@ namespace storage
 
     bool StorageManager::load_known_wifi_list(std::vector<KnownWifiNetwork> &list)
     {
+        ScopedStorageLock lock(*this);
         list.clear();
         Preferences prefs;
         if (!prefs.begin(config::network::NVS_NAMESPACE, true))
@@ -130,7 +161,7 @@ namespace storage
             if (raw_json.length() > 0)
             {
                 StaticJsonDocument<1024> doc;
-                DeserializationError err = deserializeJson(doc, raw_json);
+                DeserializationError err = deserializeJson(doc, raw_json.c_str());
                 if (!err && doc.is<JsonArray>())
                 {
                     JsonArray arr = doc.as<JsonArray>();
@@ -172,6 +203,7 @@ namespace storage
 
     bool StorageManager::save_known_wifi_list(const std::vector<KnownWifiNetwork> &list)
     {
+        ScopedStorageLock lock(*this);
         Preferences prefs;
         if (!prefs.begin(config::network::NVS_NAMESPACE, false))
         {
@@ -199,6 +231,7 @@ namespace storage
     bool StorageManager::add_or_update_known_wifi(const String &ssid, const String &pass)
     {
         if (ssid.length() == 0) return false;
+        ScopedStorageLock lock(*this);
 
         std::vector<KnownWifiNetwork> list;
         load_known_wifi_list(list);
@@ -268,6 +301,7 @@ namespace storage
     bool StorageManager::remove_known_wifi(const String &ssid)
     {
         if (ssid.length() == 0) return false;
+        ScopedStorageLock lock(*this);
 
         std::vector<KnownWifiNetwork> list;
         load_known_wifi_list(list);
