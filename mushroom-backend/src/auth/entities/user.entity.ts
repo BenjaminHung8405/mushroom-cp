@@ -9,6 +9,10 @@ export class User {
   @Column({ name: 'phone_number', type: 'varchar', length: 15, unique: true }) phoneNumber!: string;
   /** Argon2id hash of the 6-digit PIN */
   @Column({ name: 'pin_hash', type: 'varchar', length: 255 }) pinHash!: string;
+  /** User's full display name, optional */
+  @Column({ name: 'full_name', type: 'varchar', length: 100, nullable: true }) fullName!: string | null;
+  /** Agriculture preset icon ID, default 'sprout' */
+  @Column({ type: 'varchar', length: 50, nullable: true, default: 'sprout' }) avatar!: string | null;
   @Column({ type: 'varchar', length: 16 }) role!: UserRole;
   @Column({ name: 'is_active', default: true }) isActive!: boolean;
   /** True when the user must set a new PIN before accessing the app */

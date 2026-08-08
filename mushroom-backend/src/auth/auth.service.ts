@@ -168,6 +168,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     phoneInput: string,
     pin: string,
     context: LoginContext,
+    deviceToken?: string,
+    deviceLabel?: string,
   ): Promise<{ token: string; principal: AuthPrincipal }> {
     const phoneNumber = this.normalizePhone(phoneInput);
     await this.assertLoginAllowed(phoneNumber, context.ipAddress);
@@ -223,8 +225,61 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       revokedAt: null,
     });
     await this.sessions.save(session);
+
+    // Auto-register kiosk device when deviceToken is provided.
+    // This replaces the old explicit setupDevicePin() flow — the device is
+    // registered transparently on first successful SĐT login.
+    if (deviceToken) {
+      await this.registerDevice(user.id, deviceToken, deviceLabel ?? null);
+    }
+
     await this.record('LOGIN_SUCCESS', user.id, phoneNumber, context, 'SUCCESS');
     return { token, principal: await this.principalFor(user, session.id) };
+  }
+
+  /**
+   * Upserts a device record for the given user.
+   * Enforces a maximum of MAX_DEVICES_PER_USER per user via LRU pruning
+   * (oldest lastUsedAt is evicted first) to prevent unlimited garbage accumulation
+   * from incognito sessions or device churn.
+   */
+  async registerDevice(userId: string, deviceToken: string, deviceLabel: string | null): Promise<void> {
+    const deviceTokenHash = this.hashToken(deviceToken);
+    await this.pinDevices.manager.transaction(async (em) => {
+      const existing = await em.findOne(UserPinDevice, { where: { userId, deviceTokenHash } });
+      if (existing) {
+        // Device already registered — just refresh label and timestamp
+        await em.update(UserPinDevice, existing.id, {
+          deviceLabel: deviceLabel ?? existing.deviceLabel,
+          lastUsedAt: new Date(),
+          failedAttempts: 0,
+          lockedUntil: null,
+        });
+        return;
+      }
+
+      // LRU pruning: evict oldest device if at capacity
+      const all = await em.find(UserPinDevice, {
+        where: { userId },
+        order: { lastUsedAt: 'ASC', createdAt: 'ASC' },
+      });
+      if (all.length >= MAX_DEVICES_PER_USER) {
+        await em.delete(UserPinDevice, all[0].id);
+        this.logger.log(
+          `[registerDevice] LRU-evicted device ${all[0].id} for user ${userId} (limit ${MAX_DEVICES_PER_USER})`,
+        );
+      }
+
+      const device = em.create(UserPinDevice, {
+        userId,
+        deviceTokenHash,
+        deviceLabel,
+        failedAttempts: 0,
+        lockedUntil: null,
+        lastUsedAt: new Date(),
+      });
+      await em.save(UserPinDevice, device);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -301,76 +356,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   // ---------------------------------------------------------------------------
   // Kiosk Device-Bound PIN Management
   // ---------------------------------------------------------------------------
-
-  async setupDevicePin(
-    principal: AuthPrincipal,
-    currentPin: string,
-    newPinForDevice: string,
-    deviceToken: string,
-    deviceLabel?: string,
-  ): Promise<void> {
-    const user = await this.users.findOneByOrFail({ id: principal.id });
-    if (!(await this.verifyPin(user.pinHash, currentPin))) {
-      throw new UnauthorizedException('Mã PIN hiện tại không đúng.');
-    }
-    this.validatePinStrength(newPinForDevice);
-
-    const deviceTokenHash = this.hashToken(deviceToken);
-    const pinHash = await this.hashPin(newPinForDevice);
-
-    await this.pinDevices.manager.transaction(async (entityManager) => {
-      const existingDevices = await entityManager.find(UserPinDevice, {
-        where: { userId: user.id },
-        order: { createdAt: 'ASC' },
-      });
-
-      const isExistingDevice = existingDevices.some((d) => d.deviceTokenHash === deviceTokenHash);
-      if (!isExistingDevice && existingDevices.length >= MAX_DEVICES_PER_USER) {
-        // Auto-prune LRU device (oldest lastUsedAt or createdAt)
-        const sortedByLru = [...existingDevices].sort((a, b) => {
-          const tA = a.lastUsedAt?.getTime() ?? a.createdAt.getTime();
-          const tB = b.lastUsedAt?.getTime() ?? b.createdAt.getTime();
-          return tA - tB;
-        });
-        const oldest = sortedByLru[0];
-        if (oldest) {
-          await entityManager.delete(UserPinDevice, oldest.id);
-          this.logger.log(
-            `Auto-pruned oldest PIN device ${oldest.id} for user ${user.id} due to device limit (${MAX_DEVICES_PER_USER})`,
-          );
-        }
-      }
-
-      const existing = existingDevices.find((d) => d.deviceTokenHash === deviceTokenHash);
-
-      if (existing) {
-        existing.pinHash = pinHash;
-        existing.deviceLabel = deviceLabel ?? existing.deviceLabel;
-        existing.failedAttempts = 0;
-        existing.lockedUntil = null;
-        await entityManager.save(UserPinDevice, existing);
-      } else {
-        const newDevice = entityManager.create(UserPinDevice, {
-          userId: user.id,
-          deviceTokenHash,
-          deviceLabel: deviceLabel ?? null,
-          pinHash,
-          failedAttempts: 0,
-          lockedUntil: null,
-        });
-        await entityManager.save(UserPinDevice, newDevice);
-      }
-    });
-
-    await this.record(
-      'PIN_DEVICE_SETUP',
-      user.id,
-      user.phoneNumber,
-      { ipAddress: null, userAgent: null },
-      'SUCCESS',
-      { deviceLabel },
-    );
-  }
+  //
+  // setupDevicePin() has been removed. Device registration now happens
+  // automatically inside login() when the client provides a deviceToken.
+  // loginWithDevicePin() verifies against user.pinHash (no separate device PIN).
 
   async loginWithDevicePin(
     phoneInput: string,
@@ -387,45 +376,77 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       ? await this.pinDevices.findOne({ where: { userId: user.id, deviceTokenHash } })
       : null;
 
-    // Timing attack protection: ALWAYS execute verifyPin even when user or device record is missing
+    // Timing attack protection: ALWAYS execute verifyPin even when user or device record is missing.
+    // Verify against user.pinHash (unified PIN model — no separate device PIN).
+    const pinToVerify = user?.pinHash ?? DUMMY_PIN_HASH;
     if (!user || !user.isActive || !device) {
-      await this.verifyPin(DUMMY_PIN_HASH, pin);
+      await this.verifyPin(pinToVerify, pin);
       await this.record('PIN_LOGIN_FAILED', null, phoneNumber, context, 'FAILURE');
       throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
     }
 
-    // Check per-device lockout before verifying
+    // Check account-level lockout first (cross-device brute-force protection)
+    if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
+      await this.verifyPin(pinToVerify, pin);
+      await this.record('PIN_LOGIN_BLOCKED', user.id, phoneNumber, context, 'FAILURE', {
+        reason: 'account_lockout',
+        lockedUntil: user.pinLockedUntil,
+      });
+      await this.throttleDelay();
+      throw new HttpException(
+        'Tài khoản tạm khóa do nhập PIN sai quá nhiều lần. Vui lòng đăng nhập bằng Số điện thoại.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // Check per-device lockout
     if (device.lockedUntil && device.lockedUntil > new Date()) {
-      await this.verifyPin(DUMMY_PIN_HASH, pin);
+      await this.verifyPin(pinToVerify, pin);
       await this.record('PIN_LOGIN_BLOCKED', user.id, phoneNumber, context, 'FAILURE', {
         reason: 'device_lockout',
         lockedUntil: device.lockedUntil,
       });
       await this.throttleDelay();
       throw new HttpException(
-        'Tính năng PIN trên thiết bị này đang bị tạm khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút hoặc đăng nhập bằng Mật khẩu chính.',
+        'Tính năng PIN trên thiết bị này đang bị tạm khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút hoặc đăng nhập bằng Số điện thoại.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
-    const verified = await this.verifyPin(device.pinHash, pin);
+    // Verify against the unified account PIN
+    const verified = await this.verifyPin(user.pinHash, pin);
 
     if (!verified) {
-      const newAttempts = device.failedAttempts + 1;
-      if (newAttempts >= KIOSK_PIN_MAX_ATTEMPTS) {
+      // --- Dual-level lockout ---
+      // Level 1: per-device (blocks this tablet after 3 strikes)
+      const newDeviceAttempts = device.failedAttempts + 1;
+      if (newDeviceAttempts >= KIOSK_PIN_MAX_ATTEMPTS) {
         const lockedUntil = new Date(Date.now() + KIOSK_PIN_LOCKOUT_MS);
         await this.pinDevices.update(device.id, { failedAttempts: 0, lockedUntil });
         this.logger.warn(
-          `Device PIN ${device.id} for user ${user.id} locked out until ${lockedUntil.toISOString()} after ${KIOSK_PIN_MAX_ATTEMPTS} failed attempts`,
+          `[kiosk] Device ${device.id} locked for user ${user.id} until ${lockedUntil.toISOString()}`,
         );
       } else {
-        await this.pinDevices.update(device.id, { failedAttempts: newAttempts });
+        await this.pinDevices.update(device.id, { failedAttempts: newDeviceAttempts });
       }
+
+      // Level 2: account-wide (blocks all devices after PIN_MAX_ATTEMPTS total failures)
+      const newUserAttempts = user.pinFailedAttempts + 1;
+      if (newUserAttempts >= PIN_MAX_ATTEMPTS) {
+        const lockedUntil = new Date(Date.now() + PIN_LOCKOUT_MS);
+        await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: lockedUntil });
+        this.logger.warn(
+          `[kiosk] Account ${user.id} locked (cross-device brute-force) until ${lockedUntil.toISOString()}`,
+        );
+      } else {
+        await this.users.update(user.id, { pinFailedAttempts: newUserAttempts });
+      }
+
       await this.record('PIN_LOGIN_FAILED', user.id, phoneNumber, context, 'FAILURE');
       throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
     }
 
-    // Success — reset device lockout state and update lastUsedAt
+    // Success — reset both device and account lockout counters
     await this.pinDevices.update(device.id, {
       failedAttempts: 0,
       lockedUntil: null,
@@ -473,11 +494,27 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   // Principal & Audit
   // ---------------------------------------------------------------------------
 
+  async updateProfile(
+    userId: string,
+    dto: { fullName?: string; avatar?: string },
+  ): Promise<User> {
+    const user = await this.users.findOneByOrFail({ id: userId });
+    if (dto.fullName !== undefined) {
+      user.fullName = dto.fullName.trim() || null;
+    }
+    if (dto.avatar !== undefined) {
+      user.avatar = dto.avatar.trim() || 'sprout';
+    }
+    return this.users.save(user);
+  }
+
   async principalFor(user: User, sessionId: string): Promise<AuthPrincipal> {
     const rows = user.role === UserRole.ADMIN ? [] : await this.access.find({ where: { userId: user.id } });
     return {
       id: user.id,
       phoneNumber: user.phoneNumber,
+      fullName: user.fullName,
+      avatar: user.avatar,
       role: user.role,
       houseIds: rows.map((row) => row.houseId),
       sessionId,

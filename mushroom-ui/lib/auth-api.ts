@@ -1,9 +1,32 @@
+import { kioskStorage } from './kiosk-storage';
+
 export interface AuthUser {
   id: string;
   phoneNumber: string;
+  fullName?: string | null;
+  avatar?: string | null;
   role: 'ADMIN' | 'OPERATOR' | 'AUDITOR';
   houseIds: string[];
   mustSetPin: boolean;
+}
+
+/** Derive a short human-readable device label from navigator.userAgent. */
+function labelFromUserAgent(ua: string): string {
+  if (!ua) return 'Unknown Device';
+  const browser =
+    /Edg\//.test(ua) ? 'Edge' :
+    /OPR\//.test(ua) ? 'Opera' :
+    /Chrome\//.test(ua) ? 'Chrome' :
+    /Firefox\//.test(ua) ? 'Firefox' :
+    /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os =
+    /iPad/.test(ua) ? 'iPad' :
+    /iPhone/.test(ua) ? 'iPhone' :
+    /Android/.test(ua) ? 'Android Tablet' :
+    /Windows/.test(ua) ? 'Windows' :
+    /Macintosh/.test(ua) ? 'Mac' :
+    /Linux/.test(ua) ? 'Linux' : 'Device';
+  return `${browser} on ${os}`.slice(0, 150);
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -38,9 +61,21 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
 
 export const authApi = {
   async login(phoneNumber: string, pin: string): Promise<{ user: AuthUser }> {
+    // Silently include the kiosk device token (if available) so the backend
+    // can auto-register this device in a single round-trip.
+    let deviceToken: string | undefined;
+    let deviceLabel: string | undefined;
+    try {
+      deviceToken = typeof window !== 'undefined' ? kioskStorage.getDeviceToken() : undefined;
+      if (deviceToken && typeof navigator !== 'undefined') {
+        deviceLabel = labelFromUserAgent(navigator.userAgent);
+      }
+    } catch {
+      // Not a kiosk browser (SSR or getDeviceToken threw) — skip device registration
+    }
     return fetchJson<{ user: AuthUser }>(`${API_BASE}/auth/login`, {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber, pin }),
+      body: JSON.stringify({ phoneNumber, pin, deviceToken, deviceLabel }),
     });
   },
 
@@ -56,6 +91,13 @@ export const authApi = {
     await fetchJson<void>(`${API_BASE}/auth/logout`, { method: 'POST' });
   },
 
+  async updateProfile(dto: { fullName?: string; avatar?: string }): Promise<AuthUser> {
+    return fetchJson<AuthUser>(`${API_BASE}/auth/profile`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    });
+  },
+
   async pinLogin(phoneNumber: string, pin: string, deviceToken: string): Promise<{ user: AuthUser }> {
     return fetchJson<{ user: AuthUser }>(`${API_BASE}/auth/pin/login`, {
       method: 'POST',
@@ -63,10 +105,13 @@ export const authApi = {
     });
   },
 
-  async pinSetup(currentPin: string, newPinForDevice: string, deviceToken: string, deviceLabel?: string): Promise<void> {
-    await fetchJson<void>(`${API_BASE}/auth/pin/setup`, {
+  // pinSetup() removed — device registration now happens automatically
+  // inside login() by sending deviceToken + deviceLabel to POST /auth/login.
+
+  async setPin(currentPin: string, newPin: string): Promise<void> {
+    await fetchJson<void>(`${API_BASE}/auth/set-pin`, {
       method: 'POST',
-      body: JSON.stringify({ currentPin, newPinForDevice, deviceToken, deviceLabel }),
+      body: JSON.stringify({ currentPin, newPin }),
     });
   },
 

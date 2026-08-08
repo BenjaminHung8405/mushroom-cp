@@ -1,6 +1,6 @@
 'use client'
 
-import { BellRing, Leaf, Radio, Server, ShieldCheck } from 'lucide-react'
+import { BellRing, Leaf, LogOut, Radio, Server, ShieldCheck, User as UserIcon } from 'lucide-react'
 import { useEffect, useState, type RefObject } from 'react'
 import Link from 'next/link'
 
@@ -8,6 +8,8 @@ import { DeviceSelector } from '@/components/device-selector'
 import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
 import { useAuth } from '@/lib/auth-context'
+import { AgricultureAvatars } from '@/app/components/kiosk/AvatarPicker'
+import { formatPhoneNumber } from '@/lib/kiosk-storage'
 
 function StatusPill({ compact = false }: { compact?: boolean }) {
   const { deviceStatus } = useRealTelemetry()
@@ -39,7 +41,7 @@ export function Header({
   activeAlertCount: number
   alertTriggerRef: RefObject<HTMLButtonElement | null>
 }) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -50,6 +52,13 @@ export function Header({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [deviceMenuOpen])
+
+  // Avatar preset lookup with fallback
+  const userAvatarPreset = AgricultureAvatars.find((a) => a.id === user?.avatar) || AgricultureAvatars[0]
+  const AvatarIcon = userAvatarPreset.icon
+
+  // Full name or masked phone fallback
+  const displayName = user?.fullName?.trim() || (user?.phoneNumber ? formatPhoneNumber(user.phoneNumber) : 'Tài khoản')
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/95 backdrop-blur-xl">
@@ -73,6 +82,36 @@ export function Header({
               <ShieldCheck className="size-5" />
             </Link>
           )}
+          
+          {/* Profile Trigger Button */}
+          {user && (
+            <Link
+              href="/profile"
+              className="flex items-center gap-2 min-h-11 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-900/70 hover:bg-slate-800 hover:border-slate-700 text-slate-200 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:rounded-xl"
+              title="Quản lý hồ sơ & PIN cá nhân"
+            >
+              <div className={`size-7 rounded-full bg-gradient-to-br ${userAvatarPreset.gradient} flex items-center justify-center text-white shadow-sm shrink-0`}>
+                <AvatarIcon className="size-4" />
+              </div>
+              <span className="hidden sm:inline text-xs font-semibold max-w-[120px] truncate">
+                {displayName}
+              </span>
+            </Link>
+          )}
+
+          {/* Logout Button */}
+          {user && (
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="flex size-11 cursor-pointer items-center justify-center rounded-lg border border-red-500/30 bg-red-950/30 text-red-300 transition-colors duration-200 hover:bg-red-900/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 sm:rounded-xl"
+              title="Đăng xuất khỏi hệ thống"
+              aria-label="Đăng xuất"
+            >
+              <LogOut className="size-4" />
+            </button>
+          )}
+
           <button type="button" onClick={() => setDeviceMenuOpen((open) => !open)} aria-expanded={deviceMenuOpen} aria-controls="mobile-device-selector" className="flex size-11 cursor-pointer items-center justify-center rounded-lg border border-slate-800 bg-slate-900/55 text-slate-300 transition-colors duration-200 hover:border-slate-600 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:hidden" aria-label="Chọn thiết bị">
             <Server className="size-[18px]" />
           </button>

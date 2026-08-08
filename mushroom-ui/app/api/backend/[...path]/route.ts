@@ -290,9 +290,13 @@ async function proxy(
       headers,
       body: bodyResult.body,
       cache: 'no-store',
+      signal: request.signal,
     })
     return forwardUpstreamResponse(response)
-  } catch {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return new Response(null, { status: 499 })
+    }
     return NextResponse.json(
       { message: 'Không thể kết nối tới dịch vụ backend.' },
       { status: 502, headers: { 'Cache-Control': 'no-store' } },

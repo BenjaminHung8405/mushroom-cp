@@ -12,6 +12,8 @@ describe('AuthService — phone+PIN', () => {
     id: '7e7f1d4b-92b3-4db4-a36c-083793f33e2a',
     phoneNumber: '+84901234567',
     pinHash: '',
+    fullName: null as string | null,
+    avatar: 'sprout' as string | null,
     role: UserRole.OPERATOR,
     isActive: true,
     mustSetPin: false,
@@ -25,7 +27,7 @@ describe('AuthService — phone+PIN', () => {
 
   function serviceWith(repositories: Record<string, unknown> = {}) {
     const user = makeUser();
-    const users = repositories.users ?? {
+    const users: any = repositories.users ?? {
       findOne: jest.fn().mockResolvedValue(user),
       findOneByOrFail: jest.fn().mockResolvedValue(user),
       exists: jest.fn().mockResolvedValue(false),
@@ -245,7 +247,7 @@ describe('AuthService — phone+PIN', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Kiosk Device PIN
+  // Kiosk Device PIN (unified PIN model)
   // ---------------------------------------------------------------------------
   describe('Kiosk Device PIN', () => {
     const validDeviceToken = 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d';
@@ -307,35 +309,30 @@ describe('AuthService — phone+PIN', () => {
       return { ...result, pinDevices, pinDevicesList };
     }
 
-    it('setupDevicePin — successful setup with valid current PIN', async () => {
+    it('registerDevice — creates a device record on first call', async () => {
       const { service, user, pinDevicesList } = kioskServiceWith();
-      user.pinHash = await service.hashPin('839274');
-
-      const principal = await service.principalFor(user, 'session-123');
-      await service.setupDevicePin(principal, '839274', '928471', validDeviceToken, 'Tablet A');
-
+      await service.registerDevice(user.id, validDeviceToken, 'Chrome on iPad');
       expect(pinDevicesList).toHaveLength(1);
-      expect(pinDevicesList[0].deviceLabel).toBe('Tablet A');
+      expect(pinDevicesList[0].deviceLabel).toBe('Chrome on iPad');
     });
 
-    it('setupDevicePin — throws UnauthorizedException on wrong current PIN', async () => {
+    it('registerDevice — updates existing device instead of inserting duplicate', async () => {
+      const { service, user, pinDevicesList } = kioskServiceWith();
+      await service.registerDevice(user.id, validDeviceToken, 'Chrome on iPad');
+      await service.registerDevice(user.id, validDeviceToken, 'Safari on iPad');
+      // Should still be 1 record, label updated
+      expect(pinDevicesList).toHaveLength(1);
+      expect(pinDevicesList[0].deviceLabel).toBe('Safari on iPad');
+    });
+
+    it('loginWithDevicePin — successful login using account PIN (user.pinHash)', async () => {
       const { service, user } = kioskServiceWith();
       user.pinHash = await service.hashPin('839274');
 
-      const principal = await service.principalFor(user, 'session-123');
-      await expect(
-        service.setupDevicePin(principal, '000000', '928471', validDeviceToken),
-      ).rejects.toThrow(UnauthorizedException);
-    });
+      // Device is registered via registerDevice (mirrors login() auto-register)
+      await service.registerDevice(user.id, validDeviceToken, 'Test Tablet');
 
-    it('loginWithDevicePin — successful login', async () => {
-      const { service, user } = kioskServiceWith();
-      user.pinHash = await service.hashPin('839274');
-
-      const principal = await service.principalFor(user, 'session-123');
-      await service.setupDevicePin(principal, '839274', '928471', validDeviceToken);
-
-      const loginRes = await service.loginWithDevicePin(user.phoneNumber, '928471', validDeviceToken, {
+      const loginRes = await service.loginWithDevicePin(user.phoneNumber, '839274', validDeviceToken, {
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
       });
@@ -344,7 +341,17 @@ describe('AuthService — phone+PIN', () => {
       expect(loginRes.principal.phoneNumber).toBe(user.phoneNumber);
     });
 
-    it('loginWithDevicePin — timing attack protection and non-enumeration error message on missing user/device', async () => {
+    it('loginWithDevicePin — rejects wrong PIN with unified error message', async () => {
+      const { service, user } = kioskServiceWith();
+      user.pinHash = await service.hashPin('839274');
+      await service.registerDevice(user.id, validDeviceToken, 'Test Tablet');
+
+      await expect(
+        service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, { ipAddress: null, userAgent: null }),
+      ).rejects.toThrow('Thông tin thiết bị hoặc mã PIN không chính xác.');
+    });
+
+    it('loginWithDevicePin — timing attack protection on missing user/device', async () => {
       const { service } = kioskServiceWith();
       await expect(
         service.loginWithDevicePin('+84999999999', '123456', validDeviceToken, {
@@ -357,30 +364,61 @@ describe('AuthService — phone+PIN', () => {
     it('loginWithDevicePin — per-device lockout after 3 failed attempts', async () => {
       const { service, user } = kioskServiceWith();
       user.pinHash = await service.hashPin('839274');
+      await service.registerDevice(user.id, validDeviceToken, 'Test Tablet');
 
-      const principal = await service.principalFor(user, 'session-123');
-      await service.setupDevicePin(principal, '839274', '928471', validDeviceToken);
+      const ctx = { ipAddress: null, userAgent: null };
+      // Attempts 1-2: unified error
+      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
+      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
 
-      // Attempt 1 — should return unified non-enumeration error message
-      await expect(
-        service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, { ipAddress: null, userAgent: null }),
-      ).rejects.toThrow('Thông tin thiết bị hoặc mã PIN không chính xác.');
+      // Attempt 3: triggers device lock
+      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
 
-      // Attempt 2
-      await expect(
-        service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, { ipAddress: null, userAgent: null }),
-      ).rejects.toThrow(UnauthorizedException);
+      // Attempt 4: device is now locked — even correct PIN is blocked
+      await expect(service.loginWithDevicePin(user.phoneNumber, '839274', validDeviceToken, ctx)).rejects.toThrow(HttpException);
+    });
 
-      // Attempt 3 — triggers lockout
-      await expect(
-        service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, { ipAddress: null, userAgent: null }),
-      ).rejects.toThrow(UnauthorizedException);
+    it('loginWithDevicePin — dual-level: account locked after PIN_MAX_ATTEMPTS cross-device failures', async () => {
+      // Two different device tokens to simulate brute-force across multiple tablets
+      const deviceToken2 = 'b2c3d4e5-f6a7-4b5c-9d0e-1f2a3b4c5d6e';
+      const { service, user, users } = kioskServiceWith();
+      user.pinHash = await service.hashPin('839274');
+      user.pinFailedAttempts = 0;
 
-      // Attempt 4 — blocked due to device lockout
-      await expect(
-        service.loginWithDevicePin(user.phoneNumber, '928471', validDeviceToken, { ipAddress: null, userAgent: null }),
-      ).rejects.toThrow(HttpException);
+      // Register both devices
+      await service.registerDevice(user.id, validDeviceToken, 'Tablet A');
+      await service.registerDevice(user.id, deviceToken2, 'Tablet B');
 
+      const ctx = { ipAddress: null, userAgent: null };
+
+      // 5 total wrong PIN attempts across devices — triggers dual-level lockout
+      for (let i = 0; i < 5; i++) {
+        try {
+          await service.loginWithDevicePin(user.phoneNumber, '000000', i < 3 ? validDeviceToken : deviceToken2, ctx);
+        } catch {
+          // expected
+        }
+      }
+
+      // users.update should have been called to increment pinFailedAttempts at account level
+      const accountUpdateCalls = (users.update as jest.Mock).mock.calls.filter(
+        ([, updateObj]) => 'pinFailedAttempts' in updateObj || 'pinLockedUntil' in updateObj,
+      );
+      expect(accountUpdateCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+
+  describe('updateProfile', () => {
+    it('updates user fullName and avatar', async () => {
+      const { service, user, users } = serviceWith();
+      const updated = await service.updateProfile(user.id, {
+        fullName: '  Nguyễn Văn Nông  ',
+        avatar: 'farmer-m',
+      });
+      expect(users.save).toHaveBeenCalled();
+      expect(user.fullName).toBe('Nguyễn Văn Nông');
+      expect(user.avatar).toBe('farmer-m');
     });
   });
 });

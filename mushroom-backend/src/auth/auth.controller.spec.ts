@@ -63,5 +63,38 @@ describe('AuthController', () => {
       controller.issueDeviceToken(undefined as unknown as string),
     ).toThrow(BadRequestException);
   });
+
+  it('PATCH /auth/profile should update profile and return public user', async () => {
+    jest.spyOn(service, 'updateProfile').mockResolvedValue({
+      id: 'user-1',
+      phoneNumber: '+84901234567',
+      fullName: 'Nguyễn Văn Nông',
+      avatar: 'farmer-m',
+      role: 'OPERATOR' as any,
+    } as any);
+
+    const principal: any = {
+      id: 'user-1',
+      phoneNumber: '+84901234567',
+      role: 'OPERATOR',
+      houseIds: ['house-1'],
+      mustSetPin: false,
+    };
+
+    const result = await controller.updateProfile(principal, {
+      fullName: 'Nguyễn Văn Nông',
+      avatar: 'farmer-m',
+    });
+
+    expect(result).toEqual({
+      id: 'user-1',
+      phoneNumber: '+84901234567',
+      fullName: 'Nguyễn Văn Nông',
+      avatar: 'farmer-m',
+      role: 'OPERATOR',
+      houseIds: ['house-1'],
+      mustSetPin: false,
+    });
+  });
 });
 

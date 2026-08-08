@@ -1,12 +1,12 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Patch, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Public } from '../security/public.decorator';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './auth.decorators';
 import { SetPinDto } from './dto/set-pin.dto';
 import { LoginDto } from './dto/login.dto';
-import { PinSetupDto } from './dto/pin-setup.dto';
 import { PinLoginDto } from './dto/pin-login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import type { AuthPrincipal } from './auth.types';
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from './auth.types';
 import { RequestTokenDto } from './dto/request-token.dto';
@@ -19,10 +19,16 @@ export class AuthController {
 
   @Post('auth/login') @Public() @Throttle({ default: { limit: 20, ttl: 60_000 } }) @HttpCode(200)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    // Auto-generate a human-readable device label from User-Agent when the client
+    // provides a deviceToken. This surfaces in admin device management dashboards.
+    const deviceLabel = dto.deviceToken
+      ? (dto.deviceLabel ?? this.labelFromUserAgent(req.get('user-agent') ?? ''))
+      : undefined;
+
     const result = await this.auth.login(dto.phoneNumber, dto.pin, {
       ipAddress: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
-    });
+    }, dto.deviceToken, deviceLabel);
     res.cookie(SESSION_COOKIE_NAME, result.token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -34,20 +40,11 @@ export class AuthController {
     return { user: this.publicUser(result.principal) };
   }
 
-  @Post('auth/pin/setup')
-  @HttpCode(204)
-  async setupPin(
-    @CurrentUser() principal: AuthPrincipal,
-    @Body() dto: PinSetupDto,
-  ): Promise<void> {
-    await this.auth.setupDevicePin(
-      principal,
-      dto.currentPin,
-      dto.newPinForDevice,
-      dto.deviceToken,
-      dto.deviceLabel,
-    );
-  }
+
+  // POST /auth/pin/setup has been removed.
+  // Device registration now happens automatically inside POST /auth/login
+  // when the client provides an optional deviceToken field.
+
 
   @Post('auth/pin/login')
   @Public()
@@ -104,6 +101,18 @@ export class AuthController {
     return this.publicUser(principal);
   }
 
+  @Patch('auth/profile')
+  @HttpCode(200)
+  async updateProfile(
+    @CurrentUser() principal: AuthPrincipal,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    const updatedUser = await this.auth.updateProfile(principal.id, dto);
+    principal.fullName = updatedUser.fullName;
+    principal.avatar = updatedUser.avatar;
+    return this.publicUser(principal);
+  }
+
   @Post('auth/set-pin') @HttpCode(204)
   async setPin(
     @CurrentUser() principal: AuthPrincipal,
@@ -124,11 +133,35 @@ export class AuthController {
     return this.auth.issueDeviceToken(deviceId);
   }
 
+  /**
+   * Extracts a short human-readable label from a User-Agent string.
+   * e.g. "Mozilla/5.0 (iPad; CPU OS 17_0...) Safari/604.1" → "Safari on iPad"
+   */
+  private labelFromUserAgent(ua: string): string {
+    if (!ua) return 'Unknown Device';
+    const browser =
+      /Edg\//.test(ua) ? 'Edge' :
+      /OPR\//.test(ua) ? 'Opera' :
+      /Chrome\//.test(ua) ? 'Chrome' :
+      /Firefox\//.test(ua) ? 'Firefox' :
+      /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    const os =
+      /iPad/.test(ua) ? 'iPad' :
+      /iPhone/.test(ua) ? 'iPhone' :
+      /Android/.test(ua) ? 'Android Tablet' :
+      /Windows/.test(ua) ? 'Windows' :
+      /Macintosh/.test(ua) ? 'Mac' :
+      /Linux/.test(ua) ? 'Linux' : 'Device';
+    return `${browser} on ${os}`.slice(0, 150);
+  }
+
   private publicUser(principal: AuthPrincipal | undefined) {
     if (!principal) return null;
     return {
       id: principal.id,
       phoneNumber: principal.phoneNumber,
+      fullName: principal.fullName ?? null,
+      avatar: principal.avatar ?? 'sprout',
       role: principal.role,
       houseIds: principal.houseIds,
       mustSetPin: principal.mustSetPin,

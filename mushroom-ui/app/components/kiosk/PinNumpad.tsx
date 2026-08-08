@@ -46,23 +46,21 @@ export function PinNumpad({
     setIsShuffled(true);
   }, [triggerHaptic]);
 
-  useEffect(() => {
-    if (enableShuffle) {
-      shuffleDigits();
-    }
-  }, [enableShuffle, shuffleDigits]);
+  // Shuffle on mount removed: auto-rearranging digits confuses low-tech users
+  // (farmers). The Shuffle button below is still available as an opt-in
+  // anti-peeping feature when the user explicitly wants it.
 
   useEffect(() => {
     if (error) {
       setShake(true);
       setPin('');
-      if (enableShuffle) {
-        shuffleDigits();
-      }
+      // Auto-shuffle on error removed: re-randomising the layout after a wrong
+      // PIN forces the user to relearn button positions mid-session, which is
+      // frustrating on a touch-only kiosk.
       const timer = setTimeout(() => setShake(false), 500);
       return () => clearTimeout(timer);
     }
-  }, [error, enableShuffle, shuffleDigits]);
+  }, [error]);
 
   const handleKeyPress = useCallback((digit: number) => {
     if (disabled) return;

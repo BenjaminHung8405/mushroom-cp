@@ -12,10 +12,8 @@ export class UserPinDevice {
   /** SHA-256 hash of the client-generated device_token UUID */
   @Column({ name: 'device_token_hash', type: 'varchar', length: 64 }) deviceTokenHash!: string;
 
-  @Column({ name: 'device_label', type: 'varchar', length: 100, nullable: true }) deviceLabel!: string | null;
-
-  /** Argon2id hash of the 6-digit PIN bound to this device */
-  @Column({ name: 'pin_hash', type: 'varchar', length: 255 }) pinHash!: string;
+  /** Human-readable label auto-generated from User-Agent (e.g. "Chrome on iPad") */
+  @Column({ name: 'device_label', type: 'varchar', length: 150, nullable: true }) deviceLabel!: string | null;
 
   /** Per-device failed PIN attempts; reset to 0 on success */
   @Column({ name: 'failed_attempts', default: 0 }) failedAttempts!: number;

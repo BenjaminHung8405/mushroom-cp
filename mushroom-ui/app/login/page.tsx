@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/auth-context';
 import { kioskStorage, generateAvatarGradient, maskPhoneNumber, type KioskRegisteredUser } from '@/lib/kiosk-storage';
 import { KioskAvatarCard } from '../components/kiosk/KioskAvatarCard';
 import { PinNumpad } from '../components/kiosk/PinNumpad';
-import { PinSetupModal } from '../components/kiosk/PinSetupModal';
 import { UserPlus, ArrowLeft, KeyRound, Lock, ShieldAlert, Cpu } from 'lucide-react';
 
 function getInitials(name: string): string {
@@ -34,8 +33,7 @@ export default function LoginPage() {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // Setup PIN modal states
-  const [showSetupModal, setShowSetupModal] = useState(false);
+
 
   useEffect(() => {
     if (status === 'authenticated' && user) {
@@ -44,18 +42,17 @@ export default function LoginPage() {
   }, [status, user, router]);
 
   useEffect(() => {
+    // Always show the account picker (STATE 1) regardless of user count.
+    // Auto-selecting when length === 1 was hiding the avatar grid and the
+    // "Add account" button — users never knew those existed.
     const users = kioskStorage.getRegisteredUsers();
     setRegisteredUsers(users);
-    if (users.length === 1) {
-      setSelectedUser(users[0]);
-    }
   }, []);
 
   const handlePinSubmit = async (pin: string) => {
     if (!selectedUser) return;
     setPinError(null);
     setLoading(true);
-
     try {
       await pinLogin(selectedUser.phoneNumber, pin);
       router.replace('/');
@@ -66,16 +63,16 @@ export default function LoginPage() {
     }
   };
 
+
   const handlePasswordLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
     setLoading(true);
-
     try {
       await login(phoneInput, passwordInput);
+      // Device is auto-registered by the backend via the deviceToken sent in login().
+      // No setup modal needed — redirect directly to the app.
       setShowPasswordModal(false);
-      // Prompt setup PIN modal
-      setShowSetupModal(true);
     } catch (err: any) {
       setPasswordError(err.message || 'Số điện thoại hoặc Mật khẩu không đúng');
       setLoading(false);
@@ -105,8 +102,8 @@ export default function LoginPage() {
       {/* Background ambient lighting */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-emerald-500/10 blur-[120px] pointer-events-none rounded-full" />
 
-      {/* Top Header / Brand */}
-      <header className="flex items-center justify-between z-10 max-w-4xl w-full mx-auto">
+      {/* Top Header / Brand — chỉ logo, không có button thứ cấp */}
+      <header className="flex items-center z-10 max-w-4xl w-full mx-auto">
         <div className="flex items-center gap-3">
           <div className="size-11 rounded-xl bg-emerald-950/80 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-md">
             <Cpu className="size-6" />
@@ -118,15 +115,6 @@ export default function LoginPage() {
             <p className="text-xs text-slate-300">Hệ thống Quản lý Nhà Nấm</p>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setShowPasswordModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 min-h-11 rounded-xl border border-slate-800 bg-slate-900/90 text-sm font-semibold text-slate-200 hover:bg-slate-800 hover:border-slate-700 cursor-pointer transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-        >
-          <KeyRound className="size-4 text-emerald-400" />
-          <span>Đăng nhập bằng SĐT</span>
-        </button>
       </header>
 
       {/* Main Content Area */}
@@ -162,20 +150,21 @@ export default function LoginPage() {
               <p className="text-sm text-slate-300 mt-1">Nhập 6 số PIN của bạn để vào hệ thống</p>
             </div>
 
-            {/* PIN Numpad */}
+            {/* PIN Numpad — shuffle tắt mặc định, nông dân cần bố cục ổn định.
+                 Người dùng vẫn có thể tự bấm nút Shuffle nếu muốn (opt-in). */}
             <PinNumpad
               onComplete={handlePinSubmit}
               disabled={loading}
               error={pinError}
-              enableShuffle={true}
+              enableShuffle={false}
             />
 
-            {/* Fallback link */}
+            {/* Fallback: text link nhỏ, không cạnh tranh với numpad */}
             <div className="mt-8 text-center">
               <button
                 type="button"
                 onClick={() => setShowPasswordModal(true)}
-                className="text-sm font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer transition-colors p-2"
+                className="text-sm font-medium text-slate-400 hover:text-emerald-400 hover:underline cursor-pointer transition-colors p-2"
               >
                 Quên PIN hoặc bị khóa? Đăng nhập bằng Số điện thoại
               </button>
@@ -192,37 +181,55 @@ export default function LoginPage() {
             </div>
 
             {registeredUsers.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-                {registeredUsers.map((u) => (
-                  <KioskAvatarCard
-                    key={u.userId}
-                    phoneNumber={u.phoneNumber}
-                    displayName={u.displayName}
-                    onClick={() => setSelectedUser(u)}
-                    onRemove={() => handleRemoveUser(u.userId)}
-                  />
-                ))}
-              </div>
+              <>
+                {/* Avatar grid — CTA chính */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+                  {registeredUsers.map((u) => (
+                    <KioskAvatarCard
+                      key={u.userId}
+                      phoneNumber={u.phoneNumber}
+                      displayName={u.displayName}
+                      onClick={() => setSelectedUser(u)}
+                      onRemove={() => handleRemoveUser(u.userId)}
+                    />
+                  ))}
+                </div>
+
+                {/* CTA phụ: text link nhỏ, phân cấp rõ ràng */}
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordModal(true)}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-400 hover:text-emerald-400 cursor-pointer transition-colors py-2 px-3 rounded-lg hover:bg-slate-900/50"
+                  >
+                    <UserPlus className="size-4" />
+                    <span>Thêm tài khoản khác</span>
+                  </button>
+                </div>
+              </>
             ) : (
-              <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 mb-6">
-                <Lock className="size-12 text-slate-500 mx-auto mb-3" />
-                <p className="text-base font-semibold text-slate-200">
-                  Chưa có ai ghim tài khoản trên máy tính bảng này
-                </p>
-                <p className="text-sm text-slate-400 mt-1.5 leading-relaxed">
-                  Hãy đăng nhập bằng Số điện thoại lần đầu để đăng ký mã PIN 6 số.
-                </p>
+              /* Empty state: 1 CTA duy nhất, nổi bật, không cạnh tranh */
+              <div className="flex flex-col items-center gap-6">
+                <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 w-full">
+                  <Lock className="size-12 text-slate-500 mx-auto mb-3" />
+                  <p className="text-base font-semibold text-slate-200">
+                    Chưa có ai ghim tài khoản trên máy tính bảng này
+                  </p>
+                  <p className="text-sm text-slate-400 mt-1.5 leading-relaxed">
+                    Đăng nhập lần đầu để ghim tài khoản và bật đăng nhập nhanh bằng PIN.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(true)}
+                  className="w-full flex items-center justify-center gap-2.5 py-4 px-6 min-h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-base font-bold text-white cursor-pointer transition-all duration-200 active:scale-95 shadow-lg shadow-emerald-950/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                >
+                  <KeyRound className="size-5" />
+                  <span>Đăng nhập bằng Số điện thoại</span>
+                </button>
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={() => setShowPasswordModal(true)}
-              className="w-full flex items-center justify-center gap-2.5 py-3.5 px-4 min-h-12 rounded-2xl border border-slate-800 bg-slate-900/90 text-sm font-bold text-emerald-400 hover:bg-slate-800 hover:border-slate-700 cursor-pointer transition-all duration-200 active:scale-95 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-            >
-              <UserPlus className="size-5" />
-              <span>+ Thêm tài khoản mới</span>
-            </button>
           </div>
         )}
       </section>
@@ -309,22 +316,6 @@ export default function LoginPage() {
         </div>
       )}
 
-      {/* Setup PIN Modal */}
-      {user && (
-        <PinSetupModal
-          userId={user.id}
-          phoneNumber={user.phoneNumber}
-          open={showSetupModal}
-          onClose={() => {
-            setShowSetupModal(false);
-            router.replace('/');
-          }}
-          onSuccess={() => {
-            setShowSetupModal(false);
-            router.replace('/');
-          }}
-        />
-      )}
     </main>
   );
 }

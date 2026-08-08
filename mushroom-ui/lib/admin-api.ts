@@ -96,7 +96,13 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
     let errorMsg = 'Yêu cầu không thành công';
     try {
       const data = await res.json();
-      errorMsg = data.message || errorMsg;
+      if (Array.isArray(data.message)) {
+        errorMsg = data.message.join('; ');
+      } else if (typeof data.message === 'string' && data.message.trim()) {
+        errorMsg = data.message;
+      } else if (typeof data.error === 'string' && data.error.trim()) {
+        errorMsg = data.error;
+      }
     } catch {
       // ignore parse error
     }
@@ -112,86 +118,95 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
 
 export const adminApi = {
   // Users
-  async listUsers(): Promise<AdminUser[]> {
-    return fetchJson<AdminUser[]>(`${API_BASE}/admin/users`);
+  async listUsers(signal?: AbortSignal): Promise<AdminUser[]> {
+    return fetchJson<AdminUser[]>(`${API_BASE}/admin/users`, { signal });
   },
 
-  async createUser(payload: CreateUserPayload): Promise<AdminUser> {
+  async createUser(payload: CreateUserPayload, signal?: AbortSignal): Promise<AdminUser> {
     return fetchJson<AdminUser>(`${API_BASE}/admin/users`, {
       method: 'POST',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async updateUser(id: string, payload: UpdateUserPayload): Promise<AdminUser> {
+  async updateUser(id: string, payload: UpdateUserPayload, signal?: AbortSignal): Promise<AdminUser> {
     return fetchJson<AdminUser>(`${API_BASE}/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async resetPin(id: string, pin: string): Promise<void> {
+  async resetPin(id: string, pin: string, signal?: AbortSignal): Promise<void> {
     await fetchJson<void>(`${API_BASE}/admin/users/${id}/reset-pin`, {
       method: 'POST',
       body: JSON.stringify({ pin }),
+      signal,
     });
   },
 
-  async setHouseAccess(id: string, houseIds: string[]): Promise<void> {
+  async setHouseAccess(id: string, houseIds: string[], signal?: AbortSignal): Promise<void> {
     await fetchJson<void>(`${API_BASE}/admin/users/${id}/house-access`, {
       method: 'PUT',
       body: JSON.stringify({ houseIds }),
+      signal,
     });
   },
 
   // Houses
-  async listHouses(): Promise<PaginatedResponse<AdminHouse>> {
-    return fetchJson<PaginatedResponse<AdminHouse>>(`${API_BASE}/admin/houses`);
+  async listHouses(signal?: AbortSignal): Promise<PaginatedResponse<AdminHouse>> {
+    return fetchJson<PaginatedResponse<AdminHouse>>(`${API_BASE}/admin/houses`, { signal });
   },
 
-  async createHouse(payload: CreateHousePayload): Promise<AdminHouse> {
+  async createHouse(payload: CreateHousePayload, signal?: AbortSignal): Promise<AdminHouse> {
     return fetchJson<AdminHouse>(`${API_BASE}/admin/houses`, {
       method: 'POST',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async updateHouse(id: string, payload: UpdateHousePayload): Promise<AdminHouse> {
+  async updateHouse(id: string, payload: UpdateHousePayload, signal?: AbortSignal): Promise<AdminHouse> {
     return fetchJson<AdminHouse>(`${API_BASE}/admin/houses/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async deleteHouse(id: string): Promise<{ message: string }> {
+  async deleteHouse(id: string, signal?: AbortSignal): Promise<{ message: string }> {
     return fetchJson<{ message: string }>(`${API_BASE}/admin/houses/${id}`, {
       method: 'DELETE',
+      signal,
     });
   },
 
   // Devices
-  async listDevices(): Promise<PaginatedResponse<AdminDevice>> {
-    return fetchJson<PaginatedResponse<AdminDevice>>(`${API_BASE}/admin/devices`);
+  async listDevices(signal?: AbortSignal): Promise<PaginatedResponse<AdminDevice>> {
+    return fetchJson<PaginatedResponse<AdminDevice>>(`${API_BASE}/admin/devices`, { signal });
   },
 
-  async createDevice(payload: CreateDevicePayload): Promise<AdminDevice & { rawToken: string }> {
+  async createDevice(payload: CreateDevicePayload, signal?: AbortSignal): Promise<AdminDevice & { rawToken: string }> {
     return fetchJson<AdminDevice & { rawToken: string }>(`${API_BASE}/admin/devices`, {
       method: 'POST',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async updateDevice(id: string, payload: UpdateDevicePayload): Promise<AdminDevice> {
+  async updateDevice(id: string, payload: UpdateDevicePayload, signal?: AbortSignal): Promise<AdminDevice> {
     return fetchJson<AdminDevice>(`${API_BASE}/admin/devices/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+      signal,
     });
   },
 
-  async regenerateDeviceToken(id: string): Promise<{ deviceId: string; rawToken: string }> {
+  async regenerateDeviceToken(id: string, signal?: AbortSignal): Promise<{ deviceId: string; rawToken: string }> {
     return fetchJson<{ deviceId: string; rawToken: string }>(
       `${API_BASE}/admin/devices/${id}/token/regenerate`,
-      { method: 'POST' },
+      { method: 'POST', signal },
     );
   },
 };

@@ -10,6 +10,9 @@ export function HousesTab() {
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
+  // Modal Error State
+  const [modalError, setModalError] = useState<string | null>(null)
+
   // Modals
   const [createOpen, setCreateOpen] = useState(false)
   const [editHouse, setEditHouse] = useState<AdminHouse | null>(null)
@@ -27,13 +30,14 @@ export function HousesTab() {
 
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchHouses = async () => {
+  const fetchHouses = async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminApi.listHouses()
+      const res = await adminApi.listHouses(signal)
       setHouses(res.data)
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Không thể tải danh sách nhà nấm.')
     } finally {
       setLoading(false)
@@ -41,12 +45,21 @@ export function HousesTab() {
   }
 
   useEffect(() => {
-    fetchHouses()
+    const controller = new AbortController()
+    fetchHouses(controller.signal)
+    return () => {
+      controller.abort()
+    }
   }, [])
+
+  const resetModalState = () => {
+    setModalError(null)
+  }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
+    setModalError(null)
     setError(null)
     setSuccessMsg(null)
     try {
@@ -64,7 +77,7 @@ export function HousesTab() {
       setPillarCount(35)
       fetchHouses()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Lỗi khi tạo nhà nấm.')
+      setModalError(err instanceof Error ? err.message : 'Lỗi khi tạo nhà nấm.')
     } finally {
       setSubmitting(false)
     }
@@ -74,6 +87,7 @@ export function HousesTab() {
     e.preventDefault()
     if (!editHouse) return
     setSubmitting(true)
+    setModalError(null)
     setError(null)
     setSuccessMsg(null)
     try {
@@ -86,7 +100,7 @@ export function HousesTab() {
       setEditHouse(null)
       fetchHouses()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Lỗi khi cập nhật nhà nấm.')
+      setModalError(err instanceof Error ? err.message : 'Lỗi khi cập nhật nhà nấm.')
     } finally {
       setSubmitting(false)
     }
@@ -95,6 +109,7 @@ export function HousesTab() {
   const handleDelete = async () => {
     if (!deleteHouse) return
     setSubmitting(true)
+    setModalError(null)
     setError(null)
     setSuccessMsg(null)
     try {
@@ -103,40 +118,51 @@ export function HousesTab() {
       setDeleteHouse(null)
       fetchHouses()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Không thể xóa nhà nấm.')
+      setModalError(err instanceof Error ? err.message : 'Không thể xóa nhà nấm.')
     } finally {
       setSubmitting(false)
     }
   }
 
+  const openCreate = () => {
+    resetModalState()
+    setCreateOpen(true)
+  }
+
   const openEdit = (h: AdminHouse) => {
+    resetModalState()
     setEditHouse(h)
     setEditName(h.name)
     setEditArea(h.areaMeters)
     setEditPillars(h.pillarCount)
   }
 
+  const openDelete = (h: AdminHouse) => {
+    resetModalState()
+    setDeleteHouse(h)
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Header bar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-mono text-lg font-bold text-white">Quản Lý Nhà Nấm (Mushroom Houses)</h2>
-          <p className="text-xs text-slate-400">Danh sách các phòng/nhà nấm rơm và cấu hình diện tích</p>
+          <h2 className="text-xl font-bold text-white tracking-tight">Quản Lý Nhà Nấm</h2>
+          <p className="text-xs sm:text-sm text-slate-400">Danh sách khu vực / trại nấm rơm và thông số kỹ thuật</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => fetchHouses()}
-            className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
+            className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <RefreshCw className="size-4" />
             <span>Làm mới</span>
           </button>
           <button
             type="button"
-            onClick={() => setCreateOpen(true)}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 hover:bg-emerald-500 transition-colors"
+            onClick={openCreate}
+            className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-600 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-emerald-950/40 hover:bg-emerald-500 transition-colors"
           >
             <Plus className="size-4" />
             <span>Tạo Nhà Nấm Mới</span>
@@ -144,83 +170,95 @@ export function HousesTab() {
         </div>
       </div>
 
-      {/* Alerts */}
+      {/* Page Alerts */}
       {error && (
-        <div className="flex items-center gap-3 rounded-xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-xs text-red-200">
-          <AlertCircle className="size-5 shrink-0 text-red-400" />
-          <span>{error}</span>
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-950/60 px-4 py-3 text-sm text-red-200 shadow-md">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="size-5 shrink-0 text-red-400" />
+            <span>{error}</span>
+          </div>
+          <button type="button" onClick={() => setError(null)} className="text-red-400 hover:text-white">
+            <X className="size-4" />
+          </button>
         </div>
       )}
       {successMsg && (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-3 text-xs text-emerald-200">
-          <Check className="size-5 shrink-0 text-emerald-400" />
-          <span>{successMsg}</span>
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/50 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200 shadow-md">
+          <div className="flex items-center gap-3">
+            <Check className="size-5 shrink-0 text-emerald-400" />
+            <span>{successMsg}</span>
+          </div>
+          <button type="button" onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-white">
+            <X className="size-4" />
+          </button>
         </div>
       )}
 
       {/* Houses Table */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/50 backdrop-blur-md shadow-xl">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b border-slate-800 bg-slate-950/80 font-mono text-[11px] uppercase tracking-wider text-slate-400">
+      <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-md shadow-xl">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-slate-800 bg-slate-950/80 text-xs uppercase tracking-wider text-slate-300 font-semibold">
             <tr>
-              <th className="px-4 py-3.5">Mã Slug (ID)</th>
-              <th className="px-4 py-3.5">Tên Nhà Nấm</th>
-              <th className="px-4 py-3.5">Diện Tích</th>
-              <th className="px-4 py-3.5">Số Trụ Nấm</th>
-              <th className="px-4 py-3.5">Số Thiết Bị</th>
-              <th className="px-4 py-3.5">Người Giám Sát</th>
-              <th className="px-4 py-3.5 text-right">Thao Tác</th>
+              <th className="px-5 py-4">Mã Nhà Nấm (ID)</th>
+              <th className="px-5 py-4">Tên Nhà Nấm</th>
+              <th className="px-5 py-4">Diện Tích</th>
+              <th className="px-5 py-4">Số Trụ Nấm</th>
+              <th className="px-5 py-4">Số Thiết Bị</th>
+              <th className="px-5 py-4">Người Giám Sát</th>
+              <th className="px-5 py-4 text-right">Thao Tác</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 font-mono text-slate-200">
+          <tbody className="divide-y divide-slate-800/60 text-slate-200">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-5 py-10 text-center text-slate-400">
                   Đang tải danh sách nhà nấm…
                 </td>
               </tr>
             ) : houses.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                  Chưa có nhà nấm nào được đăng ký.
+                <td colSpan={7} className="px-5 py-10 text-center text-slate-400">
+                  Chưa có nhà nấm nào được tạo trong hệ thống.
                 </td>
               </tr>
             ) : (
               houses.map((h) => (
                 <tr key={h.id} className="hover:bg-slate-800/40 transition-colors">
-                  <td className="px-4 py-3.5 font-bold text-emerald-400">{h.id}</td>
-                  <td className="px-4 py-3.5 text-white font-semibold">{h.name}</td>
-                  <td className="px-4 py-3.5 text-slate-300">{h.areaMeters} m</td>
-                  <td className="px-4 py-3.5 text-slate-300">{h.pillarCount} trụ</td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-5 py-4 font-bold text-emerald-400 font-mono text-sm">{h.id}</td>
+                  <td className="px-5 py-4 text-white font-semibold text-base">{h.name}</td>
+                  <td className="px-5 py-4 text-slate-300">{h.areaMeters} m²</td>
+                  <td className="px-5 py-4 text-slate-300">{h.pillarCount} trụ</td>
+                  <td className="px-5 py-4">
                     <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                         h.deviceCount > 0
-                          ? 'border border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
+                          ? 'border border-emerald-500/40 bg-emerald-950/60 text-emerald-300'
                           : 'border border-slate-700 bg-slate-800 text-slate-400'
                       }`}
                     >
                       {h.deviceCount} thiết bị
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 text-slate-400">{h.activeUserCount} người</td>
-                  <td className="px-4 py-3.5 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <td className="px-5 py-4 text-slate-300">{h.activeUserCount} người</td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
                         onClick={() => openEdit(h)}
-                        className="flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                        className="flex min-h-[40px] min-w-[40px] cursor-pointer items-center justify-center rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 hover:border-slate-500 hover:bg-slate-700 hover:text-white transition-colors"
                         title="Chỉnh sửa nhà nấm"
                       >
-                        <Edit3 className="size-3.5" />
+                        <Edit3 className="size-4" />
+                        <span className="sr-only sm:not-sr-only sm:ml-1 text-xs">Sửa</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDeleteHouse(h)}
-                        className="flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-red-500/30 bg-red-950/30 px-2.5 py-1.5 text-red-300 hover:bg-red-900/50 transition-colors"
+                        onClick={() => openDelete(h)}
+                        className="flex min-h-[40px] min-w-[40px] cursor-pointer items-center justify-center rounded-xl border border-red-500/40 bg-red-950/40 px-3 py-2 text-red-300 hover:bg-red-900/60 transition-colors"
                         title="Xóa nhà nấm"
                       >
-                        <Trash2 className="size-3.5" />
+                        <Trash2 className="size-4" />
+                        <span className="sr-only sm:not-sr-only sm:ml-1 text-xs">Xóa</span>
                       </button>
                     </div>
                   </td>
@@ -233,65 +271,84 @@ export function HousesTab() {
 
       {/* Modal: Tạo House */}
       {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-mono text-sm font-bold text-white flex items-center gap-2">
-                <Home className="size-4 text-emerald-400" />
+              <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                <Home className="size-5 text-emerald-400" />
                 Tạo Nhà Nấm Mới
               </h3>
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
-                className="rounded-lg p-1 cursor-pointer text-slate-400 hover:bg-slate-900 hover:text-white"
+                className="rounded-lg p-1.5 cursor-pointer text-slate-400 hover:bg-slate-800 hover:text-white"
               >
-                <X className="size-4" />
+                <X className="size-5" />
               </button>
             </div>
 
+            {/* Modal Error Alert */}
+            {modalError && (
+              <div className="flex items-start gap-3 rounded-xl border border-red-500/60 bg-red-950/80 p-3.5 text-xs sm:text-sm text-red-200 shadow-md">
+                <AlertCircle className="size-5 shrink-0 text-red-400 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-red-300">Lỗi khi tạo nhà nấm:</p>
+                  <p className="leading-relaxed text-red-100">{modalError}</p>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Mã Slug ID (MQTT Topic safe)</label>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">
+                  Mã Nhà Nấm (Mã viết liền không dấu)
+                </label>
                 <input
                   type="text"
                   required
                   pattern="^[a-z0-9_-]{3,50}$"
-                  placeholder="VD: house_b1, khu_a_phong_2"
+                  placeholder="Ví dụ: nha_b1, khu_a_phong_2"
                   value={houseId}
                   onChange={(e) => setHouseId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:border-emerald-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-mono"
                 />
-                <p className="mt-1 text-[10px] text-slate-500">
-                  Chỉ gồm chữ thường, số, gạch dưới (_) và gạch ngang (-). Không dấu, không khoảng trắng.
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Dùng làm mã phân biệt hệ thống. Chỉ viết chữ thường, số và gạch dưới (_).
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Tên Nhà Nấm</label>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">
+                  Tên Hiển Thị Nhà Nấm
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="VD: Nhà Nấm Trại B1"
+                  placeholder="Ví dụ: Trại Nấm Rơm Trại B1"
                   value={houseName}
                   onChange={(e) => setHouseName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:border-emerald-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Diện tích (m²)</label>
+                  <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">
+                    Diện tích (m²)
+                  </label>
                   <input
                     type="text"
                     required
                     placeholder="4x6"
                     value={areaMeters}
                     onChange={(e) => setAreaMeters(e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Số trụ nấm</label>
+                  <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">
+                    Số trụ nấm
+                  </label>
                   <input
                     type="number"
                     required
@@ -299,23 +356,23 @@ export function HousesTab() {
                     max={500}
                     value={pillarCount}
                     onChange={(e) => setPillarCount(parseInt(e.target.value, 10))}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setCreateOpen(false)}
-                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-slate-800 px-4 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-900"
+                  className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50"
+                  className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 shadow-md"
                 >
                   {submitting ? 'Đang tạo…' : 'Tạo Nhà Nấm'}
                 </button>
@@ -327,44 +384,55 @@ export function HousesTab() {
 
       {/* Modal: Edit House */}
       {editHouse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-mono text-sm font-bold text-white">Chỉnh Sửa Nhà Nấm: {editHouse.id}</h3>
+              <h3 className="text-base sm:text-lg font-bold text-white">Chỉnh Sửa Nhà Nấm: {editHouse.id}</h3>
               <button
                 type="button"
                 onClick={() => setEditHouse(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-900 hover:text-white"
+                className="rounded-lg p-1.5 cursor-pointer text-slate-400 hover:bg-slate-800 hover:text-white"
               >
-                <X className="size-4" />
+                <X className="size-5" />
               </button>
             </div>
 
+            {/* Modal Error Alert */}
+            {modalError && (
+              <div className="flex items-start gap-3 rounded-xl border border-red-500/60 bg-red-950/80 p-3.5 text-xs sm:text-sm text-red-200 shadow-md">
+                <AlertCircle className="size-5 shrink-0 text-red-400 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-red-300">Lỗi khi cập nhật nhà nấm:</p>
+                  <p className="leading-relaxed text-red-100">{modalError}</p>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleUpdate} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Tên Nhà Nấm</label>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">Tên Hiển Thị Nhà Nấm</label>
                 <input
                   type="text"
                   required
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Diện tích (m²)</label>
+                  <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">Diện tích (m²)</label>
                   <input
                     type="text"
                     required
                     value={editArea}
                     onChange={(e) => setEditArea(e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Số trụ nấm</label>
+                  <label className="block text-xs sm:text-sm font-semibold text-slate-200 mb-1.5">Số trụ nấm</label>
                   <input
                     type="number"
                     required
@@ -372,25 +440,25 @@ export function HousesTab() {
                     max={500}
                     value={editPillars}
                     onChange={(e) => setEditPillars(parseInt(e.target.value, 10))}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setEditHouse(null)}
-                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-slate-800 px-4 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-900"
+                  className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50"
+                  className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 shadow-md"
                 >
-                  {submitting ? 'Đang lưu…' : 'Cập Nhật'}
+                  {submitting ? 'Đang lưu…' : 'Cập Nhật Nhà Nấm'}
                 </button>
               </div>
             </form>
@@ -400,37 +468,51 @@ export function HousesTab() {
 
       {/* Modal: Delete House Confirmation */}
       {deleteHouse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 text-red-400">
-              <h3 className="font-mono text-sm font-bold flex items-center gap-2">
-                <AlertCircle className="size-4" />
+              <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <AlertCircle className="size-5" />
                 Xác Nhận Xóa Nhà Nấm
               </h3>
               <button
                 type="button"
                 onClick={() => setDeleteHouse(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-900 hover:text-white"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
               >
-                <X className="size-4" />
+                <X className="size-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Bạn có chắc chắn muốn xóa nhà nấm <strong className="text-white">{deleteHouse.name} ({deleteHouse.id})</strong> không?
-            </p>
-
-            {deleteHouse.deviceCount > 0 && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
-                ⚠️ Nhà nấm này hiện còn <strong>{deleteHouse.deviceCount} thiết bị</strong> gắn vào. Hệ thống sẽ từ chối xóa để đảm bảo toàn vẹn dữ liệu.
+            {/* Modal Error Alert */}
+            {modalError && (
+              <div className="flex items-start gap-3 rounded-xl border border-red-500/60 bg-red-950/80 p-3.5 text-xs sm:text-sm text-red-200 shadow-md">
+                <AlertCircle className="size-5 shrink-0 text-red-400 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-red-300">Không thể xóa nhà nấm:</p>
+                  <p className="leading-relaxed text-red-100">{modalError}</p>
+                </div>
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <p className="text-sm text-slate-200 leading-relaxed">
+              Bạn có chắc chắn muốn xóa nhà nấm <strong className="text-white font-bold">{deleteHouse.name} ({deleteHouse.id})</strong> không?
+            </p>
+
+            {deleteHouse.deviceCount > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 p-3.5 text-xs sm:text-sm text-amber-200 space-y-1">
+                <p className="font-bold text-amber-300">⚠️ Cảnh báo thiết bị liên kết:</p>
+                <p>
+                  Nhà nấm này hiện có <strong>{deleteHouse.deviceCount} thiết bị</strong> đang hoạt động. Bạn cần chuyển hoặc gỡ thiết bị khỏi nhà nấm này trước khi xóa.
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setDeleteHouse(null)}
-                className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-slate-800 px-4 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-900"
+                className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
               >
                 Hủy
               </button>
@@ -438,9 +520,9 @@ export function HousesTab() {
                 type="button"
                 onClick={handleDelete}
                 disabled={submitting}
-                className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-red-500/40 bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+                className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border border-red-500/40 bg-red-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-500 transition-colors disabled:opacity-50 shadow-md"
               >
-                {submitting ? 'Đang xóa…' : 'Xóa Nhà Nấm'}
+                {submitting ? 'Đang xóa…' : 'Đồng Ý Xóa'}
               </button>
             </div>
           </div>

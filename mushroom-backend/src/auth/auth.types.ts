@@ -4,6 +4,8 @@ export interface AuthPrincipal {
   id: string;
   /** Vietnamese phone number in E.164 format, e.g. +84901234567 */
   phoneNumber: string;
+  fullName?: string | null;
+  avatar?: string | null;
   role: UserRole;
   houseIds: string[];
   sessionId: string;

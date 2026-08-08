@@ -9,11 +9,14 @@ interface AuthContextType {
   status: 'loading' | 'authenticated' | 'unauthenticated';
   login: (phone: string, pin: string) => Promise<AuthUser>;
   pinLogin: (phone: string, pin: string) => Promise<AuthUser>;
+  updateProfile: (dto: { fullName?: string; avatar?: string }) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+import { MustSetPinModal } from '@/components/must-set-pin-modal';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -43,6 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await authApi.login(phone, pin);
     setUser(res.user);
     setStatus('authenticated');
+    // Save to kiosk registered users
+    kioskStorage.addRegisteredUser({ userId: res.user.id, phoneNumber: res.user.phoneNumber });
     return res.user;
   };
 
@@ -56,6 +61,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res.user;
   };
 
+  const updateProfile = async (dto: { fullName?: string; avatar?: string }): Promise<AuthUser> => {
+    const updated = await authApi.updateProfile(dto);
+    setUser(updated);
+    return updated;
+  };
+
   const logout = async (): Promise<void> => {
     try {
       await authApi.logout();
@@ -66,8 +77,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, status, login, pinLogin, logout, refresh }}>
+    <AuthContext.Provider value={{ user, status, login, pinLogin, updateProfile, logout, refresh }}>
       {children}
+      {status === 'authenticated' && user?.mustSetPin && (
+        <MustSetPinModal
+          phoneNumber={user.phoneNumber}
+          onSuccess={() => logout()}
+          onLogout={() => logout()}
+        />
+      )}
     </AuthContext.Provider>
   );
 }
