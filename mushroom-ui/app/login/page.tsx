@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { kioskStorage, generateAvatarGradient, maskPhoneNumber, type KioskRegisteredUser } from '@/lib/kiosk-storage';
 import { KioskAvatarCard } from '../components/kiosk/KioskAvatarCard';
+import { AgricultureAvatars } from '../components/kiosk/AvatarPicker';
 import { PinNumpad } from '../components/kiosk/PinNumpad';
-import { UserPlus, ArrowLeft, KeyRound, Lock, ShieldAlert, Cpu } from 'lucide-react';
+import { UserPlus, ArrowLeft, KeyRound, Lock, ShieldAlert, Cpu, User } from 'lucide-react';
 
 function getInitials(name: string): string {
   const cleaned = name.trim();
-  if (!cleaned) return 'ND';
+  if (!cleaned || /^(\+84|0|\d|•)/.test(cleaned)) return 'ND';
   const parts = cleaned.split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -97,6 +98,20 @@ export default function LoginPage() {
     );
   }
 
+  const selectedAvatarPreset = selectedUser?.avatar
+    ? AgricultureAvatars.find((a) => a.id === selectedUser.avatar)
+    : null;
+  const SelectedIconComponent = selectedAvatarPreset ? selectedAvatarPreset.icon : null;
+  const selectedGradient = selectedAvatarPreset
+    ? selectedAvatarPreset.gradient
+    : selectedUser
+    ? generateAvatarGradient(selectedUser.phoneNumber)
+    : '';
+  const selectedDisplayName = selectedUser
+    ? selectedUser.fullName?.trim() || selectedUser.displayName || maskPhoneNumber(selectedUser.phoneNumber)
+    : '';
+  const selectedInitials = getInitials(selectedDisplayName);
+
   return (
     <main className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col justify-between p-6 select-none relative overflow-hidden">
       {/* Background ambient lighting */}
@@ -136,18 +151,27 @@ export default function LoginPage() {
               )}
 
               <div
-                className={`size-20 mx-auto rounded-full bg-gradient-to-br ${generateAvatarGradient(
-                  selectedUser.phoneNumber
-                )} flex items-center justify-center text-white text-2xl font-bold shadow-lg border-2 border-emerald-400/50 mb-3`}
+                className={`size-22 mx-auto rounded-2xl bg-gradient-to-br ${selectedGradient} flex items-center justify-center text-white text-2xl font-bold shadow-xl border-2 border-emerald-400/60 mb-3`}
               >
-                <span className="font-mono text-2xl font-bold tracking-wider">
-                  {getInitials(selectedUser.displayName || maskPhoneNumber(selectedUser.phoneNumber))}
-                </span>
+                {SelectedIconComponent ? (
+                  <SelectedIconComponent className="size-11 text-white/95 drop-shadow-md" />
+                ) : selectedInitials !== 'ND' ? (
+                  <span className="font-mono text-2xl font-black tracking-wider text-white select-none">
+                    {selectedInitials}
+                  </span>
+                ) : (
+                  <User className="size-11 text-white/90" />
+                )}
               </div>
-              <h2 className="font-mono text-lg font-bold text-slate-100">
-                {selectedUser.displayName || maskPhoneNumber(selectedUser.phoneNumber)}
+              <h2 className="text-xl font-bold text-slate-100">
+                {selectedDisplayName}
               </h2>
-              <p className="text-sm text-slate-300 mt-1">Nhập 6 số PIN của bạn để vào hệ thống</p>
+              {selectedUser.fullName && (
+                <p className="font-mono text-xs text-slate-400 mt-0.5">
+                  {maskPhoneNumber(selectedUser.phoneNumber)}
+                </p>
+              )}
+              <p className="text-sm text-slate-300 mt-1.5">Nhập 6 số PIN của bạn để vào hệ thống</p>
             </div>
 
             {/* PIN Numpad — shuffle tắt mặc định, nông dân cần bố cục ổn định.
@@ -188,7 +212,10 @@ export default function LoginPage() {
                     <KioskAvatarCard
                       key={u.userId}
                       phoneNumber={u.phoneNumber}
+                      fullName={u.fullName}
                       displayName={u.displayName}
+                      avatar={u.avatar}
+                      role={u.role}
                       onClick={() => setSelectedUser(u)}
                       onRemove={() => handleRemoveUser(u.userId)}
                     />

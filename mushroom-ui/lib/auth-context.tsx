@@ -28,6 +28,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (me) {
         setUser(me);
         setStatus('authenticated');
+        if (kioskStorage.hasRegisteredUser(me.id)) {
+          kioskStorage.updateRegisteredUserProfile(me.id, {
+            fullName: me.fullName,
+            avatar: me.avatar,
+            role: me.role,
+          });
+        }
       } else {
         setUser(null);
         setStatus('unauthenticated');
@@ -47,7 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
     setStatus('authenticated');
     // Save to kiosk registered users
-    kioskStorage.addRegisteredUser({ userId: res.user.id, phoneNumber: res.user.phoneNumber });
+    kioskStorage.addRegisteredUser({
+      userId: res.user.id,
+      phoneNumber: res.user.phoneNumber,
+      fullName: res.user.fullName,
+      avatar: res.user.avatar,
+      role: res.user.role,
+    });
     return res.user;
   };
 
@@ -57,13 +70,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
     setStatus('authenticated');
     // Save to kiosk registered users
-    kioskStorage.addRegisteredUser({ userId: res.user.id, phoneNumber: res.user.phoneNumber });
+    kioskStorage.addRegisteredUser({
+      userId: res.user.id,
+      phoneNumber: res.user.phoneNumber,
+      fullName: res.user.fullName,
+      avatar: res.user.avatar,
+      role: res.user.role,
+    });
     return res.user;
   };
 
   const updateProfile = async (dto: { fullName?: string; avatar?: string }): Promise<AuthUser> => {
     const updated = await authApi.updateProfile(dto);
     setUser(updated);
+    if (kioskStorage.hasRegisteredUser(updated.id)) {
+      kioskStorage.updateRegisteredUserProfile(updated.id, {
+        fullName: updated.fullName,
+        avatar: updated.avatar,
+        role: updated.role,
+      });
+    }
     return updated;
   };
 

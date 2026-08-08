@@ -2,6 +2,9 @@ export interface KioskRegisteredUser {
   userId: string;
   phoneNumber: string;
   displayName: string;
+  fullName?: string;
+  avatar?: string;
+  role?: string;
   registeredAt: number;
 }
 
@@ -112,22 +115,62 @@ export const kioskStorage = {
     }
   },
 
-  addRegisteredUser(user: { userId: string; phoneNumber: string }): void {
+  addRegisteredUser(user: {
+    userId: string;
+    phoneNumber: string;
+    fullName?: string | null;
+    avatar?: string | null;
+    role?: string | null;
+  }): void {
     if (typeof window === 'undefined') return;
     const users = kioskStorage.getRegisteredUsers();
     const existingIdx = users.findIndex((u) => u.userId === user.userId);
+    const resolvedFullName = user.fullName?.trim() || undefined;
     const entry: KioskRegisteredUser = {
       userId: user.userId,
       phoneNumber: user.phoneNumber,
-      displayName: maskPhoneNumber(user.phoneNumber),
+      fullName: resolvedFullName,
+      displayName: resolvedFullName || maskPhoneNumber(user.phoneNumber),
+      avatar: user.avatar || undefined,
+      role: user.role || undefined,
       registeredAt: Date.now(),
     };
 
     if (existingIdx !== -1) {
-      users[existingIdx] = entry;
+      users[existingIdx] = {
+        ...users[existingIdx],
+        ...entry,
+      };
     } else {
       users.push(entry);
     }
+
+    localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(users));
+  },
+
+  updateRegisteredUserProfile(
+    userId: string,
+    updates: { fullName?: string | null; avatar?: string | null; role?: string | null }
+  ): void {
+    if (typeof window === 'undefined') return;
+    const users = kioskStorage.getRegisteredUsers();
+    const existingIdx = users.findIndex((u) => u.userId === userId);
+    if (existingIdx === -1) return;
+
+    const existing = users[existingIdx];
+    const resolvedFullName =
+      updates.fullName !== undefined ? updates.fullName?.trim() || undefined : existing.fullName;
+    const resolvedAvatar =
+      updates.avatar !== undefined ? updates.avatar || undefined : existing.avatar;
+    const resolvedRole = updates.role !== undefined ? updates.role || undefined : existing.role;
+
+    users[existingIdx] = {
+      ...existing,
+      fullName: resolvedFullName,
+      displayName: resolvedFullName || maskPhoneNumber(existing.phoneNumber),
+      avatar: resolvedAvatar,
+      role: resolvedRole,
+    };
 
     localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(users));
   },
