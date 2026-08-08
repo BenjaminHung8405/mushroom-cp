@@ -4952,6 +4952,36 @@ int main() {
         assert(cfg.getMqttBroker() == "192.168.1.99");
         assert(cfg.getMqttPort() == 10883);
         assert(cfg.getMqttPass() == "custom_endpoint_psk");
+
+        // 6. Test Known Wi-Fi networks (Multi-SSID, max 5 LRU eviction)
+        storage::StorageManager &sm = storage::StorageManager::get_instance();
+        sm.clear_wifi_credentials();
+
+        assert(sm.add_or_update_known_wifi("WiFi_1", "Pass1") == true);
+        assert(sm.add_or_update_known_wifi("WiFi_2", "Pass2") == true);
+        assert(sm.add_or_update_known_wifi("WiFi_3", "Pass3") == true);
+        assert(sm.add_or_update_known_wifi("WiFi_4", "Pass4") == true);
+        assert(sm.add_or_update_known_wifi("WiFi_5", "Pass5") == true);
+
+        std::vector<storage::KnownWifiNetwork> wifi_list;
+        assert(sm.load_known_wifi_list(wifi_list) == true);
+        assert(wifi_list.size() == 5);
+        assert(wifi_list[0].ssid == "WiFi_5"); // Most recent at front
+
+        // Add 6th network -> triggers LRU eviction of oldest ("WiFi_1")
+        assert(sm.add_or_update_known_wifi("WiFi_6", "Pass6") == true);
+        assert(sm.load_known_wifi_list(wifi_list) == true);
+        assert(wifi_list.size() == 5);
+        assert(wifi_list[0].ssid == "WiFi_6");
+        for (const auto &net : wifi_list)
+        {
+            assert(net.ssid != "WiFi_1"); // WiFi_1 was evicted
+        }
+
+        // Test remove network
+        assert(sm.remove_known_wifi("WiFi_2") == true);
+        assert(sm.load_known_wifi_list(wifi_list) == true);
+        assert(wifi_list.size() == 4);
     }
 
     // 41. Test SystemProtector, Bio Rules, NVS Bio Thresholds, and Active-LOW Mapping

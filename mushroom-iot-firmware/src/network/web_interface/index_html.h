@@ -13,128 +13,201 @@ const char PORTAL_HTML[] PROGMEM = R"rawliteral(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="format-detection" content="telephone=no">
-<title>TraiNam Cau Hinh WiFi</title>
+<title>TraiNam - Cấu hình WiFi</title>
 <style>
-:root { --ok:#1e8e3e; --err:#d93025; --pri:#1a73e8; --bg:#f0f2f5; }
+:root { --ok:#1e8e3e; --err:#d93025; --pri:#1a73e8; --bg:#f0f2f5; --card:#ffffff; }
 * { box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; margin: 0; background: var(--bg); color: #202124; }
-.wrap { max-width: 440px; margin: 0 auto; padding: 16px; }
-.card { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
-.sub { font-size: 13px; color: #5f6368; text-align: center; margin: 0 0 16px; line-height: 1.4; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; background: var(--bg); color: #202124; }
+.wrap { max-width: 460px; margin: 0 auto; padding: 14px; }
+.card { background: var(--card); border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.header { text-align: center; margin-bottom: 16px; }
+h1 { font-size: 21px; font-weight: 700; margin: 0 0 4px; color: #1a73e8; }
+.sub { font-size: 13px; color: #5f6368; margin: 0; line-height: 1.4; }
+.dev-badge { display: inline-block; background: #e8f0fe; color: #174ea6; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; margin-top: 8px; font-family: monospace; }
+
 label { display:block; font-size: 13px; font-weight: 600; color: #3c4043; margin: 12px 0 6px; }
 input[type=text], input[type=password], input[type=number], select {
   width: 100%; font-size: 16px; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; background: #fff;
+  transition: border-color 0.2s;
 }
-input:focus, select:focus { outline: 2px solid #aecbfa; border-color: var(--pri); }
+input:focus, select:focus { outline: none; border-color: var(--pri); box-shadow: 0 0 0 3px rgba(26,115,232,0.15); }
 .row { display:flex; gap:8px; align-items:stretch; }
 .row > :first-child { flex:1; min-width:0; }
 .btn {
   font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid #dadce0; background:#fff; color:#3c4043;
-  padding: 0 12px; min-height: 46px; cursor: pointer; white-space: nowrap;
+  padding: 0 14px; min-height: 46px; cursor: pointer; white-space: nowrap; transition: background 0.2s;
 }
-.btn-pri { background: var(--ok); color:#fff; border-color: var(--ok); width:100%; font-size:16px; margin-top:16px; }
+.btn:active { background: #f1f3f4; }
+.btn-pri { background: var(--ok); color:#fff; border-color: var(--ok); width:100%; font-size:16px; margin-top:18px; font-weight: 700; }
 .btn-pri:disabled { opacity: .65; cursor: wait; }
 .btn-sec { background:#e8f0fe; color:var(--pri); border-color:#aecbfa; width:100%; margin-top:8px; }
-.btn-toggle { min-width: 72px; color:var(--pri); border-color:#aecbfa; background:#e8f0fe; }
-details { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
-summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; }
-.msg { display:none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
+.btn-toggle { min-width: 68px; color:var(--pri); border-color:#aecbfa; background:#e8f0fe; }
+.btn-del { padding: 4px 10px; min-height: 32px; font-size: 12px; color: var(--err); border-color: #f5c6c2; background: #fce8e6; }
+
+details { margin-top: 16px; border-top: 1px solid #eee; padding-top: 12px; }
+summary { color: var(--pri); font-weight: 600; cursor: pointer; outline:none; font-size: 14px; }
+.msg { display:none; margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; }
 .msg.show { display:block; }
 .msg.ok { background:#e6f4ea; color:#137333; border:1px solid #ceead6; }
 .msg.err { background:#fce8e6; color:#a50e0e; border:1px solid #f5c6c2; }
 .msg.info { background:#e8f0fe; color:#174ea6; border:1px solid #d2e3fc; }
-.scan-box { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #e0e0e0; border-radius:8px; display:none; }
-.scan-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #f1f3f4; background:#fff; font-size:14px; cursor:pointer; }
+
+.section-title { font-size: 13px; font-weight: 700; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.known-box { margin-bottom: 12px; }
+.known-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; margin-bottom: 6px; font-size: 14px; }
+
+.scan-box { margin-top:8px; max-height:180px; overflow:auto; border:1px solid #e0e0e0; border-radius:8px; display:none; }
+.scan-item { display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; padding:11px 13px; border:0; border-bottom:1px solid #f1f3f4; background:#fff; font-size:14px; cursor:pointer; }
 .scan-item:last-child { border-bottom:0; }
 .scan-item:active { background:#e8f0fe; }
-.meta { font-size:11px; color:#80868b; margin-top:14px; text-align:center; line-height:1.4; }
+.rssi-bar { font-family: monospace; font-size: 13px; }
+
+.meta { font-size:11px; color:#80868b; margin-top:16px; text-align:center; line-height:1.5; }
 .spinner { display:inline-block; width:14px; height:14px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; vertical-align:-2px; margin-right:6px; animation:spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <div class="wrap"><div class="card">
-  <h1>Trai Nam - Cau hinh WiFi</h1>
-  <p class="sub">Buoc 1: chon/nhap WiFi nha ban.<br>Buoc 2: bam Luu. May se tu ket noi lai.</p>
+  <div class="header">
+    <h1>Trai Nam - Cấu hình WiFi</h1>
+    <p class="sub">Kết nối bộ điều khiển nhà nấm vào mạng Wi-Fi trang trại</p>
+    <div class="dev-badge">AP: %AP_SSID% | ID: %MQTT_USER%</div>
+  </div>
 
   <div id="banner" class="msg"></div>
 
+  <div id="knownSection" style="display:none;">
+    <div class="section-title">Wi-Fi Đã Ghi Nhớ (Tối đa 5 mạng)</div>
+    <div id="knownBox" class="known-box"></div>
+  </div>
+
   <form id="cfgForm" autocomplete="off" onsubmit="return false;">
-    <label for="ssid">WiFi SSID</label>
+    <div class="section-title">Thiết Lập Kết Nối Mới</div>
+    <label for="ssid">Tên Mạng Wi-Fi (SSID)</label>
     <div class="row">
-      <input id="ssid" name="ssid" type="text" value="%SSID%" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <input id="ssid" name="ssid" type="text" value="%SSID%" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Nhập hoặc chọn Wi-Fi" required>
     </div>
-    <button type="button" class="btn btn-sec" id="btnScan" onclick="scanWifi()">Quet mang WiFi xung quanh</button>
+    <button type="button" class="btn btn-sec" id="btnScan" onclick="scanWifi()">Quét mạng Wi-Fi xung quanh 🔍</button>
     <div id="scanBox" class="scan-box"></div>
 
-    <label for="pass">WiFi Password</label>
+    <label for="pass">Mật Khẩu Wi-Fi</label>
     <div class="row">
-      <input id="pass" name="pass" type="password" value="%PASS%" maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false">
-      <button type="button" class="btn btn-toggle" id="btnPass" onclick="togglePass('pass','btnPass')">Hien</button>
+      <input id="pass" name="pass" type="password" value="%PASS%" maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Nhập mật khẩu">
+      <button type="button" class="btn btn-toggle" id="btnPass" onclick="togglePass('pass','btnPass')">Hiện</button>
     </div>
 
-    <p style="color: #5f6368; font-size: 13px; margin-top: 12px; margin-bottom: 4px; text-align: center;">Device ID: <span style="font-family: monospace; font-weight: bold; color: #202124;">%MQTT_USER%</span></p>
-
-    <details id="adv">
-      <summary>Cau hinh nang cao (tuy chon)</summary>
-      <label for="backend_url">Backend API URL</label>
-      <input id="backend_url" name="backend_url" type="text" value="%BACKEND_URL%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_broker">MQTT Broker IP</label>
-      <input id="mqtt_broker" name="mqtt_broker" type="text" value="%MQTT_BROKER%" autocapitalize="none" autocorrect="off" spellcheck="false">
-
-      <label for="mqtt_port">MQTT Port</label>
-      <input id="mqtt_port" name="mqtt_port" type="number" value="%MQTT_PORT%" min="1" max="65535">
-    </details>
-
-    <button type="button" class="btn btn-pri" id="btnSave" onclick="saveConfig()">Luu & Khoi dong lai</button>
+    <button type="button" class="btn btn-pri" id="btnSave" onclick="saveConfig()">Kiểm Tra & Lưu Kết Nối 🚀</button>
   </form>
 
-  <p class="meta">Neu mat ket noi AP: mo WiFi, ket noi lai <b>TraiNam_Setup_KhongDay</b><br>roi mo trinh duyet toi <b>192.168.4.1</b></p>
+  <p class="meta">Điện thoại giữ kết nối vào Wi-Fi <b>%AP_SSID%</b><br>Địa chỉ quản trị: <b>http://192.168.4.1</b></p>
 </div></div>
 
 <script>
 function $(id){ return document.getElementById(id); }
+
 function showMsg(type, text){
   var el = $('banner');
   el.className = 'msg show ' + type;
   el.innerHTML = text;
 }
+
 function togglePass(inputId, btnId){
   var el = $(inputId), btn = $(btnId);
   if(!el) return;
-  if(el.type === 'password'){ el.type='text'; if(btn) btn.textContent='An'; }
-  else { el.type='password'; if(btn) btn.textContent='Hien'; }
+  if(el.type === 'password'){ el.type='text'; if(btn) btn.textContent='Ẩn'; }
+  else { el.type='password'; if(btn) btn.textContent='Hiện'; }
 }
+
 function setBusy(busy, label){
   var b = $('btnSave');
   if(!b) return;
   b.disabled = !!busy;
-  b.innerHTML = busy ? ('<span class="spinner"></span>' + (label||'Dang luu...')) : 'Luu & Khoi dong lai';
+  b.innerHTML = busy ? ('<span class="spinner"></span>' + (label||'Đang thử kết nối...')) : 'Kiểm Tra & Lưu Kết Nối 🚀';
 }
+
+function rssiIcon(rssi){
+  if(rssi >= -60) return '📶📶📶📶';
+  if(rssi >= -70) return '📶📶📶';
+  if(rssi >= -80) return '📶📶';
+  return '📶';
+}
+
+function loadKnownNetworks(){
+  var x = new XMLHttpRequest();
+  x.open('GET', '/known-networks?t=' + Date.now(), true);
+  x.timeout = 5000;
+  x.onreadystatechange = function(){
+    if(x.readyState !== 4 || x.status !== 200) return;
+    try {
+      var list = JSON.parse(x.responseText || '[]');
+      var sec = $('knownSection');
+      var box = $('knownBox');
+      if(!list.length){
+        sec.style.display = 'none';
+        return;
+      }
+      sec.style.display = 'block';
+      box.innerHTML = '';
+      for(var i=0; i<list.length; i++){
+        (function(net){
+          var item = document.createElement('div');
+          item.className = 'known-item';
+          item.innerHTML = '<span><b>' + escapeHtml(net.ssid) + '</b></span>';
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'btn btn-del';
+          delBtn.textContent = 'Xóa';
+          delBtn.onclick = function(){ forgetNetwork(net.ssid); };
+          item.appendChild(delBtn);
+          box.appendChild(item);
+        })(list[i]);
+      }
+    } catch(e){}
+  };
+  x.send();
+}
+
+function forgetNetwork(ssid){
+  if(!confirm('Xóa Wi-Fi "' + ssid + '" khỏi danh sách ghi nhớ?')) return;
+  var x = new XMLHttpRequest();
+  x.open('POST', '/forget-network', true);
+  x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  x.onreadystatechange = function(){
+    if(x.readyState === 4 && x.status === 200){
+      showMsg('ok', 'Đã xóa mạng Wi-Fi "' + escapeHtml(ssid) + '".');
+      loadKnownNetworks();
+    }
+  };
+  x.send('ssid=' + encodeURIComponent(ssid));
+}
+
+function escapeHtml(str){
+  return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function scanWifi(){
   var box = $('scanBox');
   var btn = $('btnScan');
   btn.disabled = true;
-  btn.textContent = 'Dang quet...';
+  btn.textContent = 'Đang quét sóng... 🔍';
   box.style.display = 'block';
-  box.innerHTML = '<div class="scan-item">Dang quet mang...</div>';
+  box.innerHTML = '<div class="scan-item">Đang dò tìm mạng xung quanh...</div>';
   var x = new XMLHttpRequest();
   x.open('GET', '/scan?t=' + Date.now(), true);
   x.timeout = 12000;
   x.onreadystatechange = function(){
     if(x.readyState !== 4) return;
     btn.disabled = false;
-    btn.textContent = 'Quet mang WiFi xung quanh';
+    btn.textContent = 'Quét mạng Wi-Fi xung quanh 🔍';
     if(x.status !== 200){
-      box.innerHTML = '<div class="scan-item">Quet that bai. Hay nhap SSID thu cong.</div>';
+      box.innerHTML = '<div class="scan-item">Quét thất bại. Hãy nhập SSID thủ công.</div>';
       return;
     }
     try {
       var list = JSON.parse(x.responseText || '[]');
       if(!list.length){
-        box.innerHTML = '<div class="scan-item">Khong thay mang nao. Hay nhap SSID thu cong.</div>';
+        box.innerHTML = '<div class="scan-item">Không tìm thấy Wi-Fi 2.4GHz nào.</div>';
         return;
       }
       box.innerHTML = '';
@@ -144,79 +217,70 @@ function scanWifi(){
           a.type = 'button';
           a.className = 'scan-item';
           var lock = item.secure ? ' 🔒' : ' 🔓';
-          a.textContent = item.ssid + lock + '  (' + item.rssi + ' dBm)';
+          a.innerHTML = '<span>' + escapeHtml(item.ssid) + lock + '</span><span class="rssi-bar">' + rssiIcon(item.rssi) + ' (' + item.rssi + ' dBm)</span>';
           a.onclick = function(){ $('ssid').value = item.ssid; $('pass').focus(); };
           box.appendChild(a);
         })(list[i]);
       }
     } catch(e){
-      box.innerHTML = '<div class="scan-item">Loi doc ket qua quet.</div>';
+      box.innerHTML = '<div class="scan-item">Lỗi đọc danh sách mạng.</div>';
     }
   };
   x.onerror = function(){
     btn.disabled = false;
-    btn.textContent = 'Quet mang WiFi xung quanh';
-    box.innerHTML = '<div class="scan-item">Mat ket noi AP khi quet. Thu lai.</div>';
+    btn.textContent = 'Quét mạng Wi-Fi xung quanh 🔍';
+    box.innerHTML = '<div class="scan-item">Mất kết nối AP khi quét. Thử lại.</div>';
   };
   x.send();
 }
+
 function saveConfig(){
   var ssid = ($('ssid').value || '').trim();
   if(!ssid){
-    showMsg('err', 'Vui long nhap WiFi SSID.');
+    showMsg('err', 'Vui lòng nhập Wi-Fi SSID.');
     $('ssid').focus();
     return;
   }
-  var port = parseInt(($('mqtt_port').value || '1883'), 10);
-  if(isNaN(port) || port < 1 || port > 65535){
-    showMsg('err', 'MQTT Port khong hop le.');
-    return;
-  }
 
-  setBusy(true, 'Dang luu...');
-  showMsg('info', 'Dang gui cau hinh toi thiet bi...');
+  setBusy(true, 'Đang thử kết nối router...');
+  showMsg('info', '⌛ Đang thử kết nối tới Wi-Fi <b>' + escapeHtml(ssid) + '</b>... Vui lòng chờ 5-8 giây.');
 
   var body =
     'ssid=' + encodeURIComponent(ssid) +
-    '&pass=' + encodeURIComponent($('pass').value || '') +
-    '&backend_url=' + encodeURIComponent(($('backend_url').value || '').trim()) +
-    '&mqtt_broker=' + encodeURIComponent(($('mqtt_broker').value || '').trim()) +
-    '&mqtt_port=' + encodeURIComponent(String(port));
+    '&pass=' + encodeURIComponent($('pass').value || '');
 
   var x = new XMLHttpRequest();
-  x.open('POST', 'http://192.168.4.1/save', true);
+  x.open('POST', '/save', true);
   x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-  x.timeout = 20000;
+  x.timeout = 15000;
   x.onreadystatechange = function(){
     if(x.readyState !== 4) return;
     if(x.status >= 200 && x.status < 300){
       var resp = {};
       try { resp = JSON.parse(x.responseText || '{}'); } catch(e) {}
       if(resp.ok){
-        showMsg('ok', 'Da luu thanh cong! Thiet bi dang khoi dong lai va se ket noi WiFi <b>' + ssid + '</b>. Ban co the dong trang nay.');
-        setBusy(true, 'Da luu - dang reboot...');
+        showMsg('ok', '✅ <b>Thành công!</b> Router đã cấp IP: <b>' + (resp.ip||'OK') + '</b>.<br>Thiết bị đã lưu mạng này và đang khởi động lại. Bạn có thể đóng trang này.');
+        setBusy(true, 'Đã lưu - Đang Reboot...');
       } else {
-        showMsg('err', (resp.error || 'Luu that bai. Thu lai.'));
+        showMsg('err', '❌ ' + (resp.error || 'Không thể kết nối Wi-Fi. Kiểm tra lại mật khẩu.'));
         setBusy(false);
       }
-    } else if(x.status === 0){
-      showMsg('ok', 'Da gui lenh luu. Neu AP bien mat, thiet bi dang reboot de ket noi WiFi moi.');
-      setBusy(true, 'Da gui lenh...');
     } else {
-      showMsg('err', 'Loi HTTP ' + x.status + '. Kiem tra ket noi AP roi thu lai.');
+      showMsg('err', '❌ Không thể kết nối tới Router Wi-Fi. Vui lòng kiểm tra lại mật khẩu hoặc sóng Wi-Fi.');
       setBusy(false);
     }
   };
   x.onerror = function(){
-    showMsg('ok', 'Mat ket noi AP sau khi gui. Neu dung, thiet bi dang reboot de vao WiFi moi.');
-    setBusy(true, 'Da gui lenh...');
+    showMsg('err', '⚠️ Không thể gửi lệnh tới thiết bị. Kiểm tra lại kết nối Wi-Fi AP.');
+    setBusy(false);
   };
   x.ontimeout = function(){
-    showMsg('err', 'Het thoi gian cho phan hoi. Hay giu ket noi AP va bam Luu lai.');
+    showMsg('err', '❌ Hết thời gian chờ (Timeout). Router không phản hồi.');
     setBusy(false);
   };
   x.send(body);
 }
+
 setInterval(function(){
   try {
     var x = new XMLHttpRequest();
@@ -225,6 +289,8 @@ setInterval(function(){
     x.send();
   } catch(e) {}
 }, 12000);
+
+loadKnownNetworks();
 </script>
 </body>
 </html>

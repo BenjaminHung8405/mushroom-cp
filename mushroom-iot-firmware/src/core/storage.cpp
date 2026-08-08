@@ -1,6 +1,8 @@
 #include "core/storage.h"
 #include <Preferences.h>
+#include <ArduinoJson.h>
 #include <cmath>
+#include <ctime>
 
 namespace storage
 {
@@ -105,9 +107,183 @@ namespace storage
         }
         bool res1 = prefs.remove(config::network::KEY_WIFI_SSID);
         bool res2 = prefs.remove(config::network::KEY_WIFI_PASS);
+        prefs.remove(config::network::KEY_WIFI_KNOWN);
         prefs.end();
         Serial.println("[STORAGE] Cleared WiFi credentials from NVS.");
         return res1 || res2;
+    }
+
+    bool StorageManager::load_known_wifi_list(std::vector<KnownWifiNetwork> &list)
+    {
+        list.clear();
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, true))
+        {
+            return false;
+        }
+
+        if (prefs.isKey(config::network::KEY_WIFI_KNOWN))
+        {
+            String raw_json = prefs.getString(config::network::KEY_WIFI_KNOWN, "");
+            prefs.end();
+
+            if (raw_json.length() > 0)
+            {
+                StaticJsonDocument<1024> doc;
+                DeserializationError err = deserializeJson(doc, raw_json);
+                if (!err && doc.is<JsonArray>())
+                {
+                    JsonArray arr = doc.as<JsonArray>();
+                    for (JsonObject obj : arr)
+                    {
+                        KnownWifiNetwork net;
+                        net.ssid = obj["ssid"] | "";
+                        net.pass = obj["pass"] | "";
+                        net.last_connected = obj["ts"] | 0;
+                        if (net.ssid.length() > 0)
+                        {
+                            list.push_back(net);
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            prefs.end();
+        }
+
+        // Fallback: If list is empty but legacy single wifi_ssid exists, populate it
+        if (list.empty())
+        {
+            String s, p;
+            if (load_wifi_credentials(s, p) && s.length() > 0)
+            {
+                KnownWifiNetwork net;
+                net.ssid = s;
+                net.pass = p;
+                net.last_connected = 1;
+                list.push_back(net);
+            }
+        }
+
+        return !list.empty();
+    }
+
+    bool StorageManager::save_known_wifi_list(const std::vector<KnownWifiNetwork> &list)
+    {
+        Preferences prefs;
+        if (!prefs.begin(config::network::NVS_NAMESPACE, false))
+        {
+            return false;
+        }
+
+        StaticJsonDocument<1024> doc;
+        JsonArray arr = doc.to<JsonArray>();
+        for (const auto &net : list)
+        {
+            JsonObject obj = arr.createNestedObject();
+            obj["ssid"] = net.ssid;
+            obj["pass"] = net.pass;
+            obj["ts"] = net.last_connected;
+        }
+
+        String raw_json;
+        serializeJson(doc, raw_json);
+        size_t bytes = prefs.putString(config::network::KEY_WIFI_KNOWN, raw_json);
+        prefs.end();
+
+        return bytes > 0;
+    }
+
+    bool StorageManager::add_or_update_known_wifi(const String &ssid, const String &pass)
+    {
+        if (ssid.length() == 0) return false;
+
+        std::vector<KnownWifiNetwork> list;
+        load_known_wifi_list(list);
+
+        int found_idx = -1;
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            if (list[i].ssid == ssid)
+            {
+                found_idx = static_cast<int>(i);
+                break;
+            }
+        }
+
+        uint32_t now_sec = static_cast<uint32_t>(time(nullptr));
+        if (now_sec == 0) now_sec = millis() / 1000;
+
+        if (found_idx >= 0)
+        {
+            KnownWifiNetwork updated = list[found_idx];
+            updated.pass = pass;
+            updated.last_connected = now_sec;
+            list.erase(list.begin() + found_idx);
+            list.insert(list.begin(), updated);
+        }
+        else
+        {
+            KnownWifiNetwork net;
+            net.ssid = ssid;
+            net.pass = pass;
+            net.last_connected = now_sec;
+            list.insert(list.begin(), net);
+
+            while (list.size() > MAX_KNOWN_WIFI_NETWORKS)
+            {
+                Serial.printf("[STORAGE] Known networks full (%u). Evicting oldest network '%s'.\n",
+                              static_cast<unsigned>(list.size()), list.back().ssid.c_str());
+                list.pop_back();
+            }
+        }
+
+        save_wifi_credentials(ssid, pass);
+        return save_known_wifi_list(list);
+    }
+
+    bool StorageManager::remove_known_wifi(const String &ssid)
+    {
+        if (ssid.length() == 0) return false;
+
+        std::vector<KnownWifiNetwork> list;
+        load_known_wifi_list(list);
+
+        bool removed = false;
+        for (auto it = list.begin(); it != list.end(); )
+        {
+            if (it->ssid == ssid)
+            {
+                it = list.erase(it);
+                removed = true;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        if (removed)
+        {
+            save_known_wifi_list(list);
+            String curr_s, curr_p;
+            if (load_wifi_credentials(curr_s, curr_p) && curr_s == ssid)
+            {
+                if (!list.empty())
+                {
+                    save_wifi_credentials(list[0].ssid, list[0].pass);
+                }
+                else
+                {
+                    clear_wifi_credentials();
+                }
+            }
+            return true;
+        }
+
+        return false;
     }
 
     bool StorageManager::save_mqtt_config(const String &broker, uint16_t port, const String &user, const String &pass)

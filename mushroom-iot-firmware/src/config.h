@@ -90,6 +90,7 @@ namespace config
 
         // NVS Storage namespace and keys (Preference keys must be <= 15 chars)
         constexpr const char *NVS_NAMESPACE = "mushroom_cfg";
+        constexpr const char *KEY_WIFI_KNOWN = "wifi_known";
         constexpr const char *KEY_WIFI_SSID = "wifi_ssid";
         constexpr const char *KEY_WIFI_PASS = "wifi_pass";
         constexpr const char *KEY_MQTT_BROKER = "mqtt_broker";
@@ -123,6 +124,7 @@ namespace config
         extern String MQTT_PASSWORD_VAL;
 
         String resolve_device_identity();
+        String get_dynamic_ap_ssid();
 
         /**
          * @brief Nạp các cấu hình động (WiFi STA và MQTT) từ NVS Flash.

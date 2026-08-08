@@ -51,6 +51,18 @@ namespace config
             return device_id;
         }
 
+        String get_dynamic_ap_ssid()
+        {
+            String dev_id = resolve_device_identity();
+            String suffix = "0000";
+            if (dev_id.length() >= 4)
+            {
+                suffix = dev_id.substring(dev_id.length() - 4);
+                suffix.toUpperCase();
+            }
+            return String("TraiNam_Setup_") + suffix;
+        }
+
         bool load_runtime_config()
         {
             storage::StorageManager &storage = storage::StorageManager::get_instance();

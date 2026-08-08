@@ -1,10 +1,23 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
 #include "config.h"
 
 namespace storage
 {
+    /**
+     * @brief Structure to represent a saved WiFi network in NVS.
+     */
+    struct KnownWifiNetwork
+    {
+        String ssid;
+        String pass;
+        uint32_t last_connected = 0;
+    };
+
+    constexpr size_t MAX_KNOWN_WIFI_NETWORKS = 5;
+
     /**
      * @brief Snapshot POD structures for setpoints persistence in NVS.
      * Aligned to 4 bytes for ESP32 memory efficiency.
@@ -79,6 +92,26 @@ namespace storage
          * @return true if cleared successfully, false otherwise.
          */
         bool clear_wifi_credentials();
+
+        /**
+         * @brief Loads the list of known WiFi networks from NVS.
+         */
+        bool load_known_wifi_list(std::vector<KnownWifiNetwork> &list);
+
+        /**
+         * @brief Saves the list of known WiFi networks to NVS.
+         */
+        bool save_known_wifi_list(const std::vector<KnownWifiNetwork> &list);
+
+        /**
+         * @brief Adds or updates a WiFi network in the known list (max 5 networks, LRU eviction).
+         */
+        bool add_or_update_known_wifi(const String &ssid, const String &pass);
+
+        /**
+         * @brief Removes a WiFi network from the known list in NVS.
+         */
+        bool remove_known_wifi(const String &ssid);
 
         /**
          * @brief Saves MQTT configuration parameters to NVS.

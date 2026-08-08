@@ -163,10 +163,9 @@ namespace wifi
         WiFi.mode(WIFI_OFF);
         delay(150);
 
-        // channel=1, hidden=false, max_connection=4, ftm_responder=false
-        // softAP() enables AP mode internally via enableAP(true).
+        String ap_ssid = config::network::get_dynamic_ap_ssid();
         bool ap_started = WiFi.softAP(
-            config::network::AP_SSID,
+            ap_ssid.c_str(),
             config::network::AP_PASS,
             1,
             0,
@@ -182,7 +181,8 @@ namespace wifi
             softap_forced = !allow_sta_reconnect;
             softap_auto_reconnect = allow_sta_reconnect;
             last_softap_sta_attempt = millis();
-            Serial.printf("[WIFI] SoftAP Activated: %s\n", config::network::AP_SSID);
+            Serial.printf("[WIFI] SoftAP Activated: %s\n", ap_ssid.c_str());
+            Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
             Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
             Serial.printf("[WIFI] SoftAP mode bits: 0x%X (expect WIFI_AP=0x%X)\n",
                           static_cast<unsigned>(WiFi.getMode()),
@@ -264,10 +264,7 @@ namespace wifi
         resp += "\"wifi_state\":" + String((int)current_state) + ",";
         resp += "\"ap_clients\":" + String(WiFi.softAPgetStationNum());
         resp += "}";
-        send_json(200, resp);
-    }
-
-    static void handle_root()
+            static void handle_root()
     {
         mark_softap_activity();
         storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
@@ -278,10 +275,50 @@ namespace wifi
         html.replace("%MQTT_PORT%", String(cfg.getMqttPort()));
         html.replace("%MQTT_USER%", cfg.getMqttUser());
         html.replace("%MQTT_PASS%", cfg.getMqttPass());
+        html.replace("%BACKEND_URL%", "");
+        html.replace("%AP_SSID%", config::network::get_dynamic_ap_ssid());
         webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         webServer.sendHeader("Pragma", "no-cache");
         webServer.sendHeader("Connection", "close");
         webServer.send(200, "text/html; charset=utf-8", html);
+    }
+
+    static void handle_known_networks()
+    {
+        mark_softap_activity();
+        std::vector<storage::KnownWifiNetwork> list;
+        storage::StorageManager::get_instance().load_known_wifi_list(list);
+
+        String json = "[";
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            if (i > 0) json += ",";
+            json += "{\"ssid\":\"" + json_escape(list[i].ssid) + "\",\"ts\":" + String(list[i].last_connected) + "}";
+        }
+        json += "]";
+        send_json(200, json);
+    }
+
+    static void handle_forget_network()
+    {
+        mark_softap_activity();
+        String ssid = webServer.arg("ssid");
+        ssid.trim();
+        if (ssid.length() == 0)
+        {
+            send_json(400, "{\"ok\":false,\"error\":\"SSID khong hop le\"}");
+            return;
+        }
+
+        bool ok = storage::StorageManager::get_instance().remove_known_wifi(ssid);
+        if (ok)
+        {
+            send_json(200, "{\"ok\":true}");
+        }
+        else
+        {
+            send_json(404, "{\"ok\":false,\"error\":\"Khong tim thay SSID trong danh sach\"}");
+        }
     }
 
     static void handle_keep_alive()
@@ -390,9 +427,6 @@ namespace wifi
             return;
         }
 
-        // Do not test credentials here: this runs in WebServer's request callback.
-        // A connection wait can monopolize TaskCore0Comm and trip its watchdog.
-        // Persist first, acknowledge immediately, then let boot handle STA normally.
         if (broker.length() == 0)
         {
             broker = config::network::MQTT_BROKER_VAL.length()
@@ -412,6 +446,39 @@ namespace wifi
                         : String(config::network::DEFAULT_MQTT_PASS);
         }
 
+        // Live Proof-of-Connectivity Test in WIFI_AP_STA mode
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+
+        bool connected = false;
+        unsigned long start_test = millis();
+        while (millis() - start_test < 8000)
+        {
+            if (WiFi.status() == WL_CONNECTED)
+            {
+                connected = true;
+                break;
+            }
+            delay(100);
+            dnsServer.processNextRequest();
+            webServer.handleClient();
+        }
+
+        if (!connected)
+        {
+            Serial.printf("[WIFI] Live verification failed for SSID='%s'. Keeping SoftAP alive.\n", ssid.c_str());
+            WiFi.disconnect(false, false);
+            WiFi.mode(WIFI_AP);
+            send_json(400, "{\"ok\":false,\"error\":\"Khong the ket noi toi WiFi! Kiem tra lai mat khau hoac khoang cach toi Router.\"}");
+            return;
+        }
+
+        String assigned_ip = WiFi.localIP().toString();
+        Serial.printf("[WIFI] Live verification SUCCESS for SSID='%s'. IP: %s\n", ssid.c_str(), assigned_ip.c_str());
+
+        // Add network to Known Networks list in NVS (max 5 LRU)
+        storage::StorageManager::get_instance().add_or_update_known_wifi(ssid, pass);
+
         if (!storage::ConfigManager::getInstance().saveNetworkConfig(ssid, pass, broker, port, mpass))
         {
             send_json(500, "{\"ok\":false,\"error\":\"Loi luu cau hinh vao NVS\"}");
@@ -419,20 +486,18 @@ namespace wifi
         }
 
         String ok_json = String("{\"ok\":true,\"ssid\":\"") + json_escape(ssid) +
-                         "\",\"reboot\":true}";
+                         "\",\"ip\":\"" + assigned_ip + "\",\"reboot\":true}";
         send_json(200, ok_json);
 
-        // Do not delay or restart from the HTTP callback. The next manager tick
-        // restarts after the response has had time to leave the TCP stack.
         restart_at_ms = millis() + 1500;
         restart_pending = true;
-        Serial.printf("[WIFI] Config saved from portal. New SSID='%s'. Restart scheduled.\n", ssid.c_str());
+        Serial.printf("[WIFI] Config verified & saved from portal. New SSID='%s'. Restart scheduled.\n", ssid.c_str());
     }
 
     static void handle_not_found()
     {
         const bool captive_active = current_state == WifiState::SOFTAP_ACTIVE &&
-                                    (WiFi.getMode() & WIFI_AP) != 0;
+                                     (WiFi.getMode() & WIFI_AP) != 0;
 
         // Requests outside the active captive portal must not redirect to a
         // missing SoftAP address such as 0.0.0.0.
@@ -457,6 +522,8 @@ namespace wifi
         webServer.on("/scan", HTTP_GET, handle_scan);
         webServer.on("/keep-alive", HTTP_GET, handle_keep_alive);
         webServer.on("/config", HTTP_GET, handle_config);
+        webServer.on("/known-networks", HTTP_GET, handle_known_networks);
+        webServer.on("/forget-network", HTTP_POST, handle_forget_network);
 
         // Captive portal probes — serve config page so OS keeps association open.
         webServer.on("/generate_204", HTTP_GET, handle_root);              // Android
@@ -522,7 +589,10 @@ namespace wifi
         // Đọc cấu hình WiFi STA từ NVS thông qua cấu hình hệ thống
         config::network::load_runtime_config();
 
-        if (!config::network::STA_SSID.isEmpty())
+        std::vector<storage::KnownWifiNetwork> known_list;
+        storage::StorageManager::get_instance().load_known_wifi_list(known_list);
+
+        if (!known_list.empty())
         {
             // Credentialed devices boot STA-only. Captive portal is a fallback,
             // never a parallel listener on port 80.
@@ -532,6 +602,13 @@ namespace wifi
             WiFi.disconnect(false, false);
             WiFi.mode(WIFI_STA);
             WiFi.setAutoReconnect(false);
+
+            // Select primary network (first in known list)
+            config::network::STA_SSID = known_list[0].ssid;
+            config::network::STA_PASS = known_list[0].pass;
+
+            Serial.printf("[WIFI] Booting STA mode. Connecting to primary saved WiFi '%s' (%u saved networks total)...\n",
+                          config::network::STA_SSID.c_str(), static_cast<unsigned>(known_list.size()));
             WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
             connection_start_time = millis();
             set_state(WifiState::STA_CONNECTING);
@@ -620,11 +697,16 @@ namespace wifi
                 Serial.println("[WIFI] WiFi connection timeout! Transitioning to STA_DISCONNECTED.");
                 WiFi.disconnect();
                 reconnect_attempts++;
-                Serial.printf("[WIFI] Reconnection attempt %d of %d failed.\n", reconnect_attempts, MAX_RECONNECT_ATTEMPTS);
 
-                if (reconnect_attempts >= MAX_RECONNECT_ATTEMPTS)
+                std::vector<storage::KnownWifiNetwork> known_list;
+                storage::StorageManager::get_instance().load_known_wifi_list(known_list);
+                int max_allowed_attempts = known_list.empty() ? MAX_RECONNECT_ATTEMPTS : (known_list.size() * MAX_RECONNECT_ATTEMPTS);
+
+                Serial.printf("[WIFI] Reconnection attempt %d of %d failed.\n", reconnect_attempts, max_allowed_attempts);
+
+                if (reconnect_attempts >= max_allowed_attempts)
                 {
-                    Serial.println("[WIFI] Max reconnection attempts reached. Falling back to SoftAP mode...");
+                    Serial.println("[WIFI] Max reconnection attempts across all saved networks reached. Falling back to SoftAP mode...");
                     start_softap(true);
                 }
                 else
@@ -748,16 +830,28 @@ namespace wifi
             Serial.println("[WIFI] Abort reconnect: SoftAP provisioning portal is active.");
             return;
         }
-        if (config::network::STA_SSID.length() == 0)
+
+        std::vector<storage::KnownWifiNetwork> known_list;
+        storage::StorageManager::get_instance().load_known_wifi_list(known_list);
+
+        if (known_list.empty())
         {
-            Serial.println("[WIFI] Abort reconnect: No SSID config available.");
+            Serial.println("[WIFI] Abort reconnect: No saved WiFi credentials available.");
             return;
         }
-        Serial.printf("[WIFI] Reconnecting to SSID: %s...\n", config::network::STA_SSID.c_str());
+
+        size_t idx = reconnect_attempts % known_list.size();
+        config::network::STA_SSID = known_list[idx].ssid;
+        config::network::STA_PASS = known_list[idx].pass;
+
+        Serial.printf("[WIFI] Reconnecting to network %u/%u (SSID: %s)...\n",
+                      static_cast<unsigned>(idx + 1),
+                      static_cast<unsigned>(known_list.size()),
+                      config::network::STA_SSID.c_str());
+
         WiFi.setAutoReconnect(false);
         WiFi.disconnect(false, false);
         delay(100);
-        // Gọi WiFi.begin để tái kết nối
         WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
         connection_start_time = millis();
         set_state(WifiState::STA_CONNECTING);
