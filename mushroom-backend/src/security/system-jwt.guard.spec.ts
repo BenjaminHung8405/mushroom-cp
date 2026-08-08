@@ -1,4 +1,8 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { createHmac } from 'node:crypto';
 import { SystemJwtGuard } from './system-jwt.guard';
@@ -10,7 +14,8 @@ function context(authorization?: string, isPublic = false): ExecutionContext {
     headers: { authorization },
   };
   return {
-    getHandler: () => (isPublic ? function publicHandler() {} : function handler() {}),
+    getHandler: () =>
+      isPublic ? function publicHandler() {} : function handler() {},
     getClass: () => class TestController {},
     switchToHttp: () => ({ getRequest: () => request }),
   } as unknown as ExecutionContext;
@@ -30,10 +35,13 @@ async function token(overrides: Record<string, unknown> = {}) {
 }
 
 function sign(payload: Record<string, unknown>): string {
-  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
   const header = encode({ alg: 'HS256', typ: 'JWT' });
   const body = encode(payload);
-  const signature = createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  const signature = createHmac('sha256', secret)
+    .update(`${header}.${body}`)
+    .digest('base64url');
   return `${header}.${body}.${signature}`;
 }
 
@@ -55,9 +63,16 @@ describe('SystemJwtGuard', () => {
   });
 
   it('rejects a signed token without exp', async () => {
-    const signed = sign({ roles: ['SYSTEM'], sub: 'mushroom-ui-bff', iss: 'mushroom-ui', aud: 'mushroom-backend' });
+    const signed = sign({
+      roles: ['SYSTEM'],
+      sub: 'mushroom-ui-bff',
+      iss: 'mushroom-ui',
+      aud: 'mushroom-backend',
+    });
 
-    await expect(guard.canActivate(context(`Bearer ${signed}`))).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      guard.canActivate(context(`Bearer ${signed}`)),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it.each([
@@ -68,19 +83,28 @@ describe('SystemJwtGuard', () => {
   ])('rejects a token with invalid %s', async (_name, claims) => {
     const signed = await token(claims);
     const result = guard.canActivate(context(`Bearer ${signed}`));
-    await expect(result).rejects.toBeInstanceOf(_name === 'role' ? ForbiddenException : UnauthorizedException);
+    await expect(result).rejects.toBeInstanceOf(
+      _name === 'role' ? ForbiddenException : UnauthorizedException,
+    );
   });
 
   it('accepts the valid BFF System token and attaches verified claims', async () => {
     const signed = await token();
     const requestContext = context(`Bearer ${signed}`);
     await expect(guard.canActivate(requestContext)).resolves.toBe(true);
-    const request = requestContext.switchToHttp().getRequest<{ user?: { sub?: string; roles?: string[] } }>();
-    expect(request.user).toMatchObject({ sub: 'mushroom-ui-bff', roles: ['SYSTEM'] });
+    const request = requestContext
+      .switchToHttp()
+      .getRequest<{ user?: { sub?: string; roles?: string[] } }>();
+    expect(request.user).toMatchObject({
+      sub: 'mushroom-ui-bff',
+      roles: ['SYSTEM'],
+    });
   });
 
   it('bypasses verification only for a public handler', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValueOnce(true);
-    await expect(guard.canActivate(context(undefined, true))).resolves.toBe(true);
+    await expect(guard.canActivate(context(undefined, true))).resolves.toBe(
+      true,
+    );
   });
 });

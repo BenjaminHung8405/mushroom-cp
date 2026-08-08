@@ -19,7 +19,9 @@ export class AddReportedTuningShadow1720656000010 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query('DROP INDEX IF EXISTS idx_device_tuning_configs_device_revision');
+    await queryRunner.query(
+      'DROP INDEX IF EXISTS idx_device_tuning_configs_device_revision',
+    );
     await queryRunner.query(`
       ALTER TABLE device_tuning_configurations
         DROP COLUMN IF EXISTS rejection_reason,

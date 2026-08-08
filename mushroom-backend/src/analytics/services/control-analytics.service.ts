@@ -15,7 +15,7 @@ const MAX_WINDOW_HOURS = 168;
 const MIN_COVERAGE_PERCENT = 80;
 const MIN_TRUSTED_SAMPLES = 100;
 const DEVICE_ONLINE_WINDOW_MS = 5 * 60 * 1_000;
-const MAX_SAMPLES_PER_HOUR = 120;
+const MAX_SAMPLES_PER_HOUR = 720;
 const MAX_SAFE_METRIC = Number.MAX_SAFE_INTEGER;
 
 export type CoverageGateFailureReason =
@@ -175,13 +175,25 @@ export class ControlAnalyticsService {
     const hours = (windowEnd.getTime() - windowStart.getTime()) / 3_600_000;
     validateKpiQuery(deviceId, hours, windowEnd);
     if (!this.analyticsAvailability.getState().available) {
-      throw new ServiceUnavailableException('InfluxDB analytics is temporarily unavailable');
+      throw new ServiceUnavailableException(
+        'InfluxDB analytics is temporarily unavailable',
+      );
     }
     const queryApi = this.influxDbService.getQueryApi();
-    const analyticsBucket = this.configService.get('INFLUXDB_ANALYTICS_BUCKET')?.trim();
-    if (!queryApi || !analyticsBucket) throw new ServiceUnavailableException('InfluxDB analytics query is unavailable');
-    const rows = await queryKpiRows(queryApi, buildKpiQuery(deviceId, analyticsBucket, windowStart, windowEnd));
-    return rows === null ? null : aggregateKpiRows(deviceId, rows, windowStart, windowEnd, hours);
+    const analyticsBucket = this.configService
+      .get('INFLUXDB_ANALYTICS_BUCKET')
+      ?.trim();
+    if (!queryApi || !analyticsBucket)
+      throw new ServiceUnavailableException(
+        'InfluxDB analytics query is unavailable',
+      );
+    const rows = await queryKpiRows(
+      queryApi,
+      buildKpiQuery(deviceId, analyticsBucket, windowStart, windowEnd),
+    );
+    return rows === null
+      ? null
+      : aggregateKpiRows(deviceId, rows, windowStart, windowEnd, hours);
   }
 }
 

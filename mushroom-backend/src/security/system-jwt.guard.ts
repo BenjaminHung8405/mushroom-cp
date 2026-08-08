@@ -39,10 +39,10 @@ export class SystemJwtGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     if (isPublic) return true;
 
     const request = context
@@ -58,23 +58,41 @@ export class SystemJwtGuard implements CanActivate {
     const token = extractBearerToken(request.headers.authorization);
 
     try {
-      const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
-      if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('Malformed JWT.');
-      const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8')) as { alg?: string; typ?: string };
-      if (header.alg !== 'HS256' || header.typ !== 'JWT') throw new Error('Unsupported JWT.');
+      const [encodedHeader, encodedPayload, encodedSignature] =
+        token.split('.');
+      if (!encodedHeader || !encodedPayload || !encodedSignature)
+        throw new Error('Malformed JWT.');
+      const header = JSON.parse(
+        Buffer.from(encodedHeader, 'base64url').toString('utf8'),
+      ) as { alg?: string; typ?: string };
+      if (header.alg !== 'HS256' || header.typ !== 'JWT')
+        throw new Error('Unsupported JWT.');
       const expected = createHmac('sha256', getSystemJwtSecret())
         .update(`${encodedHeader}.${encodedPayload}`)
         .digest();
       const actual = Buffer.from(encodedSignature, 'base64url');
-      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Bad signature.');
-      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as SystemJwtPayload;
-      if (payload.iss !== 'mushroom-ui' || payload.aud !== 'mushroom-backend' || payload.sub !== 'mushroom-ui-bff') throw new Error('Invalid claims.');
+      if (
+        actual.length !== expected.length ||
+        !timingSafeEqual(actual, expected)
+      )
+        throw new Error('Bad signature.');
+      const payload = JSON.parse(
+        Buffer.from(encodedPayload, 'base64url').toString('utf8'),
+      ) as SystemJwtPayload;
+      if (
+        payload.iss !== 'mushroom-ui' ||
+        payload.aud !== 'mushroom-backend' ||
+        payload.sub !== 'mushroom-ui-bff'
+      )
+        throw new Error('Invalid claims.');
 
       if (
         typeof payload.exp !== 'number' ||
         payload.exp <= Math.floor(Date.now() / 1000)
       ) {
-        throw new UnauthorizedException('System JWT is expired or missing exp.');
+        throw new UnauthorizedException(
+          'System JWT is expired or missing exp.',
+        );
       }
 
       const roles = payload.roles;

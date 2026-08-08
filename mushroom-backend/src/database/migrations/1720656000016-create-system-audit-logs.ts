@@ -17,10 +17,18 @@ export class CreateSystemAuditLogs1720656000016 implements MigrationInterface {
       payload_hash VARCHAR(64),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
-    await queryRunner.query('CREATE INDEX idx_system_audit_created_at ON system_audit_logs(created_at DESC)');
-    await queryRunner.query('CREATE INDEX idx_system_audit_actor ON system_audit_logs(actor)');
-    await queryRunner.query('CREATE INDEX idx_system_audit_route ON system_audit_logs(route)');
-    await queryRunner.query('CREATE INDEX idx_system_audit_request_id ON system_audit_logs(request_id)');
+    await queryRunner.query(
+      'CREATE INDEX idx_system_audit_created_at ON system_audit_logs(created_at DESC)',
+    );
+    await queryRunner.query(
+      'CREATE INDEX idx_system_audit_actor ON system_audit_logs(actor)',
+    );
+    await queryRunner.query(
+      'CREATE INDEX idx_system_audit_route ON system_audit_logs(route)',
+    );
+    await queryRunner.query(
+      'CREATE INDEX idx_system_audit_request_id ON system_audit_logs(request_id)',
+    );
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {

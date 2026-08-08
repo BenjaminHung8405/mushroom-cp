@@ -4,7 +4,11 @@ import type { TuningConfigSnapshot } from '../entities/device-tuning-configurati
 
 /** Stable public reasons that can block an operator tuning action. */
 export type TuningRecommendationBlockReason =
-  'INSUFFICIENT_DATA' | 'DEVICE_OFFLINE' | 'NO_SUGGESTION' | 'CONFLICT' | 'MIXED_INTERVAL';
+  | 'INSUFFICIENT_DATA'
+  | 'DEVICE_OFFLINE'
+  | 'NO_SUGGESTION'
+  | 'CONFLICT'
+  | 'MIXED_INTERVAL';
 
 /**
  * Canonical, implementation-safe response for the device tuning advisory API.

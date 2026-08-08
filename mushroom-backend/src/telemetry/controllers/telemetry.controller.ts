@@ -22,7 +22,10 @@ import {
 
 @Controller('devices')
 export class TelemetryController {
-  constructor(private readonly telemetryService: TelemetryService, @Optional() private readonly authService?: AuthService) {}
+  constructor(
+    private readonly telemetryService: TelemetryService,
+    @Optional() private readonly authService?: AuthService,
+  ) {}
 
   @Get(':id/telemetry')
   async getLatest(
@@ -51,12 +54,36 @@ export class TelemetryController {
     );
 
     if (initial) {
-      return concat(of({ data: initial } as MessageEvent), updates$).pipe(takeUntil(merge(this.revokedFor(request?.authUser), request ? fromEvent(request, 'close') : new Observable<never>(() => undefined))));
+      return concat(of({ data: initial } as MessageEvent), updates$).pipe(
+        takeUntil(
+          merge(
+            this.revokedFor(request?.authUser),
+            request
+              ? fromEvent(request, 'close')
+              : new Observable<never>(() => undefined),
+          ),
+        ),
+      );
     }
-    return updates$.pipe(takeUntil(merge(this.revokedFor(request?.authUser), request ? fromEvent(request, 'close') : new Observable<never>(() => undefined))));
+    return updates$.pipe(
+      takeUntil(
+        merge(
+          this.revokedFor(request?.authUser),
+          request
+            ? fromEvent(request, 'close')
+            : new Observable<never>(() => undefined),
+        ),
+      ),
+    );
   }
 
-  private revokedFor(principal?: AuthPrincipal) { return principal && this.authService ? this.authService.userSessionsRevoked$.pipe(filter((userId) => userId === principal.id)) : new Observable<never>(() => undefined); }
+  private revokedFor(principal?: AuthPrincipal) {
+    return principal && this.authService
+      ? this.authService.userSessionsRevoked$.pipe(
+          filter((userId) => userId === principal.id),
+        )
+      : new Observable<never>(() => undefined);
+  }
 
   @Get(':id/telemetry/history')
   async getHistory(

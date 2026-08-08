@@ -13,7 +13,8 @@ export interface AuthPrincipal {
   mustSetPin: boolean;
 }
 
-export const SESSION_COOKIE_NAME = process.env.AUTH_SESSION_COOKIE_NAME?.trim() || 'sid';
+export const SESSION_COOKIE_NAME =
+  process.env.AUTH_SESSION_COOKIE_NAME?.trim() || 'sid';
 /** 30 days — farmers should not need to re-login frequently */
 export const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 /** 7 days idle — session stays alive if app is opened at least once a week */
@@ -31,4 +32,3 @@ export const KIOSK_PIN_MAX_ATTEMPTS = 3;
 export const KIOSK_PIN_LOCKOUT_MS = 15 * 60 * 1000;
 /** Maximum active device PIN bindings allowed per user */
 export const MAX_DEVICES_PER_USER = 5;
-

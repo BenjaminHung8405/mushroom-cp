@@ -107,7 +107,11 @@ export class DeviceHealthService implements OnModuleInit, OnModuleDestroy {
     cache.isMqttOnline = true;
     cache.lastLivenessAt = receivedAt;
     cache.bootGraceUntil = null;
-    return this.transition(cache, this.calculateHealth(cache, receivedAt), receivedAt);
+    return this.transition(
+      cache,
+      this.calculateHealth(cache, receivedAt),
+      receivedAt,
+    );
   }
 
   getHealth(deviceId: string): HealthState {

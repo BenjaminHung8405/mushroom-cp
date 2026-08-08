@@ -1,12 +1,20 @@
-import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UserRole } from './entities/user.entity';
 import { PIN_MAX_ATTEMPTS } from './auth.types';
 
 describe('AuthService — phone+PIN', () => {
   const originalNodeEnv = process.env.NODE_ENV;
-  beforeEach(() => { process.env.NODE_ENV = 'test'; });
-  afterAll(() => { process.env.NODE_ENV = originalNodeEnv; });
+  beforeEach(() => {
+    process.env.NODE_ENV = 'test';
+  });
+  afterAll(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+  });
 
   const baseUser = {
     id: '7e7f1d4b-92b3-4db4-a36c-083793f33e2a',
@@ -35,7 +43,9 @@ describe('AuthService — phone+PIN', () => {
       save: jest.fn().mockResolvedValue(user),
       create: jest.fn((v) => v),
     };
-    const access = repositories.access ?? { find: jest.fn().mockResolvedValue([{ houseId: 'house-a' }]) };
+    const access = repositories.access ?? {
+      find: jest.fn().mockResolvedValue([{ houseId: 'house-a' }]),
+    };
     const sessions = repositories.sessions ?? {
       create: jest.fn((value) => value),
       save: jest.fn().mockResolvedValue(undefined),
@@ -64,20 +74,32 @@ describe('AuthService — phone+PIN', () => {
       manager: {
         transaction: jest.fn(async (cb: (em: any) => any) => {
           const em = {
-            find: (_target: any, options: any) => (pinDevices as any).find(options),
-            findOne: (_target: any, options: any) => (pinDevices as any).findOne(options),
+            find: (_target: any, options: any) =>
+              (pinDevices as any).find(options),
+            findOne: (_target: any, options: any) =>
+              (pinDevices as any).findOne(options),
             save: (_targetOrEntity: any, maybeEntity?: any) =>
-              maybeEntity ? (pinDevices as any).save(maybeEntity) : (pinDevices as any).save(_targetOrEntity),
-            create: (_target: any, entity: any) => (pinDevices as any).create(entity),
+              maybeEntity
+                ? (pinDevices as any).save(maybeEntity)
+                : (pinDevices as any).save(_targetOrEntity),
+            create: (_target: any, entity: any) =>
+              (pinDevices as any).create(entity),
             delete: (_target: any, id: any) => (pinDevices as any).delete(id),
-            update: (_target: any, id: any, updateObj: any) => (pinDevices as any).update(id, updateObj),
+            update: (_target: any, id: any, updateObj: any) =>
+              (pinDevices as any).update(id, updateObj),
           };
           return cb(em);
         }),
       },
     };
     return {
-      service: new AuthService(users as never, access as never, sessions as never, events as never, pinDevices as never),
+      service: new AuthService(
+        users as never,
+        access as never,
+        sessions as never,
+        events as never,
+        pinDevices as never,
+      ),
       users,
       access,
       sessions,
@@ -87,28 +109,41 @@ describe('AuthService — phone+PIN', () => {
     };
   }
 
-
   // ---------------------------------------------------------------------------
   // PIN Strength Validation
   // ---------------------------------------------------------------------------
   describe('validatePinStrength', () => {
     it('rejects all-same-digit PINs', () => {
       const { service } = serviceWith();
-      expect(() => service.validatePinStrength('000000')).toThrow(BadRequestException);
-      expect(() => service.validatePinStrength('111111')).toThrow(BadRequestException);
-      expect(() => service.validatePinStrength('999999')).toThrow(BadRequestException);
+      expect(() => service.validatePinStrength('000000')).toThrow(
+        BadRequestException,
+      );
+      expect(() => service.validatePinStrength('111111')).toThrow(
+        BadRequestException,
+      );
+      expect(() => service.validatePinStrength('999999')).toThrow(
+        BadRequestException,
+      );
     });
 
     it('rejects ascending sequences', () => {
       const { service } = serviceWith();
-      expect(() => service.validatePinStrength('123456')).toThrow(BadRequestException);
-      expect(() => service.validatePinStrength('234567')).toThrow(BadRequestException);
+      expect(() => service.validatePinStrength('123456')).toThrow(
+        BadRequestException,
+      );
+      expect(() => service.validatePinStrength('234567')).toThrow(
+        BadRequestException,
+      );
     });
 
     it('rejects descending sequences', () => {
       const { service } = serviceWith();
-      expect(() => service.validatePinStrength('987654')).toThrow(BadRequestException);
-      expect(() => service.validatePinStrength('654321')).toThrow(BadRequestException);
+      expect(() => service.validatePinStrength('987654')).toThrow(
+        BadRequestException,
+      );
+      expect(() => service.validatePinStrength('654321')).toThrow(
+        BadRequestException,
+      );
     });
 
     it('accepts a random valid PIN', () => {
@@ -146,15 +181,24 @@ describe('AuthService — phone+PIN', () => {
       const { service, users, sessions, user } = serviceWith();
       user.pinHash = await service.hashPin('839274');
 
-      const result = await service.login('+84901234567', '839274', { ipAddress: '127.0.0.1', userAgent: 'jest' });
+      const result = await service.login('+84901234567', '839274', {
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      });
 
-      expect(users.findOne).toHaveBeenCalledWith({ where: { phoneNumber: '+84901234567' } });
+      expect(users.findOne).toHaveBeenCalledWith({
+        where: { phoneNumber: '+84901234567' },
+      });
       expect(result.token).toHaveLength(64);
-      expect(sessions.save).toHaveBeenCalledWith(expect.objectContaining({
-        tokenHash: service.hashToken(result.token),
-        userId: user.id,
-      }));
-      expect(sessions.save).not.toHaveBeenCalledWith(expect.objectContaining({ tokenHash: result.token }));
+      expect(sessions.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tokenHash: service.hashToken(result.token),
+          userId: user.id,
+        }),
+      );
+      expect(sessions.save).not.toHaveBeenCalledWith(
+        expect.objectContaining({ tokenHash: result.token }),
+      );
       expect(result.principal.houseIds).toEqual(['house-a']);
       expect(result.principal.phoneNumber).toBe('+84901234567');
     });
@@ -165,9 +209,15 @@ describe('AuthService — phone+PIN', () => {
       user.pinFailedAttempts = 3;
       user.pinLockedUntil = null;
 
-      await service.login('+84901234567', '839274', { ipAddress: '127.0.0.1', userAgent: 'jest' });
+      await service.login('+84901234567', '839274', {
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      });
 
-      expect(users.update).toHaveBeenCalledWith(user.id, { pinFailedAttempts: 0, pinLockedUntil: null });
+      expect(users.update).toHaveBeenCalledWith(user.id, {
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+      });
     });
   });
 
@@ -179,8 +229,12 @@ describe('AuthService — phone+PIN', () => {
       const { service, user } = serviceWith();
       user.pinHash = await service.hashPin('839274');
 
-      await expect(service.login('+84901234567', '000000', { ipAddress: '127.0.0.1', userAgent: 'jest' }))
-        .rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.login('+84901234567', '000000', {
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it(`increments pinFailedAttempts on each wrong PIN (< ${PIN_MAX_ATTEMPTS})`, async () => {
@@ -188,10 +242,16 @@ describe('AuthService — phone+PIN', () => {
       user.pinHash = await service.hashPin('839274');
       user.pinFailedAttempts = 2;
 
-      await expect(service.login('+84901234567', '000000', { ipAddress: '127.0.0.1', userAgent: 'jest' }))
-        .rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.login('+84901234567', '000000', {
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
 
-      expect(users.update).toHaveBeenCalledWith(user.id, { pinFailedAttempts: 3 });
+      expect(users.update).toHaveBeenCalledWith(user.id, {
+        pinFailedAttempts: 3,
+      });
     });
 
     it(`sets pinLockedUntil when attempts reach ${PIN_MAX_ATTEMPTS}`, async () => {
@@ -199,12 +259,19 @@ describe('AuthService — phone+PIN', () => {
       user.pinHash = await service.hashPin('839274');
       user.pinFailedAttempts = PIN_MAX_ATTEMPTS - 1;
 
-      await expect(service.login('+84901234567', '000000', { ipAddress: '127.0.0.1', userAgent: 'jest' }))
-        .rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.login('+84901234567', '000000', {
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
 
       expect(users.update).toHaveBeenCalledWith(
         user.id,
-        expect.objectContaining({ pinFailedAttempts: 0, pinLockedUntil: expect.any(Date) }),
+        expect.objectContaining({
+          pinFailedAttempts: 0,
+          pinLockedUntil: expect.any(Date),
+        }),
       );
     });
 
@@ -213,8 +280,12 @@ describe('AuthService — phone+PIN', () => {
       user.pinHash = await service.hashPin('839274');
       user.pinLockedUntil = new Date(Date.now() + 10 * 60 * 1000); // locked 10min from now
 
-      await expect(service.login('+84901234567', '839274', { ipAddress: '127.0.0.1', userAgent: 'jest' }))
-        .rejects.toThrow(HttpException);
+      await expect(
+        service.login('+84901234567', '839274', {
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest',
+        }),
+      ).rejects.toThrow(HttpException);
     });
   });
 
@@ -242,7 +313,10 @@ describe('AuthService — phone+PIN', () => {
 
     await service.revokeAllUserSessions(baseUser.id, 'PIN_RESET');
 
-    expect(queryBuilder.where).toHaveBeenCalledWith('user_id = :userId AND revoked_at IS NULL', { userId: baseUser.id });
+    expect(queryBuilder.where).toHaveBeenCalledWith(
+      'user_id = :userId AND revoked_at IS NULL',
+      { userId: baseUser.id },
+    );
     expect(revoked).toEqual([baseUser.id]);
   });
 
@@ -252,13 +326,19 @@ describe('AuthService — phone+PIN', () => {
   describe('Kiosk Device PIN', () => {
     const validDeviceToken = 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d';
 
-    function kioskServiceWith(pinDeviceOverrides: Partial<Record<string, unknown>> = {}) {
+    function kioskServiceWith(
+      pinDeviceOverrides: Partial<Record<string, unknown>> = {},
+    ) {
       const pinDevicesList: any[] = [];
       const pinDevices = {
         find: jest.fn().mockResolvedValue(pinDevicesList),
         findOne: jest.fn().mockImplementation(({ where }) => {
           return Promise.resolve(
-            pinDevicesList.find((d) => d.userId === where.userId && d.deviceTokenHash === where.deviceTokenHash) ?? null,
+            pinDevicesList.find(
+              (d) =>
+                d.userId === where.userId &&
+                d.deviceTokenHash === where.deviceTokenHash,
+            ) ?? null,
           );
         }),
         save: jest.fn().mockImplementation((entity) => {
@@ -267,7 +347,11 @@ describe('AuthService — phone+PIN', () => {
             pinDevicesList[idx] = { ...pinDevicesList[idx], ...entity };
             return Promise.resolve(pinDevicesList[idx]);
           }
-          const saved = { id: `device-${pinDevicesList.length + 1}`, ...entity, createdAt: new Date() };
+          const saved = {
+            id: `device-${pinDevicesList.length + 1}`,
+            ...entity,
+            createdAt: new Date(),
+          };
           pinDevicesList.push(saved);
           return Promise.resolve(saved);
         }),
@@ -282,8 +366,8 @@ describe('AuthService — phone+PIN', () => {
             typeof where === 'object' && where?.id
               ? d.id === where.id
               : typeof where === 'object' && where?.userId
-              ? d.userId === where.userId
-              : d.id === where,
+                ? d.userId === where.userId
+                : d.id === where,
           );
           if (idx !== -1) pinDevicesList.splice(idx, 1);
           return Promise.resolve();
@@ -292,12 +376,16 @@ describe('AuthService — phone+PIN', () => {
           transaction: jest.fn(async (cb: (em: any) => any) => {
             const em = {
               find: (_target: any, options: any) => pinDevices.find(options),
-              findOne: (_target: any, options: any) => pinDevices.findOne(options),
+              findOne: (_target: any, options: any) =>
+                pinDevices.findOne(options),
               save: (targetOrEntity: any, maybeEntity?: any) =>
-                maybeEntity ? pinDevices.save(maybeEntity) : pinDevices.save(targetOrEntity),
+                maybeEntity
+                  ? pinDevices.save(maybeEntity)
+                  : pinDevices.save(targetOrEntity),
               create: (_target: any, entity: any) => pinDevices.create(entity),
               delete: (_target: any, id: any) => pinDevices.delete(id),
-              update: (_target: any, id: any, updateObj: any) => pinDevices.update(id, updateObj),
+              update: (_target: any, id: any, updateObj: any) =>
+                pinDevices.update(id, updateObj),
             };
             return cb(em);
           }),
@@ -332,10 +420,15 @@ describe('AuthService — phone+PIN', () => {
       // Device is registered via registerDevice (mirrors login() auto-register)
       await service.registerDevice(user.id, validDeviceToken, 'Test Tablet');
 
-      const loginRes = await service.loginWithDevicePin(user.phoneNumber, '839274', validDeviceToken, {
-        ipAddress: '127.0.0.1',
-        userAgent: 'jest',
-      });
+      const loginRes = await service.loginWithDevicePin(
+        user.phoneNumber,
+        '839274',
+        validDeviceToken,
+        {
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest',
+        },
+      );
 
       expect(loginRes.token).toHaveLength(64);
       expect(loginRes.principal.phoneNumber).toBe(user.phoneNumber);
@@ -347,7 +440,12 @@ describe('AuthService — phone+PIN', () => {
       await service.registerDevice(user.id, validDeviceToken, 'Test Tablet');
 
       await expect(
-        service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, { ipAddress: null, userAgent: null }),
+        service.loginWithDevicePin(
+          user.phoneNumber,
+          '000000',
+          validDeviceToken,
+          { ipAddress: null, userAgent: null },
+        ),
       ).rejects.toThrow('Thông tin thiết bị hoặc mã PIN không chính xác.');
     });
 
@@ -368,14 +466,42 @@ describe('AuthService — phone+PIN', () => {
 
       const ctx = { ipAddress: null, userAgent: null };
       // Attempts 1-2: unified error
-      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
-      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.loginWithDevicePin(
+          user.phoneNumber,
+          '000000',
+          validDeviceToken,
+          ctx,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.loginWithDevicePin(
+          user.phoneNumber,
+          '000000',
+          validDeviceToken,
+          ctx,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
 
       // Attempt 3: triggers device lock
-      await expect(service.loginWithDevicePin(user.phoneNumber, '000000', validDeviceToken, ctx)).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.loginWithDevicePin(
+          user.phoneNumber,
+          '000000',
+          validDeviceToken,
+          ctx,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
 
       // Attempt 4: device is now locked — even correct PIN is blocked
-      await expect(service.loginWithDevicePin(user.phoneNumber, '839274', validDeviceToken, ctx)).rejects.toThrow(HttpException);
+      await expect(
+        service.loginWithDevicePin(
+          user.phoneNumber,
+          '839274',
+          validDeviceToken,
+          ctx,
+        ),
+      ).rejects.toThrow(HttpException);
     });
 
     it('loginWithDevicePin — dual-level: account locked after PIN_MAX_ATTEMPTS cross-device failures', async () => {
@@ -394,7 +520,12 @@ describe('AuthService — phone+PIN', () => {
       // 5 total wrong PIN attempts across devices — triggers dual-level lockout
       for (let i = 0; i < 5; i++) {
         try {
-          await service.loginWithDevicePin(user.phoneNumber, '000000', i < 3 ? validDeviceToken : deviceToken2, ctx);
+          await service.loginWithDevicePin(
+            user.phoneNumber,
+            '000000',
+            i < 3 ? validDeviceToken : deviceToken2,
+            ctx,
+          );
         } catch {
           // expected
         }
@@ -402,12 +533,12 @@ describe('AuthService — phone+PIN', () => {
 
       // users.update should have been called to increment pinFailedAttempts at account level
       const accountUpdateCalls = (users.update as jest.Mock).mock.calls.filter(
-        ([, updateObj]) => 'pinFailedAttempts' in updateObj || 'pinLockedUntil' in updateObj,
+        ([, updateObj]) =>
+          'pinFailedAttempts' in updateObj || 'pinLockedUntil' in updateObj,
       );
       expect(accountUpdateCalls.length).toBeGreaterThan(0);
     });
   });
-
 
   describe('updateProfile', () => {
     it('updates user fullName and avatar', async () => {
@@ -422,4 +553,3 @@ describe('AuthService — phone+PIN', () => {
     });
   });
 });
-

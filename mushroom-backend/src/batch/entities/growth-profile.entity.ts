@@ -17,6 +17,12 @@ export class GrowthProfile {
   @Column({ type: 'text', nullable: true })
   description!: string;
 
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy!: string | null;
+
+  @Column({ name: 'is_system', type: 'boolean', default: false })
+  isSystem!: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

@@ -25,7 +25,9 @@ describe('SystemAuditLogger', () => {
 
   it('preserves a successful response when audit persistence fails', (done) => {
     const repository = {
-      insert: jest.fn(() => Promise.reject(new Error('audit table unavailable'))),
+      insert: jest.fn(() =>
+        Promise.reject(new Error('audit table unavailable')),
+      ),
     };
     const logger = new SystemAuditLogger(repository as never);
     const next: CallHandler = { handle: () => of({ ticket: 'ticket-1' }) };
@@ -48,7 +50,9 @@ describe('SystemAuditLogger', () => {
 
   it('preserves the original handler error when audit persistence also fails', (done) => {
     const repository = {
-      insert: jest.fn(() => Promise.reject(new Error('audit table unavailable'))),
+      insert: jest.fn(() =>
+        Promise.reject(new Error('audit table unavailable')),
+      ),
     };
     const logger = new SystemAuditLogger(repository as never);
     const handlerError = new Error('business failure');

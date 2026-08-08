@@ -156,7 +156,8 @@ export class ControlHistoryInfluxWriter
     if (point.controlSource !== null) {
       influxPoint.tag('control_source', point.controlSource);
     }
-    if (point.publishReason !== null) influxPoint.tag('publish_reason', point.publishReason);
+    if (point.publishReason !== null)
+      influxPoint.tag('publish_reason', point.publishReason);
 
     // Set fields
     influxPoint.timestamp(point.timestamp);
@@ -176,7 +177,11 @@ export class ControlHistoryInfluxWriter
     if (point.configRevision !== null) {
       influxPoint.intField('config_revision', point.configRevision);
     }
-    if (point.telemetryIntervalSec !== null) influxPoint.intField('telemetry_interval_sec', point.telemetryIntervalSec);
+    if (point.telemetryIntervalSec !== null)
+      influxPoint.intField(
+        'telemetry_interval_sec',
+        point.telemetryIntervalSec,
+      );
 
     if (point.mistState !== null) {
       influxPoint.booleanField('mist_state', point.mistState);

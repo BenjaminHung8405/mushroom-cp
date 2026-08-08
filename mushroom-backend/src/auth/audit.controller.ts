@@ -17,16 +17,26 @@ class AuditQueryDto {
 @RequireRoles(UserRole.ADMIN)
 export class AuditController {
   constructor(
-    @InjectRepository(SystemAuditLog) private readonly systemAudit: Repository<SystemAuditLog>,
-    @InjectRepository(AuthSecurityEvent) private readonly authEvents: Repository<AuthSecurityEvent>,
+    @InjectRepository(SystemAuditLog)
+    private readonly systemAudit: Repository<SystemAuditLog>,
+    @InjectRepository(AuthSecurityEvent)
+    private readonly authEvents: Repository<AuthSecurityEvent>,
   ) {}
 
   @Get()
   async list(@Query() query: AuditQueryDto) {
     const limit = query.limit ?? 50;
     const offset = query.offset ?? 0;
-    const [system, systemTotal] = await this.systemAudit.findAndCount({ order: { createdAt: 'DESC' }, take: limit, skip: offset });
-    const [auth, authTotal] = await this.authEvents.findAndCount({ order: { createdAt: 'DESC' }, take: limit, skip: offset });
+    const [system, systemTotal] = await this.systemAudit.findAndCount({
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+    const [auth, authTotal] = await this.authEvents.findAndCount({
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
     return { system, auth, systemTotal, authTotal, limit, offset };
   }
 }

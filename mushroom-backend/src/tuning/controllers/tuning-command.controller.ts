@@ -48,10 +48,15 @@ export class TuningCommandController {
     const principal = request?.authUser;
     const pending = principal
       ? await this.tuningConfigurationService.createPendingCommand(
-          this.tuningPrincipal(principal), deviceId, dto.config, dto.commandId,
+          this.tuningPrincipal(principal),
+          deviceId,
+          dto.config,
+          dto.commandId,
         )
       : await this.tuningConfigurationService.createPendingCommandNonUser(
-          deviceId, dto.config, dto.commandId,
+          deviceId,
+          dto.config,
+          dto.commandId,
         );
 
     return {
@@ -65,9 +70,15 @@ export class TuningCommandController {
    * configuration store, never MQTT retained state.
    */
   @Get(':id/tuning-configurations/latest')
-  async getLatestTuningConfiguration(@Param('id') deviceId: string, @Req() request?: Request & { authUser?: AuthPrincipal }) {
+  async getLatestTuningConfiguration(
+    @Param('id') deviceId: string,
+    @Req() request?: Request & { authUser?: AuthPrincipal },
+  ) {
     return request?.authUser
-      ? this.tuningConfigurationService.getLatestForPrincipal(this.tuningPrincipal(request.authUser), deviceId)
+      ? this.tuningConfigurationService.getLatestForPrincipal(
+          this.tuningPrincipal(request.authUser),
+          deviceId,
+        )
       : this.tuningConfigurationService.getLatestByDeviceId(deviceId);
   }
 
@@ -83,16 +94,25 @@ export class TuningCommandController {
   ) {
     const parsedLimit = this.parsePagination(limit, 20, 1, 100, 'limit');
     const parsedOffset = this.parsePagination(
-        offset,
-        0,
-        0,
-        MAX_TUNING_HISTORY_OFFSET,
-        'offset',
-        false,
-      );
+      offset,
+      0,
+      0,
+      MAX_TUNING_HISTORY_OFFSET,
+      'offset',
+      false,
+    );
     return request?.authUser
-      ? this.tuningConfigurationService.getHistoryForPrincipal(this.tuningPrincipal(request.authUser), deviceId, parsedLimit, parsedOffset)
-      : this.tuningConfigurationService.getTuningHistory(deviceId, parsedLimit, parsedOffset);
+      ? this.tuningConfigurationService.getHistoryForPrincipal(
+          this.tuningPrincipal(request.authUser),
+          deviceId,
+          parsedLimit,
+          parsedOffset,
+        )
+      : this.tuningConfigurationService.getTuningHistory(
+          deviceId,
+          parsedLimit,
+          parsedOffset,
+        );
   }
 
   /**
@@ -108,7 +128,10 @@ export class TuningCommandController {
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): { ticket: string; expiresInSeconds: number } {
     return {
-      ticket: this.tuningSseTicketService.createTicket(request?.authUser?.sessionId ?? 'non-user', deviceId),
+      ticket: this.tuningSseTicketService.createTicket(
+        request?.authUser?.sessionId ?? 'non-user',
+        deviceId,
+      ),
       expiresInSeconds: 30,
     };
   }
@@ -125,10 +148,17 @@ export class TuningCommandController {
     @Param('id') deviceId: string,
     @Req() request: Request,
   ): Observable<MessageEvent> {
-    const principal = (request as Request & { authUser?: AuthPrincipal }).authUser;
-    const closed$ = principal && this.authService
-      ? merge(fromEvent(request, 'close'), this.authService.userSessionsRevoked$.pipe(filter((userId) => userId === principal.id)))
-      : fromEvent(request, 'close');
+    const principal = (request as Request & { authUser?: AuthPrincipal })
+      .authUser;
+    const closed$ =
+      principal && this.authService
+        ? merge(
+            fromEvent(request, 'close'),
+            this.authService.userSessionsRevoked$.pipe(
+              filter((userId) => userId === principal.id),
+            ),
+          )
+        : fromEvent(request, 'close');
     return this.tuningConfigurationService.tuningSync$.pipe(
       filter((event) => event.deviceId === deviceId),
       map((event) => ({ data: event })),
@@ -174,6 +204,10 @@ export class TuningCommandController {
   }
 
   private tuningPrincipal(principal: AuthPrincipal) {
-    return { subject: principal.id, allowedHouseIds: principal.houseIds, isAdmin: principal.role === UserRole.ADMIN };
+    return {
+      subject: principal.id,
+      allowedHouseIds: principal.houseIds,
+      isAdmin: principal.role === UserRole.ADMIN,
+    };
   }
 }

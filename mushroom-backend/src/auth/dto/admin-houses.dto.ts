@@ -1,9 +1,18 @@
-import { IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CreateHouseDto {
   @IsString()
   @Matches(/^[a-z0-9_-]{3,50}$/, {
-    message: 'id must be 3-50 lowercase alphanumeric characters, hyphens or underscores (e.g. house_b1)',
+    message:
+      'id must be 3-50 lowercase alphanumeric characters, hyphens or underscores (e.g. house_b1)',
   })
   id!: string;
 

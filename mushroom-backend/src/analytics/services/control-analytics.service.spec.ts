@@ -41,6 +41,14 @@ describe('ControlAnalyticsService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     configService.get.mockImplementation(defaultConfigValue);
+    (influxDbService.getQueryApi as jest.Mock).mockReturnValue(
+      queryApi as unknown as QueryApi,
+    );
+    (analyticsAvailability.getState as jest.Mock).mockReturnValue({
+      available: true,
+      reason: null,
+    });
+    collectRows.mockResolvedValue([]);
   });
 
   describe('checkCoverageGate', () => {

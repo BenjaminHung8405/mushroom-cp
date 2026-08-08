@@ -16,6 +16,9 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecurityModule } from './security/security.module';
 
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { RequestContextInterceptor } from './common/interceptors/request-context.interceptor';
+
 @Module({
   imports: [
     AppConfigModule,
@@ -34,6 +37,12 @@ import { SecurityModule } from './security/security.module';
     AnalyticsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RequestContextInterceptor,
+    },
+  ],
 })
 export class AppModule {}

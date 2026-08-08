@@ -53,10 +53,7 @@ describe('TuningCommandController', () => {
   });
 
   it('delegates durable command creation in non-user mode', async () => {
-    const result = await controller.createTuningConfiguration(
-      'device-1',
-      dto,
-    );
+    const result = await controller.createTuningConfiguration('device-1', dto);
 
     expect(createPendingCommandNonUser).toHaveBeenCalledWith(
       'device-1',

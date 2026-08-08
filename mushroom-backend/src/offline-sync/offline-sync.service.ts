@@ -4,11 +4,7 @@ import {
   OnModuleDestroy,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import {
-  InfluxDB,
-  QueryApi,
-  WriteApi,
-} from '@influxdata/influxdb-client';
+import { InfluxDB, QueryApi, WriteApi } from '@influxdata/influxdb-client';
 import type { OfflineSyncBurst } from '../mqtt/offline-sync';
 import { OfflineCanonicalNormalizerService } from '../influx/services/offline-canonical-normalizer.service';
 
@@ -22,7 +18,9 @@ export class OfflineSyncService implements OnModuleDestroy {
   private readonly writeApi: WriteApi | null;
   private readonly queryApi: QueryApi | null;
 
-  constructor(private readonly normalizer: OfflineCanonicalNormalizerService = new OfflineCanonicalNormalizerService()) {
+  constructor(
+    private readonly normalizer: OfflineCanonicalNormalizerService = new OfflineCanonicalNormalizerService(),
+  ) {
     if (
       !this.influxUrl ||
       !this.influxToken ||
@@ -111,7 +109,6 @@ export class OfflineSyncService implements OnModuleDestroy {
       throw new ServiceUnavailableException('InfluxDB history query failed');
     }
   }
-
 }
 
 export interface OfflineHistoryPoint {

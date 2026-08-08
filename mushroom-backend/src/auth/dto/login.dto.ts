@@ -4,12 +4,16 @@ export class LoginDto {
   /** Vietnamese phone number in local format (0xxxxxxxxx) or E.164 format (+84xxxxxxxxx) */
   @IsString()
   @Matches(/^(0|\+84)[0-9]{9}$/, {
-    message: 'phoneNumber must be a valid Vietnamese phone number (e.g. 0901234567 or +84901234567)',
+    message:
+      'phoneNumber must be a valid Vietnamese phone number (e.g. 0901234567 or +84901234567)',
   })
   phoneNumber!: string;
 
   /** 6-digit numeric PIN */
-  @IsString() @Length(6, 6) @Matches(/^[0-9]{6}$/, { message: 'pin must be exactly 6 digits' }) pin!: string;
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^[0-9]{6}$/, { message: 'pin must be exactly 6 digits' })
+  pin!: string;
 
   /**
    * Optional UUID v4 device token from the kiosk browser's localStorage.
@@ -29,4 +33,3 @@ export class LoginDto {
   @Length(1, 150)
   deviceLabel?: string;
 }
-

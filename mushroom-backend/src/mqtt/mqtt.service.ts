@@ -80,7 +80,8 @@ export interface TelemetryEvent {
   actuators: EdgeActuatorState | null;
   operatingMode?: 'AI' | 'MANUAL';
   telemetryIntervalSec?: number | null;
-  publishReason?: 'interval' | 'actuator_change' | 'manual_test' | 'reconnect' | null;
+  publishReason?:
+    'interval' | 'actuator_change' | 'manual_test' | 'reconnect' | null;
   provenance?: 'live_mqtt';
   receivedAt: Date;
   timestamp: string;
@@ -506,14 +507,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const event = data.event;
     if (typeof event !== 'string' || !event) return;
     const isValid =
-      event === 'CONNECTED' || event === 'CONNECT_FAILED' || event === 'DISCONNECTED';
+      event === 'CONNECTED' ||
+      event === 'CONNECT_FAILED' ||
+      event === 'DISCONNECTED';
     if (!isValid) {
-      this.logger.warn(`Dropped unknown connection event '${event}' from '${record.deviceId}'.`);
+      this.logger.warn(
+        `Dropped unknown connection event '${event}' from '${record.deviceId}'.`,
+      );
       return;
     }
     const reason = typeof data.reason === 'string' ? data.reason : null;
     const latencyMs =
-      typeof data.connect_latency_ms === 'number' && data.connect_latency_ms >= 0
+      typeof data.connect_latency_ms === 'number' &&
+      data.connect_latency_ms >= 0
         ? data.connect_latency_ms
         : null;
     void this.registry.touchLastSeen(record.deviceId, receivedAt);
@@ -534,7 +540,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
     // CONNECTED event updates liveness even if SHT30 telemetry is degraded/null.
     if (event === 'CONNECTED') {
-      const healthEvent = this.deviceHealth?.handleHeartbeatReceived(record, receivedAt);
+      const healthEvent = this.deviceHealth?.handleHeartbeatReceived(
+        record,
+        receivedAt,
+      );
       if (healthEvent) this.deviceStateCache.set(record.deviceId, healthEvent);
     }
   }
@@ -544,12 +553,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     data: Record<string, unknown>,
     receivedAt: Date,
   ): void {
-    const transport = typeof data.transport === 'string' ? data.transport : null;
+    const transport =
+      typeof data.transport === 'string' ? data.transport : null;
     const isTransportValid = transport === 'plain' || transport === 'tls';
     if (!isTransportValid) return;
     // Heartbeat alone keeps the device alive; it does not override last telemetry timestamp.
     void this.registry.touchLastSeen(record.deviceId, receivedAt);
-    const healthEvent = this.deviceHealth?.handleHeartbeatReceived(record, receivedAt);
+    const healthEvent = this.deviceHealth?.handleHeartbeatReceived(
+      record,
+      receivedAt,
+    );
     if (healthEvent) this.deviceStateCache.set(record.deviceId, healthEvent);
     void this.logger.log(
       `[HEARTBEAT] ${record.deviceId} transport=${transport}`,
@@ -590,11 +603,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       timestamp: receivedAt.toISOString(),
     };
     if (event.temp_air === null && event.humidity_air === null)
-      this.logger.warn(`Telemetry from '${deviceId}' has no finite SHT readings.`);
+      this.logger.warn(
+        `Telemetry from '${deviceId}' has no finite SHT readings.`,
+      );
     this.telemetry$.next(event);
-    const healthEvent = event.temp_air === null && event.humidity_air === null
-      ? this.deviceHealth?.handleHeartbeatReceived(record, receivedAt)
-      : this.deviceHealth?.handleTelemetryReceived(record, receivedAt);
+    const healthEvent =
+      event.temp_air === null && event.humidity_air === null
+        ? this.deviceHealth?.handleHeartbeatReceived(record, receivedAt)
+        : this.deviceHealth?.handleTelemetryReceived(record, receivedAt);
     if (healthEvent) this.deviceStateCache.set(deviceId, healthEvent);
     this.confirmAppliedFromTelemetry(
       deviceId,
@@ -604,11 +620,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private telemetryInterval(value: unknown): number | null {
-    return typeof value === 'number' && Number.isInteger(value) && [30, 60, 300].includes(value) ? value : null;
+    return typeof value === 'number' &&
+      Number.isInteger(value) &&
+      [30, 60, 300].includes(value)
+      ? value
+      : null;
   }
 
   private publishReason(value: unknown): TelemetryEvent['publishReason'] {
-    return value === 'interval' || value === 'actuator_change' || value === 'manual_test' || value === 'reconnect' ? value : null;
+    return value === 'interval' ||
+      value === 'actuator_change' ||
+      value === 'manual_test' ||
+      value === 'reconnect'
+      ? value
+      : null;
   }
 
   private handleProvisioning(
@@ -726,9 +751,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `Command ACK ${ack.status} from '${deviceId}' ` +
           `(commandId=${ack.commandId}, relayId=${ack.relayId ?? 'n/a'})` +
-          (ack.error
-            ? `: ${ack.error.code} — ${ack.error.message}`
-            : '.'),
+          (ack.error ? `: ${ack.error.code} — ${ack.error.message}` : '.'),
       );
     }
     void this.registry.touchLastSeen(deviceId, receivedAt);
@@ -973,15 +996,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       throw new Error('MQTT client is not connected.');
     }
     await new Promise<void>((resolve, reject) => {
-      this.client?.publish(
-        topic,
-        '',
-        { qos: 1, retain: true },
-        (error) => (error ? reject(error) : resolve()),
+      this.client?.publish(topic, '', { qos: 1, retain: true }, (error) =>
+        error ? reject(error) : resolve(),
       );
     });
   }
-
 
   async dispatchSetpoint(
     deviceId: string,
@@ -1177,7 +1196,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   async kickDevice(deviceId: string): Promise<void> {
-    this.logger.log(`Kicking device '${deviceId}' due to revocation/disabled status.`);
+    this.logger.log(
+      `Kicking device '${deviceId}' due to revocation/disabled status.`,
+    );
     try {
       await this.publish(`${this.tenant}/esp32/${deviceId}/down/disconnect`, {
         action: 'DISCONNECT',
@@ -1185,7 +1206,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         timestamp_utc: new Date().toISOString(),
       });
     } catch (err) {
-      this.logger.warn(`Failed to send disconnect command to '${deviceId}': ${String(err)}`);
+      this.logger.warn(
+        `Failed to send disconnect command to '${deviceId}': ${String(err)}`,
+      );
     }
   }
 
@@ -1363,22 +1386,39 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       'mist_on_threshold',
       'mist_off_threshold',
     ];
-    if (!config || Object.keys(config).length !== expected.length || !expected.every((key) => key in config)) return null;
+    if (
+      !config ||
+      Object.keys(config).length !== expected.length ||
+      !expected.every((key) => key in config)
+    )
+      return null;
     const lamp = config.lamp_gain_scale;
     const mist = config.mist_gain_scale;
     const on = config.mist_on_threshold;
     const off = config.mist_off_threshold;
     if (
-      typeof lamp !== 'number' || !Number.isFinite(lamp) ||
-      typeof mist !== 'number' || !Number.isFinite(mist) ||
-      typeof on !== 'number' || !Number.isFinite(on) ||
-      typeof off !== 'number' || !Number.isFinite(off)
-    ) return null;
-    if (lamp < LAMP_GAIN_SCALE_MIN || lamp > LAMP_GAIN_SCALE_MAX ||
-      mist < MIST_GAIN_SCALE_MIN || mist > MIST_GAIN_SCALE_MAX ||
-      on < MIST_ON_THRESHOLD_MIN || on > MIST_ON_THRESHOLD_MAX ||
-      off < MIST_OFF_THRESHOLD_MIN || off > MIST_OFF_THRESHOLD_MAX ||
-      off >= on - MIN_THRESHOLD_GAP) return null;
+      typeof lamp !== 'number' ||
+      !Number.isFinite(lamp) ||
+      typeof mist !== 'number' ||
+      !Number.isFinite(mist) ||
+      typeof on !== 'number' ||
+      !Number.isFinite(on) ||
+      typeof off !== 'number' ||
+      !Number.isFinite(off)
+    )
+      return null;
+    if (
+      lamp < LAMP_GAIN_SCALE_MIN ||
+      lamp > LAMP_GAIN_SCALE_MAX ||
+      mist < MIST_GAIN_SCALE_MIN ||
+      mist > MIST_GAIN_SCALE_MAX ||
+      on < MIST_ON_THRESHOLD_MIN ||
+      on > MIST_ON_THRESHOLD_MAX ||
+      off < MIST_OFF_THRESHOLD_MIN ||
+      off > MIST_OFF_THRESHOLD_MAX ||
+      off >= on - MIN_THRESHOLD_GAP
+    )
+      return null;
     return {
       lamp_gain_scale: lamp,
       mist_gain_scale: mist,

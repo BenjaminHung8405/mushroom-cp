@@ -7,7 +7,10 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
@@ -19,7 +22,11 @@ import { MushroomHouse } from '../batch/entities/mushroom-house.entity';
 import { Device } from '../device/entities/device.entity';
 import { DeviceRegistryService } from '../device/device-registry.service';
 import { MqttService } from '../mqtt/mqtt.service';
-import { CreateDeviceDto, UpdateDeviceDto } from './dto/admin-devices.dto';
+import {
+  CreateDeviceDto,
+  ListDevicesQueryDto,
+  UpdateDeviceDto,
+} from './dto/admin-devices.dto';
 
 @Controller('admin/devices')
 @RequireRoles(UserRole.ADMIN)
@@ -36,18 +43,46 @@ export class AdminDevicesController {
     private readonly mqttService: MqttService,
   ) {}
 
-  @Get()
-  async list() {
-    const deviceList = await this.devices.find({ order: { createdAt: 'ASC' } });
-    const houseList = await this.houses.find();
-    const houseMap = new Map(houseList.map((h) => [h.id, h.name]));
+  private extractContext(req?: Request) {
+    if (!req) return { ipAddress: null, userAgent: null };
+    const rawIp =
+      (req.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      null;
+    const userAgent = (req.headers?.['user-agent'] as string) || null;
+    return { ipAddress: rawIp, userAgent };
+  }
 
-    const userList = await this.users.find();
-    const userMap = new Map(userList.map((u) => [u.id, u.phoneNumber]));
+  @Get()
+  async list(@Query() query?: ListDevicesQueryDto) {
+    const page = query?.page ?? 1;
+    const limit = query?.limit ?? 50;
+    const offset = (page - 1) * limit;
+
+    const total = await this.devices.count();
+
+    const qb = this.devices
+      .createQueryBuilder('device')
+      .leftJoin(MushroomHouse, 'house', 'house.id = device.houseId')
+      .leftJoin(User, 'user', 'user.id = device.ownerUserId')
+      .select([
+        'device.deviceId AS "deviceId"',
+        'device.displayName AS "displayName"',
+        'device.houseId AS "houseId"',
+        'house.name AS "houseName"',
+        'device.ownerUserId AS "ownerUserId"',
+        'user.phoneNumber AS "ownerPhone"',
+        'device.enabled AS "enabled"',
+        'device.lastSeenAt AS "lastSeenAt"',
+        'device.createdAt AS "createdAt"',
+      ])
+      .orderBy('device.createdAt', 'ASC');
+
+    const rawDevices = await qb.offset(offset).limit(limit).getRawMany();
 
     const now = Date.now();
 
-    const data = deviceList.map((device) => {
+    const data = rawDevices.map((device) => {
       let onlineStatus: 'online' | 'offline' | 'unconnected' = 'unconnected';
       if (device.lastSeenAt) {
         const diffSec = (now - new Date(device.lastSeenAt).getTime()) / 1000;
@@ -58,9 +93,9 @@ export class AdminDevicesController {
         deviceId: device.deviceId,
         displayName: device.displayName,
         houseId: device.houseId,
-        houseName: houseMap.get(device.houseId) ?? device.houseId,
+        houseName: device.houseName ?? device.houseId,
         ownerUserId: device.ownerUserId,
-        ownerPhone: userMap.get(device.ownerUserId) ?? device.ownerUserId,
+        ownerPhone: device.ownerPhone ?? null,
         enabled: device.enabled,
         lastSeenAt: device.lastSeenAt,
         createdAt: device.createdAt,
@@ -71,9 +106,9 @@ export class AdminDevicesController {
     return {
       data,
       meta: {
-        total: data.length,
-        page: 1,
-        limit: 100,
+        total,
+        page,
+        limit,
       },
     };
   }
@@ -82,6 +117,7 @@ export class AdminDevicesController {
   async create(
     @Body() dto: CreateDeviceDto,
     @CurrentUser() actor: AuthPrincipal,
+    @Req() req: Request,
   ) {
     if (await this.devices.exists({ where: { deviceId: dto.deviceId } })) {
       throw new ConflictException(`Thiết bị '${dto.deviceId}' đã tồn tại.`);
@@ -98,7 +134,7 @@ export class AdminDevicesController {
       this.devices.create({
         deviceId: dto.deviceId,
         houseId: dto.houseId,
-        ownerUserId: dto.ownerUserId ?? 'operator-001',
+        ownerUserId: dto.ownerUserId ?? null,
         displayName: dto.displayName ?? null,
         mqttUsername: dto.deviceId,
         token: rawToken,
@@ -112,7 +148,7 @@ export class AdminDevicesController {
       'DEVICE_CREATED',
       actor.id,
       device.deviceId,
-      { ipAddress: null, userAgent: null },
+      this.extractContext(req),
       'SUCCESS',
       { houseId: device.houseId, ownerUserId: device.ownerUserId },
     );
@@ -133,6 +169,7 @@ export class AdminDevicesController {
     @Param('id') id: string,
     @Body() dto: UpdateDeviceDto,
     @CurrentUser() actor: AuthPrincipal,
+    @Req() req: Request,
   ) {
     const device = await this.devices.findOneBy({ deviceId: id });
     if (!device) {
@@ -162,10 +199,12 @@ export class AdminDevicesController {
     }
 
     await this.auth.record(
-      dto.enabled === false && wasEnabled ? 'DEVICE_DISABLED' : 'DEVICE_UPDATED',
+      dto.enabled === false && wasEnabled
+        ? 'DEVICE_DISABLED'
+        : 'DEVICE_UPDATED',
       actor.id,
       device.deviceId,
-      { ipAddress: null, userAgent: null },
+      this.extractContext(req),
       'SUCCESS',
       { changes: dto },
     );
@@ -185,6 +224,7 @@ export class AdminDevicesController {
   async regenerateToken(
     @Param('id') id: string,
     @CurrentUser() actor: AuthPrincipal,
+    @Req() req: Request,
   ) {
     const device = await this.devices.findOneBy({ deviceId: id });
     if (!device) {
@@ -199,7 +239,7 @@ export class AdminDevicesController {
       'DEVICE_TOKEN_REGENERATED',
       actor.id,
       device.deviceId,
-      { ipAddress: null, userAgent: null },
+      this.extractContext(req),
       'SUCCESS',
     );
 

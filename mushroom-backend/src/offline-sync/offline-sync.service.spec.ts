@@ -66,24 +66,19 @@ describe('OfflineSyncService', () => {
 
     await service.writeBurst('device-1', burst, receivedAt);
 
-    expect(writePoint).toHaveBeenCalledTimes(6);
+    expect(writePoint).toHaveBeenCalledTimes(2);
     expect(service.writeApi.flush).toHaveBeenCalledTimes(1);
     const points = writePoint.mock.calls.map(([point]) => point);
     expect(points.map((point: { _name: string }) => point.name)).toEqual([
-      'environment_telemetry',
-      'actuator_events',
-      'system_status',
-      'environment_telemetry',
-      'actuator_events',
-      'system_status',
+      'controller_history',
+      'controller_history',
     ]);
     expect(points[0].tags).toMatchObject({
       device_id: 'device-1',
-      data_quality: 'trusted',
-      boot_count: '7',
+      data_quality: 'degraded',
     });
     expect(points[0].time.getTime()).toBe(receivedAt.getTime() - 30_000);
-    expect(points[3].time.getTime()).toBe(receivedAt.getTime());
+    expect(points[1].time.getTime()).toBe(receivedAt.getTime());
   });
 
   it('propagates Influx flush failures so the caller can withhold ACK', async () => {

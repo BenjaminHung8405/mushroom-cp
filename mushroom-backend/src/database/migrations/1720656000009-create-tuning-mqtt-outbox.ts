@@ -29,7 +29,9 @@ export class CreateTuningMqttOutbox1720656000009 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query('DROP INDEX IF EXISTS idx_tuning_mqtt_outbox_device_due');
+    await queryRunner.query(
+      'DROP INDEX IF EXISTS idx_tuning_mqtt_outbox_device_due',
+    );
     await queryRunner.query('DROP TABLE IF EXISTS tuning_mqtt_outbox');
   }
 }

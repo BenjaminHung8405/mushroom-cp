@@ -36,7 +36,7 @@ export class AdminHousesController {
   @Get()
   async list() {
     const houseList = await this.houses.find({ order: { createdAt: 'ASC' } });
-    
+
     // Get device counts per house
     const deviceCounts = await this.devices
       .createQueryBuilder('device')
@@ -82,7 +82,10 @@ export class AdminHousesController {
   }
 
   @Post()
-  async create(@Body() dto: CreateHouseDto, @CurrentUser() actor: AuthPrincipal) {
+  async create(
+    @Body() dto: CreateHouseDto,
+    @CurrentUser() actor: AuthPrincipal,
+  ) {
     if (await this.houses.exists({ where: { id: dto.id } })) {
       throw new ConflictException(`Nhà nấm có Mã '${dto.id}' đã tồn tại.`);
     }
@@ -102,7 +105,11 @@ export class AdminHousesController {
       house.id,
       { ipAddress: null, userAgent: null },
       'SUCCESS',
-      { name: house.name, areaMeters: house.areaMeters, pillarCount: house.pillarCount },
+      {
+        name: house.name,
+        areaMeters: house.areaMeters,
+        pillarCount: house.pillarCount,
+      },
     );
 
     return house;

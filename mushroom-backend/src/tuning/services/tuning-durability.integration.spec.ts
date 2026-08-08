@@ -96,7 +96,9 @@ const ENTITIES = [
 function requireDbUrl(): string {
   const url = process.env.TUNING_MIGRATION_DATABASE_URL;
   if (!url)
-    throw new Error('[tuning-durability-it] TUNING_MIGRATION_DATABASE_URL is required.');
+    throw new Error(
+      '[tuning-durability-it] TUNING_MIGRATION_DATABASE_URL is required.',
+    );
   return url;
 }
 
@@ -125,7 +127,9 @@ async function waitUntil(
     if (await predicate()) return;
     await delay(50);
   }
-  throw new Error('[tuning-durability-it] timed out waiting for durable state.');
+  throw new Error(
+    '[tuning-durability-it] timed out waiting for durable state.',
+  );
 }
 
 function newDataSource(): DataSource {

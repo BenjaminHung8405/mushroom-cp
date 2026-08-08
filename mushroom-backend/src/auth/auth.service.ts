@@ -48,24 +48,45 @@ const SESSION_REVOKE_CHANNEL = 'mushroom:auth:session-revoked';
 
 const PIN_LOGIN_ERROR_MSG = 'Thông tin thiết bị hoặc mã PIN không chính xác.';
 
-
 /**
  * Weak PIN patterns that farmers commonly choose.
  * All sequences are for a 6-digit numeric PIN.
  */
 const WEAK_PIN_PATTERNS: ReadonlySet<string> = new Set([
   // All same digit
-  '000000', '111111', '222222', '333333', '444444',
-  '555555', '666666', '777777', '888888', '999999',
+  '000000',
+  '111111',
+  '222222',
+  '333333',
+  '444444',
+  '555555',
+  '666666',
+  '777777',
+  '888888',
+  '999999',
   // Ascending sequences
-  '012345', '123456', '234567', '345678', '456789',
+  '012345',
+  '123456',
+  '234567',
+  '345678',
+  '456789',
   // Descending sequences
-  '987654', '876543', '765432', '654321', '543210',
+  '987654',
+  '876543',
+  '765432',
+  '654321',
+  '543210',
   // Common patterns
-  '000001', '121212', '123123', '112233',
+  '000001',
+  '121212',
+  '123123',
+  '112233',
 ]);
 
-export interface LoginContext { ipAddress: string | null; userAgent: string | null }
+export interface LoginContext {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
 
 @Injectable()
 export class AuthService implements OnModuleInit, OnModuleDestroy {
@@ -77,13 +98,22 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   readonly userSessionsRevoked$ = new Subject<string>();
 
   constructor(
-    @Optional() @InjectRepository(User) private readonly users: Repository<User>,
-    @Optional() @InjectRepository(UserHouseAccess) private readonly access: Repository<UserHouseAccess>,
-    @Optional() @InjectRepository(AuthSession) private readonly sessions: Repository<AuthSession>,
-    @Optional() @InjectRepository(AuthSecurityEvent) private readonly events: Repository<AuthSecurityEvent>,
-    @Optional() @InjectRepository(UserPinDevice) private readonly pinDevices: Repository<UserPinDevice>,
+    @Optional()
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
+    @Optional()
+    @InjectRepository(UserHouseAccess)
+    private readonly access: Repository<UserHouseAccess>,
+    @Optional()
+    @InjectRepository(AuthSession)
+    private readonly sessions: Repository<AuthSession>,
+    @Optional()
+    @InjectRepository(AuthSecurityEvent)
+    private readonly events: Repository<AuthSecurityEvent>,
+    @Optional()
+    @InjectRepository(UserPinDevice)
+    private readonly pinDevices: Repository<UserPinDevice>,
   ) {}
-
 
   async onModuleInit(): Promise<void> {
     const url = process.env.REDIS_URL?.trim();
@@ -98,14 +128,19 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         this.redisReady = true;
         this.redisSubscriber = this.redis.duplicate();
         this.redisSubscriber.on('error', (error: Error) =>
-          this.logger.warn(`Redis auth revoke subscriber unavailable: ${error.message}`),
+          this.logger.warn(
+            `Redis auth revoke subscriber unavailable: ${error.message}`,
+          ),
         );
         await this.redisSubscriber.connect();
-        await this.redisSubscriber.subscribe(SESSION_REVOKE_CHANNEL, (userId: string) =>
-          this.userSessionsRevoked$.next(userId),
+        await this.redisSubscriber.subscribe(
+          SESSION_REVOKE_CHANNEL,
+          (userId: string) => this.userSessionsRevoked$.next(userId),
         );
       } catch (error) {
-        this.logger.warn(`Redis auth limiter connection failed: ${String(error)}`);
+        this.logger.warn(
+          `Redis auth limiter connection failed: ${String(error)}`,
+        );
       }
     }
     await this.bootstrapAdmin();
@@ -127,10 +162,17 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return trimmed;
   }
 
-  hashToken(token: string): string { return createHash('sha256').update(token).digest('hex'); }
+  hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   async hashPin(pin: string): Promise<string> {
-    return argon2.hash(pin, { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 1 });
+    return argon2.hash(pin, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 1,
+    });
   }
 
   async verifyPin(hash: string, pin: string): Promise<boolean> {
@@ -155,8 +197,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
   issueDeviceToken(clientId: string, mqttUser?: string): { token: string } {
     const token = process.env.MQTT_ESP32_PASS;
-    if (!token) throw new ServiceUnavailableException('Device auth is not configured (MQTT_ESP32_PASS missing).');
-    this.logger.log(`Issuing legacy MQTT token for clientId='${clientId}'${mqttUser ? ` mqttUser='${mqttUser}'` : ''}`);
+    if (!token)
+      throw new ServiceUnavailableException(
+        'Device auth is not configured (MQTT_ESP32_PASS missing).',
+      );
+    this.logger.log(
+      `Issuing legacy MQTT token for clientId='${clientId}'${mqttUser ? ` mqttUser='${mqttUser}'` : ''}`,
+    );
     return { token };
   }
 
@@ -174,19 +221,37 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const phoneNumber = this.normalizePhone(phoneInput);
     await this.assertLoginAllowed(phoneNumber, context.ipAddress);
 
+    if (phoneNumber === 'SYSTEM' || phoneNumber === '00000000-0000-0000-0000-000000000000') {
+      throw new UnauthorizedException('Tài khoản hệ thống không được phép đăng nhập.');
+    }
+
     const user = await this.users.findOne({ where: { phoneNumber } });
+
+    if (user?.id === '00000000-0000-0000-0000-000000000000') {
+      throw new UnauthorizedException('Tài khoản hệ thống không được phép đăng nhập.');
+    }
 
     // Constant-time: always run verifyPin even when user is not found
     const pinToVerify = user?.pinHash ?? DUMMY_PIN_HASH;
 
     // Check lockout before verifying (avoids unnecessary argon2 computation)
     if (user?.pinLockedUntil && user.pinLockedUntil > new Date()) {
-      await this.record('LOGIN_BLOCKED', null, phoneNumber, context, 'FAILURE', {
-        reason: 'lockout',
-        lockedUntil: user.pinLockedUntil,
-      });
+      await this.record(
+        'LOGIN_BLOCKED',
+        null,
+        phoneNumber,
+        context,
+        'FAILURE',
+        {
+          reason: 'lockout',
+          lockedUntil: user.pinLockedUntil,
+        },
+      );
       await this.throttleDelay();
-      throw new HttpException('Tài khoản tạm khóa do nhập PIN sai quá nhiều lần. Vui lòng thử lại sau.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        'Tài khoản tạm khóa do nhập PIN sai quá nhiều lần. Vui lòng thử lại sau.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const verified = await this.verifyPin(pinToVerify, pin);
@@ -197,8 +262,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         const newAttempts = user.pinFailedAttempts + 1;
         if (newAttempts >= PIN_MAX_ATTEMPTS) {
           const lockedUntil = new Date(Date.now() + PIN_LOCKOUT_MS);
-          await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: lockedUntil });
-          this.logger.warn(`User ${user.id} locked out until ${lockedUntil.toISOString()} after ${PIN_MAX_ATTEMPTS} failed PIN attempts`);
+          await this.users.update(user.id, {
+            pinFailedAttempts: 0,
+            pinLockedUntil: lockedUntil,
+          });
+          this.logger.warn(
+            `User ${user.id} locked out until ${lockedUntil.toISOString()} after ${PIN_MAX_ATTEMPTS} failed PIN attempts`,
+          );
         } else {
           await this.users.update(user.id, { pinFailedAttempts: newAttempts });
         }
@@ -209,7 +279,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     // Success — reset lockout state
     if (user.pinFailedAttempts > 0 || user.pinLockedUntil !== null) {
-      await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: null });
+      await this.users.update(user.id, {
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+      });
     }
 
     const now = new Date();
@@ -233,7 +306,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       await this.registerDevice(user.id, deviceToken, deviceLabel ?? null);
     }
 
-    await this.record('LOGIN_SUCCESS', user.id, phoneNumber, context, 'SUCCESS');
+    await this.record(
+      'LOGIN_SUCCESS',
+      user.id,
+      phoneNumber,
+      context,
+      'SUCCESS',
+    );
     return { token, principal: await this.principalFor(user, session.id) };
   }
 
@@ -243,10 +322,16 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * (oldest lastUsedAt is evicted first) to prevent unlimited garbage accumulation
    * from incognito sessions or device churn.
    */
-  async registerDevice(userId: string, deviceToken: string, deviceLabel: string | null): Promise<void> {
+  async registerDevice(
+    userId: string,
+    deviceToken: string,
+    deviceLabel: string | null,
+  ): Promise<void> {
     const deviceTokenHash = this.hashToken(deviceToken);
     await this.pinDevices.manager.transaction(async (em) => {
-      const existing = await em.findOne(UserPinDevice, { where: { userId, deviceTokenHash } });
+      const existing = await em.findOne(UserPinDevice, {
+        where: { userId, deviceTokenHash },
+      });
       if (existing) {
         // Device already registered — just refresh label and timestamp
         await em.update(UserPinDevice, existing.id, {
@@ -289,28 +374,54 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async authenticate(token: string | undefined): Promise<AuthPrincipal> {
     if (!token) throw new UnauthorizedException('Session is required.');
     const now = new Date();
-    const session = await this.sessions.findOne({ where: { tokenHash: this.hashToken(token), revokedAt: IsNull() } });
+    const session = await this.sessions.findOne({
+      where: { tokenHash: this.hashToken(token), revokedAt: IsNull() },
+    });
     if (!session || session.expiresAt <= now || session.idleExpiresAt <= now) {
       throw new UnauthorizedException('Session is expired or invalid.');
     }
     const user = await this.users.findOne({ where: { id: session.userId } });
-    if (!user || !user.isActive) throw new UnauthorizedException('Session is invalid.');
-    if (now.getTime() - session.lastSeenAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
+    if (!user || !user.isActive)
+      throw new UnauthorizedException('Session is invalid.');
+    if (
+      now.getTime() - session.lastSeenAt.getTime() >=
+      SESSION_TOUCH_INTERVAL_MS
+    ) {
       await this.sessions.update(session.id, {
         lastSeenAt: now,
-        idleExpiresAt: new Date(Math.min(session.expiresAt.getTime(), now.getTime() + SESSION_IDLE_MS)),
+        idleExpiresAt: new Date(
+          Math.min(
+            session.expiresAt.getTime(),
+            now.getTime() + SESSION_IDLE_MS,
+          ),
+        ),
       });
     }
     return this.principalFor(user, session.id);
   }
 
-  async logout(sessionId: string, actorId: string | null = null): Promise<void> {
-    await this.sessions.update({ id: sessionId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  async logout(
+    sessionId: string,
+    actorId: string | null = null,
+  ): Promise<void> {
+    await this.sessions.update(
+      { id: sessionId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
     if (actorId) await this.notifySessionRevocation(actorId);
-    await this.record('LOGOUT', actorId, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+    await this.record(
+      'LOGOUT',
+      actorId,
+      null,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+    );
   }
 
-  async revokeAllUserSessions(userId: string, event = 'SESSION_REVOKED'): Promise<void> {
+  async revokeAllUserSessions(
+    userId: string,
+    event = 'SESSION_REVOKED',
+  ): Promise<void> {
     await this.sessions
       .createQueryBuilder()
       .update()
@@ -318,16 +429,26 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       .where('user_id = :userId AND revoked_at IS NULL', { userId })
       .execute();
     await this.notifySessionRevocation(userId);
-    await this.record(event, userId, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+    await this.record(
+      event,
+      userId,
+      null,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+    );
   }
 
   // ---------------------------------------------------------------------------
   // PIN Management
   // ---------------------------------------------------------------------------
 
-  async setPin(principal: AuthPrincipal, currentPin: string, newPin: string): Promise<void> {
+  async setPin(
+    principal: AuthPrincipal,
+    currentPin: string,
+    newPin: string,
+  ): Promise<void> {
     const user = await this.users.findOneByOrFail({ id: principal.id });
-    if (!await this.verifyPin(user.pinHash, currentPin)) {
+    if (!(await this.verifyPin(user.pinHash, currentPin))) {
       throw new UnauthorizedException('Mã PIN hiện tại không đúng.');
     }
     this.validatePinStrength(newPin);
@@ -340,7 +461,11 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Admin resets a user's PIN and forces mustSetPin = true */
-  async adminResetPin(userId: string, newPin: string, actorId: string): Promise<void> {
+  async adminResetPin(
+    userId: string,
+    newPin: string,
+    actorId: string,
+  ): Promise<void> {
     this.validatePinStrength(newPin);
     const user = await this.users.findOneByOrFail({ id: userId });
     user.pinHash = await this.hashPin(newPin);
@@ -350,7 +475,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     await this.users.save(user);
     await this.revokeAllUserSessions(user.id, 'PIN_RESET');
     await this.revokeAllUserPinDevices(userId);
-    await this.record('PIN_RESET', actorId, user.phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS');
+    await this.record(
+      'PIN_RESET',
+      actorId,
+      user.phoneNumber,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -373,7 +504,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const deviceTokenHash = this.hashToken(deviceToken);
     const user = await this.users.findOne({ where: { phoneNumber } });
     const device = user
-      ? await this.pinDevices.findOne({ where: { userId: user.id, deviceTokenHash } })
+      ? await this.pinDevices.findOne({
+          where: { userId: user.id, deviceTokenHash },
+        })
       : null;
 
     // Timing attack protection: ALWAYS execute verifyPin even when user or device record is missing.
@@ -381,17 +514,30 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const pinToVerify = user?.pinHash ?? DUMMY_PIN_HASH;
     if (!user || !user.isActive || !device) {
       await this.verifyPin(pinToVerify, pin);
-      await this.record('PIN_LOGIN_FAILED', null, phoneNumber, context, 'FAILURE');
+      await this.record(
+        'PIN_LOGIN_FAILED',
+        null,
+        phoneNumber,
+        context,
+        'FAILURE',
+      );
       throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
     }
 
     // Check account-level lockout first (cross-device brute-force protection)
     if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
       await this.verifyPin(pinToVerify, pin);
-      await this.record('PIN_LOGIN_BLOCKED', user.id, phoneNumber, context, 'FAILURE', {
-        reason: 'account_lockout',
-        lockedUntil: user.pinLockedUntil,
-      });
+      await this.record(
+        'PIN_LOGIN_BLOCKED',
+        user.id,
+        phoneNumber,
+        context,
+        'FAILURE',
+        {
+          reason: 'account_lockout',
+          lockedUntil: user.pinLockedUntil,
+        },
+      );
       await this.throttleDelay();
       throw new HttpException(
         'Tài khoản tạm khóa do nhập PIN sai quá nhiều lần. Vui lòng đăng nhập bằng Số điện thoại.',
@@ -402,10 +548,17 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     // Check per-device lockout
     if (device.lockedUntil && device.lockedUntil > new Date()) {
       await this.verifyPin(pinToVerify, pin);
-      await this.record('PIN_LOGIN_BLOCKED', user.id, phoneNumber, context, 'FAILURE', {
-        reason: 'device_lockout',
-        lockedUntil: device.lockedUntil,
-      });
+      await this.record(
+        'PIN_LOGIN_BLOCKED',
+        user.id,
+        phoneNumber,
+        context,
+        'FAILURE',
+        {
+          reason: 'device_lockout',
+          lockedUntil: device.lockedUntil,
+        },
+      );
       await this.throttleDelay();
       throw new HttpException(
         'Tính năng PIN trên thiết bị này đang bị tạm khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút hoặc đăng nhập bằng Số điện thoại.',
@@ -422,27 +575,43 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       const newDeviceAttempts = device.failedAttempts + 1;
       if (newDeviceAttempts >= KIOSK_PIN_MAX_ATTEMPTS) {
         const lockedUntil = new Date(Date.now() + KIOSK_PIN_LOCKOUT_MS);
-        await this.pinDevices.update(device.id, { failedAttempts: 0, lockedUntil });
+        await this.pinDevices.update(device.id, {
+          failedAttempts: 0,
+          lockedUntil,
+        });
         this.logger.warn(
           `[kiosk] Device ${device.id} locked for user ${user.id} until ${lockedUntil.toISOString()}`,
         );
       } else {
-        await this.pinDevices.update(device.id, { failedAttempts: newDeviceAttempts });
+        await this.pinDevices.update(device.id, {
+          failedAttempts: newDeviceAttempts,
+        });
       }
 
       // Level 2: account-wide (blocks all devices after PIN_MAX_ATTEMPTS total failures)
       const newUserAttempts = user.pinFailedAttempts + 1;
       if (newUserAttempts >= PIN_MAX_ATTEMPTS) {
         const lockedUntil = new Date(Date.now() + PIN_LOCKOUT_MS);
-        await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: lockedUntil });
+        await this.users.update(user.id, {
+          pinFailedAttempts: 0,
+          pinLockedUntil: lockedUntil,
+        });
         this.logger.warn(
           `[kiosk] Account ${user.id} locked (cross-device brute-force) until ${lockedUntil.toISOString()}`,
         );
       } else {
-        await this.users.update(user.id, { pinFailedAttempts: newUserAttempts });
+        await this.users.update(user.id, {
+          pinFailedAttempts: newUserAttempts,
+        });
       }
 
-      await this.record('PIN_LOGIN_FAILED', user.id, phoneNumber, context, 'FAILURE');
+      await this.record(
+        'PIN_LOGIN_FAILED',
+        user.id,
+        phoneNumber,
+        context,
+        'FAILURE',
+      );
       throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
     }
 
@@ -454,7 +623,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (user.pinFailedAttempts > 0 || user.pinLockedUntil !== null) {
-      await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: null });
+      await this.users.update(user.id, {
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+      });
     }
 
     const now = new Date();
@@ -470,25 +642,48 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       revokedAt: null,
     });
     await this.sessions.save(session);
-    await this.record('PIN_LOGIN_SUCCESS', user.id, phoneNumber, context, 'SUCCESS');
+    await this.record(
+      'PIN_LOGIN_SUCCESS',
+      user.id,
+      phoneNumber,
+      context,
+      'SUCCESS',
+    );
     return { token, principal: await this.principalFor(user, session.id) };
   }
 
-  async revokeDevicePin(principal: AuthPrincipal, deviceToken: string): Promise<void> {
+  async revokeDevicePin(
+    principal: AuthPrincipal,
+    deviceToken: string,
+  ): Promise<void> {
     const deviceTokenHash = this.hashToken(deviceToken);
     await this.pinDevices.delete({ userId: principal.id, deviceTokenHash });
-    await this.record('PIN_DEVICE_REVOKED', principal.id, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+    await this.record(
+      'PIN_DEVICE_REVOKED',
+      principal.id,
+      null,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+    );
   }
 
   async revokeAllUserPinDevices(userId: string): Promise<void> {
     await this.pinDevices.delete({ userId });
-    await this.record('PIN_ALL_DEVICES_REVOKED', userId, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+    await this.record(
+      'PIN_ALL_DEVICES_REVOKED',
+      userId,
+      null,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+    );
   }
 
   async getUserPinDevices(userId: string): Promise<UserPinDevice[]> {
-    return this.pinDevices.find({ where: { userId }, order: { createdAt: 'DESC' } });
+    return this.pinDevices.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
   }
-
 
   // ---------------------------------------------------------------------------
   // Principal & Audit
@@ -509,7 +704,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   }
 
   async principalFor(user: User, sessionId: string): Promise<AuthPrincipal> {
-    const rows = user.role === UserRole.ADMIN ? [] : await this.access.find({ where: { userId: user.id } });
+    const rows =
+      user.role === UserRole.ADMIN
+        ? []
+        : await this.access.find({ where: { userId: user.id } });
     return {
       id: user.id,
       phoneNumber: user.phoneNumber,
@@ -522,6 +720,17 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  maskPhone(phone: string): string {
+    const trimmed = phone.trim();
+    if (trimmed.length <= 4) return '***';
+    const prefixLen = trimmed.startsWith('+') ? 4 : 3;
+    const suffixLen = 3;
+    if (trimmed.length <= prefixLen + suffixLen) {
+      return `${trimmed.slice(0, 2)}***${trimmed.slice(-2)}`;
+    }
+    return `${trimmed.slice(0, prefixLen)}***${trimmed.slice(-suffixLen)}`;
+  }
+
   async record(
     eventType: string,
     actorId: string | null,
@@ -530,6 +739,18 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     status: string,
     metadata: Record<string, unknown> | null = null,
   ): Promise<void> {
+    let actorPhoneSnapshot: string | null = null;
+    let actorRoleSnapshot: string | null = null;
+    if (actorId && this.users) {
+      const user = await this.users.findOne({ where: { id: actorId } });
+      if (user) {
+        actorPhoneSnapshot = user.phoneNumber
+          ? this.maskPhone(user.phoneNumber)
+          : null;
+        actorRoleSnapshot = user.role;
+      }
+    }
+
     const event = this.events.create({
       eventType,
       actorId,
@@ -538,6 +759,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       userAgent: context.userAgent?.slice(0, 255) ?? null,
       status,
       metadata,
+      actorPhoneSnapshot,
+      actorRoleSnapshot,
     });
     await this.events.save(event);
   }
@@ -546,9 +769,15 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async assertLoginAllowed(phone: string, ip: string | null): Promise<void> {
+  private async assertLoginAllowed(
+    phone: string,
+    ip: string | null,
+  ): Promise<void> {
     if (!this.redisReady || !this.redis) {
-      if (process.env.NODE_ENV === 'production') throw new ServiceUnavailableException('Login is temporarily unavailable.');
+      if (process.env.NODE_ENV === 'production')
+        throw new ServiceUnavailableException(
+          'Login is temporarily unavailable.',
+        );
       return;
     }
     const keys = [
@@ -564,9 +793,18 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       }),
     );
     if (values.some((value: number, i: number) => value > limits[i])) {
-      await this.record('LOGIN_RATE_LIMITED', null, phone, { ipAddress: ip, userAgent: null }, 'FAILURE');
+      await this.record(
+        'LOGIN_RATE_LIMITED',
+        null,
+        phone,
+        { ipAddress: ip, userAgent: null },
+        'FAILURE',
+      );
       await this.throttleDelay();
-      throw new HttpException('Quá nhiều lần đăng nhập. Vui lòng thử lại sau.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        'Quá nhiều lần đăng nhập. Vui lòng thử lại sau.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
   }
 
@@ -582,7 +820,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.redis.publish(SESSION_REVOKE_CHANNEL, userId);
       } catch (error) {
-        this.logger.warn(`Failed to broadcast session revocation: ${String(error)}`);
+        this.logger.warn(
+          `Failed to broadcast session revocation: ${String(error)}`,
+        );
       }
     }
   }
@@ -590,14 +830,16 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   private async bootstrapAdmin(): Promise<void> {
     const phone = process.env.AUTH_BOOTSTRAP_ADMIN_PHONE?.trim();
     const pin = process.env.AUTH_BOOTSTRAP_ADMIN_PIN?.trim();
-    if (!phone || !pin || await this.users.exists({ where: {} })) return;
+    if (!phone || !pin || (await this.users.exists({ where: {} }))) return;
 
     if (process.env.NODE_ENV === 'production') {
       if (pin.length !== 6 || !/^[0-9]{6}$/.test(pin)) {
         throw new Error('AUTH_BOOTSTRAP_ADMIN_PIN must be exactly 6 digits.');
       }
       if (WEAK_PIN_PATTERNS.has(pin)) {
-        throw new Error('AUTH_BOOTSTRAP_ADMIN_PIN is too weak (common sequence). Choose a more random PIN.');
+        throw new Error(
+          'AUTH_BOOTSTRAP_ADMIN_PIN is too weak (common sequence). Choose a more random PIN.',
+        );
       }
     }
 
@@ -611,7 +853,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         mustSetPin: true,
       }),
     );
-    this.logger.warn(`Bootstrapped initial admin ${normalizedPhone}; rotate bootstrap environment credentials.`);
+    this.logger.warn(
+      `Bootstrapped initial admin ${normalizedPhone}; rotate bootstrap environment credentials.`,
+    );
   }
 
   @Cron('0 */6 * * *')
@@ -625,6 +869,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         { now, revokedBefore: new Date(now.getTime() - 7 * 86400000) },
       )
       .execute();
-    await this.events.delete({ createdAt: LessThan(new Date(now.getTime() - 90 * 86400000)) });
+    await this.events.delete({
+      createdAt: LessThan(new Date(now.getTime() - 90 * 86400000)),
+    });
   }
 }

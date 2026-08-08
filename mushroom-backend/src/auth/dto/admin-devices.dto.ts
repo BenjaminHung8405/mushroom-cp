@@ -1,9 +1,35 @@
-import { IsBoolean, IsOptional, IsString, Length, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
+
+export class ListDevicesQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 50;
+}
 
 export class CreateDeviceDto {
   @IsString()
   @Matches(/^[a-zA-Z0-9_-]{3,50}$/, {
-    message: 'deviceId must be 3-50 alphanumeric characters, hyphens or underscores',
+    message:
+      'deviceId must be 3-50 alphanumeric characters, hyphens or underscores',
   })
   deviceId!: string;
 

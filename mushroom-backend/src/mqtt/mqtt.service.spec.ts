@@ -270,7 +270,10 @@ describe('MqttService', () => {
         { ...rejected, reason_code: '   ' },
         { ...rejected, reason_code: 'A'.repeat(65) },
         { ...rejected, command_id: '11111111-1111-1111-1111-11111111111z' },
-        { ...rejected, command_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'.toUpperCase() },
+        {
+          ...rejected,
+          command_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'.toUpperCase(),
+        },
         { ...rejected, device_id: 'another-device' },
       ];
 

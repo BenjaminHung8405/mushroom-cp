@@ -31,7 +31,9 @@ describe('AdminHousesController', () => {
       findOneBy: jest.fn(),
       exists: jest.fn(),
       create: jest.fn((dto) => dto),
-      save: jest.fn((dto) => Promise.resolve({ ...dto, createdAt: new Date() })),
+      save: jest.fn((dto) =>
+        Promise.resolve({ ...dto, createdAt: new Date() }),
+      ),
       delete: jest.fn(),
     };
 
@@ -70,7 +72,13 @@ describe('AdminHousesController', () => {
 
   it('should list houses with device and user counts', async () => {
     houseRepo.find.mockResolvedValue([
-      { id: 'house_b1', name: 'Nhà B1', areaMeters: '4x6', pillarCount: 35, createdAt: new Date() },
+      {
+        id: 'house_b1',
+        name: 'Nhà B1',
+        areaMeters: '4x6',
+        pillarCount: 35,
+        createdAt: new Date(),
+      },
     ]);
     const res = await controller.list();
     expect(res.data).toHaveLength(1);
@@ -80,7 +88,12 @@ describe('AdminHousesController', () => {
 
   it('should create a new house', async () => {
     houseRepo.exists.mockResolvedValue(false);
-    const dto = { id: 'house_b2', name: 'Nhà B2', areaMeters: '4x6', pillarCount: 35 };
+    const dto = {
+      id: 'house_b2',
+      name: 'Nhà B2',
+      areaMeters: '4x6',
+      pillarCount: 35,
+    };
     const res = await controller.create(dto, mockActor);
     expect(res.id).toBe('house_b2');
     expect(authService.record).toHaveBeenCalledWith(
@@ -103,7 +116,9 @@ describe('AdminHousesController', () => {
   it('should prevent deletion of house with active devices', async () => {
     houseRepo.findOneBy.mockResolvedValue({ id: 'house_b1', name: 'Nhà B1' });
     deviceRepo.count.mockResolvedValue(2);
-    await expect(controller.delete('house_b1', mockActor)).rejects.toThrow(ConflictException);
+    await expect(controller.delete('house_b1', mockActor)).rejects.toThrow(
+      ConflictException,
+    );
   });
 
   it('should delete house when no active devices exist', async () => {

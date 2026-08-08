@@ -9,10 +9,7 @@ import { DataSource, EntityManager } from 'typeorm';
 interface PostgresPoolLike {
   on?: (event: 'error', listener: (error: unknown) => void) => void;
   off?: (event: 'error', listener: (error: unknown) => void) => void;
-  removeListener?: (
-    event: 'error',
-    listener: (error: unknown) => void,
-  ) => void;
+  removeListener?: (event: 'error', listener: (error: unknown) => void) => void;
 }
 
 interface TypeOrmPostgresDriverLike {
@@ -30,7 +27,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     // Keep the process alive; the pool discards the failed client and retries
     // on the next query instead of allowing an uncaught EventEmitter error to
     // terminate the Nest process.
-    this.logger.error(`PostgreSQL pool error; keeping API process alive: ${message}`);
+    this.logger.error(
+      `PostgreSQL pool error; keeping API process alive: ${message}`,
+    );
   };
 
   constructor(private readonly dataSource: DataSource) {}
@@ -61,7 +60,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   private attachPostgresPoolErrorHandler(): void {
-    const driver = this.dataSource.driver as unknown as TypeOrmPostgresDriverLike;
+    const driver = this.dataSource
+      .driver as unknown as TypeOrmPostgresDriverLike;
     const pool = driver.master;
     if (!pool?.on) {
       this.logger.warn('PostgreSQL pool error handler could not be attached.');

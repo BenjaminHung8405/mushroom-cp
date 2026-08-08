@@ -16,17 +16,23 @@ export class MigrateAuthEmailToPhone1720656000018 implements MigrationInterface 
 
     // 3. Enforce NOT NULL + UNIQUE on phone_number
     await q.query(`ALTER TABLE users ALTER COLUMN phone_number SET NOT NULL`);
-    await q.query(`ALTER TABLE users ADD CONSTRAINT uq_users_phone_number UNIQUE (phone_number)`);
+    await q.query(
+      `ALTER TABLE users ADD CONSTRAINT uq_users_phone_number UNIQUE (phone_number)`,
+    );
 
     // 4. Drop old email unique constraint and column
-    await q.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`);
+    await q.query(
+      `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
+    );
     await q.query(`ALTER TABLE users DROP COLUMN IF EXISTS email`);
 
     // 5. Rename password_hash → pin_hash
     await q.query(`ALTER TABLE users RENAME COLUMN password_hash TO pin_hash`);
 
     // 6. Rename must_change_password → must_set_pin
-    await q.query(`ALTER TABLE users RENAME COLUMN must_change_password TO must_set_pin`);
+    await q.query(
+      `ALTER TABLE users RENAME COLUMN must_change_password TO must_set_pin`,
+    );
 
     // 7. Add PIN lockout tracking columns
     await q.query(
@@ -55,10 +61,14 @@ export class MigrateAuthEmailToPhone1720656000018 implements MigrationInterface 
 
     // 7. Remove lockout columns
     await q.query(`ALTER TABLE users DROP COLUMN IF EXISTS pin_locked_until`);
-    await q.query(`ALTER TABLE users DROP COLUMN IF EXISTS pin_failed_attempts`);
+    await q.query(
+      `ALTER TABLE users DROP COLUMN IF EXISTS pin_failed_attempts`,
+    );
 
     // 6. Rename must_set_pin → must_change_password
-    await q.query(`ALTER TABLE users RENAME COLUMN must_set_pin TO must_change_password`);
+    await q.query(
+      `ALTER TABLE users RENAME COLUMN must_set_pin TO must_change_password`,
+    );
 
     // 5. Rename pin_hash → password_hash
     await q.query(`ALTER TABLE users RENAME COLUMN pin_hash TO password_hash`);
@@ -67,10 +77,14 @@ export class MigrateAuthEmailToPhone1720656000018 implements MigrationInterface 
     await q.query(`ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL`);
     await q.query(`UPDATE users SET email = phone_number || '@migrated.local'`);
     await q.query(`ALTER TABLE users ALTER COLUMN email SET NOT NULL`);
-    await q.query(`ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email)`);
+    await q.query(
+      `ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email)`,
+    );
 
     // 3. Drop phone_number
-    await q.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_phone_number`);
+    await q.query(
+      `ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_phone_number`,
+    );
     await q.query(`ALTER TABLE users DROP COLUMN IF EXISTS phone_number`);
   }
 }

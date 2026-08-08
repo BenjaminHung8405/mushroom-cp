@@ -1,4 +1,14 @@
-import { Body, ConflictException, Controller, Get, NotFoundException, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RequireRoles, CurrentUser } from './auth.decorators';
@@ -15,17 +25,23 @@ import { UserHouseAccess } from './entities/user-house-access.entity';
 export class AdminController {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
-    @InjectRepository(UserHouseAccess) private readonly access: Repository<UserHouseAccess>,
+    @InjectRepository(UserHouseAccess)
+    private readonly access: Repository<UserHouseAccess>,
     private readonly auth: AuthService,
   ) {}
 
   @Get()
   async list() {
-    return (await this.users.find({ order: { createdAt: 'ASC' } })).map((user) => this.publicUser(user));
+    return (await this.users.find({ order: { createdAt: 'ASC' } })).map(
+      (user) => this.publicUser(user),
+    );
   }
 
   @Post()
-  async create(@Body() dto: CreateUserDto, @CurrentUser() actor: AuthPrincipal) {
+  async create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() actor: AuthPrincipal,
+  ) {
     const phoneNumber = this.auth.normalizePhone(dto.phoneNumber);
     if (await this.users.exists({ where: { phoneNumber } })) {
       throw new ConflictException('Số điện thoại đã tồn tại.');
@@ -40,15 +56,26 @@ export class AdminController {
         mustSetPin: true, // User must change PIN on first login
       }),
     );
-    await this.auth.record('USER_CREATED', actor.id, phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS', {
-      userId: user.id,
-      role: user.role,
-    });
+    await this.auth.record(
+      'USER_CREATED',
+      actor.id,
+      phoneNumber,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+      {
+        userId: user.id,
+        role: user.role,
+      },
+    );
     return this.publicUser(user);
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() actor: AuthPrincipal) {
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() actor: AuthPrincipal,
+  ) {
     const user = await this.users.findOneBy({ id });
     if (!user) throw new NotFoundException('Người dùng không tồn tại.');
 
@@ -56,7 +83,8 @@ export class AdminController {
       (dto.role !== undefined && dto.role !== user.role) ||
       (dto.isActive !== undefined && dto.isActive !== user.isActive);
 
-    if (dto.phoneNumber) user.phoneNumber = this.auth.normalizePhone(dto.phoneNumber);
+    if (dto.phoneNumber)
+      user.phoneNumber = this.auth.normalizePhone(dto.phoneNumber);
     if (dto.role) user.role = dto.role;
     if (dto.isActive !== undefined) user.isActive = dto.isActive;
 
@@ -74,9 +102,16 @@ export class AdminController {
       await this.auth.revokeAllUserSessions(user.id, 'USER_ACCESS_CHANGED');
       await this.auth.revokeAllUserPinDevices(user.id);
     }
-    await this.auth.record('USER_UPDATED', actor.id, user.phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS', {
-      userId: user.id,
-    });
+    await this.auth.record(
+      'USER_UPDATED',
+      actor.id,
+      user.phoneNumber,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+      {
+        userId: user.id,
+      },
+    );
     return this.publicUser(user);
   }
 
@@ -116,16 +151,25 @@ export class AdminController {
     await this.access.manager.transaction(async (manager) => {
       await manager.delete(UserHouseAccess, { userId: id });
       if (dto.houseIds.length) {
-        await manager.insert(UserHouseAccess, dto.houseIds.map((houseId) => ({ userId: id, houseId })));
+        await manager.insert(
+          UserHouseAccess,
+          dto.houseIds.map((houseId) => ({ userId: id, houseId })),
+        );
       }
     });
     await this.auth.revokeAllUserSessions(id, 'USER_SCOPE_CHANGED');
-    await this.auth.record('USER_SCOPE_CHANGED', actor.id, user.phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS', {
-      userId: id,
-      houseCount: dto.houseIds.length,
-    });
+    await this.auth.record(
+      'USER_SCOPE_CHANGED',
+      actor.id,
+      user.phoneNumber,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+      {
+        userId: id,
+        houseCount: dto.houseIds.length,
+      },
+    );
   }
-
 
   private publicUser(user: User) {
     return {

@@ -86,7 +86,8 @@ export class TuningConfigurationService
     @Inject(forwardRef(() => MqttService))
     private readonly mqttService: MqttService,
     private readonly outboxDispatcher: TuningMqttOutboxDispatcher,
-    @Optional() private readonly recommendationService?: TuningRecommendationService,
+    @Optional()
+    private readonly recommendationService?: TuningRecommendationService,
   ) {}
 
   onModuleInit(): void {
@@ -455,7 +456,10 @@ export class TuningConfigurationService
     result: AckTransactionResult,
   ): Promise<void> {
     if (result.event) this.tuningSync$.next(result.event);
-    if (result.event?.status === SyncStatus.IN_SYNC && this.recommendationService) {
+    if (
+      result.event?.status === SyncStatus.IN_SYNC &&
+      this.recommendationService
+    ) {
       await this.recommendationService.markAppliedForConfiguration(
         result.event.deviceId,
         result.event.id,

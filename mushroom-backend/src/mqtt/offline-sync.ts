@@ -49,14 +49,20 @@ export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
   const schemaVersion = payload.readUInt8(4);
   if (
     (schemaVersion !== 1 && schemaVersion !== OFFLINE_BURST_VERSION) ||
-    payload.readUInt8(5) !== (schemaVersion === 2 ? OFFLINE_BURST_HEADER_BYTES_V2 : OFFLINE_BURST_HEADER_BYTES_V1)
+    payload.readUInt8(5) !==
+      (schemaVersion === 2
+        ? OFFLINE_BURST_HEADER_BYTES_V2
+        : OFFLINE_BURST_HEADER_BYTES_V1)
   ) {
     throw new Error('unsupported schema');
   }
   const recordCount = payload.readUInt16LE(6);
   if (recordCount === 0 || recordCount > OFFLINE_MAX_RECORDS_PER_BURST)
     throw new Error('invalid record count');
-  const headerBytes = schemaVersion === 2 ? OFFLINE_BURST_HEADER_BYTES_V2 : OFFLINE_BURST_HEADER_BYTES_V1;
+  const headerBytes =
+    schemaVersion === 2
+      ? OFFLINE_BURST_HEADER_BYTES_V2
+      : OFFLINE_BURST_HEADER_BYTES_V1;
   const expectedLength = headerBytes + recordCount * OFFLINE_TELEMETRY_BYTES;
   if (payload.length !== expectedLength)
     throw new Error('invalid payload length');
@@ -99,6 +105,15 @@ export function decodeOfflineSyncBurst(payload: Buffer): OfflineSyncBurst {
       lampState: lampState === 1,
     });
   }
-  const sessionEndEpochMs = schemaVersion === 2 ? Number(payload.readBigUInt64LE(24)) : undefined;
-  return { bootCount, chunkIndex, sessionLastDeltaS, chunkCrc32, records, schemaVersion, sessionEndEpochMs };
+  const sessionEndEpochMs =
+    schemaVersion === 2 ? Number(payload.readBigUInt64LE(24)) : undefined;
+  return {
+    bootCount,
+    chunkIndex,
+    sessionLastDeltaS,
+    chunkCrc32,
+    records,
+    schemaVersion,
+    sessionEndEpochMs,
+  };
 }

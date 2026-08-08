@@ -10,7 +10,9 @@ import type { SystemJwtPayload } from '../../security/system-jwt.guard';
 @Injectable()
 export class CheckpointOwnerGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<Request & { user?: SystemJwtPayload }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { user?: SystemJwtPayload }>();
     const user = request.user;
     if (
       user?.sub !== 'mushroom-ui-bff' ||

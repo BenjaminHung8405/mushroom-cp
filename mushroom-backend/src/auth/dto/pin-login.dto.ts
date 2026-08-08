@@ -4,7 +4,8 @@ export class PinLoginDto {
   /** Vietnamese phone number in local format (0xxxxxxxxx) or E.164 format (+84xxxxxxxxx) */
   @IsString()
   @Matches(/^(0|\+84)[0-9]{9}$/, {
-    message: 'phoneNumber must be a valid Vietnamese phone number (e.g. 0901234567 or +84901234567)',
+    message:
+      'phoneNumber must be a valid Vietnamese phone number (e.g. 0901234567 or +84901234567)',
   })
   phoneNumber!: string;
 

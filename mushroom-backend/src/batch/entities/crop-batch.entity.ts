@@ -87,6 +87,12 @@ export class CropBatch {
   })
   humidityOptimalMax!: number;
 
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy!: string | null;
+
+  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
+  updatedBy!: string | null;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 }

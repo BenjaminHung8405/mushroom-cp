@@ -38,7 +38,11 @@ import { TuningDiagnosticRecommendationController } from './controllers/tuning-d
     InfluxModule,
     DeviceModule,
   ],
-  controllers: [TuningRecommendationController, TuningDiagnosticRecommendationController, TuningCommandController],
+  controllers: [
+    TuningRecommendationController,
+    TuningDiagnosticRecommendationController,
+    TuningCommandController,
+  ],
   providers: [
     {
       provide: TuningConfigurationService,
@@ -52,6 +56,10 @@ import { TuningDiagnosticRecommendationController } from './controllers/tuning-d
     TuningObservationClockService,
     TuningAdvisoryCronService,
   ],
-  exports: [TuningConfigurationService, TuningRecommendationService, TypeOrmModule],
+  exports: [
+    TuningConfigurationService,
+    TuningRecommendationService,
+    TypeOrmModule,
+  ],
 })
 export class TuningModule {}

@@ -53,7 +53,12 @@ describe('TuningModule', () => {
       save: jest.fn(),
       create: jest.fn(),
     };
-    mockRecommendationRepo = { find: jest.fn(), findOne: jest.fn(), save: jest.fn(), create: jest.fn() };
+    mockRecommendationRepo = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn(),
+    };
   });
 
   it('should compile TuningModule and provide TuningConfigurationService', async () => {

@@ -18,7 +18,9 @@ export class CreateUserPinDevices1720656000019 implements MigrationInterface {
         CONSTRAINT uq_user_pin_device UNIQUE(user_id, device_token_hash)
       )
     `);
-    await q.query(`CREATE INDEX idx_upd_device_token_hash ON user_pin_devices(device_token_hash)`);
+    await q.query(
+      `CREATE INDEX idx_upd_device_token_hash ON user_pin_devices(device_token_hash)`,
+    );
     await q.query(`CREATE INDEX idx_upd_user_id ON user_pin_devices(user_id)`);
   }
 

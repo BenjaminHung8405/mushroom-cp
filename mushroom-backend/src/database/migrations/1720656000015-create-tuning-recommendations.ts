@@ -14,5 +14,7 @@ export class CreateTuningRecommendations1720656000015 implements MigrationInterf
       CONSTRAINT uq_tuning_recommendation_device_date UNIQUE (device_id, observation_date)
     )`);
   }
-  async down(queryRunner: QueryRunner): Promise<void> { await queryRunner.query('DROP TABLE IF EXISTS tuning_recommendations'); }
+  async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query('DROP TABLE IF EXISTS tuning_recommendations');
+  }
 }

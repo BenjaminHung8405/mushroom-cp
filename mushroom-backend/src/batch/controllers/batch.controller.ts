@@ -32,8 +32,16 @@ export class BatchController {
 
   @Post()
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  async create(@Body() createBatchDto: CreateBatchDto, @Req() request?: Request & { authUser?: AuthPrincipal }): Promise<CropBatch> {
-    return request?.authUser ? this.batchService.createBatchForPrincipal(request.authUser, createBatchDto) : this.batchService.createBatch(createBatchDto);
+  async create(
+    @Body() createBatchDto: CreateBatchDto,
+    @Req() request?: Request & { authUser?: AuthPrincipal },
+  ): Promise<CropBatch> {
+    return request?.authUser
+      ? this.batchService.createBatchForPrincipal(
+          request.authUser,
+          createBatchDto,
+        )
+      : this.batchService.createBatch(createBatchDto);
   }
 
   @Patch(':id/end')
@@ -43,7 +51,13 @@ export class BatchController {
     @Body() updateBatchDto: UpdateBatchDto,
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): Promise<CropBatch> {
-    return request?.authUser ? this.batchService.endBatchForPrincipal(request.authUser, params.id, updateBatchDto.status) : this.batchService.endBatch(params.id, updateBatchDto.status);
+    return request?.authUser
+      ? this.batchService.endBatchForPrincipal(
+          request.authUser,
+          params.id,
+          updateBatchDto.status,
+        )
+      : this.batchService.endBatch(params.id, updateBatchDto.status);
   }
 
   @Get('active/:houseId')
@@ -51,7 +65,12 @@ export class BatchController {
     @Param() params: HouseIdParamsDto,
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): Promise<ActiveBatchResponseDto | null> {
-    return request?.authUser ? this.batchService.getActiveBatchStatusForPrincipal(request.authUser, params.houseId) : this.batchService.getActiveBatchStatusByHouseId(params.houseId);
+    return request?.authUser
+      ? this.batchService.getActiveBatchStatusForPrincipal(
+          request.authUser,
+          params.houseId,
+        )
+      : this.batchService.getActiveBatchStatusByHouseId(params.houseId);
   }
 
   @Put(':id/checkpoints')
@@ -62,7 +81,16 @@ export class BatchController {
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): Promise<CurveCheckpoint[]> {
     this.logger.log(`Request to update checkpoints for batch '${params.id}'`);
-    return request?.authUser ? this.batchService.updateBatchCheckpointsForPrincipal(request.authUser, params.id, updateCheckpointsDto) : this.batchService.updateBatchCheckpoints(params.id, updateCheckpointsDto);
+    return request?.authUser
+      ? this.batchService.updateBatchCheckpointsForPrincipal(
+          request.authUser,
+          params.id,
+          updateCheckpointsDto,
+        )
+      : this.batchService.updateBatchCheckpoints(
+          params.id,
+          updateCheckpointsDto,
+        );
   }
 
   @Get(':id/light-schedule')
@@ -70,7 +98,12 @@ export class BatchController {
     @Param() params: BatchIdParamsDto,
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): Promise<LightScheduleBlock[]> {
-    return request?.authUser ? this.batchService.getBatchLightScheduleForPrincipal(request.authUser, params.id) : this.batchService.getBatchLightSchedule(params.id);
+    return request?.authUser
+      ? this.batchService.getBatchLightScheduleForPrincipal(
+          request.authUser,
+          params.id,
+        )
+      : this.batchService.getBatchLightSchedule(params.id);
   }
 
   @Put(':id/light-schedule')
@@ -80,6 +113,12 @@ export class BatchController {
     @Body() dto: UpdateLightScheduleDto,
     @Req() request?: Request & { authUser?: AuthPrincipal },
   ): Promise<LightScheduleBlock[]> {
-    return request?.authUser ? this.batchService.updateBatchLightScheduleForPrincipal(request.authUser, params.id, dto.blocks) : this.batchService.updateBatchLightSchedule(params.id, dto.blocks);
+    return request?.authUser
+      ? this.batchService.updateBatchLightScheduleForPrincipal(
+          request.authUser,
+          params.id,
+          dto.blocks,
+        )
+      : this.batchService.updateBatchLightSchedule(params.id, dto.blocks);
   }
 }

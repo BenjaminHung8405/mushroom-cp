@@ -1,4 +1,8 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SessionAuthGuard } from './session-auth.guard';
 import { AuthService } from './auth.service';
@@ -30,7 +34,11 @@ describe('SessionAuthGuard', () => {
     delete process.env.AUTH_SESSION_COOKIE_NAME;
   });
 
-  function createMockContext(request: any, handlerFn: any = () => {}, classFn: any = {}) {
+  function createMockContext(
+    request: any,
+    handlerFn: any = () => {},
+    classFn: any = {},
+  ) {
     return {
       getHandler: () => handlerFn,
       getClass: () => classFn,
@@ -71,7 +79,9 @@ describe('SessionAuthGuard', () => {
 
   it('throws UnauthorizedException when calling /auth/me without a cookie in shadow mode', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
-    jest.spyOn(authService, 'authenticate').mockRejectedValue(new UnauthorizedException('Session is required.'));
+    jest
+      .spyOn(authService, 'authenticate')
+      .mockRejectedValue(new UnauthorizedException('Session is required.'));
 
     const req: any = {
       path: '/auth/me',

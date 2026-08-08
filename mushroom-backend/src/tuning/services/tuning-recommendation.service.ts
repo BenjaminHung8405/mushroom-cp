@@ -34,9 +34,18 @@ export class TuningRecommendationService {
   async upsertDailyRecommendation(input: UpsertDailyRecommendationInput) {
     const values = {
       ...input,
-      rawKpiSnapshot: input.rawKpiSnapshot as unknown as Record<string, unknown> | null,
-      currentConfigSnapshot: input.currentConfigSnapshot as unknown as Record<string, unknown> | null,
-      advisorySnapshot: input.advisorySnapshot as unknown as Record<string, unknown> | null,
+      rawKpiSnapshot: input.rawKpiSnapshot as unknown as Record<
+        string,
+        unknown
+      > | null,
+      currentConfigSnapshot: input.currentConfigSnapshot as unknown as Record<
+        string,
+        unknown
+      > | null,
+      advisorySnapshot: input.advisorySnapshot as unknown as Record<
+        string,
+        unknown
+      > | null,
       blockReason: input.blockReason ?? null,
       blockReasonDetail: input.blockReasonDetail ?? null,
       generatedAt: new Date(),
@@ -67,12 +76,19 @@ export class TuningRecommendationService {
         values.generatedAt,
       ],
     );
-    const saved = await this.findByDeviceAndDate(input.deviceId, input.observationDate);
-    if (!saved) throw new Error('Tuning recommendation upsert did not return a row.');
+    const saved = await this.findByDeviceAndDate(
+      input.deviceId,
+      input.observationDate,
+    );
+    if (!saved)
+      throw new Error('Tuning recommendation upsert did not return a row.');
     return saved;
   }
 
-  async markAppliedForConfiguration(deviceId: string, configurationId: string): Promise<void> {
+  async markAppliedForConfiguration(
+    deviceId: string,
+    configurationId: string,
+  ): Promise<void> {
     await this.repository
       .createQueryBuilder()
       .update(TuningRecommendation)
@@ -82,8 +98,10 @@ export class TuningRecommendationService {
         appliedAt: new Date(),
       })
       .where('device_id = :deviceId', { deviceId })
-      .andWhere('status = :status', { status: TuningRecommendationStatus.PENDING })
-      .andWhere("advisory_snapshot IS NOT NULL")
+      .andWhere('status = :status', {
+        status: TuningRecommendationStatus.PENDING,
+      })
+      .andWhere('advisory_snapshot IS NOT NULL')
       .execute();
   }
 }

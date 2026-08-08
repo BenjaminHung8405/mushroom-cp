@@ -99,8 +99,12 @@ export class HardenTuningShadow1720656000008 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_configuration`);
-    await queryRunner.query(`ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_device`);
+    await queryRunner.query(
+      `ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_configuration`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE tuning_audit_logs DROP CONSTRAINT IF EXISTS fk_tuning_audit_device`,
+    );
     await queryRunner.query(`
       ALTER TABLE tuning_audit_logs
         ADD CONSTRAINT fk_tuning_audit_configuration
@@ -112,7 +116,11 @@ export class HardenTuningShadow1720656000008 implements MigrationInterface {
       DROP COLUMN IF EXISTS retained_clear_next_at,
       DROP COLUMN IF EXISTS retained_clear_attempts,
       DROP COLUMN IF EXISTS retained_clear_pending`);
-    await queryRunner.query('ALTER TABLE device_tuning_configurations DROP CONSTRAINT IF EXISTS uq_device_tuning_configs_device_command');
-    await queryRunner.query('ALTER TABLE device_tuning_configurations DROP CONSTRAINT IF EXISTS uq_device_tuning_configs_device_revision');
+    await queryRunner.query(
+      'ALTER TABLE device_tuning_configurations DROP CONSTRAINT IF EXISTS uq_device_tuning_configs_device_command',
+    );
+    await queryRunner.query(
+      'ALTER TABLE device_tuning_configurations DROP CONSTRAINT IF EXISTS uq_device_tuning_configs_device_revision',
+    );
   }
 }

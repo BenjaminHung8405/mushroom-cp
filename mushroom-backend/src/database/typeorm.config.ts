@@ -57,6 +57,7 @@ const commonOptions = {
   type: 'postgres' as const,
   synchronize: false,
   entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
+  subscribers: [path.join(__dirname, '/../**/*.subscriber{.ts,.js}')],
   migrations: [path.join(__dirname, '/migrations/[0-9]*{.ts,.js}')],
   extra: {
     max: 20,
