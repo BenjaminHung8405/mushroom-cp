@@ -4982,6 +4982,16 @@ int main() {
         assert(sm.remove_known_wifi("WiFi_2") == true);
         assert(sm.load_known_wifi_list(wifi_list) == true);
         assert(wifi_list.size() == 4);
+
+        // 7. Test Exponential Backoff Calculation
+        assert(wifi::get_reconnect_backoff_interval_ms(1) == 10000);
+        assert(wifi::get_reconnect_backoff_interval_ms(3) == 10000);
+        assert(wifi::get_reconnect_backoff_interval_ms(4) == 30000);
+        assert(wifi::get_reconnect_backoff_interval_ms(6) == 30000);
+        assert(wifi::get_reconnect_backoff_interval_ms(7) == 60000);
+        assert(wifi::get_reconnect_backoff_interval_ms(10) == 60000);
+        assert(wifi::get_reconnect_backoff_interval_ms(11) == 300000);
+        assert(wifi::get_reconnect_backoff_interval_ms(50) == 300000);
     }
 
     // 41. Test SystemProtector, Bio Rules, NVS Bio Thresholds, and Active-LOW Mapping

@@ -564,13 +564,136 @@ namespace wifi
         dnsServer.stop();
         if (!captive_server_running)
         {
-            return;
-        }
-
         webServer.stop();
         captive_server_running = false;
         Serial.println("[WIFI] Captive portal server stopped.");
     }
+
+    unsigned long get_reconnect_backoff_interval_ms(int attempt)
+    {
+        if (attempt <= 3)
+        {
+            return 10000;  // 10s (Attempts 1-3)
+        }
+        else if (attempt <= 6)
+        {
+            return 30000;  // 30s (Attempts 4-6)
+        }
+        else if (attempt <= 10)
+        {
+            return 60000;  // 60s (Attempts 7-10)
+        }
+        else
+        {
+            return 300000; // 300s / 5 mins (Attempts > 10)
+        }
+    }
+
+    // Các hằng số cấu hình thời gian (ms)
+    constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000;        // 15 giây
+    constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 600000;          // 10 phút idle tự tắt AP
+    constexpr unsigned long STA_DISCONNECTED_MAX_DURATION_MS = 900000; // 15 phút rớt mạng tự mở AP dự phòng
+
+    static void mark_softap_activity()
+    {
+        softap_last_activity_ms = millis();
+    }
+
+#ifndef UNIT_TEST
+    static bool has_softap_clients()
+    {
+        return WiFi.softAPgetStationNum() > 0;
+    }
+#else
+    static bool has_softap_clients()
+    {
+        return false;
+    }
+#endif
+
+    static void set_state(WifiState new_state)
+    {
+        current_state = new_state;
+
+        if (new_state == WifiState::SOFTAP_ACTIVE || new_state == WifiState::AP_PROVISIONING)
+        {
+            softap_start_time = millis();
+            softap_last_activity_ms = softap_start_time;
+        }
+
+        // Synchronize Event Bits to Core 1
+        if (xWifiEventGroup != nullptr)
+        {
+            if (new_state == WifiState::STA_CONNECTED)
+            {
+                xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
+                xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
+            }
+            else if (new_state == WifiState::SOFTAP_ACTIVE || new_state == WifiState::AP_PROVISIONING)
+            {
+                xEventGroupSetBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
+                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
+            }
+            else
+            {
+                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT | WIFI_SOFTAP_BIT);
+            }
+        }
+    }
+
+    static bool start_softap(bool allow_sta_reconnect)
+    {
+        Serial.println("[WIFI] Activating SoftAP Mode...");
+
+#ifndef UNIT_TEST
+        if (web_interface::isServerRunning())
+        {
+            web_interface::stopServer();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+#endif
+
+        WiFi.persistent(false);
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect(true, false);
+        delay(50);
+        WiFi.mode(WIFI_OFF);
+        delay(150);
+
+        String ap_ssid = config::network::get_dynamic_ap_ssid();
+        bool ap_started = WiFi.softAP(
+            ap_ssid.c_str(),
+            config::network::AP_PASS,
+            1,
+            0,
+            4);
+
+        WiFi.enableSTA(false);
+        WiFi.setSleep(false);
+        WiFi.setAutoReconnect(false);
+
+        if (ap_started)
+        {
+            softap_forced = !allow_sta_reconnect;
+            softap_auto_reconnect = allow_sta_reconnect;
+            last_softap_sta_attempt = millis();
+            Serial.printf("[WIFI] SoftAP Activated: %s\n", ap_ssid.c_str());
+            Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
+            set_state(allow_sta_reconnect ? WifiState::SOFTAP_ACTIVE : WifiState::AP_PROVISIONING);
+
+#ifndef UNIT_TEST
+            start_captive_portal_server();
+#endif
+            return true;
+        }
+        else
+        {
+            Serial.println("[WIFI] ERROR: Failed to start SoftAP.");
+            set_state(WifiState::IDLE);
+            return false;
+        }
+    }
+
 #endif
 
     WifiState init_wifi()
@@ -581,8 +704,7 @@ namespace wifi
         ota::init();
 
 #ifndef UNIT_TEST
-        // Disable Arduino SDK auto-reconnect so it cannot keep retrying a stale
-        // SSID cached outside our application NVS keys.
+        // Disable SDK Auto-Reconnect so State Machine has 100% control over Backoff timing
         WiFi.setAutoReconnect(false);
 #endif
 
@@ -622,6 +744,8 @@ namespace wifi
         return current_state;
     }
 
+    static unsigned long sta_disconnected_start_time = 0;
+
     void check_wifi_connection()
     {
         unsigned long now = millis();
@@ -638,7 +762,7 @@ namespace wifi
         }
 #endif
 
-        // 1. Process hardware button event requests from Core 1 Task
+        // Power-Up Boot Guard: Ignore GPIO0 BOOT button trigger during first 5 seconds of uptime
         if (xWifiEventGroup != nullptr)
         {
             EventBits_t bits = xEventGroupGetBits(xWifiEventGroup);
@@ -653,9 +777,9 @@ namespace wifi
                 ESP.restart();
 #endif
             }
-            else if (bits & WIFI_FORCE_PROVISION_BIT)
+            else if ((bits & WIFI_FORCE_PROVISION_BIT) && (now > 5000))
             {
-                Serial.println("[WIFI] Handling WIFI_FORCE_PROVISION_BIT -> Forcing SoftAP...");
+                Serial.println("[WIFI] Handling WIFI_FORCE_PROVISION_BIT (millis > 5000) -> Forcing SoftAP AP_PROVISIONING...");
                 storage::StorageManager &storage_manager = storage::StorageManager::get_instance();
                 if (!storage_manager.clear_wifi_credentials())
                 {
@@ -694,25 +818,15 @@ namespace wifi
             }
             else if (now - connection_start_time >= WIFI_CONNECTION_TIMEOUT_MS)
             {
-                Serial.println("[WIFI] WiFi connection timeout! Transitioning to STA_DISCONNECTED.");
+                Serial.println("[WIFI] WiFi connection timeout! Transitioning to STA_RECONNECTING.");
                 WiFi.disconnect();
                 reconnect_attempts++;
 
-                std::vector<storage::KnownWifiNetwork> known_list;
-                storage::StorageManager::get_instance().load_known_wifi_list(known_list);
-                int max_allowed_attempts = known_list.empty() ? MAX_RECONNECT_ATTEMPTS : (known_list.size() * MAX_RECONNECT_ATTEMPTS);
-
-                Serial.printf("[WIFI] Reconnection attempt %d of %d failed.\n", reconnect_attempts, max_allowed_attempts);
-
-                if (reconnect_attempts >= max_allowed_attempts)
+                set_state(WifiState::STA_RECONNECTING);
+                last_reconnect_attempt = now;
+                if (sta_disconnected_start_time == 0)
                 {
-                    Serial.println("[WIFI] Max reconnection attempts across all saved networks reached. Falling back to SoftAP mode...");
-                    start_softap(true);
-                }
-                else
-                {
-                    set_state(WifiState::STA_DISCONNECTED);
-                    last_reconnect_attempt = now;
+                    sta_disconnected_start_time = now;
                 }
             }
             break;
@@ -721,9 +835,10 @@ namespace wifi
         {
             if (WiFi.status() != WL_CONNECTED)
             {
-                Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_DISCONNECTED.");
-                set_state(WifiState::STA_DISCONNECTED);
+                Serial.println("[WIFI] WiFi connection lost! Transitioning to STA_RECONNECTING (Safe Offline mode active).");
+                set_state(WifiState::STA_RECONNECTING);
                 last_reconnect_attempt = now;
+                sta_disconnected_start_time = now;
 
                 // B2: Connection loss while same boot -> Holdover
                 time_conf::onConnectionLoss();
@@ -731,15 +846,28 @@ namespace wifi
             break;
         }
         case WifiState::STA_DISCONNECTED:
+        case WifiState::STA_RECONNECTING:
         {
-            if (now - last_reconnect_attempt >= WIFI_RECONNECT_INTERVAL_MS)
+            unsigned long backoff_ms = get_reconnect_backoff_interval_ms(reconnect_attempts + 1);
+
+            // Fallback to AP if disconnected for > 15 minutes continuously
+            if (sta_disconnected_start_time > 0 && (now - sta_disconnected_start_time >= STA_DISCONNECTED_MAX_DURATION_MS))
             {
-                Serial.println("[WIFI] Reconnection interval reached. Retrying connection...");
+                Serial.println("[WIFI] Continuous disconnection exceeded 15 minutes. Opening fallback Captive AP...");
+                start_softap(true);
+                break;
+            }
+
+            if (now - last_reconnect_attempt >= backoff_ms)
+            {
+                Serial.printf("[WIFI] Backoff interval (%lu s) reached (Attempt %d). Retrying connection...\n",
+                              backoff_ms / 1000, reconnect_attempts + 1);
                 reconnect_wifi();
             }
             break;
         }
         case WifiState::SOFTAP_ACTIVE:
+        case WifiState::AP_PROVISIONING:
         {
 #ifndef UNIT_TEST
             // Drain multiple packets per tick while captive portal is the sole
@@ -750,60 +878,17 @@ namespace wifi
                 webServer.handleClient();
             }
 #endif
-            // Fallback portal: keep serving clients, but periodically restore
-            // STA in AP_STA mode so a recovered router can be detected.
-            if (softap_auto_reconnect && now - last_softap_sta_attempt >= WIFI_RECONNECT_INTERVAL_MS)
-            {
-                last_softap_sta_attempt = now;
-                Serial.println("[WIFI] Captive fallback retrying STA connection...");
-                WiFi.mode(WIFI_AP_STA);
-                WiFi.setAutoReconnect(false);
-                WiFi.begin(config::network::STA_SSID.c_str(), config::network::STA_PASS.c_str());
-            }
-
-            if (softap_auto_reconnect && WiFi.status() == WL_CONNECTED)
-            {
-                Serial.printf("[WIFI] STA recovered while SoftAP active. IP: %s\n", WiFi.localIP().toString().c_str());
-#ifndef UNIT_TEST
-                stop_captive_portal_server();
-                // Give lwIP time to release port 80 before Core 0 starts dashboard.
-                vTaskDelay(pdMS_TO_TICKS(50));
-#endif
-                WiFi.softAPdisconnect(true);
-                WiFi.mode(WIFI_STA);
-                softap_auto_reconnect = false;
-                softap_forced = false;
-                reconnect_attempts = 0;
-                    set_state(WifiState::STA_CONNECTED);
-                break;
-            }
-
-            if (softap_forced && (WiFi.getMode() & WIFI_AP) == 0)
-            {
-                Serial.println("[WIFI] SoftAP mode lost unexpectedly. Re-asserting captive portal...");
-                start_softap(false);
-                break;
-            }
-
-            // Manual/no-credential provisioning remains AP-only and does not
-            // start background STA activity.
-            if (softap_forced)
-            {
-                WiFi.enableSTA(false);
-                WiFi.setAutoReconnect(false);
-            }
 
             if (has_softap_clients())
             {
-                softap_last_activity_ms = now;
+                mark_softap_activity();
             }
-#ifdef UNIT_TEST
-            else if (now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
-#else
-            else if (softap_forced && now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
-#endif
+
+            // Lock Channel Hopping: DO NOT run periodic WiFi.begin() while portal is active.
+            // Active Session Guard: Auto-shutdown AP only if idle without clients for 10 minutes (600,000 ms).
+            if (now - softap_last_activity_ms >= SOFTAP_IDLE_TIMEOUT_MS)
             {
-                Serial.println("[WIFI] SoftAP idle timeout. Reverting to STA reconnect.");
+                Serial.println("[WIFI] SoftAP active session idle timeout (10 mins). Reverting to STA_RECONNECTING.");
 #ifndef UNIT_TEST
                 stop_captive_portal_server();
 #endif
@@ -812,8 +897,9 @@ namespace wifi
                 WiFi.softAPdisconnect(true);
                 WiFi.mode(WIFI_STA);
                 reconnect_attempts = 0;
-                set_state(WifiState::STA_DISCONNECTED);
+                set_state(WifiState::STA_RECONNECTING);
                 last_reconnect_attempt = now;
+                sta_disconnected_start_time = now;
             }
             break;
         }
@@ -825,7 +911,7 @@ namespace wifi
 
     void reconnect_wifi()
     {
-        if (softap_forced || current_state == WifiState::SOFTAP_ACTIVE)
+        if (softap_forced || current_state == WifiState::SOFTAP_ACTIVE || current_state == WifiState::AP_PROVISIONING)
         {
             Serial.println("[WIFI] Abort reconnect: SoftAP provisioning portal is active.");
             return;
@@ -844,10 +930,11 @@ namespace wifi
         config::network::STA_SSID = known_list[idx].ssid;
         config::network::STA_PASS = known_list[idx].pass;
 
-        Serial.printf("[WIFI] Reconnecting to network %u/%u (SSID: %s)...\n",
+        Serial.printf("[WIFI] Reconnecting to network %u/%u (SSID: %s, Attempt %d)...\n",
                       static_cast<unsigned>(idx + 1),
                       static_cast<unsigned>(known_list.size()),
-                      config::network::STA_SSID.c_str());
+                      config::network::STA_SSID.c_str(),
+                      reconnect_attempts + 1);
 
         WiFi.setAutoReconnect(false);
         WiFi.disconnect(false, false);
