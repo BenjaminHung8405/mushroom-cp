@@ -203,16 +203,48 @@ function DashboardContent() {
   )
 }
 
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { status } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.replace('/login')
+    }
+  }, [status, router])
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
+        <div className="size-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4" />
+        <p className="font-mono text-sm">Đang xác thực AgriSmart…</p>
+      </div>
+    )
+  }
+
+  if (status === 'unauthenticated') {
+    return null
+  }
+
+  return <>{children}</>
+}
+
 export default function Home() {
   return (
-    <SelectedDeviceProvider>
-      <BatchProvider>
-        <RealTelemetryProvider>
-          <SimulationProvider>
-            <DashboardContent />
-          </SimulationProvider>
-        </RealTelemetryProvider>
-      </BatchProvider>
-    </SelectedDeviceProvider>
+    <AuthGuard>
+      <SelectedDeviceProvider>
+        <BatchProvider>
+          <RealTelemetryProvider>
+            <SimulationProvider>
+              <DashboardContent />
+            </SimulationProvider>
+          </RealTelemetryProvider>
+        </BatchProvider>
+      </SelectedDeviceProvider>
+    </AuthGuard>
   )
 }
+

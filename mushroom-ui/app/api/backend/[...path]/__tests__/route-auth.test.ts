@@ -64,9 +64,10 @@ describe('BFF Route Proxy Non-User Mode & SSRF Defense', () => {
     })
 
     it('rejects unallowed top-level prefixes', () => {
-      expect(validateAndSanitizePath(['admin', 'users'])).toBeNull()
+      expect(validateAndSanitizePath(['unknown', 'prefix'])).toBeNull()
       expect(validateAndSanitizePath(['internal', 'secret'])).toBeNull()
     })
+
 
     it('rejects path traversal dot segments', () => {
       expect(validateAndSanitizePath(['devices', '..', 'admin'])).toBeNull()

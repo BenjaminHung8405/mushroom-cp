@@ -70,11 +70,28 @@ export class AdminController {
     }
 
     await this.users.save(user);
-    if (changed || dto.newPin) await this.auth.revokeAllUserSessions(user.id, 'USER_ACCESS_CHANGED');
+    if (changed || dto.newPin) {
+      await this.auth.revokeAllUserSessions(user.id, 'USER_ACCESS_CHANGED');
+      await this.auth.revokeAllUserPinDevices(user.id);
+    }
     await this.auth.record('USER_UPDATED', actor.id, user.phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS', {
       userId: user.id,
     });
     return this.publicUser(user);
+  }
+
+  @Get(':id/devices')
+  async getUserDevices(@Param('id') id: string) {
+    const user = await this.users.findOneBy({ id });
+    if (!user) throw new NotFoundException('Người dùng không tồn tại.');
+    return (await this.auth.getUserPinDevices(id)).map((device) => ({
+      id: device.id,
+      deviceLabel: device.deviceLabel,
+      failedAttempts: device.failedAttempts,
+      lockedUntil: device.lockedUntil,
+      lastUsedAt: device.lastUsedAt,
+      createdAt: device.createdAt,
+    }));
   }
 
   @Post(':id/reset-pin')
@@ -108,6 +125,7 @@ export class AdminController {
       houseCount: dto.houseIds.length,
     });
   }
+
 
   private publicUser(user: User) {
     return {

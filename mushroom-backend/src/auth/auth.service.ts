@@ -21,8 +21,12 @@ import { AuthSecurityEvent } from './entities/auth-security-event.entity';
 import { AuthSession } from './entities/auth-session.entity';
 import { User, UserRole } from './entities/user.entity';
 import { UserHouseAccess } from './entities/user-house-access.entity';
+import { UserPinDevice } from './entities/user-pin-device.entity';
 import {
   AuthPrincipal,
+  KIOSK_PIN_LOCKOUT_MS,
+  KIOSK_PIN_MAX_ATTEMPTS,
+  MAX_DEVICES_PER_USER,
   PIN_LOCKOUT_MS,
   PIN_MAX_ATTEMPTS,
   SESSION_IDLE_MS,
@@ -41,6 +45,9 @@ const LOGIN_PHONE_LIMIT = 8;
 const LOGIN_IP_LIMIT = 40;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const SESSION_REVOKE_CHANNEL = 'mushroom:auth:session-revoked';
+
+const PIN_LOGIN_ERROR_MSG = 'Thông tin thiết bị hoặc mã PIN không chính xác.';
+
 
 /**
  * Weak PIN patterns that farmers commonly choose.
@@ -74,7 +81,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     @Optional() @InjectRepository(UserHouseAccess) private readonly access: Repository<UserHouseAccess>,
     @Optional() @InjectRepository(AuthSession) private readonly sessions: Repository<AuthSession>,
     @Optional() @InjectRepository(AuthSecurityEvent) private readonly events: Repository<AuthSecurityEvent>,
+    @Optional() @InjectRepository(UserPinDevice) private readonly pinDevices: Repository<UserPinDevice>,
   ) {}
+
 
   async onModuleInit(): Promise<void> {
     const url = process.env.REDIS_URL?.trim();
@@ -285,8 +294,180 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     user.pinLockedUntil = null;
     await this.users.save(user);
     await this.revokeAllUserSessions(user.id, 'PIN_RESET');
+    await this.revokeAllUserPinDevices(userId);
     await this.record('PIN_RESET', actorId, user.phoneNumber, { ipAddress: null, userAgent: null }, 'SUCCESS');
   }
+
+  // ---------------------------------------------------------------------------
+  // Kiosk Device-Bound PIN Management
+  // ---------------------------------------------------------------------------
+
+  async setupDevicePin(
+    principal: AuthPrincipal,
+    currentPin: string,
+    newPinForDevice: string,
+    deviceToken: string,
+    deviceLabel?: string,
+  ): Promise<void> {
+    const user = await this.users.findOneByOrFail({ id: principal.id });
+    if (!(await this.verifyPin(user.pinHash, currentPin))) {
+      throw new UnauthorizedException('Mã PIN hiện tại không đúng.');
+    }
+    this.validatePinStrength(newPinForDevice);
+
+    const deviceTokenHash = this.hashToken(deviceToken);
+    const pinHash = await this.hashPin(newPinForDevice);
+
+    await this.pinDevices.manager.transaction(async (entityManager) => {
+      const existingDevices = await entityManager.find(UserPinDevice, {
+        where: { userId: user.id },
+        order: { createdAt: 'ASC' },
+      });
+
+      const isExistingDevice = existingDevices.some((d) => d.deviceTokenHash === deviceTokenHash);
+      if (!isExistingDevice && existingDevices.length >= MAX_DEVICES_PER_USER) {
+        // Auto-prune LRU device (oldest lastUsedAt or createdAt)
+        const sortedByLru = [...existingDevices].sort((a, b) => {
+          const tA = a.lastUsedAt?.getTime() ?? a.createdAt.getTime();
+          const tB = b.lastUsedAt?.getTime() ?? b.createdAt.getTime();
+          return tA - tB;
+        });
+        const oldest = sortedByLru[0];
+        if (oldest) {
+          await entityManager.delete(UserPinDevice, oldest.id);
+          this.logger.log(
+            `Auto-pruned oldest PIN device ${oldest.id} for user ${user.id} due to device limit (${MAX_DEVICES_PER_USER})`,
+          );
+        }
+      }
+
+      const existing = existingDevices.find((d) => d.deviceTokenHash === deviceTokenHash);
+
+      if (existing) {
+        existing.pinHash = pinHash;
+        existing.deviceLabel = deviceLabel ?? existing.deviceLabel;
+        existing.failedAttempts = 0;
+        existing.lockedUntil = null;
+        await entityManager.save(UserPinDevice, existing);
+      } else {
+        const newDevice = entityManager.create(UserPinDevice, {
+          userId: user.id,
+          deviceTokenHash,
+          deviceLabel: deviceLabel ?? null,
+          pinHash,
+          failedAttempts: 0,
+          lockedUntil: null,
+        });
+        await entityManager.save(UserPinDevice, newDevice);
+      }
+    });
+
+    await this.record(
+      'PIN_DEVICE_SETUP',
+      user.id,
+      user.phoneNumber,
+      { ipAddress: null, userAgent: null },
+      'SUCCESS',
+      { deviceLabel },
+    );
+  }
+
+  async loginWithDevicePin(
+    phoneInput: string,
+    pin: string,
+    deviceToken: string,
+    context: LoginContext,
+  ): Promise<{ token: string; principal: AuthPrincipal }> {
+    const phoneNumber = this.normalizePhone(phoneInput);
+    await this.assertLoginAllowed(phoneNumber, context.ipAddress);
+
+    const deviceTokenHash = this.hashToken(deviceToken);
+    const user = await this.users.findOne({ where: { phoneNumber } });
+    const device = user
+      ? await this.pinDevices.findOne({ where: { userId: user.id, deviceTokenHash } })
+      : null;
+
+    // Timing attack protection: ALWAYS execute verifyPin even when user or device record is missing
+    if (!user || !user.isActive || !device) {
+      await this.verifyPin(DUMMY_PIN_HASH, pin);
+      await this.record('PIN_LOGIN_FAILED', null, phoneNumber, context, 'FAILURE');
+      throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
+    }
+
+    // Check per-device lockout before verifying
+    if (device.lockedUntil && device.lockedUntil > new Date()) {
+      await this.verifyPin(DUMMY_PIN_HASH, pin);
+      await this.record('PIN_LOGIN_BLOCKED', user.id, phoneNumber, context, 'FAILURE', {
+        reason: 'device_lockout',
+        lockedUntil: device.lockedUntil,
+      });
+      await this.throttleDelay();
+      throw new HttpException(
+        'Tính năng PIN trên thiết bị này đang bị tạm khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút hoặc đăng nhập bằng Mật khẩu chính.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const verified = await this.verifyPin(device.pinHash, pin);
+
+    if (!verified) {
+      const newAttempts = device.failedAttempts + 1;
+      if (newAttempts >= KIOSK_PIN_MAX_ATTEMPTS) {
+        const lockedUntil = new Date(Date.now() + KIOSK_PIN_LOCKOUT_MS);
+        await this.pinDevices.update(device.id, { failedAttempts: 0, lockedUntil });
+        this.logger.warn(
+          `Device PIN ${device.id} for user ${user.id} locked out until ${lockedUntil.toISOString()} after ${KIOSK_PIN_MAX_ATTEMPTS} failed attempts`,
+        );
+      } else {
+        await this.pinDevices.update(device.id, { failedAttempts: newAttempts });
+      }
+      await this.record('PIN_LOGIN_FAILED', user.id, phoneNumber, context, 'FAILURE');
+      throw new UnauthorizedException(PIN_LOGIN_ERROR_MSG);
+    }
+
+    // Success — reset device lockout state and update lastUsedAt
+    await this.pinDevices.update(device.id, {
+      failedAttempts: 0,
+      lockedUntil: null,
+      lastUsedAt: new Date(),
+    });
+
+    if (user.pinFailedAttempts > 0 || user.pinLockedUntil !== null) {
+      await this.users.update(user.id, { pinFailedAttempts: 0, pinLockedUntil: null });
+    }
+
+    const now = new Date();
+    const token = randomBytes(32).toString('hex');
+    const session = this.sessions.create({
+      tokenHash: this.hashToken(token),
+      userId: user.id,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent?.slice(0, 512) ?? null,
+      expiresAt: new Date(now.getTime() + SESSION_MAX_AGE_MS),
+      idleExpiresAt: new Date(now.getTime() + SESSION_IDLE_MS),
+      lastSeenAt: now,
+      revokedAt: null,
+    });
+    await this.sessions.save(session);
+    await this.record('PIN_LOGIN_SUCCESS', user.id, phoneNumber, context, 'SUCCESS');
+    return { token, principal: await this.principalFor(user, session.id) };
+  }
+
+  async revokeDevicePin(principal: AuthPrincipal, deviceToken: string): Promise<void> {
+    const deviceTokenHash = this.hashToken(deviceToken);
+    await this.pinDevices.delete({ userId: principal.id, deviceTokenHash });
+    await this.record('PIN_DEVICE_REVOKED', principal.id, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+  }
+
+  async revokeAllUserPinDevices(userId: string): Promise<void> {
+    await this.pinDevices.delete({ userId });
+    await this.record('PIN_ALL_DEVICES_REVOKED', userId, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
+  }
+
+  async getUserPinDevices(userId: string): Promise<UserPinDevice[]> {
+    return this.pinDevices.find({ where: { userId }, order: { createdAt: 'DESC' } });
+  }
+
 
   // ---------------------------------------------------------------------------
   // Principal & Audit

@@ -18,7 +18,15 @@ export const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
-/** Number of consecutive failed PIN attempts before temporary lockout */
+/** Number of consecutive failed PIN attempts before temporary lockout for primary password login */
 export const PIN_MAX_ATTEMPTS = 5;
 /** Lockout duration after exceeding PIN_MAX_ATTEMPTS */
 export const PIN_LOCKOUT_MS = 15 * 60 * 1000;
+
+/** Number of consecutive failed PIN attempts on a kiosk tablet before per-device lockout */
+export const KIOSK_PIN_MAX_ATTEMPTS = 3;
+/** Per-device lockout duration after exceeding KIOSK_PIN_MAX_ATTEMPTS */
+export const KIOSK_PIN_LOCKOUT_MS = 15 * 60 * 1000;
+/** Maximum active device PIN bindings allowed per user */
+export const MAX_DEVICES_PER_USER = 5;
+
