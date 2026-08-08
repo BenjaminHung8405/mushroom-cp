@@ -79,10 +79,12 @@ export function KioskAvatarCard({
         </div>
 
         {/* User Info */}
-        <div className="text-center min-w-0 w-full px-1 space-y-1">
-          <p className="text-base font-bold text-slate-100 group-hover:text-emerald-300 transition-colors duration-200 truncate leading-snug">
-            {displayPrimaryName}
-          </p>
+        <div className="text-center min-w-0 w-full px-1 flex flex-col items-center gap-1">
+          <div className="h-10 flex items-center justify-center w-full">
+            <p className="text-sm sm:text-base font-bold text-slate-100 group-hover:text-emerald-300 transition-colors duration-200 line-clamp-2 leading-tight text-center break-words">
+              {displayPrimaryName}
+            </p>
+          </div>
 
           {!isPhoneOnly && (
             <p className="font-mono text-xs font-medium text-slate-400 tracking-wide">

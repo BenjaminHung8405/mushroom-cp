@@ -93,7 +93,7 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
         <div className="size-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 motion-safe:animate-spin mb-4" />
-        <p className="font-mono text-base font-semibold">Đang tải AgriSmart OS…</p>
+        <p className="font-mono text-base font-semibold">Đang tải Mushroom-CP OS…</p>
       </div>
     );
   }
@@ -125,7 +125,7 @@ export default function LoginPage() {
           </div>
           <div>
             <h1 className="font-mono text-lg font-bold tracking-tight text-slate-100">
-              AgriSmart <span className="text-emerald-400">Kiosk</span>
+              Mushroom-CP <span className="text-emerald-400">Kiosk</span>
             </h1>
             <p className="text-xs text-slate-300">Hệ thống Quản lý Nhà Nấm</p>
           </div>
@@ -133,7 +133,7 @@ export default function LoginPage() {
       </header>
 
       {/* Main Content Area */}
-      <section className="my-auto py-8 z-10 max-w-md w-full mx-auto">
+      <section className={`my-auto py-8 z-10 w-full mx-auto transition-all duration-200 ${selectedUser ? 'max-w-md' : 'max-w-xl sm:max-w-2xl'}`}>
         {selectedUser ? (
           /* STATE 2: PIN Entry Screen */
           <div className="flex flex-col items-center motion-safe:animate-fade-in">
@@ -263,7 +263,7 @@ export default function LoginPage() {
 
       {/* Footer */}
       <footer className="z-10 text-center py-2 text-xs font-mono text-slate-400">
-        Bảo mật bởi AgriSmart OS v2.4
+        Bảo mật bởi Mushroom-CP OS v2.4
       </footer>
 
       {/* Phone + Password Login Modal */}
