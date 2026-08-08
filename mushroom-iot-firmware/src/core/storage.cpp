@@ -216,16 +216,31 @@ namespace storage
         uint32_t now_sec = static_cast<uint32_t>(time(nullptr));
         if (now_sec == 0) now_sec = millis() / 1000;
 
-        if (found_idx >= 0)
+        bool is_dirty = false;
+
+        if (found_idx == 0)
         {
+            // Primary network: check if password changed
+            if (list[0].pass != pass)
+            {
+                list[0].pass = pass;
+                list[0].last_connected = now_sec;
+                is_dirty = true;
+            }
+        }
+        else if (found_idx > 0)
+        {
+            // Move network to top (index 0)
             KnownWifiNetwork updated = list[found_idx];
             updated.pass = pass;
             updated.last_connected = now_sec;
             list.erase(list.begin() + found_idx);
             list.insert(list.begin(), updated);
+            is_dirty = true;
         }
         else
         {
+            // New network insertion
             KnownWifiNetwork net;
             net.ssid = ssid;
             net.pass = pass;
@@ -238,10 +253,16 @@ namespace storage
                               static_cast<unsigned>(list.size()), list.back().ssid.c_str());
                 list.pop_back();
             }
+            is_dirty = true;
         }
 
-        save_wifi_credentials(ssid, pass);
-        return save_known_wifi_list(list);
+        if (is_dirty)
+        {
+            save_wifi_credentials(ssid, pass);
+            return save_known_wifi_list(list);
+        }
+
+        return true;
     }
 
     bool StorageManager::remove_known_wifi(const String &ssid)

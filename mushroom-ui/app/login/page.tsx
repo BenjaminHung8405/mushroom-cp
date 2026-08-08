@@ -133,7 +133,7 @@ export default function LoginPage() {
       </header>
 
       {/* Main Content Area */}
-      <section className={`my-auto py-8 z-10 w-full mx-auto transition-all duration-200 ${selectedUser ? 'max-w-md' : 'max-w-xl sm:max-w-2xl'}`}>
+      <section className={`my-auto py-8 z-10 w-full mx-auto ${selectedUser ? 'max-w-md' : 'max-w-xl sm:max-w-2xl'}`}>
         {selectedUser ? (
           /* STATE 2: PIN Entry Screen */
           <div className="flex flex-col items-center motion-safe:animate-fade-in">

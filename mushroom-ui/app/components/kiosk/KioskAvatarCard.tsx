@@ -81,7 +81,10 @@ export function KioskAvatarCard({
         {/* User Info */}
         <div className="text-center min-w-0 w-full px-1 flex flex-col items-center gap-1">
           <div className="h-10 flex items-center justify-center w-full">
-            <p className="text-sm sm:text-base font-bold text-slate-100 group-hover:text-emerald-300 transition-colors duration-200 line-clamp-2 leading-tight text-center break-words">
+            <p
+              title={displayPrimaryName}
+              className="text-sm sm:text-base font-bold text-slate-100 group-hover:text-emerald-300 transition-colors duration-200 line-clamp-2 leading-tight text-center break-words"
+            >
               {displayPrimaryName}
             </p>
           </div>

@@ -446,36 +446,6 @@ namespace wifi
                         : String(config::network::DEFAULT_MQTT_PASS);
         }
 
-        // Live Proof-of-Connectivity Test in WIFI_AP_STA mode
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.begin(ssid.c_str(), pass.c_str());
-
-        bool connected = false;
-        unsigned long start_test = millis();
-        while (millis() - start_test < 8000)
-        {
-            if (WiFi.status() == WL_CONNECTED)
-            {
-                connected = true;
-                break;
-            }
-            delay(100);
-            dnsServer.processNextRequest();
-            webServer.handleClient();
-        }
-
-        if (!connected)
-        {
-            Serial.printf("[WIFI] Live verification failed for SSID='%s'. Keeping SoftAP alive.\n", ssid.c_str());
-            WiFi.disconnect(false, false);
-            WiFi.mode(WIFI_AP);
-            send_json(400, "{\"ok\":false,\"error\":\"Khong the ket noi toi WiFi! Kiem tra lai mat khau hoac khoang cach toi Router.\"}");
-            return;
-        }
-
-        String assigned_ip = WiFi.localIP().toString();
-        Serial.printf("[WIFI] Live verification SUCCESS for SSID='%s'. IP: %s\n", ssid.c_str(), assigned_ip.c_str());
-
         // Add network to Known Networks list in NVS (max 5 LRU)
         storage::StorageManager::get_instance().add_or_update_known_wifi(ssid, pass);
 
@@ -486,12 +456,12 @@ namespace wifi
         }
 
         String ok_json = String("{\"ok\":true,\"ssid\":\"") + json_escape(ssid) +
-                         "\",\"ip\":\"" + assigned_ip + "\",\"reboot\":true}";
+                         "\",\"reboot\":true}";
         send_json(200, ok_json);
 
         restart_at_ms = millis() + 1500;
         restart_pending = true;
-        Serial.printf("[WIFI] Config verified & saved from portal. New SSID='%s'. Restart scheduled.\n", ssid.c_str());
+        Serial.printf("[WIFI] Config saved from portal. New SSID='%s'. Restart scheduled.\n", ssid.c_str());
     }
 
     static void handle_not_found()
@@ -922,7 +892,8 @@ namespace wifi
 
         if (known_list.empty())
         {
-            Serial.println("[WIFI] Abort reconnect: No saved WiFi credentials available.");
+            Serial.println("[WIFI] Abort reconnect: No saved WiFi credentials available. Activating fallback SoftAP mode...");
+            start_softap(false);
             return;
         }
 
