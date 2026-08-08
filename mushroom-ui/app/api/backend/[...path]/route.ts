@@ -136,19 +136,30 @@ export function forwardUpstreamResponse(response: Response): Response {
     .get('content-type')
     ?.includes('text/event-stream')
 
+  const headers = new Headers()
+  headers.set('Content-Type', response.headers.get('content-type') ?? 'application/json')
+  headers.set('Cache-Control', isEventStream ? 'no-cache, no-transform' : 'no-store')
+
+  if ('getSetCookie' in response.headers && typeof response.headers.getSetCookie === 'function') {
+    const cookies = response.headers.getSetCookie()
+    for (const cookie of cookies) {
+      headers.append('Set-Cookie', cookie)
+    }
+  } else {
+    const setCookie = response.headers.get('set-cookie')
+    if (setCookie) {
+      headers.set('Set-Cookie', setCookie)
+    }
+  }
+
+  if (isEventStream) {
+    headers.set('Connection', 'keep-alive')
+    headers.set('X-Accel-Buffering', 'no')
+  }
+
   return new Response(response.body, {
     status: response.status,
-    headers: {
-      'Content-Type': response.headers.get('content-type') ?? 'application/json',
-      'Cache-Control': isEventStream ? 'no-cache, no-transform' : 'no-store',
-      ...(response.headers.get('set-cookie') ? { 'Set-Cookie': response.headers.get('set-cookie')! } : {}),
-      ...(isEventStream
-        ? {
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          }
-        : {}),
-    },
+    headers,
   })
 }
 

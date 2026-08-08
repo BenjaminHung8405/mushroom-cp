@@ -99,7 +99,10 @@ export class AuthController {
     res.setHeader('Cache-Control', 'no-store');
   }
 
-  @Get('auth/me') getMe(@CurrentUser() principal: AuthPrincipal) { return this.publicUser(principal); }
+  @Get('auth/me') getMe(@CurrentUser() principal: AuthPrincipal | undefined) {
+    if (!principal) throw new BadRequestException('Chưa đăng nhập.');
+    return this.publicUser(principal);
+  }
 
   @Post('auth/set-pin') @HttpCode(204)
   async setPin(
@@ -121,7 +124,8 @@ export class AuthController {
     return this.auth.issueDeviceToken(deviceId);
   }
 
-  private publicUser(principal: AuthPrincipal) {
+  private publicUser(principal: AuthPrincipal | undefined) {
+    if (!principal) return null;
     return {
       id: principal.id,
       phoneNumber: principal.phoneNumber,

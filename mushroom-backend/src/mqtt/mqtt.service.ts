@@ -1176,6 +1176,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  async kickDevice(deviceId: string): Promise<void> {
+    this.logger.log(`Kicking device '${deviceId}' due to revocation/disabled status.`);
+    try {
+      await this.publish(`${this.tenant}/esp32/${deviceId}/down/disconnect`, {
+        action: 'DISCONNECT',
+        reason: 'DEVICE_DISABLED_BY_ADMIN',
+        timestamp_utc: new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to send disconnect command to '${deviceId}': ${String(err)}`);
+    }
+  }
+
   private assertCommandAllowed(deviceId: string): void {
     if (this.deviceHealth && !this.deviceHealth.isCommandAllowed(deviceId)) {
       throw new Error(

@@ -1,11 +1,13 @@
 'use client'
 
-import { BellRing, Leaf, Radio, Server } from 'lucide-react'
+import { BellRing, Leaf, Radio, Server, ShieldCheck } from 'lucide-react'
 import { useEffect, useState, type RefObject } from 'react'
+import Link from 'next/link'
 
 import { DeviceSelector } from '@/components/device-selector'
 import { HardwareTelemetryWidget } from '@/components/hardware-telemetry-widget'
 import { useRealTelemetry } from '@/lib/real-telemetry-context'
+import { useAuth } from '@/lib/auth-context'
 
 function StatusPill({ compact = false }: { compact?: boolean }) {
   const { deviceStatus } = useRealTelemetry()
@@ -37,6 +39,7 @@ export function Header({
   activeAlertCount: number
   alertTriggerRef: RefObject<HTMLButtonElement | null>
 }) {
+  const { user } = useAuth()
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -61,6 +64,15 @@ export function Header({
         <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
           <div className="hidden lg:block"><HardwareTelemetryWidget /></div>
           <div className="hidden sm:block"><DeviceSelector /></div>
+          {user?.role === 'ADMIN' && (
+            <Link
+              href="/admin"
+              className="flex size-11 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition-colors duration-200 hover:bg-emerald-900/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:rounded-xl"
+              title="Quản trị hệ thống (Admin Panel)"
+            >
+              <ShieldCheck className="size-5" />
+            </Link>
+          )}
           <button type="button" onClick={() => setDeviceMenuOpen((open) => !open)} aria-expanded={deviceMenuOpen} aria-controls="mobile-device-selector" className="flex size-11 cursor-pointer items-center justify-center rounded-lg border border-slate-800 bg-slate-900/55 text-slate-300 transition-colors duration-200 hover:border-slate-600 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:hidden" aria-label="Chọn thiết bị">
             <Server className="size-[18px]" />
           </button>
