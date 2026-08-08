@@ -23,7 +23,18 @@ export function PinNumpad({
   const [isShuffled, setIsShuffled] = useState(false);
   const [shake, setShake] = useState(false);
 
+  const triggerHaptic = useCallback(() => {
+    if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(50);
+      } catch {
+        // Ignore vibration errors if restricted by device policy
+      }
+    }
+  }, []);
+
   const shuffleDigits = useCallback(() => {
+    triggerHaptic();
     setDigits((prev) => {
       const arr = [...prev];
       for (let i = arr.length - 1; i > 0; i--) {
@@ -33,7 +44,7 @@ export function PinNumpad({
       return arr;
     });
     setIsShuffled(true);
-  }, []);
+  }, [triggerHaptic]);
 
   useEffect(() => {
     if (enableShuffle) {
@@ -55,6 +66,7 @@ export function PinNumpad({
 
   const handleKeyPress = useCallback((digit: number) => {
     if (disabled) return;
+    triggerHaptic();
     setPin((prev) => {
       if (prev.length >= 6) return prev;
       const next = prev + digit.toString();
@@ -63,12 +75,13 @@ export function PinNumpad({
       }
       return next;
     });
-  }, [disabled, onComplete]);
+  }, [disabled, onComplete, triggerHaptic]);
 
   const handleDelete = useCallback(() => {
     if (disabled) return;
+    triggerHaptic();
     setPin((prev) => prev.slice(0, -1));
-  }, [disabled]);
+  }, [disabled, triggerHaptic]);
 
   const handleClear = useCallback(() => {
     if (disabled) return;
@@ -97,7 +110,7 @@ export function PinNumpad({
       {/* 6 Dot Indicators */}
       <div
         className={`flex justify-center items-center gap-4 mb-6 transition-transform duration-200 ${
-          shake ? 'animate-shake text-red-400' : ''
+          shake ? 'motion-safe:animate-shake text-red-400' : ''
         }`}
         aria-label={`Mã PIN đã nhập ${pin.length} trên 6 số`}
       >
@@ -106,7 +119,7 @@ export function PinNumpad({
           return (
             <div
               key={idx}
-              className={`size-5 rounded-full transition-all duration-200 border-2 ${
+              className={`size-6 rounded-full transition-all duration-200 border-2 ${
                 filled
                   ? 'bg-emerald-500 border-emerald-400 scale-110 shadow-[0_0_12px_rgba(34,197,94,0.5)]'
                   : 'bg-slate-900 border-slate-700'
@@ -118,33 +131,35 @@ export function PinNumpad({
 
       {/* Error message */}
       {error && (
-        <div className="flex items-center gap-2 mb-4 px-3 py-2 text-xs font-semibold text-red-300 bg-red-950/80 border border-red-800/60 rounded-lg animate-fade-in">
-          <AlertCircle className="size-4 shrink-0" />
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 text-sm font-semibold text-red-300 bg-red-950/90 border border-red-800/80 rounded-xl motion-safe:animate-fade-in w-full text-center justify-center">
+          <AlertCircle className="size-5 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Touch Numpad Grid 3x4 */}
-      <div className="grid grid-cols-3 gap-3 w-full">
+      <div className="grid grid-cols-3 gap-4 w-full">
         {digits.slice(0, 9).map((num) => (
           <button
             key={num}
             type="button"
             disabled={disabled}
             onClick={() => handleKeyPress(num)}
-            className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-2xl font-mono font-bold text-slate-100 shadow-md cursor-pointer transition-all duration-150 hover:bg-slate-800 hover:border-slate-700 active:scale-95 active:bg-emerald-600 active:text-white disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            aria-label={`Bấm số ${num}`}
+            className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-2xl font-mono font-bold text-slate-100 shadow-md cursor-pointer transition-all duration-75 hover:bg-slate-800 hover:border-slate-700 active:scale-95 active:bg-emerald-600 active:text-white disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
           >
             {num}
           </button>
         ))}
 
-        {/* Bottom Row: Anti-peeping shuffle button or empty, 10th digit, Delete button */}
+        {/* Bottom Row: Anti-peeping shuffle button, 10th digit, Delete button */}
         <button
           type="button"
           disabled={disabled}
           onClick={shuffleDigits}
+          aria-label={isShuffled ? 'Bàn phím đã xáo trộn. Bấm để xáo trộn lại' : 'Bấm để xáo trộn bàn phím chống nhìn lén'}
           title={isShuffled ? 'Xáo trộn bàn phím (Chống nhìn lén)' : 'Bật chống nhìn lén'}
-          className={`flex items-center justify-center h-16 rounded-xl border text-xs font-semibold shadow-md cursor-pointer transition-all duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+          className={`flex items-center justify-center h-16 rounded-xl border text-xs font-semibold shadow-md cursor-pointer transition-all duration-75 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
             isShuffled
               ? 'border-emerald-500/40 bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/70'
               : 'border-slate-800 bg-slate-900/90 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -157,7 +172,8 @@ export function PinNumpad({
           type="button"
           disabled={disabled}
           onClick={() => handleKeyPress(digits[9])}
-          className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-2xl font-mono font-bold text-slate-100 shadow-md cursor-pointer transition-all duration-150 hover:bg-slate-800 hover:border-slate-700 active:scale-95 active:bg-emerald-600 active:text-white disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          aria-label={`Bấm số ${digits[9]}`}
+          className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-2xl font-mono font-bold text-slate-100 shadow-md cursor-pointer transition-all duration-75 hover:bg-slate-800 hover:border-slate-700 active:scale-95 active:bg-emerald-600 active:text-white disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
           {digits[9]}
         </button>
@@ -167,7 +183,7 @@ export function PinNumpad({
           disabled={disabled || pin.length === 0}
           onClick={handleDelete}
           aria-label="Xóa số đã nhập"
-          className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-slate-300 shadow-md cursor-pointer transition-all duration-150 hover:bg-slate-800 hover:text-red-400 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="flex items-center justify-center h-16 rounded-xl border border-slate-800 bg-slate-900/90 text-slate-300 shadow-md cursor-pointer transition-all duration-75 hover:bg-slate-800 hover:text-red-400 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
           <Delete className="size-6" />
         </button>

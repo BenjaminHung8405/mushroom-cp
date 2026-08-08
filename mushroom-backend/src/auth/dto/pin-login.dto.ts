@@ -1,10 +1,10 @@
 import { IsString, IsUUID, Length, Matches } from 'class-validator';
 
 export class PinLoginDto {
-  /** Vietnamese phone number in E.164 format: +84 followed by 9 digits */
+  /** Vietnamese phone number in local format (0xxxxxxxxx) or E.164 format (+84xxxxxxxxx) */
   @IsString()
-  @Matches(/^\+84[0-9]{9}$/, {
-    message: 'phoneNumber must be a valid Vietnamese phone number in E.164 format (e.g. +84901234567)',
+  @Matches(/^(0|\+84)[0-9]{9}$/, {
+    message: 'phoneNumber must be a valid Vietnamese phone number (e.g. 0901234567 or +84901234567)',
   })
   phoneNumber!: string;
 

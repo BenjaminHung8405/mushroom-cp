@@ -10,8 +10,13 @@ const STORAGE_KEYS = {
   REGISTERED_USERS: 'kiosk_registered_users',
 } as const;
 
+export function formatPhoneNumber(phone: string): string {
+  if (!phone) return '';
+  return phone.replace(/^\+84/, '0').trim();
+}
+
 export function maskPhoneNumber(phone: string): string {
-  const clean = phone.replace(/^\+84/, '0').trim();
+  const clean = formatPhoneNumber(phone);
   if (clean.length < 9) return clean;
   return `${clean.slice(0, 3)}••••${clean.slice(-3)}`;
 }
