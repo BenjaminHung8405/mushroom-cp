@@ -32,6 +32,9 @@ namespace wifi
     static void stop_captive_portal_server();
 #endif
     static bool start_softap(bool allow_sta_reconnect = false);
+    static void mark_softap_activity();
+    static bool has_softap_clients();
+    static void set_state(WifiState new_state);
 
     static WifiState current_state = WifiState::IDLE;
     static unsigned long connection_start_time = 0;
@@ -74,133 +77,6 @@ namespace wifi
         }
     }
 #endif
-
-    // Các hằng số cấu hình thời gian (ms)
-    constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000; // 15 giây
-    constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000; // 10 giây
-    constexpr int MAX_RECONNECT_ATTEMPTS = 3;
-    // Idle timeout for SoftAP. Reset whenever user opens / interacts with portal.
-    constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 900000; // 15 phút idle
-
-    static void mark_softap_activity()
-    {
-        softap_last_activity_ms = millis();
-    }
-
-#ifndef UNIT_TEST
-    static bool has_softap_clients()
-    {
-        return WiFi.softAPgetStationNum() > 0;
-    }
-
-    // Note: check_config_button removed; handled by Core 1 Task HWButton and EventGroup.
-#else
-    static bool has_softap_clients()
-    {
-        return false;
-    }
-
-#endif
-
-    static void set_state(WifiState new_state)
-    {
-        current_state = new_state;
-
-        if (new_state == WifiState::SOFTAP_ACTIVE)
-        {
-            softap_start_time = millis();
-            softap_last_activity_ms = softap_start_time;
-        }
-
-        // Synchronize Event Bits to Core 1
-        if (xWifiEventGroup != nullptr)
-        {
-            if (new_state == WifiState::STA_CONNECTED)
-            {
-                xEventGroupSetBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
-                xEventGroupClearBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
-            }
-            else if (new_state == WifiState::SOFTAP_ACTIVE)
-            {
-                xEventGroupSetBits(xWifiEventGroup, WIFI_SOFTAP_BIT);
-                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT);
-            }
-            else
-            {
-                xEventGroupClearBits(xWifiEventGroup, WIFI_CONNECTED_BIT | WIFI_SOFTAP_BIT);
-            }
-        }
-    }
-
-    static bool start_softap(bool allow_sta_reconnect)
-    {
-        Serial.println("[WIFI] Activating SoftAP Mode...");
-
-#ifndef UNIT_TEST
-        // The dashboard owns port 80 while STA is connected. Stop it before the
-        // captive portal binds the same port, then let lwIP release old sockets.
-        if (web_interface::isServerRunning())
-        {
-            web_interface::stopServer();
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-#endif
-
-        // Stop any previous STA attempt so the radio is fully dedicated to AP.
-        // WIFI_AP_STA + background STA reconnect is a common cause of phones
-        // dropping the captive-portal association while the user is typing.
-        //
-        // Important for ESP32 Arduino:
-        // - Do NOT call WiFi.mode(WIFI_AP) then softAPConfig()/softAP().
-        //   mode(WIFI_AP) already starts the AP with defaults; reconfig restarts it.
-        // - softAPConfig() is unnecessary for the classic 192.168.4.1 defaults and
-        //   itself calls enableAP(), which can bounce AP_START/AP_STOP and leave
-        //   residual STA events. One softAP() call is enough.
-        WiFi.persistent(false);
-        WiFi.setAutoReconnect(false);
-        WiFi.disconnect(true /* wifioff */, false /* keep SDK creds; app uses NVS */);
-        delay(50);
-        WiFi.mode(WIFI_OFF);
-        delay(150);
-
-        String ap_ssid = config::network::get_dynamic_ap_ssid();
-        bool ap_started = WiFi.softAP(
-            ap_ssid.c_str(),
-            config::network::AP_PASS,
-            1,
-            0,
-            4);
-
-        // Belt-and-suspenders: ensure STA interface cannot come back while portal is up.
-        WiFi.enableSTA(false);
-        WiFi.setSleep(false);
-        WiFi.setAutoReconnect(false);
-
-        if (ap_started)
-        {
-            softap_forced = !allow_sta_reconnect;
-            softap_auto_reconnect = allow_sta_reconnect;
-            last_softap_sta_attempt = millis();
-            Serial.printf("[WIFI] SoftAP Activated: %s\n", ap_ssid.c_str());
-            Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
-            Serial.printf("[WIFI] SoftAP IP: %s\n", WiFi.softAPIP().toString().c_str());
-            Serial.printf("[WIFI] SoftAP mode bits: 0x%X (expect WIFI_AP=0x%X)\n",
-                          static_cast<unsigned>(WiFi.getMode()),
-                          static_cast<unsigned>(WIFI_AP));
-            set_state(WifiState::SOFTAP_ACTIVE);
-
-#ifndef UNIT_TEST
-            start_captive_portal_server();
-#endif
-            return true;
-        }
-        else
-        {
-            Serial.println("[WIFI] ERROR: Failed to start SoftAP.");
-            set_state(WifiState::IDLE);
-            return false;
-        }
-    }
 
 #ifndef UNIT_TEST
     // ---------------------------------------------------------------------------
@@ -264,6 +140,9 @@ namespace wifi
         resp += "\"wifi_state\":" + String((int)current_state) + ",";
         resp += "\"ap_clients\":" + String(WiFi.softAPgetStationNum());
         resp += "}";
+        send_json(200, resp);
+    }
+
     static void handle_root()
     {
         mark_softap_activity();
@@ -539,6 +418,9 @@ namespace wifi
         dnsServer.stop();
         if (!captive_server_running)
         {
+            return;
+        }
+
         webServer.stop();
         captive_server_running = false;
         Serial.println("[WIFI] Captive portal server stopped.");

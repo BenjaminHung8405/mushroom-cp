@@ -16,11 +16,15 @@ namespace config
         constexpr uint8_t PIN_RELAY_MIST = 10; // Sương (Fogger/Mist)
         constexpr uint8_t PIN_RELAY_FAN = 11;  // Quạt (Fan)
         constexpr uint8_t PIN_RELAY_HWAT = 13; // Sưởi nước (Heater Water)
-        constexpr uint8_t PIN_RELAY_LAMP = 12   ; // Đèn nhiệt — relay duy nhất
+        constexpr uint8_t PIN_RELAY_LAMP = 12; // Đèn nhiệt — relay duy nhất
 
-        // I2C Bus (e.g. SHT30, SCD30)
-        constexpr uint8_t PIN_I2C_SDA = 8;
-        constexpr uint8_t PIN_I2C_SCL = 9;
+        // I2C Bus (SHT30 + 7-segment display share this bus)
+        // GPIO8 = SDA gốc, GPIO9 = SCL gốc — GPIO9 bị hỏng phần cứng.
+        // GPIO46 KHÔNG dùng được làm SCL: là input-only strapping pin trên ESP32-S3.
+        // GPIO3 = SDA thay thế (output capable).
+        // GPIO1 = SCL thay thế (output capable, không có ràng buộc strapping).
+        constexpr uint8_t PIN_I2C_SDA = 3;
+        constexpr uint8_t PIN_I2C_SCL = 1;
 
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).

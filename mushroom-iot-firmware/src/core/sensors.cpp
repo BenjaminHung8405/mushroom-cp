@@ -142,30 +142,28 @@ namespace sensors
     {
 #ifndef UNIT_TEST
         Serial.println("[SENSORS] Initializing Real I2C Bus and SHT30...");
-        
+
 #if defined(ESP32)
-        // Thiết lập chân I2C tùy chỉnh trước khi gọi begin của thư viện ngoài
+        // BẮT BUỘC: setPins TRƯỚC begin. Trên ESP32-S3, Wire.begin() latch pin
+        // ngay lần đầu được gọi — kể cả khi được gọi ngầm bên trong thư viện
+        // ngoài (Adafruit_SHT31::begin → Wire.begin). Nếu Wire.begin() chưa
+        // được gọi explicit ở đây, Adafruit sẽ gọi nó trước với default pin
+        // (GPIO21/22 hoặc không xác định), khiến setPins() không có tác dụng.
         Wire.setPins(config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL);
+        Wire.begin();
+        Wire.setClock(50000);
+        Wire.setTimeOut(200);
+        Serial.printf("[SENSORS] I2C bus started on SDA=%u SCL=%u\n",
+                      config::pins::PIN_I2C_SDA, config::pins::PIN_I2C_SCL);
 #endif
-        
+
         if (!sht30.begin(0x44))
         {
             Serial.println("[SENSORS] ERROR: SHT30 not found at 0x44!");
             sht30_healthy = false;
             return false;
         }
-        
-        // Thiết lập tần số I2C bus ở mức 50kHz sau khi khởi tạo thành công
-        Wire.setClock(50000);
-        
-#if defined(ESP32)
-        // 200ms timeout — đủ cho SHT30 cần 15ms đo + overhead clock stretch
-        // trong môi trường độ ẩm cao (>80%RH). Commit af700287 đặt sai 25ms
-        // gây timeout sớm → ERR_CRC_MISMATCH liên tiếp.
-        Wire.setTimeOut(200);
-#else
-        Wire.setWireTimeout(200000, true); // 200ms tính bằng microseconds trên non-ESP32
-#endif
+
         
         sht30.heater(false);
         
