@@ -1,0 +1,16 @@
+progress_file: .ai/planning/{plan}/PROGRESS.md
+context_files:
+  - .ai/planning/{plan}/README.md
+  - .ai/planning/{plan}/PROGRESS.md
+  - .ai/planning/{plan}/WALKTHROUGH_LOG.md
+codex:
+  executable: codex
+  args: [exec]
+  timeout_seconds: 3600
+precheck:
+  commands: []
+  stop_on_failure: true
+runner:
+  max_retries: 3
+  lock_timeout_seconds: 10
+  poll_interval_seconds: 1
