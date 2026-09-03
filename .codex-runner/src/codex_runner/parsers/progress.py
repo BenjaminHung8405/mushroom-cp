@@ -7,7 +7,11 @@ class ProgressFormatError(ValueError):
     pass
 
 _STATUS = {s.value: s for s in TaskStatus}
-_ROW = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\[x\] Done|\[ \] Pending|\[ \] In Progress|\[ \] QA Review)\s*\|\s*(.*?)\s*\|\s*$")
+_ROW = re.compile(
+    r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*`?"
+    r"(\[x\] Done|\[ \] Pending|\[ \] In Progress|\[ \] QA Review)"
+    r"`?\s*\|\s*(.*?)\s*\|\s*$"
+)
 _ID = re.compile(r"^[A-Z]+[0-9]+$")
 
 class ProgressParser:
