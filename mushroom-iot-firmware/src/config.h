@@ -24,7 +24,7 @@ namespace config
         // GPIO3 = SDA thay thế (output capable).
         // GPIO1 = SCL thay thế (output capable, không có ràng buộc strapping).
         constexpr uint8_t PIN_I2C_SDA = 3;
-        constexpr uint8_t PIN_I2C_SCL = 1;
+        constexpr uint8_t PIN_I2C_SCL = 18;
 
         // WiFi provisioning button.
         // ESP32-S3 dev boards commonly expose BOOT on GPIO0 (active LOW).

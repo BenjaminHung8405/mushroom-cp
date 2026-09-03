@@ -55,12 +55,14 @@ namespace wifi
 #ifndef UNIT_TEST
     static void on_sntp_sync(struct timeval *timeval)
     {
-        if (timeval != nullptr && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+        if (timeval != nullptr && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+        {
             time_conf::onTimeSyncSuccess(static_cast<int64_t>(timeval->tv_sec));
 
-            struct tm localTime {};
+            struct tm localTime{};
             const time_t epoch = static_cast<time_t>(timeval->tv_sec);
-            if (localtime_r(&epoch, &localTime) != nullptr) {
+            if (localtime_r(&epoch, &localTime) != nullptr)
+            {
                 char formattedTime[32] = {};
                 strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%d %H:%M:%S", &localTime);
                 Serial.printf(
@@ -68,7 +70,9 @@ namespace wifi
                     static_cast<long long>(timeval->tv_sec),
                     formattedTime,
                     config::network::TIMEZONE_ICT);
-            } else {
+            }
+            else
+            {
                 Serial.printf(
                     "[WIFI] SNTP sync: epoch=%lld local-time conversion failed TZ=%s\n",
                     static_cast<long long>(timeval->tv_sec),
@@ -147,7 +151,7 @@ namespace wifi
     {
         mark_softap_activity();
         storage::ConfigManager &cfg = storage::ConfigManager::getInstance();
-        
+
         // Pre-reserve memory capacity upfront to prevent ESP32 heap fragmentation from repeated reallocations
         String html;
         html.reserve(strlen(captive_html) + 512);
@@ -176,7 +180,8 @@ namespace wifi
         String json = "[";
         for (size_t i = 0; i < list.size(); ++i)
         {
-            if (i > 0) json += ",";
+            if (i > 0)
+                json += ",";
             json += "{\"ssid\":\"" + json_escape(list[i].ssid) + "\",\"ts\":" + String(list[i].last_connected) + "}";
         }
         json += "]";
@@ -351,7 +356,7 @@ namespace wifi
     static void handle_not_found()
     {
         const bool captive_active = current_state == WifiState::SOFTAP_ACTIVE &&
-                                     (WiFi.getMode() & WIFI_AP) != 0;
+                                    (WiFi.getMode() & WIFI_AP) != 0;
 
         // Requests outside the active captive portal must not redirect to a
         // missing SoftAP address such as 0.0.0.0.
@@ -430,15 +435,15 @@ namespace wifi
     {
         if (attempt <= 3)
         {
-            return 10000;  // 10s (Attempts 1-3)
+            return 10000; // 10s (Attempts 1-3)
         }
         else if (attempt <= 6)
         {
-            return 30000;  // 30s (Attempts 4-6)
+            return 30000; // 30s (Attempts 4-6)
         }
         else if (attempt <= 10)
         {
-            return 60000;  // 60s (Attempts 7-10)
+            return 60000; // 60s (Attempts 7-10)
         }
         else
         {
@@ -447,9 +452,9 @@ namespace wifi
     }
 
     // Các hằng số cấu hình thời gian (ms)
-    constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000;        // 15 giây
+    constexpr unsigned long WIFI_CONNECTION_TIMEOUT_MS = 15000;       // 15 giây
     constexpr unsigned long SOFTAP_IDLE_TIMEOUT_MS = 600000;          // 10 phút idle tự tắt AP
-    constexpr unsigned long STA_DISCONNECTED_MAX_DURATION_MS = 900000; // 15 phút rớt mạng tự mở AP dự phòng
+    constexpr unsigned long STA_DISCONNECTED_MAX_DURATION_MS = 30000; // 15 phút rớt mạng tự mở AP dự phòng
 
     static void mark_softap_activity()
     {
@@ -668,7 +673,8 @@ namespace wifi
                 // Wi-Fi association is not time synchronization. The state stays
                 // fail-safe until SNTP reports a completed synchronization.
 #ifndef UNIT_TEST
-                if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+                if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+                {
                     time_conf::onTimeSyncSuccess(time(nullptr));
                 }
 #endif
