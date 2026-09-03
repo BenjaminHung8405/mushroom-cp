@@ -14,7 +14,9 @@ def main() -> int:
     if args.max_retries < 0: ap.error("--max-retries phải >= 0")
     root = pathlib.Path.cwd(); config = {}
     path = root / args.config
-    if path.exists() and yaml: config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if path.exists():
+        if yaml is None: print("Lỗi: cần PyYAML để đọc config", file=sys.stderr); return 2
+        config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     try: return Orchestrator(root, args.plan, args.max_retries, args.auto_approve, args.dry_run, config).run(args.task)
     except (OSError, ValueError) as exc: print(f"Lỗi: {exc}", file=sys.stderr); return 2
 

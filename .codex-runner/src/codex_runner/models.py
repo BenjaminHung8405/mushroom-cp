@@ -27,3 +27,9 @@ class CommandResult:
     @property
     def ok(self) -> bool:
         return self.returncode == 0 and not self.timed_out
+
+@dataclass(frozen=True)
+class Precheck:
+    name: str
+    command: list[str]
+    timeout: int
