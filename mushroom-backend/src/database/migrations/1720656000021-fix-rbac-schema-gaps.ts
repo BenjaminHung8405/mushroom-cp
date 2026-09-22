@@ -14,7 +14,7 @@ export class FixRbacSchemaGaps1720656000021 implements MigrationInterface {
     `);
     await q.query(`
       INSERT INTO devices_invalid_owner_backup (device_id, legacy_owner_user_id)
-      SELECT id, owner_user_id 
+      SELECT device_id, owner_user_id 
       FROM devices 
       WHERE owner_user_id IS NOT NULL 
         AND owner_user_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'

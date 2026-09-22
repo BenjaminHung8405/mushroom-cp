@@ -18,18 +18,14 @@ pattern readwrite mushroom/esp32/%u/#
 pattern write aeroponics/device/%u/status
 pattern write aeroponics/device/%u/telemetry/#
 pattern write aeroponics/device/%u/ack/#
+pattern write aeroponics/device/%u/safety/#
 pattern read  aeroponics/device/%u/command/#
 pattern read  aeroponics/device/%u/config/#
 pattern read  aeroponics/command/node/+/override
 
+# Aeroponics Backend Service (Full tenant scope)
 user aero_backend
-topic read  aeroponics/device/+/status
-topic read  aeroponics/device/+/telemetry/#
-topic read  aeroponics/device/+/ack/#
-topic write aeroponics/device/+/command/#
-topic write aeroponics/device/+/config/#
-topic write aeroponics/sensor/+/reading
-topic readwrite aeroponics/healthcheck
+topic readwrite aeroponics/#
 
 # General Aero Client (development / testing)
 user aero_client

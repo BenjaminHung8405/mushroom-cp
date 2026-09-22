@@ -98,6 +98,7 @@ services:
       dockerfile: Dockerfile
     container_name: mushroom_backend
     restart: always
+    command: sh -c "pnpm run migration:run && pnpm run start:dev"
     env_file:
       - .env
     environment:
@@ -138,7 +139,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 45s
     networks:
       - mushroom-network
     volumes:
@@ -187,5 +188,5 @@ services:
 
 networks:
   mushroom-network:
-    name: mushroom-network
+    name: mushroom-cp_mushroom-network
     driver: bridge
