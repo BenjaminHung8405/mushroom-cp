@@ -33,11 +33,14 @@ void setup()
     Preferences prefs;
     if (prefs.begin("mushroom_cfg", false))
     {
-        // Bắt buộc phải ghi kèm broker để hàm kiểm tra của hệ thống trả về TRUE
-        prefs.putString("mqtt_broker", "mushroomapp.mitelai.com");
-        prefs.putUShort("mqtt_port", 10883); // Điền Port mới bạn muốn đổi tại đây
+        // Chỉ lưu cấu hình mặc định vào NVS nếu NVS chưa từng được cấu hình
+        if (!prefs.isKey("mqtt_broker"))
+        {
+            prefs.putString("mqtt_broker", config::network::DEFAULT_MQTT_BROKER);
+            prefs.putUShort("mqtt_port", config::network::DEFAULT_MQTT_PORT);
+            Serial.println("[MAIN] Initialized default MQTT broker & port in NVS.");
+        }
         prefs.end();
-        Serial.println(">>> ĐÃ GHI ĐÈ CẤU HÌNH PORT & BROKER TRONG NVS THÀNH CÔNG <<<");
     }
 
     Serial.println("[MAIN] ESP32 Firmware Starting...");

@@ -404,20 +404,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           });
           if (existing) return existing;
 
-          const rows = await manager.query(
-            `SELECT COALESCE(MAX((substring(owner_user_id FROM '^operator-([0-9]+)$'))::integer), 0) AS max_operator_number
-             FROM devices
-             WHERE owner_user_id ~ '^operator-[0-9]+$'`,
-          );
-          const maxOperatorNumber = Number(rows[0]?.max_operator_number ?? 0);
-          const ownerUserId = `operator-${String(maxOperatorNumber + 1).padStart(3, '0')}`;
-
           return manager.save(
             Device,
             manager.create(Device, {
               deviceId,
               houseId,
-              ownerUserId,
+              ownerUserId: null,
               enabled: true,
               mqttUsername: deviceId,
               token: randomUUID(),

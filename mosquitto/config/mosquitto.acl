@@ -12,6 +12,11 @@ topic read $SYS/#
 # A device cannot read or publish another device's topic tree.
 pattern readwrite mushroom/esp32/%u/#
 
+# Zero-touch bootstrap provisioning
+user provision_node
+topic write mushroom/provision/request
+topic read  mushroom/provision/response/+
+
 # 1. ESP32 Gateway device permission (Identity bound to %u)
 pattern readwrite aeroponics/device/%u/#
 pattern read      aeroponics/command/node/+/override
