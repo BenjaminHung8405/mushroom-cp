@@ -11,3 +11,31 @@ topic read $SYS/#
 # username == client ID == device ID and deployment tenant is mushroom.
 # A device cannot read or publish another device's topic tree.
 pattern readwrite mushroom/esp32/%u/#
+
+# ==============================================================================
+# Aeroponics Lean — Access Control List (ACL)
+# ==============================================================================
+pattern write aeroponics/device/%u/status
+pattern write aeroponics/device/%u/telemetry/#
+pattern write aeroponics/device/%u/ack/#
+pattern read  aeroponics/device/%u/command/#
+pattern read  aeroponics/device/%u/config/#
+pattern read  aeroponics/command/node/+/override
+
+user aero_backend
+topic read  aeroponics/device/+/status
+topic read  aeroponics/device/+/telemetry/#
+topic read  aeroponics/device/+/ack/#
+topic write aeroponics/device/+/command/#
+topic write aeroponics/device/+/config/#
+topic write aeroponics/sensor/+/reading
+topic readwrite aeroponics/healthcheck
+
+# General Aero Client (development / testing)
+user aero_client
+topic readwrite aeroponics/#
+
+# Admin (debug & healthcheck)
+user mqtt_admin
+topic readwrite #
+

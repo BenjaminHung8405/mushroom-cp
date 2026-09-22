@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import type { Express } from 'express';
 
 const productionSecretKeys = [
   'MQTT_BACKEND_PASS',
@@ -26,9 +28,21 @@ function assertProductionSecrets(): void {
   }
 }
 
+function configureTrustedProxy(app: { set: (name: string, value: unknown) => void }): void {
+  const hops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '0', 10);
+  if (!Number.isInteger(hops) || hops < 0 || hops > 10) {
+    throw new Error('TRUST_PROXY_HOPS must be an integer from 0 through 10.');
+  }
+  app.set('trust proxy', hops);
+}
+
+
 async function bootstrap() {
   assertProductionSecrets();
   const app = await NestFactory.create(AppModule);
+  configureTrustedProxy(app.getHttpAdapter().getInstance());
+  app.useGlobalFilters(new HttpExceptionFilter());
+  configureTrustedProxy(app.getHttpAdapter().getInstance() as Express);
 
   // Enable global validation pipe for whitelisting and validation of body payloads
   app.useGlobalPipes(

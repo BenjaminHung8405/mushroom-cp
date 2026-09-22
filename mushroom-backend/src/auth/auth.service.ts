@@ -270,10 +270,17 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
             `User ${user.id} locked out until ${lockedUntil.toISOString()} after ${PIN_MAX_ATTEMPTS} failed PIN attempts`,
           );
         } else {
-          await this.users.update(user.id, { pinFailedAttempts: newAttempts });
+          // Use an atomic SQL increment to avoid lost updates under concurrent attempts.
+          await this.users
+            .createQueryBuilder()
+            .update(User)
+            .set({ pinFailedAttempts: () => 'pin_failed_attempts + 1' })
+            .where('id = :id AND pin_locked_until IS NULL', { id: user.id })
+            .execute();
         }
       }
       await this.record('LOGIN_FAILED', null, phoneNumber, context, 'FAILURE');
+      await this.throttleDelay();
       throw new UnauthorizedException('Số điện thoại hoặc mã PIN không đúng.');
     }
 
@@ -449,6 +456,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const user = await this.users.findOneByOrFail({ id: principal.id });
     if (!(await this.verifyPin(user.pinHash, currentPin))) {
+      await this.throttleDelay();
+      await this.record('PIN_CHANGE_FAILED', user.id, null, { ipAddress: null, userAgent: null }, 'FAILURE');
       throw new UnauthorizedException('Mã PIN hiện tại không đúng.');
     }
     this.validatePinStrength(newPin);
@@ -458,6 +467,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     user.pinLockedUntil = null;
     await this.users.save(user);
     await this.revokeAllUserSessions(user.id, 'PIN_CHANGE');
+    await this.revokeAllUserPinDevices(user.id);
+    await this.record('PIN_CHANGED', user.id, null, { ipAddress: null, userAgent: null }, 'SUCCESS');
   }
 
   /** Admin resets a user's PIN and forces mustSetPin = true */
