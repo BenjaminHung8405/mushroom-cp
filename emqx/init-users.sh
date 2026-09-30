@@ -38,6 +38,8 @@ MQTT_AERO_DEVICE_USER="${MQTT_DEVICE_USER:-esp32_device}"
 MQTT_AERO_DEVICE_PASS="${MQTT_DEVICE_PASS:-123456}"
 MQTT_AERO_GATEWAY_USER="aero_s3_b81f3fbbcf3c"
 MQTT_AERO_GATEWAY_PASS="123456"
+MQTT_AERO_FIELD_USER="aero_s3_b81f3fb9a09c"
+MQTT_AERO_FIELD_PASS="123456"
 
 # Tuya Bridge dedicated accounts
 MQTT_TUYA_BRIDGE_USER="tuya_bridge"
@@ -168,6 +170,7 @@ upsert_mqtt_user "${MQTT_AERO_ADMIN_USER}"          "${MQTT_AERO_ADMIN_PASS}"
 upsert_mqtt_user "${MQTT_AERO_CLIENT_USER}"         "${MQTT_AERO_CLIENT_PASS}"
 upsert_mqtt_user "${MQTT_AERO_DEVICE_USER}"         "${MQTT_AERO_DEVICE_PASS}"
 upsert_mqtt_user "${MQTT_AERO_GATEWAY_USER}"        "${MQTT_AERO_GATEWAY_PASS}"
+upsert_mqtt_user "${MQTT_AERO_FIELD_USER}"          "${MQTT_AERO_FIELD_PASS}"
 
 # Tuya Bridge Accounts
 upsert_mqtt_user "${MQTT_TUYA_BRIDGE_USER}"         "${MQTT_TUYA_BRIDGE_PASS}"
