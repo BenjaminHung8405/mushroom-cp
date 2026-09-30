@@ -1,46 +1,56 @@
 #!/bin/sh
 ##
-## EMQX MQTT User Initialization Script (Fixed for EMQX 5.3.0)
+## EMQX Multi-Tenant MQTT User Initialization Script (EMQX 5.3+)
 ##
 ## What this script does:
-##   1. Waits for EMQX REST API to return HTTP 200 (plain-text endpoint).
+##   1. Waits for EMQX REST API to return HTTP 200.
 ##   2. Authenticates via /api/v5/login to get a JWT Bearer token.
 ##   3. Creates the built-in database authentication backend (idempotent).
-##   4. Creates MQTT client accounts for NestJS backend and ESP32-S3 devices.
-##   5. Changes the admin dashboard password from default "public" to a secure value.
+##   4. Creates/upserts MQTT user accounts for Mushroom and Aeroponics systems.
+##   5. Changes the admin dashboard password if configured.
 ##
-## Lessons learned from EMQX 5.3.0:
-##   - /api/v5/status returns plain text, NOT JSON. Use HTTP status code check.
-##   - REST API requires JWT Bearer token (not Basic Auth with admin credentials).
-##   - EMQX_DASHBOARD__BOOTSTRAP_USER_PASSWORD env var works for initial password.
-##   - The authentication backend must be created before adding users to it.
-##
+
+set -e
 
 EMQX_HOST="${EMQX_HOST:-mushroom-mqtt}"
 EMQX_API="http://${EMQX_HOST}:18083/api/v5"
 
-## NOTE: EMQX 5.3.0 default admin password is "public".
-## The EMQX_ADMIN_PASS in .env is the TARGET password after this script runs.
-## On first boot, we log in with "public", then change the password.
 EMQX_ADMIN_USER="${EMQX_ADMIN_USER:-admin}"
-EMQX_ADMIN_NEW_PASS="${EMQX_ADMIN_PASS:-changeme_admin_pass}"
-EMQX_DEFAULT_PASS="public"  # EMQX 5.3.0 hardcoded default
+EMQX_ADMIN_NEW_PASS="${EMQX_ADMIN_PASS:-admin_mushroom_2026}"
+EMQX_DEFAULT_PASS="public"
 
-MQTT_BACKEND_USER="${MQTT_BACKEND_USER:-nestjs_backend}"
-MQTT_BACKEND_PASS="${MQTT_BACKEND_PASS:-changeme_backend_pass}"
+# Mushroom credentials
+MQTT_MUSHROOM_USER="${MQTT_BACKEND_USER:-nestjs_backend}"
+MQTT_MUSHROOM_PASS="${MQTT_BACKEND_PASS:-backend@123}"
+MQTT_MUSHROOM_BOOTSTRAP_USER="${MQTT_BOOTSTRAP_USER:-provision_node}"
+MQTT_MUSHROOM_BOOTSTRAP_PASS="${MQTT_BOOTSTRAP_SECRET:-pass@123}"
+MQTT_MUSHROOM_ESP32_USER="${MQTT_ESP32_USER:-mushroom_s3_206ef1a1d324}"
+MQTT_MUSHROOM_ESP32_PASS="${MQTT_ESP32_PASS:-b55f5baf-21d4-4ee4-b37f-05945a0f8464}"
 
-MQTT_ESP32_USER="${MQTT_ESP32_USER:-esp32_mushroom_s3_01}"
-MQTT_ESP32_PASS="${MQTT_ESP32_PASS:-changeme_esp32_pass}"
+# Aeroponics credentials
+MQTT_AERO_BACKEND_USER="${MQTT_AERO_BACKEND_USER:-aero_backend}"
+MQTT_AERO_BACKEND_PASS="${MQTT_AERO_BACKEND_PASS:-123456}"
+MQTT_AERO_ADMIN_USER="${MQTT_ADMIN_USER:-mqtt_admin}"
+MQTT_AERO_ADMIN_PASS="${MQTT_ADMIN_PASS:-123456}"
+MQTT_AERO_CLIENT_USER="${MQTT_AERO_CLIENT_USER:-aero_client}"
+MQTT_AERO_CLIENT_PASS="${MQTT_AERO_CLIENT_PASS:-123456}"
+MQTT_AERO_DEVICE_USER="${MQTT_DEVICE_USER:-esp32_device}"
+MQTT_AERO_DEVICE_PASS="${MQTT_DEVICE_PASS:-123456}"
+MQTT_AERO_GATEWAY_USER="aero_s3_b81f3fbbcf3c"
+MQTT_AERO_GATEWAY_PASS="123456"
+
+# Tuya Bridge dedicated accounts
+MQTT_TUYA_BRIDGE_USER="tuya_bridge"
+MQTT_TUYA_BRIDGE_PASS="123456"
+MQTT_TUYA_SENSOR_USER="tuya_bridge_ph-w218-01"
+MQTT_TUYA_SENSOR_PASS="123456"
 
 echo "=========================================="
-echo "  EMQX MQTT User Initialization Script"
-echo "  EMQX version: 5.3.0"
+echo "  EMQX Multi-Tenant User Initialization"
 echo "=========================================="
 
 ## ========================================================
 ## STEP 1: Wait for EMQX HTTP API to be ready
-## NOTE: /api/v5/status returns plain text, not JSON.
-##       We check for HTTP 200 status code instead.
 ## ========================================================
 echo "[1/4] Waiting for EMQX API to be ready at ${EMQX_API}..."
 RETRIES=40
@@ -50,15 +60,13 @@ until [ "$(curl -s -o /dev/null -w "%{http_code}" "${EMQX_API}/status")" = "200"
     echo "[ERROR] EMQX did not become ready in time. Exiting."
     exit 1
   fi
-  echo "  ... not ready yet, retrying in 5s (${RETRIES} retries left)"
-  sleep 5
+  echo "  ... not ready yet, retrying in 3s (${RETRIES} retries left)"
+  sleep 3
 done
 echo "[OK] EMQX API is responding!"
 
 ## ========================================================
 ## STEP 2: Get JWT Bearer token
-## Try with the NEW password first (idempotent for re-runs).
-## Fall back to default "public" on first boot.
 ## ========================================================
 echo "[2/4] Obtaining JWT Bearer token..."
 
@@ -70,20 +78,17 @@ get_token() {
     | grep -o '"token":"[^"]*"' | cut -d'"' -f4
 }
 
-# Try the configured password first (handles re-runs after first boot)
 TOKEN=$(get_token "${EMQX_ADMIN_NEW_PASS}")
 USED_PASSWORD="${EMQX_ADMIN_NEW_PASS}"
 
-# Fall back to default EMQX password (first boot)
 if [ -z "$TOKEN" ]; then
-  echo "  -> Configured password didn't work, trying EMQX default..."
+  echo "  -> Trying EMQX default password..."
   TOKEN=$(get_token "${EMQX_DEFAULT_PASS}")
   USED_PASSWORD="${EMQX_DEFAULT_PASS}"
 fi
 
 if [ -z "$TOKEN" ]; then
   echo "[ERROR] Failed to obtain Bearer token with both passwords."
-  echo "        Check EMQX_ADMIN_USER / EMQX_ADMIN_PASS in your .env file."
   exit 1
 fi
 
@@ -92,7 +97,6 @@ echo "[OK] Bearer token obtained (logged in as '${EMQX_ADMIN_USER}')."
 
 ## ========================================================
 ## STEP 3: Create Built-in Database Authentication Backend
-## This is idempotent — 409 Conflict = already exists, that's fine.
 ## ========================================================
 echo "[3/4] Setting up authentication backend (built_in_database)..."
 
@@ -121,11 +125,10 @@ esac
 
 ## ========================================================
 ## STEP 4: Create MQTT User Accounts
-## Idempotent: updates password if user already exists (409).
 ## ========================================================
-echo "[4/4] Creating MQTT user accounts..."
+echo "[4/4] Creating / Updating MQTT user accounts..."
 
-create_mqtt_user() {
+upsert_mqtt_user() {
   local USER_ID="$1"
   local PASSWORD="$2"
 
@@ -141,7 +144,6 @@ create_mqtt_user() {
       echo "     [CREATED] ${USER_ID}"
       ;;
     409)
-      echo "     [EXISTS]  ${USER_ID} — updating password..."
       curl -s -o /dev/null -X PUT \
         "${EMQX_API}/authentication/password_based%3Abuilt_in_database/users/${USER_ID}" \
         -H "${AUTH_HEADER}" \
@@ -155,11 +157,24 @@ create_mqtt_user() {
   esac
 }
 
-create_mqtt_user "${MQTT_BACKEND_USER}"  "${MQTT_BACKEND_PASS}"
-create_mqtt_user "${MQTT_ESP32_USER}"    "${MQTT_ESP32_PASS}"
+# Mushroom Accounts
+upsert_mqtt_user "${MQTT_MUSHROOM_USER}"            "${MQTT_MUSHROOM_PASS}"
+upsert_mqtt_user "${MQTT_MUSHROOM_BOOTSTRAP_USER}"  "${MQTT_MUSHROOM_BOOTSTRAP_PASS}"
+upsert_mqtt_user "${MQTT_MUSHROOM_ESP32_USER}"      "${MQTT_MUSHROOM_ESP32_PASS}"
+
+# Aeroponics Accounts
+upsert_mqtt_user "${MQTT_AERO_BACKEND_USER}"        "${MQTT_AERO_BACKEND_PASS}"
+upsert_mqtt_user "${MQTT_AERO_ADMIN_USER}"          "${MQTT_AERO_ADMIN_PASS}"
+upsert_mqtt_user "${MQTT_AERO_CLIENT_USER}"         "${MQTT_AERO_CLIENT_PASS}"
+upsert_mqtt_user "${MQTT_AERO_DEVICE_USER}"         "${MQTT_AERO_DEVICE_PASS}"
+upsert_mqtt_user "${MQTT_AERO_GATEWAY_USER}"        "${MQTT_AERO_GATEWAY_PASS}"
+
+# Tuya Bridge Accounts
+upsert_mqtt_user "${MQTT_TUYA_BRIDGE_USER}"         "${MQTT_TUYA_BRIDGE_PASS}"
+upsert_mqtt_user "${MQTT_TUYA_SENSOR_USER}"         "${MQTT_TUYA_SENSOR_PASS}"
 
 ## ========================================================
-## STEP 5: Change Admin Dashboard Password (if on first boot)
+## STEP 5: Change Admin Dashboard Password (if first boot)
 ## ========================================================
 if [ "${USED_PASSWORD}" = "${EMQX_DEFAULT_PASS}" ] && [ "${EMQX_ADMIN_NEW_PASS}" != "${EMQX_DEFAULT_PASS}" ]; then
   echo ""
@@ -173,14 +188,11 @@ if [ "${USED_PASSWORD}" = "${EMQX_DEFAULT_PASS}" ] && [ "${EMQX_ADMIN_NEW_PASS}"
     echo "  [OK] Admin password changed successfully."
   else
     echo "  [WARN] HTTP ${CHANGE_STATUS} — could not change admin password."
-    echo "         Please change it manually in the EMQX Dashboard."
   fi
 fi
 
 echo ""
 echo "=========================================="
-echo "  Initialization complete!"
-echo "  MQTT accounts ready:"
-echo "    Backend : ${MQTT_BACKEND_USER}"
-echo "    Device  : ${MQTT_ESP32_USER}"
+echo "  EMQX Initialization complete!"
+echo "  All Mushroom, Aeroponics & Tuya accounts provisioned."
 echo "=========================================="

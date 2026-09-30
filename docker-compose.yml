@@ -27,35 +27,78 @@ services:
     # from within the mushroom-network Docker bridge network.
 
   # ==========================================
-  # 2. MQTT BROKER: Mosquitto (password + ACL)
+  # 2. MQTT BROKER: EMQX (Multi-Tenant IIoT)
   # ==========================================
   mushroom-mqtt:
-    image: iegomez/mosquitto-go-auth:latest
+    image: emqx/emqx:5.3.0
     container_name: mushroom_mqtt
     restart: always
     env_file:
       - .env
     environment:
-      MQTT_BACKEND_USER: ${MQTT_BACKEND_USER:-nestjs_backend}
-      MQTT_BACKEND_PASS: ${MQTT_BACKEND_PASS:-}
+      - "EMQX_NODE__NAME=emqx@127.0.0.1"
+      - "EMQX_NODE__COOKIE=emqx_secret_cookie"
+      - "EMQX_NODE__DATA_DIR=/opt/emqx/data"
+      - "EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_ADMIN_PASS:-admin_mushroom_2026}"
+      - "EMQX_LISTENERS__TCP__DEFAULT__BIND=0.0.0.0:1883"
+      - "EMQX_LISTENERS__TCP__DEFAULT__MAX_CONNECTIONS=10240"
+      - "EMQX_FLAPPING_DETECT__ENABLE=true"
+      - "EMQX_FLAPPING_DETECT__WINDOW_TIME=1m"
+      - "EMQX_FLAPPING_DETECT__MAX_COUNT=25"
+      - "EMQX_FLAPPING_DETECT__BAN_TIME=2m"
+      - "EMQX_AUTHORIZATION__NO_MATCH=deny"
+      - "EMQX_AUTHORIZATION__DENY_ACTION=ignore"
+      - "EMQX_AUTHORIZATION__SOURCES=[{type=file,enable=true,path=\"etc/acl.conf\"}]"
     ports:
       - "${MQTT_TCP_PORT:-10883}:1883"
+      - "${EMQX_DASHBOARD_PORT:-18083}:18083"
     volumes:
-      - ./mosquitto/config/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
-      - ./mosquitto/config/mosquitto.acl:/etc/mosquitto/mosquitto.acl:ro
-      - ./mosquitto/config/passwd:/etc/mosquitto/passwd:ro
-      - ${DATA_PATH:-./data}/mushroom_mosquitto_data:/mosquitto/data
-      - ${DATA_PATH:-./data}/mushroom_mosquitto_log:/mosquitto/log
+      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - ${DATA_PATH:-./data}/mushroom_emqx_data:/opt/emqx/data
+      - ${DATA_PATH:-./data}/mushroom_emqx_log:/opt/emqx/log
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'mosquitto_pub -h 127.0.0.1 -p 1883 -u "$$MQTT_BACKEND_USER" -P "$$MQTT_BACKEND_PASS" -t "health/check" -m "ping" >/dev/null 2>&1'
-        ]
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 15s
+    networks:
+      mushroom-network:
+        aliases:
+          - mushroom_mqtt
+          - mushroom-mqtt
+
+  # ==========================================
+  # 2b. EMQX USER INITIALIZER (One-shot sidecar)
+  # ==========================================
+  init-mqtt:
+    image: alpine:latest
+    container_name: mushroom_mqtt_init
+    restart: "on-failure"
+    depends_on:
+      mushroom-mqtt:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - EMQX_HOST=mushroom-mqtt
+      - EMQX_ADMIN_USER=${EMQX_ADMIN_USER:-admin}
+      - EMQX_ADMIN_PASS=${EMQX_ADMIN_PASS:-admin_mushroom_2026}
+      - MQTT_BACKEND_USER=${MQTT_BACKEND_USER:-nestjs_backend}
+      - MQTT_BACKEND_PASS=${MQTT_BACKEND_PASS:-backend@123}
+      - MQTT_BOOTSTRAP_USER=${MQTT_BOOTSTRAP_USER:-provision_node}
+      - MQTT_BOOTSTRAP_SECRET=${MQTT_BOOTSTRAP_SECRET:-pass@123}
+      - MQTT_ESP32_USER=${MQTT_ESP32_USER:-mushroom_s3_206ef1a1d324}
+      - MQTT_ESP32_PASS=${MQTT_ESP32_PASS:-b55f5baf-21d4-4ee4-b37f-05945a0f8464}
+      - MQTT_AERO_BACKEND_USER=aero_backend
+      - MQTT_AERO_BACKEND_PASS=123456
+      - MQTT_ADMIN_USER=mqtt_admin
+      - MQTT_ADMIN_PASS=123456
+      - MQTT_DEVICE_USER=esp32_device
+      - MQTT_DEVICE_PASS=123456
+    volumes:
+      - ./emqx/init-users.sh:/init-users.sh:ro
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache curl jq && sh /init-users.sh"]
     networks:
       - mushroom-network
 
@@ -130,8 +173,6 @@ services:
         condition: service_healthy
       mushroom-influxdb:
         condition: service_healthy
-      mushroom-mqtt:
-        condition: service_started
       mushroom-redis:
         condition: service_healthy
     healthcheck:

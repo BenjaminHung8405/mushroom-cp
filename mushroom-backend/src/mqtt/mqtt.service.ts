@@ -257,7 +257,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.client = mqtt.connect(brokerUrl, {
       username,
       password,
-      clientId: 'mushroom_backend',
+      clientId: 'mushroom_backend_' + Math.random().toString(16).slice(2, 8),
       keepalive: 60,
       reconnectPeriod: 5000,
       connectTimeout: 10000,

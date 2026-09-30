@@ -21,6 +21,11 @@ topic read  mushroom/provision/response/+
 pattern readwrite aeroponics/device/%u/#
 pattern read      aeroponics/command/node/+/override
 
+# Aeroponics Gateway Device (static provisioning for aero_s3_* MAC-based devices)
+user aero_s3_b81f3fbbcf3c
+topic readwrite aeroponics/device/aero_s3_b81f3fbbcf3c/#
+topic read      aeroponics/command/node/+/override
+
 # Aeroponics Backend Service (Full tenant scope)
 user aero_backend
 topic readwrite aeroponics/#
@@ -32,4 +37,3 @@ topic readwrite aeroponics/#
 # Admin (debug & healthcheck)
 user mqtt_admin
 topic readwrite #
-
