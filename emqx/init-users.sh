@@ -12,7 +12,13 @@
 
 set -e
 
-EMQX_HOST="${EMQX_HOST:-mushroom-mqtt}"
+if [ -z "${EMQX_HOST}" ]; then
+  if getent hosts mushroom-mqtt >/dev/null 2>&1 || ping -c 1 -t 1 mushroom-mqtt >/dev/null 2>&1 || ping -c 1 -W 1 mushroom-mqtt >/dev/null 2>&1; then
+    EMQX_HOST="mushroom-mqtt"
+  else
+    EMQX_HOST="localhost"
+  fi
+fi
 EMQX_API="http://${EMQX_HOST}:18083/api/v5"
 
 EMQX_ADMIN_USER="${EMQX_ADMIN_USER:-admin}"
