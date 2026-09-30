@@ -49,6 +49,9 @@ services:
       - "EMQX_AUTHORIZATION__NO_MATCH=deny"
       - "EMQX_AUTHORIZATION__DENY_ACTION=ignore"
       - "EMQX_AUTHORIZATION__SOURCES=[{type=file,enable=true,path=\"etc/acl.conf\"}]"
+      - "EMQX_FORCE_SHUTDOWN__ENABLE=true"
+      - "EMQX_FORCE_SHUTDOWN__MAX_MAILBOX_SIZE=10000"
+      - "EMQX_FORCE_SHUTDOWN__MAX_HEAP_SIZE=64MB"
     ports:
       - "${MQTT_TCP_PORT:-10883}:1883"
       - "${EMQX_DASHBOARD_PORT:-18083}:18083"
