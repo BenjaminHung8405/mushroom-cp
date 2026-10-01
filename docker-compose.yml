@@ -36,6 +36,8 @@ services:
     env_file:
       - .env
     environment:
+      - EMQX_ZONE__EXTERNAL__MAX_MQUEUE_LEN=10000
+      - EMQX_ZONE__EXTERNAL__AWAIT_REL_TIMEOUT=300s
       - "EMQX_NODE__NAME=emqx@127.0.0.1"
       - "EMQX_NODE__COOKIE=emqx_secret_cookie"
       - "EMQX_NODE__DATA_DIR=/opt/emqx/data"
